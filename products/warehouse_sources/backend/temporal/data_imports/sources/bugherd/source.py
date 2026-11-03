@@ -125,5 +125,5 @@ Find your API key in BugHerd under **Settings > General Settings** (organization
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

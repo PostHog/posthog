@@ -125,10 +125,10 @@ class HoneycombSource(ResumableSource[HoneycombSourceConfig, HoneycombResumeConf
             name=ExternalDataSourceType.HONEYCOMB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Honeycomb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Honeycomb configuration API key to pull your Honeycomb observability configuration — datasets, SLOs, burn alerts, triggers, markers, boards, and more — into the PostHog Data warehouse.
 
-You can create a configuration key under **Environment settings → API keys** in your [Honeycomb account](https://ui.honeycomb.io/). Grant read access for the resources you want to sync: Manage Queries and Columns, Manage SLOs, Manage Triggers, Manage Markers, Manage Boards, and Manage Recipients.
+You can create a configuration key under **Environment settings → API keys** in your [Honeycomb account](https://ui.honeycomb.io/). Grant read access for the resources you want to sync: Manage Queries and Columns, Manage SLOs, Manage Triggers, Manage Markers, Manage Boards, Manage Recipients, and Manage Signals.
 
 Keys are region-specific — pick the region that matches your Honeycomb account.""",
             iconPath="/static/services/honeycomb.png",
@@ -201,6 +201,13 @@ Keys are region-specific — pick the region that matches your Honeycomb account
                 return (
                     "Hourly good and bad event counts per SLO. Requires the Honeycomb Enterprise plan "
                     "with SLO counts history enabled for your team."
+                )
+            if endpoint_config.scope is HoneycombScope.ENVIRONMENT_PAGINATED:
+                return "Anomaly Detection Signals. Requires the Manage Signals permission on the API key."
+            if endpoint_config.scope is HoneycombScope.PER_SIGNAL_TIME_WINDOW:
+                return (
+                    "Resolved anomalies for every Anomaly Detection Signal. Requires the Manage Signals "
+                    "permission on the API key."
                 )
             if endpoint_config.include_environment_wide:
                 return "Includes environment-wide rows under the __all__ dataset slug alongside per-dataset rows."

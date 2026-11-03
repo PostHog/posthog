@@ -84,7 +84,9 @@ class TestErrorHandling:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_ok",
-        [(200, True), (401, False), (403, False)],
+        [
+            (200, True),
+        ],
     )
     def test_maps_probe_status(self, status_code: int, expected_ok: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:

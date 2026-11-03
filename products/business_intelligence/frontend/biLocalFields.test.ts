@@ -4,8 +4,21 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { getBIDrillQueries, getBIDrillSelection } from './biDrilldown'
 import { BIEditorView, buildBIQuery, DEFAULT_BI_CONFIG, parseBIEditorState } from './biEditorTypes'
 import { getBIResultDimensions } from './biEditorTypes'
-import { localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
+import { inferBICalculatedFieldType, localFieldError, localFieldExpression, upsertBILocalField } from './biLocalFields'
 import { getBIMemberLabel } from './biMemberAliases'
+
+it.each([
+    ['Nullable(Int64)', 'integer'],
+    ['LowCardinality(Nullable(String))', 'string'],
+    ['Decimal(18, 2)', 'float'],
+    ["DateTime64(3, 'UTC')", 'datetime'],
+    ['Date32', 'date'],
+    ['Bool', 'boolean'],
+    ['Array(String)', undefined],
+    [undefined, undefined],
+])('infers the calculated field type of %s', (type, expected) => {
+    expect(inferBICalculatedFieldType(type)).toBe(expected)
+})
 
 it.each<BILocalFieldDefinition>([
     { kind: 'expression', expression: "coalesce(properties.plan, 'Unknown')", aggregate: false },

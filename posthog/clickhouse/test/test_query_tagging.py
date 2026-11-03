@@ -33,6 +33,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tag_value,
     get_query_tags,
     is_api_key_access_method,
+    is_known_product_tag,
     reset_query_tags,
     tag_contains_user_hogql,
     tag_queries,
@@ -835,3 +836,15 @@ class TestAddFallbackQueryTags(SimpleTestCase):
 )
 def test_is_api_key_access_method(access_method, expected):
     assert is_api_key_access_method(access_method) is expected
+
+
+@parameterized.expand(
+    [
+        ("product_enum", Product.LLM_ANALYTICS.value, True),
+        ("product_key_enum", "session_replay", True),
+        ("unknown", "ai_gateway", False),
+        ("empty", "", False),
+    ]
+)
+def test_is_known_product_tag(_name, value, expected):
+    assert is_known_product_tag(value) is expected

@@ -9,7 +9,12 @@ from django.test import override_settings
 import jwt
 import requests
 
-from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, RESULT_STRING_CAP, emit_workflow_step_resume
+from products.cdp.backend.workflow_step_resume import (
+    RESULT_BYTE_CAP,
+    RESULT_STRING_CAP,
+    WorkflowStepResumeNotTaken,
+    emit_workflow_step_resume,
+)
 
 _PRODUCE = "products.cdp.backend.workflow_step_resume.produce_internal_event"
 _POST = "posthog.plugins.plugin_server_api.internal_requests.post"
@@ -37,7 +42,7 @@ def test_posts_the_wake_with_a_scoped_jwt_and_capped_strings() -> None:
     assert kwargs["json"] == {
         "origin_key": "job:step:3",
         "status": "completed",
-        "result": {"final_message": "x" * RESULT_STRING_CAP, "pr_urls": ["u"]},
+        "result": {"final_message": "x" * RESULT_STRING_CAP, "pr_urls": ["u"], "error_message": None},
     }
     assert kwargs["timeout"] == 10
     assert "x-internal-api-secret" not in {key.lower() for key in kwargs["headers"]}
@@ -80,11 +85,54 @@ def test_the_wake_falls_back_to_the_internal_event_when_the_api_cannot_take_it(f
     assert event.properties == {"origin_key": "job:step:3", "status": "completed", "result": {"pr_urls": ["u"]}}
 
 
-def test_a_wake_the_worker_cannot_take_yet_is_dropped_as_a_duplicate() -> None:
-    with patch(_POST, return_value=_response(409)), patch(_PRODUCE) as produce:
-        emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", raise_on_error=True)
+def _outcome(outcome: str) -> MagicMock:
+    response = _response(200)
+    response.json.return_value = {"outcome": outcome}
+    return response
 
+
+@pytest.mark.parametrize(
+    "responses,raise_on_error,attempts,taken",
+    [
+        ([_response(409), _outcome("delivered")], False, 2, True),
+        ([_outcome("stale_key")], False, 1, True),
+        ([_outcome("job_missing")], False, 1, True),
+        ([_response(409)] * 4, False, 4, True),
+        # A caller that retries on its own schedule gets no sleeps here, and learns the wake was not taken.
+        ([_response(409)], True, 1, False),
+    ],
+)
+def test_only_a_step_the_worker_still_holds_gets_a_short_retry(responses, raise_on_error, attempts, taken) -> None:
+    with (
+        patch(_POST, side_effect=responses) as post,
+        patch("products.cdp.backend.workflow_step_resume.time.sleep") as sleep,
+        patch(_PRODUCE) as produce,
+    ):
+        if taken:
+            emit_workflow_step_resume(
+                team_id=7, origin_key="job:step:3", status="completed", raise_on_error=raise_on_error
+            )
+        else:
+            with pytest.raises(WorkflowStepResumeNotTaken):
+                emit_workflow_step_resume(
+                    team_id=7, origin_key="job:step:3", status="completed", raise_on_error=raise_on_error
+                )
+
+    assert post.call_count == attempts
+    assert sleep.call_count == attempts - 1
     produce.assert_not_called()
+
+
+def test_an_undelivered_fallback_event_raises_for_a_caller_that_retries() -> None:
+    undelivered = MagicMock()
+    undelivered.done.return_value = False
+    with (
+        override_settings(WORKFLOWS_STEP_RESUME_JWT_SECRETS=[]),
+        patch(_PRODUCE, return_value=undelivered),
+        patch("products.cdp.backend.workflow_step_resume.flush_internal_events_producer"),
+        pytest.raises(WorkflowStepResumeNotTaken),
+    ):
+        emit_workflow_step_resume(team_id=7, origin_key="job:step:3", status="completed", raise_on_error=True)
 
 
 def test_a_failed_emit_does_not_raise() -> None:
@@ -102,6 +150,7 @@ def test_a_failed_emit_does_not_raise() -> None:
         {"final_message": "漢" * 1500, "error_message": "字" * 1500},
         {"pr_urls": [f"https://example.com/pr/{index}" for index in range(1000)]},
         {"nested": {"text": '\\"\n' * 1500}, "pr_urls": ["https://example.com/" + "x" * 6000]},
+        {"a": "x" * 1500, "b": "y" * 1500, "c": "z" * 1066, "d": None},
     ],
 )
 def test_result_fits_the_serialized_byte_budget(result) -> None:

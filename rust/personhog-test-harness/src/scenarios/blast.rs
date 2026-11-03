@@ -277,7 +277,7 @@ pub async fn verify_strong(
                     person_id,
                     key: "__strong_read_failed".to_string(),
                     expected: json!("readable"),
-                    actual: json!(e.to_string()),
+                    actual: json!(format!("{e:#}")),
                 });
             }
         }
@@ -319,7 +319,7 @@ pub async fn verify_strong(
                     person_id,
                     key: "__strong_read_failed".to_string(),
                     expected: json!("readable"),
-                    actual: json!(e.to_string()),
+                    actual: json!(format!("{e:#}")),
                 });
             }
         }

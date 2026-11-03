@@ -6,9 +6,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+    ResponseAction,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import (
@@ -20,6 +25,12 @@ OPTIMIZELY_API_HOST = "api.optimizely.com"
 OPTIMIZELY_BASE_URL = f"https://{OPTIMIZELY_API_HOST}/v2"
 # Optimizely list pages cap at 100 items.
 PAGE_SIZE = 100
+
+_SKIP_INACCESSIBLE: list[ResponseAction] = [
+    {"status_code": 400, "action": "ignore"},
+    {"status_code": 403, "action": "ignore"},
+    {"status_code": 404, "action": "ignore"},
+]
 
 
 def _client_config(api_token: str) -> ClientConfig:
@@ -58,45 +69,76 @@ def _simple_source(
     return rest_api_resource(rest_config, team_id, job_id, None)
 
 
+def _project_scoped_resource(name: str, path: str) -> EndpointResource:
+    return {
+        "name": name,
+        "endpoint": {
+            # project_id rides in a query param; embed the resolve placeholder in the path so
+            # the binding lands in the query string (resolve only substitutes into paths).
+            "path": f"{path}?project_id={{project_id}}",
+            "params": {
+                "project_id": {"type": "resolve", "resource": "projects", "field": "id"},
+                "per_page": PAGE_SIZE,
+            },
+            # A project without access to this feature (e.g. campaigns on a non-Web project)
+            # returns 400/403/404 — treat that as a valid empty page and move to the next
+            # project rather than failing the whole stream, matching the old per-project skip.
+            "response_actions": _SKIP_INACCESSIBLE,
+        },
+    }
+
+
+def _per_parent_resource(endpoint: str, path: str, parent: str, parent_id_param: str) -> EndpointResource:
+    return {
+        "name": endpoint,
+        "endpoint": {
+            "path": path,
+            "params": {
+                parent_id_param: {"type": "resolve", "resource": parent, "field": "id"},
+            },
+            # Results come back as one object per parent, not a list.
+            "data_selector": "$",
+            "paginator": SinglePagePaginator(),
+            # 202 means the results are still being computed. These tables are full refresh, so
+            # skipping the parent would drop its previous snapshot: retry with the client's backoff,
+            # and fail the sync (keeping the old table) if the results never finish. 204 means the
+            # parent has no results yet (e.g. a draft experiment). 4xx covers parents whose results
+            # the token can't read.
+            "response_actions": [
+                {"status_code": 202, "action": "retry", "message": "Optimizely results are still being computed"},
+                {"status_code": 204, "action": "ignore"},
+                *_SKIP_INACCESSIBLE,
+            ],
+        },
+    }
+
+
 def _fan_out_source(
     api_token: str, endpoint: str, config: OptimizelyEndpointConfig, team_id: int, job_id: str
 ) -> Resource:
+    resources: list[str | EndpointResource] = [
+        {
+            "name": "projects",
+            "endpoint": {
+                "path": "/projects",
+                "params": {"per_page": PAGE_SIZE},
+            },
+        },
+    ]
+    if config.parent is None or config.parent_id_param is None:
+        resources.append(_project_scoped_resource(endpoint, config.path))
+    else:
+        resources.append(_project_scoped_resource(config.parent, OPTIMIZELY_ENDPOINTS[config.parent].path))
+        resources.append(_per_parent_resource(endpoint, config.path, config.parent, config.parent_id_param))
+
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": "projects",
-                "endpoint": {
-                    "path": "/projects",
-                    "params": {"per_page": PAGE_SIZE},
-                },
-            },
-            {
-                "name": endpoint,
-                "endpoint": {
-                    # project_id rides in a query param; embed the resolve placeholder in the path so
-                    # the binding lands in the query string (resolve only substitutes into paths).
-                    "path": f"{config.path}?project_id={{project_id}}",
-                    "params": {
-                        "project_id": {"type": "resolve", "resource": "projects", "field": "id"},
-                        "per_page": PAGE_SIZE,
-                    },
-                    # A project without access to this feature (e.g. campaigns on a non-Web project)
-                    # returns 400/403/404 — treat that as a valid empty page and move to the next
-                    # project rather than failing the whole stream, matching the old per-project skip.
-                    "response_actions": [
-                        {"status_code": 400, "action": "ignore"},
-                        {"status_code": 403, "action": "ignore"},
-                        {"status_code": 404, "action": "ignore"},
-                    ],
-                },
-            },
-        ],
+        "resources": resources,
     }
-    resources = rest_api_resources(rest_config, team_id, job_id, None)
-    # Only the child rows are emitted; the projects list is iterated internally to drive the fan-out.
-    return next(resource for resource in resources if resource.name == endpoint)
+    built = rest_api_resources(rest_config, team_id, job_id, None)
+    # Only the requested endpoint's rows are emitted; its ancestors are iterated internally to drive the fan-out.
+    return next(resource for resource in built if resource.name == endpoint)
 
 
 def optimizely_source(api_token: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:

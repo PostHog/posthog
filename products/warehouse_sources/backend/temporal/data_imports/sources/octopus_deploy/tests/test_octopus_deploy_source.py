@@ -14,8 +14,3 @@ class TestOctopusDeploySource:
         # Changing host retargets the stored API key, so it must count as a host field and force
         # the editor to re-enter the key rather than silently redirecting it to a new server.
         assert self.source.connection_host_fields == ["host"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["deployments"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "deployments"

@@ -6,7 +6,7 @@ actual Slack traffic. Each case declares its expected terminal stage/outcome;
 the eval prints a pass/fail summary so you can re-run after touching repo selection
 and spot regressions immediately.
 
-Lives next to the Slack workflow it exercises (`posthog_code_slack_mention.py`) rather
+Lives next to the Slack workflow it exercises (`slack_app_mention_processing.py`) rather
 than in `posthog/management/commands/` because (a) it's co-located with the thing it
 tests and (b) `products/slack_app/` can't tach-depend on `products/tasks/`, which the
 eval needs to import from.

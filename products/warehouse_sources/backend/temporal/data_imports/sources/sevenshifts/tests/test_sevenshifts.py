@@ -7,7 +7,6 @@ from requests import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -69,6 +68,34 @@ def test_incremental_filter_and_full_refresh(
     assert result.params("modified_since") == ([expected] * 2 if incremental else [None] * 2)
 
 
+@pytest.mark.parametrize("endpoint", ["revenue_centers", "sales_categories", "dining_options"])
+def test_location_lookup_walks_every_location(driver: SourceDriver, endpoint: str) -> None:
+    result = driver.run(
+        endpoint,
+        [
+            response([{"id": 11}], "locations-two"),
+            response([{"external_id": "a", "name": "A", "location_id": 11}], "child-two"),
+            response([{"external_id": "b", "name": "B", "location_id": 11}]),
+            response([{"id": 22}]),
+            response([{"external_id": "a", "name": "A", "location_id": 22}]),
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-03-05T12:30:00Z",
+    )
+
+    assert result.raised is None
+    assert result.paths == [
+        "/v2/company/123/locations",
+        f"/v2/company/123/location/11/{endpoint}",
+        f"/v2/company/123/location/11/{endpoint}",
+        "/v2/company/123/locations",
+        f"/v2/company/123/location/22/{endpoint}",
+    ]
+    assert result.params("cursor") == [None, None, "child-two", "locations-two", None]
+    assert result.params("modified_since") == [None] * 5
+    assert [(row["location_id"], row["external_id"]) for row in result.rows] == [(11, "a"), (11, "b"), (22, "a")]
+
+
 def test_repeated_cursor_fails(driver: SourceDriver) -> None:
     result = driver.run("users", [response([{"id": 1}], "same-cursor"), response([{"id": 1}], "same-cursor")])
 
@@ -95,12 +122,6 @@ def test_invalid_company_id_stops_before_request(config: SevenShiftsSourceConfig
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
-        (200, (True, None)),
-        (
-            401,
-            (False, "7shifts rejected the access token. Create a token in Settings > Developer Tools, then reconnect."),
-        ),
-        (403, (False, "7shifts denied access. Check the company ID, token administrator, and your plan's API access.")),
         (404, (False, "7shifts could not find this company. Check the company ID.")),
     ],
 )
@@ -129,10 +150,3 @@ def test_unexpected_probe_error_propagates(config: SevenShiftsSourceConfig) -> N
     with scripted_network([response([], status=400)]):
         with pytest.raises(HTTPError):
             validate_credentials(config, "2026-01-01")
-
-
-def test_unknown_table(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

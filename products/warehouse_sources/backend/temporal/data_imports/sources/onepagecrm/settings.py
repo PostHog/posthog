@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -13,13 +15,13 @@ MODIFIED_AT_INCREMENTAL_FIELD: IncrementalField = {
 }
 
 
-@dataclass
+@frozen
 class OnepagecrmEndpointConfig:
     name: str
     path: str
     # Key the record list is nested under in the response's `data` object (e.g.
     # {"data": {"contacts": [...]}}). None means `data` itself is the list (users, statuses,
-    # lead_sources).
+    # lead_sources, call_results).
     data_key: Optional[str]
     # Singular key each record is wrapped under (e.g. {"contact": {...}}); None if records are
     # returned unwrapped (lead_sources).
@@ -27,7 +29,7 @@ class OnepagecrmEndpointConfig:
     # OnePageCRM object IDs are BSON ids unique across the account, so `id` is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Whether the endpoint accepts page/per_page params. Config endpoints (users, statuses,
-    # lead_sources) return the full list in one response.
+    # lead_sources, call_results) return the full list in one response.
     paginated: bool = True
     # Whether the endpoint accepts sort_by/order params (every sortable endpoint here allows both
     # created_at and modified_at).
@@ -42,7 +44,8 @@ class OnepagecrmEndpointConfig:
 # OnePageCRM API v3 list endpoints (https://developer.onepagecrm.com/api/). Contacts, deals,
 # actions, notes, calls, and meetings support incremental sync via the server-side
 # `modified_since` UNIX-timestamp filter; companies documents no `modified_since`, and the config
-# endpoints (users, statuses, lead_sources) are small unpaginated lists — all full refresh only.
+# endpoints (users, statuses, lead_sources, call_results, pipelines, custom_fields, deal_fields)
+# are small lookup lists — all full refresh only.
 ONEPAGECRM_ENDPOINTS: dict[str, OnepagecrmEndpointConfig] = {
     "contacts": OnepagecrmEndpointConfig(
         name="contacts",
@@ -126,6 +129,34 @@ ONEPAGECRM_ENDPOINTS: dict[str, OnepagecrmEndpointConfig] = {
         data_key=None,
         item_key=None,
         paginated=False,
+    ),
+    "call_results": OnepagecrmEndpointConfig(
+        name="call_results",
+        path="/call_results",
+        data_key=None,
+        item_key="call_result",
+        # Call results carry no `id`; `result` is the identifier calls reference.
+        primary_keys=["result"],
+        paginated=False,
+    ),
+    "pipelines": OnepagecrmEndpointConfig(
+        name="pipelines",
+        path="/pipelines",
+        data_key="pipelines",
+        item_key="pipeline",
+    ),
+    "custom_fields": OnepagecrmEndpointConfig(
+        name="custom_fields",
+        path="/custom_fields",
+        data_key="custom_fields",
+        item_key="custom_field",
+        supports_sort=True,
+    ),
+    "deal_fields": OnepagecrmEndpointConfig(
+        name="deal_fields",
+        path="/deal_fields",
+        data_key="deal_fields",
+        item_key="deal_field",
     ),
 }
 

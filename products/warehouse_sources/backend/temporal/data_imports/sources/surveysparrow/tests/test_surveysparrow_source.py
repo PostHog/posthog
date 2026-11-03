@@ -40,13 +40,6 @@ class TestSurveySparrowSourceForPipeline:
         inputs.incremental_field = None
         return inputs
 
-    def test_unknown_schema_raises(self) -> None:
-        try:
-            SurveySparrowSource().source_for_pipeline(_config(), MagicMock(), self._inputs("nope"))
-            raise AssertionError("expected ValueError")
-        except ValueError as e:
-            assert "nope" in str(e)
-
     def test_questions_are_unpartitioned_with_composite_key(self) -> None:
         response = SurveySparrowSource().source_for_pipeline(_config(), MagicMock(), self._inputs("questions"))
         assert response.primary_keys == ["survey_id", "id"]

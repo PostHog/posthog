@@ -104,13 +104,34 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotIn("You are given a table with the results of a SQL query", result.content)
         self.assertNotIn("Here is the results table", result.content)
 
-    async def test_validation_error_for_invalid_query(self):
+    @parameterized.expand(
+        [
+            ("syntax", "INVALID SQL SYNTAX", "hogql_syntax_error"),
+            ("unresolved_field", "SELECT not_a_field FROM events", "hogql_unresolved_field"),
+            ("unknown_table", "SELECT 1 FROM not_a_table", "hogql_unknown_table"),
+            ("unsupported_function", "SELECT notAFunction(1) FROM events", "hogql_unsupported_function"),
+            ("other_query_error", "SELECT count(count()) FROM events", "hogql_query_error"),
+        ]
+    )
+    async def test_validation_error_for_invalid_query(self, _name: str, query: str, expected_code: str) -> None:
         with self.assertRaises(MaxToolRetryableError) as ctx:
-            await self.tool.execute(
-                ExecuteSQLMCPToolArgs(query="INVALID SQL SYNTAX"),
-            )
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
 
         self.assertIn("validation failed", str(ctx.exception).lower())
+        self.assertEqual(ctx.exception.error_code, expected_code)
+
+    async def test_unreadable_result_type_names_its_class(self) -> None:
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT argMinState(event, timestamp) FROM events"))
+
+        self.assertEqual(ctx.exception.error_type, "validation")
+        self.assertEqual(ctx.exception.error_code, "unknown_type")
+        self.assertEqual(
+            str(ctx.exception),
+            "This query returns a column of type `AggregateFunction(argMin, String, DateTime64(6, 'UTC'))`, which "
+            "PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the matching "
+            "-Merge function, for example `argMinMerge(column)`, to get the final value.",
+        )
 
     @parameterized.expand(
         [

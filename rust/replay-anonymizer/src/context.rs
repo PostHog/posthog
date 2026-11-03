@@ -344,12 +344,12 @@ impl<'a> Ctx<'a> {
         outcome
     }
 
-    pub(crate) fn max_collected_image_bytes(&self) -> usize {
-        self.collector
-            .as_ref()
-            .map_or(MAX_IMAGE_BYTES, |collector| {
-                collector.borrow().max_image_bytes()
-            })
+    /// Memoized when the lane is on, so the scrub that follows reuses this decode.
+    pub(crate) fn can_collect_image(&self, original: &str) -> bool {
+        match self.collector {
+            Some(_) => self.collect_image(original).is_ok(),
+            None => collectable_data_uri_bytes(original, MAX_IMAGE_BYTES).is_ok(),
+        }
     }
 }
 

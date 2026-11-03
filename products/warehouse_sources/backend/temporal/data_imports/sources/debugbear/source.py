@@ -52,6 +52,23 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
             "DebugBear rejected the RUM metrics request": None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_session`'s `make_tracked_session()` already retries 429/5xx, including the Cloudflare
+        # 52x/530 family DebugBear can surface on an edge/origin blip, at the urllib3 layer before
+        # `_get_json`'s `raise_for_status()` can even raise (see `DEFAULT_RETRY` in
+        # sources/common/http/transport.py). A response that still exhausts that budget is a
+        # transient DebugBear/edge issue, not a bug, so Temporal's activity retry recovers once it
+        # clears rather than surfacing it as tracked exception noise. `raise_for_status` derives
+        # these prefixes from the status code alone, not the vendor's reason text, so they're
+        # stable to match on.
+        #
+        # `DEFAULT_RETRY`'s connect-retry budget covers a dropped or reset connection the same way —
+        # a refused connection, a read timeout, or a TLS handshake reset (`SSLError`, which `requests`
+        # models as a `ConnectionError`) all count against it. urllib3 wraps the exhausted failure as
+        # "... Max retries exceeded with url: ..." regardless of the underlying cause, the same stable
+        # prefix Close, Google Sheets, Langfuse, Notion and SigNoz match for their own bespoke sessions.
+        return {"Server Error", "429 Client Error", "Max retries exceeded with url"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
@@ -98,7 +115,7 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
             caption="Sync DebugBear's monitored projects and synthetic Lighthouse / Core Web Vitals test results into your warehouse.",
             docsUrl="https://posthog.com/docs/cdp/sources/debugbear",
             iconPath="/static/services/debugbear.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["core web vitals", "lighthouse", "web performance"],
             fields=cast(
                 list[FieldType],

@@ -6,7 +6,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# App Store Connect splits into very different transports, so the catalog carries four kinds:
+# App Store Connect splits into very different transports, so the catalog carries five kinds:
 #
 #   - "collection":       a top-level JSON:API list (`/v1/apps`, `/v1/builds`, ...) walked via `links.next`.
 #   - "app_fanout":       a per-app JSON:API list (`/v1/apps/{app_id}/customerReviews`, ...). Apps are
@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #                         is also ensured and, once Apple generates it, backfills history older than
 #                         the ongoing stream. Report request creation is the only account mutation this
 #                         source makes.
-EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report"]
+#   - "app_overview":     a per-app document that is not JSON:API (`/v1/apps/{app_id}/performanceOverviews`).
+#                         One request per app returns the whole document, which is flattened into rows.
+EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report", "app_overview"]
 
 # Apple caps most collection pages at 200 resources.
 MAX_PAGE_SIZE = 200
@@ -93,7 +95,9 @@ class AppStoreConnectEndpointConfig:
     report_frequency: str = "DAILY"
     # Apple sometimes returns a misleading 400 instead of 404 for an empty report day. Endpoints that
     # exhibit this quirk tolerate 400; `_fetch_report` classifies the response body before swallowing it.
-    missing_report_status_codes: tuple[int, ...] = (404,)
+    # 410 shows up once a report date falls out of Apple's retention window — the oldest day in the
+    # lookback (SALES_REPORT_LOOKBACK_DAYS) reaches it on a cold start or a long-stalled sync.
+    missing_report_status_codes: tuple[int, ...] = (404, 410)
 
 
 _REPORT_DATE_FIELD: IncrementalField = incremental_field("report_date", IncrementalFieldType.Date)
@@ -195,6 +199,16 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         primary_keys=["app_id", "id"],
         path="/v1/apps/{app_id}/subscriptionGroups",
     ),
+    # Xcode's aggregated performance metrics (launch time, hangs, memory, battery, disk writes) by
+    # app version. Rows are the overview's metric points, one per (metric, percentile, device,
+    # version). The document is a current snapshot with no date to filter or partition on, so
+    # this is a full refresh.
+    "performance_overviews": AppStoreConnectEndpointConfig(
+        name="performance_overviews",
+        kind="app_overview",
+        primary_keys=["app_id", "category", "metric", "percentile", "device", "version"],
+        path="/v1/apps/{app_id}/performanceOverviews",
+    ),
     # Daily units and proceeds. Off by default because it needs a vendor number and a Finance or Sales
     # role on the key. Keyed on (report date, line number): a published day's file is immutable, so the
     # pair is stable and unique, and re-reading a day merges cleanly.
@@ -208,7 +222,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
-        missing_report_status_codes=(404, 400),
+        missing_report_status_codes=(404, 400, 410),
     ),
     # Daily active subscription counts by state and territory.
     "subscription_reports": AppStoreConnectEndpointConfig(
@@ -221,7 +235,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
-        missing_report_status_codes=(404, 400),
+        missing_report_status_codes=(404, 400, 410),
     ),
     # Daily subscription lifecycle events (renewals, cancellations, upgrades).
     "subscription_event_reports": AppStoreConnectEndpointConfig(
@@ -234,7 +248,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
-        missing_report_status_codes=(404, 400),
+        missing_report_status_codes=(404, 400, 410),
     ),
     # Analytics Reports API streams: the behavioural data (sessions, downloads, installs
     # and deletions, discovery, crashes, pre-orders, App Clips) that has no sales-report

@@ -89,7 +89,7 @@ Your network ID is your community's unique ID, shown in the developer portal for
 If your community is hosted in the EU (eu-central-1), select the EU region so requests go to Bettermode's EU endpoint.""",
             iconPath="/static/services/bettermode.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bettermode",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

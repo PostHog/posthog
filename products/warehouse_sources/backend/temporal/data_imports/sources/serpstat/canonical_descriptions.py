@@ -1,12 +1,12 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import DOCS_BASE, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.settings import ENDPOINTS
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "projects": {
         "description": "Projects available to the Serpstat account.",
-        "docs_url": DOCS_BASE + ENDPOINTS["projects"].docs_slug,
+        "docs_url": ENDPOINTS["projects"].docs_url,
         "columns": {
             "project_id": "The project identifier.",
             "project_name": "The project name.",
@@ -18,7 +18,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "project_keywords": {
         "description": "Keywords configured for the selected Rank Tracker project.",
-        "docs_url": DOCS_BASE + ENDPOINTS["project_keywords"].docs_slug,
+        "docs_url": ENDPOINTS["project_keywords"].docs_url,
         "columns": {
             "project_id": "The configured project identifier.",
             "id": "The internal identifier for the project keyword.",
@@ -32,7 +32,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "project_regions": {
         "description": "Search regions and their status for the selected Rank Tracker project.",
-        "docs_url": DOCS_BASE + ENDPOINTS["project_regions"].docs_slug,
+        "docs_url": ENDPOINTS["project_regions"].docs_url,
         "columns": {
             "project_id": "The configured project identifier.",
             "id": "The project region identifier.",
@@ -48,7 +48,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "project_tags": {
         "description": "Tags created in the selected Rank Tracker project.",
-        "docs_url": DOCS_BASE + ENDPOINTS["project_tags"].docs_slug,
+        "docs_url": ENDPOINTS["project_tags"].docs_url,
         "columns": {
             "project_id": "The configured project identifier.",
             "tag_uuid": "The unique tag identifier.",
@@ -57,7 +57,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "project_positions": {
         "description": "Keyword positions for the configured project region during the last seven days, grouped by keyword.",
-        "docs_url": DOCS_BASE + ENDPOINTS["project_positions"].docs_slug,
+        "docs_url": ENDPOINTS["project_positions"].docs_url,
         "columns": {
             "project_id": "The configured project identifier.",
             "keyword_id": "The keyword identifier.",
@@ -65,6 +65,83 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "added": "The date and time when the keyword was added.",
             "regions": "Position history, URLs, traffic estimates, and search volume for each returned region.",
             "tags": "Tag names associated with the keyword.",
+        },
+    },
+    "domain_info": {
+        "description": "Summary SEO metrics for the configured domain in the selected search engine database.",
+        "docs_url": ENDPOINTS["domain_info"].docs_url,
+        "columns": {
+            "domain": "The domain name.",
+            "visible": "The site visibility.",
+            "keywords": "The number of keywords found in the selected search engine.",
+            "traff": "The estimated search traffic, based on keyword positions and search volume.",
+            "visible_dynamic": "The change in visibility since the last monitoring.",
+            "keywords_dynamic": "The change in the number of keywords since the last monitoring.",
+            "traff_dynamic": "The change in traffic since the last monitoring.",
+            "ads_dynamic": "The change in the number of PPC ads.",
+            "new_keywords": "The number of new keywords for the domain since the last monitoring.",
+            "out_keywords": "The number of keywords that the domain lost since the last monitoring.",
+            "rised_keywords": "The number of keywords with improved positions since the last monitoring.",
+            "down_keywords": "The number of keywords with dropped positions since the last monitoring.",
+            "ad_keywords": "The number of keywords in PPC.",
+            "ads": "The number of PPC ads.",
+            "prev_date": "The date of the previous check.",
+        },
+    },
+    "domain_history": {
+        "description": "Historical keyword counts, visibility, and traffic for the configured domain.",
+        "docs_url": ENDPOINTS["domain_history"].docs_url,
+        "columns": {
+            "domain": "The domain name.",
+            "date": "The date when Serpstat recorded the metrics.",
+            "keywords": "The number of keywords seen in search results for the selected search engine.",
+            "traff": "The estimated search traffic, based on keyword positions and search volume.",
+            "visible": "The site visibility.",
+            "visible_static": "The static visibility.",
+            "new_keywords": "The number of new keywords in the period.",
+            "out_keywords": "The number of lost keywords in the period.",
+            "rised_keywords": "The number of keywords with improved positions in the period.",
+            "down_keywords": "The number of keywords with dropped positions in the period.",
+            "ad_keywords": "The number of keywords in PPC.",
+            "ads": "The number of PPC ads.",
+        },
+    },
+    "domain_keywords": {
+        "description": "Organic keywords for which the configured domain ranks in the Google top 100.",
+        "docs_url": ENDPOINTS["domain_keywords"].docs_url,
+        "columns": {
+            "domain": "The analyzed domain.",
+            "subdomain": "The subdomain that appears in search results for the keyword.",
+            "keyword": "The keyword for which the domain ranks.",
+            "keyword_length": "The number of words in the keyword.",
+            "url": "The URL that appears in the search result for the keyword.",
+            "position": "The position of the domain for the keyword.",
+            "types": "Special elements shown in the search results page, for example video or map.",
+            "found_results": "The number of results found for the keyword.",
+            "cost": "The cost per click, in US dollars.",
+            "concurrency": "The keyword competition in PPC, from 0 to 100.",
+            "region_queries_count": "The search volume in the selected region.",
+            "region_queries_count_wide": "The search volume in broad match in the selected database.",
+            "geo_names": "Place names found in the keyword.",
+            "traff": "The approximate traffic for the keyword, based on its volume and position.",
+            "difficulty": "How difficult it is to rank in the organic top 10 for the keyword, from 0 to 100.",
+            "dynamic": "The change in position for the keyword.",
+            "intents": "The intents of the keyword.",
+        },
+    },
+    "backlinks": {
+        "description": "Active backlinks to the configured domain and its subdomains, most recently found first.",
+        "docs_url": ENDPOINTS["backlinks"].docs_url,
+        "columns": {
+            "url_from": "The page that contains the link.",
+            "url_to": "The target page of the link.",
+            "nofollow": "The link attributes, for example follow, nofollow, UGC, or sponsored.",
+            "link_type": "The link type, for example href, image, or redirect.",
+            "links_ext": "The number of external links on the referring page.",
+            "link_text": "The link anchor text.",
+            "first_seen": "The date when Serpstat first found the link.",
+            "last_visited": "The date and time of the last crawl.",
+            "domain_rank": "The Serpstat Domain Rank (SDR) of the referring domain.",
         },
     },
 }

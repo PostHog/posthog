@@ -26,7 +26,7 @@ class TestIntercomSource:
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
-        assert self.source.default_version == "2.16"
+        assert self.source.default_version == "2.17"
         assert self.source.default_version in self.source.supported_versions
 
     @pytest.mark.parametrize(
@@ -44,19 +44,28 @@ class TestIntercomSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
-    @pytest.mark.parametrize("pin", ["2.13", "2.15"])
-    def test_get_schemas_hides_tables_the_pinned_version_does_not_serve(self, pin: str):
+    @pytest.mark.parametrize(
+        "pin,has_macros,has_contact_activities",
+        [
+            ("2.13", False, False),
+            ("2.15", False, False),
+            ("2.16", True, False),
+            ("2.17", True, True),
+            (None, True, True),
+        ],
+    )
+    def test_get_schemas_hides_tables_the_pinned_version_does_not_serve(
+        self, pin: str | None, has_macros: bool, has_contact_activities: bool
+    ):
         names = {s.name for s in self.source.get_schemas(self.config, self.team_id, api_version=pin)}
 
-        assert names == {name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is None}
-        assert "macros" not in names
+        assert {name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is None} <= names
+        assert ("macros" in names) is has_macros
+        assert ("contact_activities" in names) is has_contact_activities
 
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
-
-        assert {s.name for s in schemas} == {"contacts", "companies"}
-
-    @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), (None, "2.16")])
+    @pytest.mark.parametrize(
+        "pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), ("2.17", "2.17"), (None, "2.17")]
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
     )
@@ -125,6 +134,7 @@ class TestIntercomSource:
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",
+            cursor_manager=None,
         )
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")

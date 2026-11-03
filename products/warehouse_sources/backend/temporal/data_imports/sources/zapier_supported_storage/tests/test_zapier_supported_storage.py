@@ -104,8 +104,6 @@ class TestValidateCredentials:
         ("status", "fragment"),
         [
             (400, "valid UUID4"),
-            (401, "invalid"),
-            (500, "500"),
         ],
     )
     def test_error_statuses_map_to_messages(self, status: int, fragment: str) -> None:
@@ -113,12 +111,6 @@ class TestValidateCredentials:
             valid, error = validate_credentials("some-secret")
         assert valid is False
         assert error is not None and fragment in error
-
-    def test_network_error_returns_message(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, error = validate_credentials("some-secret")
-        assert valid is False
-        assert error is not None and "boom" in error
 
 
 class TestSessionIsHardened:

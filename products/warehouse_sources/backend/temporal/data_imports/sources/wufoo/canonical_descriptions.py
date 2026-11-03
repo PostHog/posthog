@@ -54,4 +54,66 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "TimeZone": "The user's configured time zone.",
         },
     },
+    "form_entries": {
+        "description": "An entry submitted to a Wufoo form. Each FieldN column holds the answer to one form "
+        "field; join to form_fields on form_hash and ID to read the field titles.",
+        "docs_url": "https://wufoo.github.io/docs/#form-entries",
+        "columns": {
+            "form_hash": "The hash of the form that the entry belongs to.",
+            "EntryId": "The identifier of the entry, unique within its form.",
+            "DateCreated": "The date and time the entry was submitted, in the timezone of the API key's user.",
+            "CreatedBy": "Who created the entry: 'public' for a form submission, or the user name for an entry "
+            "added in the Entry Manager.",
+            "DateUpdated": "The date and time the entry was last edited in the Entry Manager; blank if never edited.",
+            "UpdatedBy": "The user name of the person who last edited the entry in the Entry Manager.",
+            "IP": "The IP address of the person who submitted the form.",
+            "LastPage": "The last page of the form that the person submitted.",
+            "CompleteSubmission": "Whether the entry is complete ('1') or partial ('0').",
+            "Status": "The payment status of the entry, for example 'Paid'.",
+            "PurchaseTotal": "The total amount sent to the payment processor.",
+            "Currency": "The currency sent to the payment processor.",
+            "TransactionId": "The confirmation number returned by the payment processor.",
+            "MerchantType": "The name of the payment processor used.",
+        },
+    },
+    "form_fields": {
+        "description": "A field on a Wufoo form. Maps the FieldN column IDs on form_entries to field titles, types, "
+        "and choices.",
+        "docs_url": "https://wufoo.github.io/docs/#form-fields",
+        "columns": {
+            "form_hash": "The hash of the form that the field belongs to.",
+            "ID": "The API ID of the field, for example 'Field105'. Matches a column on form_entries.",
+            "Title": "The field label.",
+            "Type": "The field type, for example 'text', 'checkbox', or 'radio'.",
+            "Instructions": "The instructions shown to the user for this field.",
+            "IsRequired": "Whether the field is required ('1') or optional ('0').",
+            "ClassNames": "The CSS keywords set on the field in the Form Builder.",
+            "DefaultVal": "The predefined value of the field.",
+            "Page": "The page of the form that holds the field.",
+            "SubFields": "The sub-fields of a multi-part field, such as checkbox options or address parts, each "
+            "with its own ID and label.",
+            "Choices": "The choices of a dropdown, multiple choice, or likert field.",
+            "IsSystem": "Whether the field is a system field, such as IP address or payment status.",
+        },
+    },
+    "report_entries": {
+        "description": "An entry that a Wufoo report includes, after the report's filters are applied.",
+        "docs_url": "https://wufoo.github.io/docs/#report-entries",
+        "columns": {
+            "report_hash": "The hash of the report that includes the entry.",
+            "EntryId": "The identifier of the entry, unique within the report's form.",
+            "DateCreated": "The date and time the entry was submitted.",
+        },
+    },
+    "report_fields": {
+        "description": "A field on the form that a Wufoo report is built on. Maps the FieldN column IDs on "
+        "report_entries to field titles.",
+        "docs_url": "https://wufoo.github.io/docs/#report-fields",
+        "columns": {
+            "report_hash": "The hash of the report.",
+            "ID": "The API ID of the field, for example 'Field105'. Matches a column on report_entries.",
+            "Title": "The field label.",
+            "Type": "The field type, for example 'text', 'checkbox', or 'radio'.",
+        },
+    },
 }

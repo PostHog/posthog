@@ -62,7 +62,7 @@ class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]
             name=ExternalDataSourceType.CALLRAIL,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CallRail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your CallRail API key to automatically pull your CallRail call-tracking data into the PostHog Data warehouse.
 
 You can create an API key under **Account settings → Integrations → API Keys** in CallRail. API keys are scoped to the creating user, so the key only sees data that user can access.

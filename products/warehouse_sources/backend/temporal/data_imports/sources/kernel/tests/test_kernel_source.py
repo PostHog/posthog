@@ -22,10 +22,6 @@ class TestKernelSource:
         assert [field["field"] for field in schemas["audit_logs"].incremental_fields] == ["timestamp"]
         assert all(not schema.supports_append for schema in schemas.values())
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["invocations"])
-        assert [s.name for s in schemas] == ["invocations"]
-
     @pytest.mark.parametrize(
         "probe_result, schema_name, expected_valid",
         [

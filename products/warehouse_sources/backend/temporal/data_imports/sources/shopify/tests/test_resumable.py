@@ -94,24 +94,29 @@ class TestMakePaginatedShopifyRequest:
         assert saved_configs[1] == ShopifyResumeConfig(phase=PHASE_ALL, cursor="cursor-2")
 
     @pytest.mark.parametrize(
-        "object_name, cost, expected_page_sizes",
+        "object_name, costs, expected_page_sizes",
         [
             # 450 points at 20 rows leaves room for 40 rows under the 900 point target.
-            (ORDERS, {"requestedQueryCost": 450}, [20, 40]),
-            (ORDERS, {"requestedQueryCost": 10}, [20, 250]),
+            (ORDERS, [{"requestedQueryCost": 450}], [20, 40]),
+            (ORDERS, [{"requestedQueryCost": 10}], [20, 250]),
             # Half of a 400 point bucket is 200 points, which is 40 rows at 5 points a row.
-            (ORDERS, {"requestedQueryCost": 100, "throttleStatus": {"maximumAvailable": 400}}, [20, 40]),
-            (ABANDONED_CHECKOUTS, {"requestedQueryCost": 450}, [100, 100]),
+            (ORDERS, [{"requestedQueryCost": 100, "throttleStatus": {"maximumAvailable": 400}}], [20, 40]),
+            # A cost above the target at a size Shopify answered keeps that size.
+            (ORDERS, [{"requestedQueryCost": 782}, {"requestedQueryCost": 938}], [20, 23, 23]),
+            (ABANDONED_CHECKOUTS, [{"requestedQueryCost": 450}], [100, 100]),
         ],
     )
     def test_grows_page_from_reported_cost_only_for_cost_limited_objects(
-        self, object_name: str, cost: dict[str, Any], expected_page_sizes: list[int]
+        self, object_name: str, costs: list[dict[str, Any]], expected_page_sizes: list[int]
     ) -> None:
         sess = MagicMock()
-        first_page = _build_response(object_name, [{"id": "1"}], has_next_page=True, end_cursor="cursor-1")
-        first_page.json.return_value["extensions"] = {"cost": cost}
+        pages = []
+        for index, cost in enumerate(costs):
+            page = _build_response(object_name, [{"id": str(index)}], has_next_page=True, end_cursor=f"cursor-{index}")
+            page.json.return_value["extensions"] = {"cost": cost}
+            pages.append(page)
         captured = _record_post_vars(
-            sess, [first_page, _build_response(object_name, [{"id": "2"}], has_next_page=False, end_cursor=None)]
+            sess, [*pages, _build_response(object_name, [{"id": "last"}], has_next_page=False, end_cursor=None)]
         )
 
         list(
@@ -159,7 +164,7 @@ class TestMakePaginatedShopifyRequest:
         captured: list[tuple[int, str | None]] = []
         sess = MagicMock()
 
-        def post(url: str, json: dict[str, Any]) -> MagicMock:
+        def post(url: str, json: dict[str, Any], **kwargs: Any) -> MagicMock:
             captured.append((json["variables"]["pageSize"], json["variables"].get("cursor")))
             outcome = outcomes[len(captured) - 1]
             if isinstance(outcome, Exception):

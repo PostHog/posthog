@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch, IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconChevronDown, IconCopy, IconSearch, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { AgentPromptButton, AgentPromptDestination } from 'lib/components/AgentPromptButton/AgentPromptButton'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanList } from 'lib/utils/strings'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
@@ -17,7 +17,7 @@ import { captureInvestigate, missingLinkEventContext } from './missingLinkTeleme
 
 function missingLabel(missing: MissingLink[]): string {
     const links = humanList(missing)
-    return `${links.charAt(0).toUpperCase()}${links.slice(1)} ${missing.length > 1 ? 'links' : 'link'} missing. Find out why:`
+    return `${links.charAt(0).toUpperCase()}${links.slice(1)} ${missing.length > 1 ? 'links' : 'link'} missing.`
 }
 
 export function MissingLinkInvestigate({
@@ -45,32 +45,36 @@ export function MissingLinkInvestigate({
                 <IconSearch />
                 <span>{missingLabel(missing)}</span>
             </span>
-            <AgentPromptButton
-                size="xs"
-                actions={[
+            <LemonMenu
+                items={[
+                    isMaxAvailable && {
+                        label: 'PostHog AI',
+                        icon: <IconSparkles />,
+                        onClick: () =>
+                            startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}), eventContext),
+                        'data-attr': `logs-${surface}-missing-link-posthog-ai`,
+                    },
                     {
-                        key: 'investigate',
-                        label: 'prompt',
-                        buildPrompt: () => buildMissingLinkPrompt(log, missing),
+                        label: 'Copy prompt',
+                        icon: <IconCopy />,
+                        onClick: () => {
+                            captureInvestigate('clicked', eventContext, { option: 'clipboard' })
+                            void copyToClipboard(buildMissingLinkPrompt(log, missing), 'prompt')
+                        },
+                        'data-attr': `logs-${surface}-missing-link-copy-prompt`,
                     },
                 ]}
-                onRun={({ agentKey }) =>
-                    captureInvestigate('clicked', eventContext, { option: agentKey as AgentPromptDestination })
-                }
-                data-attr={`logs-${surface}-missing-link-agent-prompt`}
-            />
-            {isMaxAvailable && (
+            >
                 <LemonButton
                     size="xsmall"
-                    type="tertiary"
-                    icon={<IconSparkles />}
+                    type="secondary"
+                    sideIcon={<IconChevronDown />}
                     loading={startsSidePanelTask && launching}
-                    onClick={() => startTask(buildMissingLinkPrompt(log, missing), onLeave ?? (() => {}), eventContext)}
-                    data-attr={`logs-${surface}-missing-link-posthog-ai`}
+                    data-attr={`logs-${surface}-missing-link-find-out-why`}
                 >
-                    Ask PostHog AI
+                    Find out why
                 </LemonButton>
-            )}
+            </LemonMenu>
         </div>
     )
 }

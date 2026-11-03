@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.con
     ADJUSTMENT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
+    EXPLORE_METRICS_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
@@ -137,5 +138,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             totals="Calculated totals (subtotal, tax, total) for the adjustment.",
             payout_totals="Adjustment totals in your payout currency.",
         ),
+    },
+    EXPLORE_METRICS_RESOURCE_NAME: {
+        "description": (
+            "Daily (monthly for subscriptions) account totals from Paddle Explore metrics: revenue, transactions, "
+            "refunds, chargebacks, checkout conversion, MRR, and MRR growth. One row per entity, measure, and time bucket."
+        ),
+        "docs_url": "https://developer.paddle.com/api-reference/metrics/run-explore-metrics-query",
+        "columns": {
+            "entity": "Explore entity the measure comes from (e.g. transactions.completed, adjustments.refunds, checkouts, subscriptions).",
+            "interval": "Time bucket size: day, or month for entities that only support monthly buckets.",
+            "timestamp": "Start of the time bucket in UTC (RFC 3339); the incremental cursor.",
+            "measure": "Measure name: {agg}_{field} (e.g. sum_gross_revenue, count_id), or the field name for derived measures (e.g. mrr, checkout_conversion).",
+            "field": "Source field the measure is computed from. Empty for derived measures.",
+            "agg": "Aggregation applied to the field: sum, count, or count_distinct. Empty for derived measures.",
+            "value_type": "Value type of the measure: currency, integer, decimal, or string.",
+            "value": "Measure value as a string. Currency values are in the smallest currency unit (e.g. cents).",
+            "currency_code": "Three-letter ISO currency code for currency values, derived from your balance currency.",
+            "updated_at": "Time at which Paddle last refreshed the data behind this metric (RFC 3339).",
+        },
     },
 }

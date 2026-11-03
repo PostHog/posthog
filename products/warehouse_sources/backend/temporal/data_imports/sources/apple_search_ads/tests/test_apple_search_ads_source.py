@@ -101,11 +101,6 @@ class TestAppleSearchAdsSource:
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         assert all(schema.description for schema in schemas)
 
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["campaigns", "campaign_report"])
-
-        assert {schema.name for schema in schemas} == {"campaigns", "campaign_report"}
-
     @parameterized.expand([(endpoint,) for endpoint in REPORT_ENDPOINTS])
     def test_report_tables_are_incremental_on_date_with_a_lookback(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)

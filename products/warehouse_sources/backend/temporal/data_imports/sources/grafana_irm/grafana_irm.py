@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana_irm.settings import (
     GRAFANA_IRM_ENDPOINTS,
@@ -200,6 +202,95 @@ def _incident_client(token: str, stack_url: str) -> RESTClient:
     )
 
 
+def _oncall_client(token: str, stack_url: str, oncall_api_url: str) -> RESTClient:
+    return RESTClient(
+        base_url=oncall_api_url,
+        headers={"Accept": "application/json", "X-Grafana-URL": stack_url},
+        auth=BearerTokenAuth(token),
+        allowed_hosts=[],
+        allow_redirects=False,
+        request_timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+
+
+def _alert_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every alert group and yield its alerts page by page.
+
+    The alerts list rejects requests without an ``alert_group_id`` filter, which the declarative
+    fan-out can only bind into the URL path.
+    """
+    alert_groups = GRAFANA_IRM_ENDPOINTS["alert_groups"]
+    alerts = GRAFANA_IRM_ENDPOINTS["alerts"]
+
+    for alert_group_page in client.paginate(
+        alert_groups.path,
+        params={"perpage": ONCALL_PAGE_SIZE},
+        paginator=_oncall_paginator(),
+        data_selector=alert_groups.data_selector,
+        data_selector_required=True,
+    ):
+        for alert_group in alert_group_page:
+            alert_group_id = alert_group.get("id")
+            if not alert_group_id:
+                continue
+            found = False
+            for alert_page in client.paginate(
+                alerts.path,
+                params={"perpage": ONCALL_PAGE_SIZE, "alert_group_id": alert_group_id},
+                paginator=_oncall_paginator(),
+                data_selector=alerts.data_selector,
+                data_selector_required=True,
+            ):
+                if alert_page:
+                    found = True
+                    yield alert_page
+            if not found:
+                reach_safe_point()
+
+
+def _incident_membership_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every incident and yield the full list of people involved in it.
+
+    Assignments carry no incident ID and nest the user, so both IDs are lifted onto each row to
+    form the primary key.
+    """
+    incidents = GRAFANA_IRM_ENDPOINTS["incidents"]
+    membership = GRAFANA_IRM_ENDPOINTS["incident_membership"]
+    incident_query = {"query": {"limit": INCIDENT_PAGE_SIZE, "orderField": "createdTime", "orderDirection": "ASC"}}
+
+    for incident_page in client.paginate(
+        incidents.path,
+        method="post",
+        json=incident_query,
+        paginator=IncidentCursorPaginator(),
+        data_selector=incidents.data_selector,
+        data_selector_required=True,
+    ):
+        for incident in incident_page:
+            incident_id = incident.get("incidentID")
+            if not incident_id:
+                continue
+            rows: list[dict[str, Any]] = []
+            for assignment_page in client.paginate(
+                membership.path,
+                method="post",
+                json={"incidentID": incident_id},
+                paginator=SinglePagePaginator(),
+                data_selector=membership.data_selector,
+                data_selector_required=True,
+                data_selector_empty_ok=True,
+            ):
+                for assignment in assignment_page:
+                    user_id = (assignment.get("user") or {}).get("userID")
+                    # An assignment without a user would have a null primary key.
+                    if user_id:
+                        rows.append({**assignment, "incidentID": incident_id, "userID": user_id})
+            if rows:
+                yield rows
+            else:
+                reach_safe_point()
+
+
 def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
     """Fan out over every incident and yield its activity timeline page by page.
 
@@ -260,11 +351,15 @@ def grafana_irm_source(
             "partition_keys": [config.partition_key],
         }
 
-    if endpoint == "incident_activity":
-        client = _incident_client(token, stack_url)
+    fan_out_pages: dict[str, Callable[[], Iterator[list[dict[str, Any]]]]] = {
+        "incident_activity": lambda: _incident_activity_pages(_incident_client(token, stack_url)),
+        "incident_membership": lambda: _incident_membership_pages(_incident_client(token, stack_url)),
+        "alerts": lambda: _alert_pages(_oncall_client(token, stack_url, oncall_api_url)),
+    }
+    if endpoint in fan_out_pages:
         return SourceResponse(
             name=endpoint,
-            items=lambda: _incident_activity_pages(client),
+            items=fan_out_pages[endpoint],
             primary_keys=list(config.primary_keys),
             **partition_kwargs,
         )
@@ -331,7 +426,9 @@ def validate_credentials(
     auth_header = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
     if probe_oncall:
-        oncall_path = config.path if config is not None else GRAFANA_IRM_ENDPOINTS["alert_groups"].path
+        # A fan-out child needs a parent ID, so probe its parent, which takes the same permission.
+        probe_name = (config.parent or config.name) if config is not None else "alert_groups"
+        oncall_path = GRAFANA_IRM_ENDPOINTS[probe_name].path
         status = _probe(
             session,
             "GET",

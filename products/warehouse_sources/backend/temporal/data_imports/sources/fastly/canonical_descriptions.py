@@ -179,6 +179,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "latency_1000_to_5000ms": "Number of responses from origin with latency between 1,000 and 5,000 milliseconds.",
         },
     },
+    "platform_metrics": {
+        "description": "Daily delivery and Compute traffic, cache and error metrics per service and POP, from Fastly's Metrics v2 API.",
+        "docs_url": "https://www.fastly.com/documentation/reference/api/metrics-stats/metrics-v2/platform/",
+        "columns": {
+            "service_id": "Alphanumeric string identifying the service (entity) the sample belongs to.",
+            "datacenter": "The POP the sample was measured at.",
+            "timestamp": "The start of the reported time period.",
+            "start_time": "Start of the day the sample covers, as a Unix timestamp.",
+            "requests": "Number of requests processed.",
+            "bandwidth": "Total bytes delivered.",
+            "hit_ratio": "Ratio of cache hits to cache hits and misses, between 0 and 1.",
+            "origin_offload": "Share of bytes served from cache rather than fetched from origin, between 0 and 1.",
+        },
+    },
     "service_authorizations": {
         "description": "Which users can reach which services, and the permission each one holds.",
         "docs_url": "https://www.fastly.com/documentation/reference/api/account/service-authorization/",
@@ -234,6 +248,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "usage_units": "The quantity of usage for the billing period, in the given unit.",
             "start_time": "Start of the billing cycle the usage covers.",
             "end_time": "End of the billing cycle the usage covers.",
+        },
+    },
+    "ai_usage_metrics": {
+        "description": "Daily AI Runtime Control request, session and token usage per virtual key, provider and model.",
+        "docs_url": "https://www.fastly.com/documentation/reference/api/ai-runtime-control/usage-metrics/",
+        "columns": {
+            "date": "The date (or hour) the usage was measured.",
+            "start_time": "Start of the day the usage was measured, as a Unix timestamp.",
+            "usage_type": "The type of usage being measured, such as requests, sessions, input_tokens or output_tokens.",
+            "quantity": "The quantity of the usage type for this date.",
+            "virtual_key_id": "The ID of the virtual key this usage is attributed to.",
+            "virtual_key_name": "The display name of the virtual key this usage is attributed to.",
+            "provider": "The name of the provider connection that ultimately served the request.",
+            "provider_connection_id": "The ID of the provider connection that ultimately served the request.",
+            "primary_provider": "The ID of the provider connection originally requested, before any failover occurred.",
+            "model": "The AI model identifier used.",
         },
     },
 }

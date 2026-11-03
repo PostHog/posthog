@@ -42,7 +42,7 @@ class TestCrossrefSource:
         if not expected_valid:
             assert "member ID, funder ID, or journal ISSN" in (message or "")
 
-    @pytest.mark.parametrize("schema_name", [None, "Members", "Funders", "Types", "Licenses"])
+    @pytest.mark.parametrize("schema_name", [None, "Members", "Funders", "Types", "Licenses", "Journals"])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.crossref.source.validate_crossref_credentials"
     )

@@ -7,11 +7,14 @@ from urllib.parse import quote, urlencode, urlsplit
 import orjson
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import (
@@ -102,7 +105,7 @@ def _tags_url(namespace: str, repository: str) -> str:
     return f"{DOCKERHUB_BASE_URL}/v2/namespaces/{quote(namespace)}/repositories/{quote(repository)}/tags?{query}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((DockerhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
@@ -162,7 +165,7 @@ def _request_json(
     return response.json()
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((DockerhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
@@ -186,7 +189,7 @@ def _fetch_page(
     return data["results"], None
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((DockerhubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),

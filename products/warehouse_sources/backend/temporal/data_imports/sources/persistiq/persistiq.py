@@ -3,6 +3,9 @@ from typing import Any, Optional
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
+    coerce_datetime_to_utc,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -11,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,6 +38,13 @@ def _headers() -> dict[str, str]:
     # Auth (the `x-api-key` header) is supplied via the framework auth config so its value is
     # redacted from logs and raised error messages; only the non-secret Accept header is set here.
     return {"Accept": "application/json"}
+
+
+def _format_datetime(value: Any) -> str:
+    normalized = coerce_datetime_to_utc(value)
+    if normalized is None:
+        return str(value)
+    return normalized.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class PersistiqPaginator(PageNumberPaginator):
@@ -68,9 +79,35 @@ def persistiq_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[PersistiqResumeConfig],
+    should_use_incremental_field: bool = False,
+    incremental_field: Optional[str] = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = PERSISTIQ_ENDPOINTS[endpoint]
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "data_selector": config.list_key,
+        # A 200 whose body isn't the expected `{list_key: [...]}` envelope (a bare array,
+        # a missing resource key, or a non-list value) is treated as transient and
+        # retried — the old source raised a retryable error for exactly these shapes.
+        "data_selector_malformed_retryable": True,
+    }
+    if not config.paginated:
+        endpoint_config["paginator"] = "single_page"
+
+    is_incremental = bool(should_use_incremental_field and config.incremental_param)
+    if (
+        is_incremental
+        and config.incremental_param
+        and incremental_field
+        and db_incremental_field_last_value is not None
+    ):
+        endpoint_config["incremental"] = {
+            "start_param": config.incremental_param,
+            "cursor_path": incremental_field,
+            "convert": _format_datetime,
+        }
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -84,14 +121,7 @@ def persistiq_source(
         "resources": [
             {
                 "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "data_selector": config.list_key,
-                    # A 200 whose body isn't the expected `{list_key: [...]}` envelope (a bare array,
-                    # a missing resource key, or a non-list value) is treated as transient and
-                    # retried — the old source raised a retryable error for exactly these shapes.
-                    "data_selector_malformed_retryable": True,
-                },
+                "endpoint": endpoint_config,
             }
         ],
     }
@@ -112,7 +142,7 @@ def persistiq_source(
         rest_config,
         team_id,
         job_id,
-        db_incremental_field_last_value,
+        db_incremental_field_last_value if is_incremental else None,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
@@ -123,6 +153,9 @@ def persistiq_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
     )
 

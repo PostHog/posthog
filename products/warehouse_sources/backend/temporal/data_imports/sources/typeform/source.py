@@ -110,6 +110,7 @@ You can generate a personal access token in your [Typeform account settings](htt
                     ),
                     SourceFieldSelectConfig(
                         name="response_types",
+                        sync_setting=True,
                         label="Responses to sync",
                         required=False,
                         defaultValue=RESPONSE_TYPE_COMPLETED_ONLY,

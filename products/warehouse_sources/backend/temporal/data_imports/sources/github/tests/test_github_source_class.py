@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
@@ -823,3 +824,31 @@ class TestGithubSource:
         assert result.error is not None and "c/d: boom" in result.error
         # The repo that did get a hook verifies against this secret, so it must still persist.
         assert result.extra_inputs.get("signing_secret")
+
+    @pytest.mark.parametrize(
+        "rejection, expected_message",
+        [
+            (
+                ScriptedResponse(
+                    status=422,
+                    json={
+                        "message": "Validation Failed",
+                        "errors": [{"resource": "Hook", "message": 'The "push" event cannot have more than 20 hooks'}],
+                    },
+                ),
+                "This repository has reached GitHub's webhook limit.",
+            ),
+            (
+                ScriptedResponse(status=422, json={"message": "Validation Failed", "errors": [{"code": "custom"}]}),
+                "GitHub couldn't create the webhook.",
+            ),
+        ],
+    )
+    def test_create_webhook_rejection_shows_a_clean_message(self, rejection, expected_message):
+        with scripted_network([ScriptedResponse(status=200, json=[]), rejection]):
+            result = self.source.create_webhook(_pat_config(repository="o/r"), "https://hooks/x", self.team_id)
+
+        assert result.success is False
+        assert result.error is not None and expected_message in result.error
+        assert "422" not in result.error
+        assert "Validation Failed" not in result.error

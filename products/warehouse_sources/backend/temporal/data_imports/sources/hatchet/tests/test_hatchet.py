@@ -90,6 +90,52 @@ def _row(row_id: str) -> dict[str, Any]:
     return {"metadata": {"id": row_id, "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z"}}
 
 
+def _log(created_at: str, message: str) -> dict[str, Any]:
+    return {
+        "createdAt": created_at,
+        "message": message,
+        "metadata": {"source": "worker"},
+        "taskExternalId": "11111111-1111-1111-1111-111111111111",
+        "retryCount": 0,
+        "attempt": 1,
+        "level": "INFO",
+    }
+
+
+_LOG_BOUNDARY = "2026-06-01T00:00:01.000000Z"
+_LOG_LATER = "2026-06-01T00:00:02.000000Z"
+
+# 998 lines at distinct timestamps, then two identical lines at the boundary timestamp. The next
+# window re-reads the boundary timestamp, which now also holds a third line.
+_SPLIT_GROUP_SCRIPT = [
+    ScriptedResponse(
+        json={
+            "rows": [_log(f"2026-06-01T00:00:00.{i:06d}Z", f"line {i}") for i in range(998)]
+            + [_log(_LOG_BOUNDARY, "dup"), _log(_LOG_BOUNDARY, "dup")],
+            "pagination": {},
+        }
+    ),
+    ScriptedResponse(
+        json={
+            "rows": [
+                _log(_LOG_BOUNDARY, "dup"),
+                _log(_LOG_BOUNDARY, "new"),
+                _log(_LOG_BOUNDARY, "dup"),
+                _log(_LOG_LATER, "last"),
+            ],
+            "pagination": {},
+        }
+    ),
+]
+
+# A full page that holds one timestamp only, so its group is read on its own with a larger limit.
+_SINGLE_TIMESTAMP_SCRIPT = [
+    ScriptedResponse(json={"rows": [_log(_LOG_BOUNDARY, f"line {i}") for i in range(1000)], "pagination": {}}),
+    ScriptedResponse(json={"rows": [_log(_LOG_BOUNDARY, f"line {i}") for i in range(1001)], "pagination": {}}),
+    ScriptedResponse(json={"rows": [_log(_LOG_LATER, "last")], "pagination": {}}),
+]
+
+
 class TestGetRows:
     @staticmethod
     def _driver(host: str = "https://cloud.example") -> SourceDriver:
@@ -220,6 +266,78 @@ class TestGetRows:
             (1, "run-1", "2026-06-01T00:00:00Z"),
             (2, "run-1", "2026-06-01T00:00:00Z"),
         ]
+
+    @pytest.mark.parametrize(
+        "script,expected_rows,expected_since,expected_until,expected_limit",
+        [
+            (
+                _SPLIT_GROUP_SCRIPT,
+                1002,
+                [None, "2026-06-01T00:00:00.999999Z"],
+                [None, None],
+                ["1000", "1000"],
+            ),
+            (
+                _SINGLE_TIMESTAMP_SCRIPT,
+                1002,
+                [None, "2026-06-01T00:00:00.999999Z", "2026-06-01T00:00:01.000000Z"],
+                [None, "2026-06-01T00:00:01.000001Z", None],
+                ["1000", "10000", "1000"],
+            ),
+        ],
+        ids=["group_split_across_pages", "page_of_one_timestamp"],
+    )
+    def test_logs_advance_since_window_without_losing_or_repeating_lines(
+        self, script, expected_rows, expected_since, expected_until, expected_limit
+    ):
+        result = self._driver().run("logs", script)
+
+        assert result.raised is None
+        assert result.params("since") == expected_since
+        assert result.params("until") == expected_until
+        assert result.params("limit") == expected_limit
+        assert result.params("order_by_direction") == ["ASC"] * len(script)
+        rows = _collect(result.items)
+        assert len(rows) == expected_rows
+        assert len({row["id"] for row in rows}) == expected_rows
+        # The log's own metadata stays a column; it is not the resource envelope other endpoints lift.
+        assert json.loads(rows[0]["metadata"]) == {"source": "worker"}
+
+    def test_logs_resume_from_saved_since(self):
+        result = self._driver().run(
+            "logs",
+            [ScriptedResponse(json={"rows": [_log(_LOG_LATER, "last")], "pagination": {}})],
+            resume_state=HatchetResumeConfig(offset=0, since="2026-06-01T00:00:00.999999Z"),
+            should_use_incremental_field=True,
+        )
+
+        assert result.raised is None
+        assert result.params("since") == ["2026-06-01T00:00:00.999999Z"]
+        assert result.params("offset") == [None]
+
+    def test_tenant_members_read_in_one_request(self):
+        # The members endpoint has no pagination, so a full page must not trigger an offset request
+        # that would read every member again.
+        members = [
+            {
+                "metadata": {
+                    "id": f"member-{i}",
+                    "createdAt": "2026-06-01T00:00:00Z",
+                    "updatedAt": "2026-06-01T00:00:00Z",
+                },
+                "user": {"email": f"user{i}@example.com"},
+                "role": "MEMBER",
+            }
+            for i in range(150)
+        ]
+        result = self._driver().run("tenant_members", [ScriptedResponse(json={"rows": members})])
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/tenants/tenant-1/members"]
+        assert result.params("offset") == [None]
+        rows = _collect(result.items)
+        assert len(rows) == 150
+        assert rows[0]["id"] == "member-0"
 
 
 class TestFetchPage:

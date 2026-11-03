@@ -60,6 +60,31 @@ export const LatencyOverTime: Story = {
     },
 }
 
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`)
+const ACTIVITY = WEEKDAYS.map((_, day) =>
+    HOURS.map((_, hour) =>
+        Math.round(80 + 140 * Math.max(0, Math.sin(((hour - 6) / 24) * Math.PI * 2)) + (day < 5 ? 60 : 0))
+    )
+)
+
+export const ActivityByDayAndHour: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={260}>
+                <Heatmap
+                    xLabels={HOURS}
+                    yLabels={WEEKDAYS}
+                    cells={ACTIVITY}
+                    theme={theme}
+                    config={{ xTickFormatter: (label, i) => (i % 3 === 0 ? label : null) }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const LinearColorScale: Story = {
     render: function Render() {
         const theme = useReactiveTheme()

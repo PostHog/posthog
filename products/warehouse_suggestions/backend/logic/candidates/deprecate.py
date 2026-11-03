@@ -1,14 +1,17 @@
 from datetime import datetime
-from uuid import UUID
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.data_modeling.backend.facade.api import dependent_saved_query_ids, upstream_table_refs
+from products.data_modeling.backend.facade.api import dependent_saved_query_ids
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
+from products.warehouse_sources.backend.facade.api import saved_queries_feeding_consumers
 
 from ...facade.contracts import DeprecatePayload
 from ...facade.enums import WarehouseSuggestionAssetOutcome, WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from ..reads import Subject
 from .base import (
+    DEPENDENTS_REJECTION,
+    DIRECT_SOURCE_REJECTION,
+    FEEDS_CONSUMERS_REJECTION,
     MILLISECONDS_PER_SECOND,
     Candidate,
     CandidateContext,
@@ -36,14 +39,21 @@ class DeprecateCandidate(Candidate):
             for saved_query in context.inventory.saved_queries.values()
             if saved_query.materializes
             and context.is_suggestible_view(saved_query)
-            and not _is_read(context, _subject(saved_query))
+            and not context.is_read(_subject(saved_query))
         ]
-        dependents = dependent_saved_query_ids(context.team_id, [saved_query.id for saved_query in unread])
+        unread_ids = [saved_query.id for saved_query in unread]
+        dependents = dependent_saved_query_ids(context.team_id, unread_ids)
+        feeding_consumers = saved_queries_feeding_consumers(context.team_id, unread_ids)
         drafts = []
         rejections = []
         for saved_query in unread:
             subject = _subject(saved_query)
-            reason = self._rejection(context, saved_query, has_dependents=bool(dependents.get(saved_query.id)))
+            reason = self._rejection(
+                context,
+                saved_query,
+                has_dependents=bool(dependents.get(saved_query.id)),
+                feeds_consumers=saved_query.id in feeding_consumers,
+            )
             if reason is not None:
                 rejections.append(Rejection(subject=subject, reason=reason))
                 continue
@@ -72,31 +82,25 @@ class DeprecateCandidate(Candidate):
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
-        return saved_query is None or not saved_query.materializes or _is_read(context, subject)
+        return saved_query is None or not saved_query.materializes or context.is_read(subject)
 
     def _rejection(
-        self, context: CandidateContext, saved_query: SavedQueryDefinition, *, has_dependents: bool
+        self,
+        context: CandidateContext,
+        saved_query: SavedQueryDefinition,
+        *,
+        has_dependents: bool,
+        feeds_consumers: bool,
     ) -> str | None:
         if saved_query.created_at > context.reads.window.starts_at:
             return "created after the read window started"
         if has_dependents:
-            return "other views read from it"
-        if self._reads_direct_source(context, saved_query.id):
-            return "reads a direct-connection source, whose reads are not logged"
+            return DEPENDENTS_REJECTION
+        if feeds_consumers:
+            return FEEDS_CONSUMERS_REJECTION
+        if context.reads_direct_source(saved_query.id):
+            return DIRECT_SOURCE_REJECTION
         return None
-
-    def _reads_direct_source(self, context: CandidateContext, saved_query_id: UUID) -> bool:
-        return any(
-            ref.warehouse_table_id is not None and UUID(ref.warehouse_table_id) in context.inventory.direct_table_ids
-            for ref in upstream_table_refs(context.team_id, saved_query_id)
-        )
-
-
-def _is_read(context: CandidateContext, subject: Subject) -> bool:
-    reads = context.reads.reads_of(subject)
-    if reads is None:
-        return False
-    return context.rules.deprecate.counts_background_reads or reads.human_requests > 0
 
 
 def _subject(saved_query: SavedQueryDefinition) -> Subject:

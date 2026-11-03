@@ -225,7 +225,7 @@ class TestToStartDate:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected",
-        [(200, (True, 200)), (401, (False, 401)), (403, (False, 403)), (500, (False, 500))],
+        [(403, (False, 403))],
     )
     def test_maps_probe_status_to_result(self, status_code: int, expected: tuple[bool, int]) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:

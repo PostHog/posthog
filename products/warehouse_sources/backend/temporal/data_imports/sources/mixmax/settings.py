@@ -25,6 +25,10 @@ class MixmaxEndpointConfig:
     should_sync_default: bool = True
     description: str | None = None
     fanout: DependentEndpointConfig | None = None
+    # Fan-out children paged with `limit`/`offset` and a plain-array body. None means the child
+    # answers in one `{results: [...]}` page.
+    child_page_size: int | None = None
+    child_max_offset: int | None = None
     # The remaining fields exist to satisfy the shared FanoutEndpointLike protocol; no Mixmax
     # endpoint is incremental.
     incremental_fields: list[Any] = field(default_factory=list)
@@ -34,19 +38,48 @@ class MixmaxEndpointConfig:
 
 # Parent rows carry their `_id` percent-encoded under this key, because the fan-out binds the
 # resolved value into the child URL with no escaping.
-MESSAGE_ID_PARAM_FIELD = "_message_id_param"
+PARENT_ID_PARAM_FIELD = "_id_param"
+
+# /sequences/{id}/recipients caps a page at 50 and rejects `offset + limit` above 10,000.
+SEQUENCE_RECIPIENTS_PAGE_SIZE = 50
+SEQUENCE_RECIPIENTS_MAX_OFFSET = 10_000
 
 # /livefeed/events takes a single `messageId` per request, so events fan out over the live feed's
 # messages. Event ids are only documented as unique, so the key also carries the parent message id.
 _LIVE_FEED_EVENTS_FANOUT = DependentEndpointConfig(
     parent_name="live_feed",
     resolve_param="message_id",
-    resolve_field=MESSAGE_ID_PARAM_FIELD,
+    resolve_field=PARENT_ID_PARAM_FIELD,
     include_from_parent=["_id"],
     parent_field_renames={"_id": "message_id"},
     parent_params={"limit": PAGE_SIZE},
     child_params={"wasSentViaMixmax": "true"},
     # A message deleted between the live feed listing and its events fetch 404s; skip it.
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
+# The default sort (`lastMessageCreated`) moves a recipient each time a stage sends, which shifts
+# offset pages mid-walk. Email order stays put while the sync runs.
+_SEQUENCE_RECIPIENTS_FANOUT = DependentEndpointConfig(
+    parent_name="sequences",
+    resolve_param="sequence_id",
+    resolve_field=PARENT_ID_PARAM_FIELD,
+    include_from_parent=["_id"],
+    parent_field_renames={"_id": "sequence_id"},
+    parent_params={"limit": PAGE_SIZE},
+    child_params={"sortBy": "email", "sortDesc": "false"},
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
+# Team member ids are only documented as ids "on this team", so the key also carries the team id.
+_TEAM_MEMBERS_FANOUT = DependentEndpointConfig(
+    parent_name="teams",
+    resolve_param="team_id",
+    resolve_field=PARENT_ID_PARAM_FIELD,
+    include_from_parent=["_id"],
+    parent_field_renames={"_id": "team_id"},
+    parent_params={"limit": PAGE_SIZE},
+    child_params={"expand": "members.userId"},
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
 
@@ -59,6 +92,15 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
         name="sequences",
         path="/sequences",
         description="Automated multi-step outreach sequences you have access to.",
+    ),
+    "sequence_recipients": MixmaxEndpointConfig(
+        name="sequence_recipients",
+        path="/sequences/{sequence_id}/recipients/",
+        primary_keys=["sequence_id", "_id"],
+        fanout=_SEQUENCE_RECIPIENTS_FANOUT,
+        child_page_size=SEQUENCE_RECIPIENTS_PAGE_SIZE,
+        child_max_offset=SEQUENCE_RECIPIENTS_MAX_OFFSET,
+        description="Recipients added to each sequence, with their state and per-stage activity (up to 10,000 per sequence).",
     ),
     "sequence_folders": MixmaxEndpointConfig(
         name="sequence_folders",
@@ -119,6 +161,23 @@ MIXMAX_ENDPOINTS: dict[str, MixmaxEndpointConfig] = {
         # One request per live feed message against the 120 req/min limit, so it is opt-in.
         should_sync_default=False,
         description="Individual open, click, download, and reply events for each live feed message (up to 200 per message).",
+    ),
+    "teams": MixmaxEndpointConfig(
+        name="teams",
+        path="/teams",
+        description="Teams you are a member of, plus every team in the workspace for workspace admins.",
+    ),
+    "team_members": MixmaxEndpointConfig(
+        name="team_members",
+        path="/teams/{team_id}/members",
+        primary_keys=["team_id", "memberId"],
+        fanout=_TEAM_MEMBERS_FANOUT,
+        description="Members of each team, including pending invites.",
+    ),
+    "unsubscribes": MixmaxEndpointConfig(
+        name="unsubscribes",
+        path="/unsubscribes",
+        description="Addresses on your (or your workspace's) unsubscribe list. Sequences do not send to these addresses.",
     ),
     "appointment_links": MixmaxEndpointConfig(
         name="appointment_links",

@@ -106,7 +106,34 @@ class TestGetRows:
         assert "signing_url" not in rows[0]
         assert rows[0]["title"] == "Doc"
 
-    def test_single_object_endpoint_yields_one_row_without_pagination(self, monkeypatch: Any) -> None:
+    @parameterized.expand(
+        [
+            (
+                "single_object",
+                "account",
+                {"account": {"account_id": "acc_1", "email_address": "a@b.com"}},
+                [{"account_id": "acc_1", "email_address": "a@b.com"}],
+            ),
+            (
+                "unpaginated_list",
+                "team_invites",
+                {
+                    "team_invites": [
+                        {"team_id": "T1", "email_address": "one@example.com", "role": "Member"},
+                        {"team_id": "T1", "email_address": "two@example.com", "role": "Admin"},
+                    ]
+                },
+                [
+                    {"team_id": "T1", "email_address": "one@example.com", "role": "Member"},
+                    {"team_id": "T1", "email_address": "two@example.com", "role": "Admin"},
+                ],
+            ),
+            ("unpaginated_list_empty", "team_invites", {"team_invites": []}, []),
+        ]
+    )
+    def test_one_request_endpoint_yields_rows_without_pagination(
+        self, _name: str, endpoint: str, body: dict[str, Any], expected: list[dict[str, Any]]
+    ) -> None:
         captured: list[dict[str, Any]] = []
 
         def fake_fetch(
@@ -118,29 +145,33 @@ class TestGetRows:
             empty_on_404: bool = False,
         ) -> dict:
             captured.append(dict(params))
-            return {"account": {"account_id": "acc_1", "email_address": "a@b.com"}}
-
-        monkeypatch.setattr(dropbox_sign, "_fetch_page", fake_fetch)
+            return body
 
         rows: list[dict] = []
-        for table in get_rows(
-            api_key="key",
-            endpoint="account",
-            logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-        ):
-            rows.extend(table.to_pylist())
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(dropbox_sign, "_fetch_page", fake_fetch)
+            for table in get_rows(
+                api_key="key",
+                endpoint=endpoint,
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            ):
+                rows.extend(table.to_pylist())
 
-        assert rows == [{"account_id": "acc_1", "email_address": "a@b.com"}]
-        # Single-object endpoints send no pagination params.
+        assert rows == expected
+        # One-request endpoints send no pagination params and fetch exactly once.
         assert captured == [{}]
 
 
 class TestEndpointSettings:
-    def test_only_single_object_endpoints_treat_404_as_empty(self) -> None:
+    def test_only_one_request_endpoints_treat_404_as_empty(self) -> None:
         # A 404 part way through pagination would end the walk and publish a truncated table, so
-        # only an endpoint that fetches one object may read a 404 as an empty result.
-        paginated = [c.name for c in DROPBOX_SIGN_ENDPOINTS.values() if c.empty_on_404 and not c.is_single_object]
+        # only an endpoint that fetches everything in one request may read a 404 as an empty result.
+        paginated = [
+            c.name
+            for c in DROPBOX_SIGN_ENDPOINTS.values()
+            if c.empty_on_404 and c.is_paginated and not c.is_single_object
+        ]
         assert paginated == []
 
 
@@ -172,23 +203,38 @@ class TestTeamEndpoints:
             rows.extend(table.to_pylist())
         return rows, urls
 
-    def test_team_members_path_takes_the_resolved_team_id(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path,data_key,item",
+        [
+            ("team_members", "/team/members/T1", "team_members", {"account_id": "a1", "role": "Admin"}),
+            ("team_sub_teams", "/team/sub_teams/T1", "sub_teams", {"team_id": "S1", "name": "Sales"}),
+        ],
+    )
+    def test_team_scoped_path_takes_the_resolved_team_id(
+        self, monkeypatch: Any, endpoint: str, path: str, data_key: str, item: dict[str, Any]
+    ) -> None:
         bodies = {
             f"{DROPBOX_SIGN_BASE_URL}/team/info": {"team": {"team_id": "T1", "name": "Acme"}},
-            f"{DROPBOX_SIGN_BASE_URL}/team/members/T1": _page_body(
-                "team_members", [{"account_id": "a1", "role": "Admin"}], page=1, num_pages=1
-            ),
+            f"{DROPBOX_SIGN_BASE_URL}{path}": _page_body(data_key, [item], page=1, num_pages=1),
         }
-        rows, urls = self._run("team_members", monkeypatch, bodies)
-        assert rows == [{"account_id": "a1", "role": "Admin"}]
-        assert urls == [f"{DROPBOX_SIGN_BASE_URL}/team/info", f"{DROPBOX_SIGN_BASE_URL}/team/members/T1"]
+        rows, urls = self._run(endpoint, monkeypatch, bodies)
+        assert rows == [item]
+        assert urls == [f"{DROPBOX_SIGN_BASE_URL}/team/info", f"{DROPBOX_SIGN_BASE_URL}{path}"]
 
-    @pytest.mark.parametrize("endpoint", ["team", "team_members"])
-    def test_no_team_yields_no_rows(self, monkeypatch: Any, endpoint: str) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path",
+        [
+            ("team", "/team/info"),
+            ("team_members", "/team/info"),
+            ("team_sub_teams", "/team/info"),
+            ("team_invites", "/team/invites"),
+        ],
+    )
+    def test_no_team_yields_no_rows(self, monkeypatch: Any, endpoint: str, path: str) -> None:
         # `_fetch_page` returns None for the 404 Dropbox Sign sends when the account has no team.
-        rows, urls = self._run(endpoint, monkeypatch, {f"{DROPBOX_SIGN_BASE_URL}/team/info": None})
+        rows, urls = self._run(endpoint, monkeypatch, {f"{DROPBOX_SIGN_BASE_URL}{path}": None})
         assert rows == []
-        assert urls == [f"{DROPBOX_SIGN_BASE_URL}/team/info"]
+        assert urls == [f"{DROPBOX_SIGN_BASE_URL}{path}"]
 
 
 class TestResumeStateSaving:
@@ -275,10 +321,13 @@ class TestSourceResponse:
             ("api_apps", True),
             ("bulk_send_jobs", True),
             ("faxes", True),
+            ("fax_lines", True),
             ("templates", False),
             ("account", False),
             ("team", False),
             ("team_members", False),
+            ("team_sub_teams", False),
+            ("team_invites", False),
         ]
     )
     def test_partitioning_only_when_endpoint_has_partition_key(self, endpoint: str, partitioned: bool) -> None:

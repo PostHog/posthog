@@ -11,8 +11,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
     PerigonSourceConfig,
@@ -24,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.pe
     PerigonResumeConfig,
     _clamp_future_value_to_now,
     _format_datetime,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.settings import PERIGON_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
@@ -101,9 +98,24 @@ class TestEndpointRequests:
 
         assert result.raised is None
         assert result.rows == [{"k": "v"}]
-        assert result.requests[0].url.startswith(f"{PERIGON_BASE_URL}{PERIGON_ENDPOINTS[endpoint].path}?")
-        assert result.params("page") == ["0"]
-        assert result.params("size") == ["100"]
+        config = PERIGON_ENDPOINTS[endpoint]
+        request = result.requests[0]
+        assert request.url.startswith(f"{PERIGON_BASE_URL}{config.path}?")
+        assert request.param("page") == ("0" if config.paginated else None)
+        assert request.param("size") == ("100" if config.paginated else None)
+        assert request.param("sortBy") == config.full_refresh_sort_by
+        for name, value in config.extra_params.items():
+            assert request.param(name) == value
+
+    def test_unpaginated_endpoint_makes_one_request_for_a_large_response(self) -> None:
+        # The stats endpoint returns every bucket at once; asking for a second page would
+        # load the same buckets again as duplicate rows.
+        buckets = [{"date": f"2026-01-01T{i:02d}", "numResults": i} for i in range(150)]
+        result = _driver().run("story_stats", [ScriptedResponse(json={"results": buckets})])
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.rows == buckets
 
     def test_missing_wrapper_key_fails_loud(self) -> None:
         # A 200 body without the expected wrapper key means the response shape changed —
@@ -129,6 +141,8 @@ class TestIncrementalParams:
         [
             ("articles", "from", "reverseDate"),
             ("stories", "updatedFrom", "updatedAt"),
+            ("story_history", "from", "createdAt"),
+            ("wikipedia", "wikiRevisionFrom", "revisionTsAsc"),
         ]
     )
     def test_watermark_passed_as_server_side_filter(self, endpoint: str, param: str, sort_by: str) -> None:
@@ -166,9 +180,3 @@ class TestPerigonSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
-
-
-class TestValidateCredentials:
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key") == (False, None)

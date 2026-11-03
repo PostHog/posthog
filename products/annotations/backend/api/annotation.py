@@ -1,14 +1,17 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
 
-from rest_framework import filters, pagination, serializers, viewsets
+from rest_framework import filters, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.user import User
+from posthog.models.utils import strict_fetch
 
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -138,11 +141,15 @@ class AnnotationSerializer(serializers.ModelSerializer):
                     dashboard.deleted and dashboard.id != getattr(self.instance, "dashboard_id", None)
                 ):
                     raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+                if dashboard.id != getattr(self.instance, "dashboard_id", None):
+                    self._require_viewer_access(dashboard, "dashboard_id", "dashboard")
         elif self.instance is not None:
             dashboard = self.instance.dashboard
 
         if "dashboard_item" in attrs:
             insight = attrs["dashboard_item"]
+            if insight is not None and insight.pk != getattr(self.instance, "dashboard_item_id", None):
+                self._require_viewer_access(insight, "dashboard_item", "insight")
         else:
             insight = getattr(self.instance, "dashboard_item", None)
 
@@ -185,6 +192,15 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def _require_viewer_access(
+        self, parent: Dashboard | Insight, field: str, resource: Literal["dashboard", "insight"]
+    ) -> None:
+        user_access_control = self.context["view"].user_access_control
+        if isinstance(self.context["request"].user, User) and user_access_control.denied_object_ids(
+            resource, [(str(parent.pk), parent.team_id, parent.created_by_id)], "viewer"
+        ):
+            raise serializers.ValidationError({field: f"You need viewer access to this {resource} to annotate it."})
+
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
@@ -198,7 +214,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
-class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
+class AnnotationsLimitOffsetPagination(BoundedLimitOffsetPagination):
     default_limit = 1000
 
 
@@ -219,7 +235,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             # `date_marker` alone is not a total order, so limit-offset pages can repeat or drop rows.
-            queryset = queryset.order_by("-date_marker", "-id")
+            queryset = strict_fetch(queryset.order_by("-date_marker", "-id"))
         if self.action != "partial_update":
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
             # That's because annotations are restored with a PATCH request setting `deleted` to `False`

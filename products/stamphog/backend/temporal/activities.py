@@ -33,7 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -51,11 +51,14 @@ from prometheus_client import Counter
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import User
 from posthog.ph_client import ph_background_capture, ph_scoped_capture
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import asyncify
 
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
@@ -63,6 +66,7 @@ from products.stamphog.backend.facade.enums import (
     ReviewTrigger,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun, get_finished_review_hooks
 from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidenceProvider,
     ReviewEvidenceState,
@@ -94,6 +98,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
+    ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
     PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
@@ -106,8 +111,6 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_OPTIONAL_POLICY_PATHS,
     STAMPHOG_POLICY_ENTRYPOINT,
     STAMPHOG_POLICY_PATHS,
-    STAMPHOG_REVIEW_GUIDANCE_PATH,
-    STAMPHOG_REVIEWHOG_LABEL,
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH,
@@ -134,12 +137,6 @@ _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_t
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
-
-# Server-shipped default policy files, the base layer every repo's config sits on. Named by the
-# basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
-# config reviews under these as-is, a repo's policy.yml overlays its sections onto the default's
-# (see _effective_policy_files), and a repo's review-guidance.md replaces the default wholesale.
-_POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "logic" / "policy_defaults"
 
 
 @dataclass
@@ -173,11 +170,26 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
+def _without_nul(value: Any) -> Any:
+    """Drop NUL characters from every string in ``value``.
+
+    The context holds PR text, and Postgres refuses ``\\u0000`` in jsonb. One NUL in a PR body or
+    comment fails the whole write, and every retry and re-review of that PR fails the same way.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_without_nul(item) for item in value]
+    return value
+
+
 def _output_merge(updates: dict[str, Any]) -> Func:
     """Postgres ``output || updates``: a top-level key merge that the database performs."""
     return Func(
         Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
-        Cast(Value(json.dumps(updates, cls=DjangoJSONEncoder)), output_field=JSONField()),
+        Cast(Value(json.dumps(_without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
@@ -195,7 +207,7 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
         output=_output_merge(updates), updated_at=timezone.now()
     )
-    run.output = {**(run.output or {}), **updates}
+    run.output = {**(run.output or {}), **_without_nul(updates)}
 
 
 # aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
@@ -492,6 +504,56 @@ class _StepTimer:
             self.timings_ms[name] = int((time.monotonic() - started) * 1000)
 
 
+class TransientGitHubError(NonReportableError):
+    """A GitHub 5xx or timeout on an attempt that Temporal still retries. The activity still fails,
+    so a review never runs with incomplete context, but only the final attempt reaches error tracking."""
+
+
+# The head-fetch command exits with this code when the pull ref names a newer commit. Git does not
+# use it, so a moved head stays apart from a git failure.
+_HEAD_MOVED_EXIT_CODE = 75
+_HEAD_MOVED_OUTPUT_KEY = "head_moved"
+
+
+class PullRequestHeadMovedError(RuntimeError):
+    """The PR head moved after this run was queued."""
+
+
+def _is_transient_github_error(error: Exception) -> bool:
+    if isinstance(error, requests.Timeout):
+        return True
+    return isinstance(error, StamphogGitHubError) and error.status_code is not None and error.status_code >= 500
+
+
+# GitHub asks for at least a minute before a retry when a limit gives no reset time (a secondary limit).
+# The cap keeps the wait inside the review's time budget.
+_GITHUB_RATE_LIMIT_MIN_RETRY_SECONDS = 60
+_GITHUB_RATE_LIMIT_MAX_RETRY_SECONDS = 5 * 60
+
+
+@contextmanager
+def _wait_out_github_rate_limit() -> Iterator[None]:
+    """Make Temporal's next attempt wait until the GitHub budget allows the call again.
+
+    The budget is GitHub's own rate limit, or the egress limiter that sheds a call before it is sent.
+    The activity retry policy backs off for seconds, and either limit lasts a minute or more, so
+    every attempt fails inside the same window. The last attempt raises the original error, so the
+    failure names the limit and not a retry that will not happen.
+    """
+    try:
+        yield
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as error:
+        if activity.info().attempt >= ACTIVITY_RETRY_POLICY.maximum_attempts:
+            raise
+        retry_after = error.retry_after if isinstance(error, GitHubRateLimitError) else None
+        delay = min(max(retry_after or 0, _GITHUB_RATE_LIMIT_MIN_RETRY_SECONDS), _GITHUB_RATE_LIMIT_MAX_RETRY_SECONDS)
+        raise NonReportableApplicationError(
+            f"GitHub rate limited the call, retrying in {delay}s",
+            type="GitHubRateLimitError",
+            next_retry_delay=timedelta(seconds=delay),
+        ) from error
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
@@ -500,6 +562,16 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     The reads are independent GitHub round trips, so they run concurrently. Only the reads that need
     the PR's author or its file list wait for those two.
     """
+    try:
+        with _wait_out_github_rate_limit():
+            return _fetch_review_context(input)
+    except (StamphogGitHubError, requests.Timeout) as error:
+        if _is_transient_github_error(error) and activity.info().attempt < ACTIVITY_RETRY_POLICY.maximum_attempts:
+            raise TransientGitHubError(str(error)) from error
+        raise
+
+
+def _fetch_review_context(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -812,14 +884,13 @@ def refresh_review_evidence(input: StamphogReviewInput) -> dict:
     repo = repo_config.repository
     number = run.pull_request.pr_number
     client = StamphogGitHubClient(repo_config.installation_id)
-    _merge_run_output(
-        run,
-        {
+    with _wait_out_github_rate_limit():
+        evidence = {
             "reviews": client.get_pr_reviews(repo, number),
             "discussion": client.get_pr_discussion(repo, number),
             "review_threads": client.get_pr_review_threads(repo, number),
-        },
-    )
+        }
+    _merge_run_output(run, evidence)
     return {"refreshed": True}
 
 
@@ -1144,6 +1215,8 @@ def _create_review_sandbox(
             )
     except Exception as exc:
         _destroy_sandbox_in_background(sandbox, str(run.id))
+        if isinstance(exc, PullRequestHeadMovedError):
+            _merge_run_output(run, {_HEAD_MOVED_OUTPUT_KEY: True})
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
     return sandbox
 
@@ -1211,7 +1284,9 @@ def _run_reviewer(
     token_path = shlex.quote(STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH)
     command = (
         f'export AI_GATEWAY_API_KEY="$(cat {token_path})" && rm -f {token_path} && '
+        f'{_SANDBOX_PYTHON_VAR}="$(command -v python3)" && '
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
+        f"STAMPHOG_REPO_ROOT={shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} "
         f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
     )
     with timer.step("reviewer"):
@@ -1848,31 +1923,20 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         activity.logger.info(f"Run {run.id} superseded during verdict posting; verdict not saved")
         return {"verdict": "skipped_superseded"}
 
-    # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
-    # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label starts
-    # its review (ReviewHog's label consumer accepts stamphog[bot] as a labeler and strips other bots' labels).
+    # Right after the save wins: the GitHub steps below can still fail the activity, and the
+    # outcome must not wait on them. Running it before the save would hand a stale refusal to
+    # ReviewHog after a superseding delivery overrode it (a newer run might approve the same head).
     #
-    # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
-    # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
-    # A self-driving PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's
-    # deeper review is the next step rather than a second unrequested opinion.
-    #
-    # This is a secondary, cross-product notification that must never jeopardize the verdict — the
-    # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
-    # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
-    # requests.RequestException the egress layer raises on rate limits and network blips, neither a
-    # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
-    # missed handoff, not corruption.
-    if is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value:
-        try:
-            client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
-        except Exception:
-            # Format repo/pr into the message — activity.logger is a stdlib LoggerAdapter that
-            # raises TypeError on arbitrary kwargs, which would escape this best-effort catch.
-            activity.logger.exception(
-                f"stamphog: reviewhog handoff failed for {repo}#{pull_request.pr_number}; verdict still posted"
-            )
+    # Only a self-driving refusal asks for an external review. A human PR has an author who reads the
+    # refusal and decides what to do about it, and in ALL mode the handoff would fire on PRs nobody
+    # asked stamphog to look at. A self-driving PR has no such author — the refusal sits unread until
+    # Inbox triage — so ReviewHog's deeper review is the next step rather than a second unrequested opinion.
+    _notify_finished_review(
+        run,
+        input.team_id,
+        ReviewRunStatus(run.status),
+        request_external_review=is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value,
+    )
 
     # Close the merge-before-approval race only AFTER this run's APPROVED verdict is durably saved. If
     # the PR auto-merged the instant GitHub recorded the approval, the closed webhook may run before this
@@ -1896,6 +1960,31 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+
+
+def _notify_finished_review(
+    run: ReviewRun, team_id: int, status: ReviewRunStatus, *, request_external_review: bool = False
+) -> None:
+    """Tell the registered callbacks the outcome the run just saved. Called after the terminal save."""
+    pull_request = run.pull_request
+    finished = FinishedReviewRun(
+        run_id=run.id,
+        team_id=team_id,
+        repository=pull_request.repo_config.repository,
+        pr_number=pull_request.pr_number,
+        status=status,
+        verdict=ReviewVerdict(run.verdict),
+        head_sha=run.head_sha,
+        author_login=pull_request.author_login,
+        head_branch=pull_request.head_branch,
+        request_external_review=request_external_review,
+    )
+    for hook in get_finished_review_hooks():
+        # A callback belongs to another product, and the outcome is already saved and posted.
+        try:
+            hook(finished)
+        except Exception:
+            activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
 
 
 @activity.defn
@@ -1923,6 +2012,17 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     if run.verdict != ReviewVerdict.APPROVED and run.posted_review_id and run.approval_dismissed_at is None:
         _dismiss_orphaned_approval(client, run, input.team_id)
+    # A moved head is a supersession, not a failure. The push that moved it queues the review of the
+    # new head, so the run reports no failure event and posts no failure notice. A notice here would
+    # ask the author to push again for a review that is already queued.
+    if (run.output or {}).get(_HEAD_MOVED_OUTPUT_KEY):
+        now = timezone.now()
+        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+            status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now
+        )
+        _remove_own_eyes_reaction(client, run)
+        _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
+        return
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
@@ -1936,6 +2036,10 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         .exclude(status__in=TERMINAL_STATUSES)
         .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
+    # Right after the save wins, before the cleanup below can fail the activity: a retry stops at
+    # the terminal guard and would never report.
+    if marked_failed:
+        _notify_finished_review(run, input.team_id, ReviewRunStatus.FAILED)
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
     # two concurrently failing runs could each defer to the other and leak the reaction.
@@ -1969,10 +2073,13 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
             },
         )
 
-    # Last, because this step raises. A retry returns through the terminal guard, which posts the
-    # notice and nothing else, so the event above must reach PostHog on this attempt.
     if marked_failed:
+        # Last, because this step raises. A retry returns through the terminal guard, which posts the
+        # notice and nothing else, so the event above must reach PostHog on this attempt.
         _post_failure_notice(client, run, input.team_id)
+
+
+_SANDBOX_PYTHON_VAR = "STAMPHOG_PYTHON"
 
 
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
@@ -1984,10 +2091,17 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     to a hostile package index — arbitrary code execution inside a sandbox that holds a live
     installation token. ``--no-config`` ignores discovered uv config, ``--no-project`` ignores
     the surrounding project/lockfile; the engine's own PEP 723 script pins its deps.
+
+    Interpreter discovery reads the checkout too: uv looks for a virtual environment in the working
+    directory and its parents, and it executes each candidate to query it before any version or
+    ``--managed-python`` filter applies. Only an absolute ``--python`` path skips that discovery, so
+    the caller resolves the image's ``python3`` into ``_SANDBOX_PYTHON_VAR`` before it changes into
+    the checkout.
     """
     parts = shlex.split(command) if isinstance(command, str) else list(command)
     if len(parts) >= 2 and parts[0] == "uv" and parts[1] == "run":
-        parts = [*parts[:2], "--no-config", "--no-project", *parts[2:]]
+        uv_run = shlex.join([*parts[:2], "--no-config", "--no-project"])
+        return f'{uv_run} --python "${_SANDBOX_PYTHON_VAR}" {shlex.join(parts[2:])}'
     return shlex.join(parts)
 
 
@@ -2072,8 +2186,12 @@ def _clone_pr(
             result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS))
         except Exception as exc:
             raise RuntimeError(scrub_credentials(str(exc), token, credential.secret)) from None
-        if result.exit_code != 0:
-            raise RuntimeError(f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}")
+        if result.exit_code == 0:
+            return
+        message = f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}"
+        if result.exit_code == _HEAD_MOVED_EXIT_CODE:
+            raise PullRequestHeadMovedError(message)
+        raise RuntimeError(message)
 
     if step == "head":
         fetch_head = (
@@ -2081,7 +2199,7 @@ def _clone_pr(
             f"git remote add origin {shlex.quote(repo_url)} && "
             f"{auth} fetch --quiet --depth=1 --no-tags origin {shlex.quote(f'pull/{pr_number}/head')} && "
             f'fetched=$(git rev-parse FETCH_HEAD) && if [ "$fetched" != {shlex.quote(head_sha)} ]; then '
-            f'echo "the PR head is now $fetched" >&2; exit 1; fi'
+            f'echo "the PR head is now $fetched" >&2; exit {_HEAD_MOVED_EXIT_CODE}; fi'
         )
         _execute_or_raise(fetch_head, f"Failed to fetch the PR head {head_sha}")
 
@@ -2155,28 +2273,13 @@ def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str
         )
 
 
-def _read_default_policy_file(path: str) -> str:
-    """Read a shipped default by the policy path's basename; missing means a server packaging bug."""
-    default_file = _POLICY_DEFAULTS_DIR / Path(path).name
-    if not default_file.is_file():
-        raise RuntimeError(f"server-shipped default policy file missing: {default_file} (for {path})")
-    return default_file.read_text()
+def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
+    """The repository's policy.yml as it is, once it parses as a YAML mapping.
 
-
-def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) -> str:
-    """Overlay the repo's policy.yml top-level sections onto the shipped default.
-
-    Lets a repo declare only the sections it wants to change (e.g. just ``size_gate``); each
-    present section replaces the default's section wholesale. The engine's strict loader still
-    validates the merged doc inside the sandbox, so required sections and the self-governance
-    deny can't be dropped by omission, and a full-schema repo file overlays to exactly itself.
-    The ``digest:`` key passes through harmlessly (the engine tolerates and ignores it).
-
-    A present-but-unusable repo file (malformed YAML, non-mapping root) fails closed: the repo
-    declared *something*, and silently reviewing under pure defaults would be wrong.
+    The engine merges it onto the default it ships (`merge_policy` in the engine's policy.py) and
+    validates the result. This check only fails a malformed file closed before a sandbox exists:
+    the repository declared something, and reviewing under pure defaults would be wrong.
     """
-    if repo_text is None:
-        return default_text
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
@@ -2186,34 +2289,27 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
-    merged = {**yaml.safe_load(default_text), **overlay}
-    # sort_keys=False keeps the default's section order stable in the dumped doc.
-    return yaml.safe_dump(merged, sort_keys=False)
+    return repo_text
 
 
 def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str, str]:
-    """The final injection set: the repo's default-branch files layered over the hosted defaults.
+    """The repository's default-branch policy files that go into the tree, as they are.
 
-    policy.yml: section overlay onto the shipped default (see _overlay_policy_yaml).
-    review-guidance.md: the repo's copy if present, else the shipped default.
-    Optional paths (steering.md): the repo's copy if present, else omitted — no default exists.
+    The engine ships the defaults and layers these over them: it merges policy.yml onto its default
+    policy, a review-guidance.md replaces its default guidance, and steering.md is appended. A file
+    the repository does not carry is left out, and the PR head's copy is still wiped.
     """
     defaulted = [path for path in STAMPHOG_POLICY_PATHS if path not in policy_files]
     if defaulted:
-        activity.logger.info(f"Policy files for {repo} using hosted defaults: {defaulted}")
+        activity.logger.info(f"Policy files for {repo} using shipped defaults: {defaulted}")
 
     effective = {
-        STAMPHOG_POLICY_ENTRYPOINT: _overlay_policy_yaml(
-            repo,
-            _read_default_policy_file(STAMPHOG_POLICY_ENTRYPOINT),
-            policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
-        ),
-        STAMPHOG_REVIEW_GUIDANCE_PATH: policy_files.get(STAMPHOG_REVIEW_GUIDANCE_PATH)
-        or _read_default_policy_file(STAMPHOG_REVIEW_GUIDANCE_PATH),
+        path: policy_files[path]
+        for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
+        if path in policy_files
     }
-    for path in STAMPHOG_OPTIONAL_POLICY_PATHS:
-        if path in policy_files:
-            effective[path] = policy_files[path]
+    if STAMPHOG_POLICY_ENTRYPOINT in effective:
+        effective[STAMPHOG_POLICY_ENTRYPOINT] = _checked_repo_policy_yaml(repo, effective[STAMPHOG_POLICY_ENTRYPOINT])
     return effective
 
 
@@ -2246,8 +2342,9 @@ def _review_payload_command() -> str:
     """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
     Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
-    the (untrusted) PR head carried. The engine reads them from the tree at import via its repo-root
-    walk, which is what makes the run judge the PR against our policy, not the PR's own.
+    the (untrusted) PR head carried. The engine reads them at import from the checkout root that the
+    reviewer command names in STAMPHOG_REPO_ROOT, which is what makes the run judge the PR against our
+    policy, not the PR's own.
 
     Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
     file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
@@ -2257,11 +2354,18 @@ def _review_payload_command() -> str:
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
     would import ahead of uv's installed dependency, which is arbitrary code execution with the
     sandbox's LLM creds. Overwriting only our known modules would leave those shadow files in place.
+
+    The command fails before it removes or extracts anything when a parent directory of a payload
+    destination is a symlink, such as a PR that commits `tools` as a link. tar follows a symlink in
+    a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
     policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
+    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
+    no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
-        f"cd {repo_dir} && rm -f {policy_paths} && "
+        f"cd {repo_dir} && {no_symlinked_parents} && rm -f {policy_paths} && "
         f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
         f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
         f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"
@@ -2273,8 +2377,8 @@ def _ship_review_payload(
 ) -> None:
     """Place the trusted policy, the engine, the owners resolver and the review context in the checkout.
 
-    The engine goes under ``<checkout>/tools/pr-approval-agent``, so its repo-root walk lands on the
-    checkout and reads the injected trusted policy. We always run our version, not the PR's.
+    The engine goes under ``<checkout>/tools/pr-approval-agent`` and reads the injected trusted policy
+    from the checkout root. We always run our version, not the PR's.
     """
     sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
     result = sandbox.execute(_review_payload_command(), timeout_seconds=_step_timeout(deadline, 60))

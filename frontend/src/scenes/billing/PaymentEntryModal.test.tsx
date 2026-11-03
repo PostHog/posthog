@@ -17,17 +17,21 @@ import { paymentEntryLogic } from './paymentEntryLogic'
 import { PaymentEntryModal, PaymentForm } from './PaymentEntryModal'
 
 const mockConfirmPayment = jest.fn((_: { confirmParams: { return_url: string } }) => new Promise(() => {}))
+let mockStripeReady = true
+let mockElementsReady = true
 
 jest.mock('@stripe/react-stripe-js', () => ({
     PaymentElement: () => null,
-    useStripe: () => ({ confirmPayment: mockConfirmPayment }),
-    useElements: () => ({}),
+    useStripe: () => (mockStripeReady ? { confirmPayment: mockConfirmPayment } : null),
+    useElements: () => (mockElementsReady ? {} : null),
 }))
 
 const BLOCKED_MESSAGE = "You've been blocked from subscribing. Please contact support."
 
 describe('PaymentForm', () => {
     beforeEach(() => {
+        mockStripeReady = true
+        mockElementsReady = true
         initKeaTests()
         paymentEntryLogic.mount()
     })
@@ -37,14 +41,33 @@ describe('PaymentForm', () => {
         paymentEntryLogic.unmount()
     })
 
-    it('returns from Stripe to the paying organization', async () => {
+    it.each([
+        { waitingFor: 'Stripe', stripeReady: false, elementsReady: true },
+        { waitingFor: 'Elements', stripeReady: true, elementsReady: false },
+        { waitingFor: 'Stripe and Elements', stripeReady: false, elementsReady: false },
+    ])('waits for $waitingFor before confirming payment', async ({ stripeReady, elementsReady }) => {
         const organizationId = organizationLogic.values.currentOrganization!.id
         paymentEntryLogic.actions.beginPaymentFlow(organizationId, '/project/1/replay')
-        render(
+        mockStripeReady = stripeReady
+        mockElementsReady = elementsReady
+        const { rerender } = render(
             <Provider>
                 <PaymentForm />
             </Provider>
         )
+        expect(screen.getByText('Submit').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(screen.getByText('Submit'))
+        expect(mockConfirmPayment).not.toHaveBeenCalled()
+        expect(paymentEntryLogic.values.stripeError).toBeNull()
+
+        mockStripeReady = true
+        mockElementsReady = true
+        rerender(
+            <Provider>
+                <PaymentForm />
+            </Provider>
+        )
+        expect(screen.getByText('Submit').closest('button')).toHaveAttribute('aria-disabled', 'false')
         fireEvent.click(screen.getByText('Submit'))
         await waitFor(() => expect(mockConfirmPayment).toHaveBeenCalledTimes(1))
         const returnUrl = new URL(mockConfirmPayment.mock.calls[0][0].confirmParams.return_url)

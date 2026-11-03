@@ -21,6 +21,7 @@ import {
     Link,
     Popover,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import api from 'lib/api'
 import { FlagSelector } from 'lib/components/FlagSelector'
@@ -29,8 +30,10 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils/datetime'
@@ -280,7 +283,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasTargetingSet,
         selectedPageIndex,
         selectedSection,
-        isEditingSurvey,
         targetingFlagFilters,
         hasBranchingLogic,
         deviceTypesMatchTypeValidationError,
@@ -309,6 +311,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
     const canConvertToHosted = hostedEditorEnabled && survey.type !== SurveyType.ExternalSurvey
@@ -467,53 +470,94 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     renameDebounceMs={0}
                     forceEdit
                     actions={
-                        <>
-                            {canUseSurveyWizard(survey) && (
-                                <LemonButton
-                                    data-attr="switch-to-wizard"
-                                    type="tertiary"
-                                    size="small"
-                                    to={urls.surveyWizard(id)}
-                                    onClick={() => setPreferredEditor('guided')}
+                        todayRailNav ? (
+                            <>
+                                {canUseSurveyWizard(survey) && (
+                                    <Button
+                                        data-attr="switch-to-wizard"
+                                        render={<LinkPrimitive to={urls.surveyWizard(id)} />}
+                                        onClick={() => setPreferredEditor('guided')}
+                                    >
+                                        Guided editor
+                                    </Button>
+                                )}
+                                {canConvertToHosted && (
+                                    <Button data-attr="convert-to-hosted-survey" onClick={convertToHostedSurvey}>
+                                        Convert to hosted
+                                    </Button>
+                                )}
+                                <Button
+                                    data-attr="cancel-survey"
+                                    variant="outline"
+                                    loading={surveyLoading}
+                                    onClick={handleCancelClick}
                                 >
-                                    Guided editor
-                                </LemonButton>
-                            )}
-                            {canConvertToHosted && (
-                                <LemonButton
-                                    data-attr="convert-to-hosted-survey"
-                                    type="tertiary"
-                                    size="small"
-                                    onClick={convertToHostedSurvey}
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    data-attr="save-survey"
+                                    type="submit"
+                                    loading={surveyLoading}
+                                    form="survey"
+                                    disabledReason={
+                                        hasVisibleTranslationValidationErrors
+                                            ? 'Cannot save: please fix translation validation errors below'
+                                            : undefined
+                                    }
                                 >
-                                    Convert to hosted
+                                    {id === 'new' ? 'Save as draft' : 'Save'}
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                {canUseSurveyWizard(survey) && (
+                                    <LemonButton
+                                        data-attr="switch-to-wizard"
+                                        type="tertiary"
+                                        size="small"
+                                        to={urls.surveyWizard(id)}
+                                        onClick={() => setPreferredEditor('guided')}
+                                    >
+                                        Guided editor
+                                    </LemonButton>
+                                )}
+                                {canConvertToHosted && (
+                                    <LemonButton
+                                        data-attr="convert-to-hosted-survey"
+                                        type="tertiary"
+                                        size="small"
+                                        onClick={convertToHostedSurvey}
+                                    >
+                                        Convert to hosted
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    data-attr="cancel-survey"
+                                    type="secondary"
+                                    loading={surveyLoading}
+                                    onClick={handleCancelClick}
+                                    size="small"
+                                >
+                                    Cancel
                                 </LemonButton>
-                            )}
-                            <LemonButton
-                                data-attr="cancel-survey"
-                                type="secondary"
-                                loading={surveyLoading}
-                                onClick={handleCancelClick}
-                                size="small"
-                            >
-                                Cancel
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                data-attr="save-survey"
-                                htmlType="submit"
-                                loading={surveyLoading}
-                                form="survey"
-                                size="small"
-                                disabledReason={
-                                    hasVisibleTranslationValidationErrors
-                                        ? 'Cannot save: please fix translation validation errors below'
-                                        : undefined
-                                }
-                            >
-                                {id === 'new' ? 'Save as draft' : 'Save'}
-                            </LemonButton>
-                        </>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-survey"
+                                    htmlType="submit"
+                                    loading={surveyLoading}
+                                    form="survey"
+                                    size="small"
+                                    disabledReason={
+                                        hasVisibleTranslationValidationErrors
+                                            ? 'Cannot save: please fix translation validation errors below'
+                                            : undefined
+                                    }
+                                >
+                                    {id === 'new' ? 'Save as draft' : 'Save'}
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
                 <SurveyPublicContentNotice />
@@ -630,7 +674,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         return null
                     })()}
                 </div>
-                <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
+                <div className="flex flex-col @min-[60rem]/main-content:grid @min-[60rem]/main-content:grid-cols-[1fr_400px] gap-x-4 gap-y-8 h-full">
                     <div className="flex flex-col gap-2 flex-1 SurveyForm">
                         <LemonCollapse
                             activeKey={selectedSection || undefined}
@@ -647,7 +691,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             {({ onChange, value }) => {
                                                 return (
                                                     <div className="flex flex-col gap-2">
-                                                        <div className="grid grid-cols-2 2xl:grid-cols-4 gap-4">
+                                                        <div className="grid grid-cols-2 @min-[80rem]/main-content:grid-cols-4 gap-4">
                                                             <PresentationTypeCard
                                                                 active={value === SurveyType.Popover}
                                                                 onClick={() => {
@@ -1949,7 +1993,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 previewPageIndex={selectedPageIndex || 0}
                                 survey={previewSurvey}
                                 handleSetSelectedPageIndex={(pageIndex) => setSelectedPageIndex(pageIndex)}
-                                isEditingSurvey={isEditingSurvey}
                             />
                         </div>
                     </div>

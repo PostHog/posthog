@@ -45,6 +45,11 @@ def test_registered_on_recalculation_queue():
     assert is_task_queue_supported(
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor
     )
+    # Both queue names alias to one value in test settings, so only the tuple shows a missing activity queue.
+    assert ExperimentsRecalculationMetricsInterceptor.task_queue == (
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+    )
 
 
 @parameterized.expand(

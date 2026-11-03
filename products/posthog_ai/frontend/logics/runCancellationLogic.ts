@@ -69,6 +69,9 @@ export interface runCancellationLogicActions {
     cancelWhenReady: () => {
         value: true
     }
+    cancellationFailed: () => {
+        value: true
+    }
     clearCancellation: () => {
         value: true
     }
@@ -109,6 +112,8 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
         requestCancellation: true,
         cancelWhenReady: true,
         setCancellationState: (state: CancellationState) => ({ state }),
+        // Its own action, so a listener can tell a failed Stop from the clear that a turn end brings.
+        cancellationFailed: true,
         clearCancellation: true,
     }),
     reducers({
@@ -116,6 +121,7 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
             null as CancellationState,
             {
                 setCancellationState: (_, { state }) => state,
+                cancellationFailed: () => null,
                 clearCancellation: () => null,
             },
         ],
@@ -156,11 +162,14 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
                 }
             } catch (error) {
                 if (!disposables.isDisposed && cache.cancelRequest === request && values.bootstrappedRunId === runId) {
-                    actions.clearCancellation()
+                    actions.cancellationFailed()
                     lemonToast.error("Couldn't stop this run. Please try again.")
                     posthog.captureException(error)
                 }
             }
+        },
+        cancellationFailed: () => {
+            cache.cancelRequest = undefined
         },
         clearCancellation: () => {
             cache.cancelRequest = undefined

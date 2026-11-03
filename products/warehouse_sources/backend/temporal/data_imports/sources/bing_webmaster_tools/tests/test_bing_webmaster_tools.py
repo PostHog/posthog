@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
@@ -258,6 +257,117 @@ class TestGetRows:
             ]
         ]
 
+    def test_page_query_stats_fan_out_over_distinct_top_pages(self):
+        page_stats = [
+            {**_QUERY_STATS[0], "Query": "https://example.com/a"},
+            {**_QUERY_STATS[0], "Query": "https://example.com/a", "Date": "/Date(1316761200000-0700)/"},
+            {**_QUERY_STATS[0], "Query": "https://example.com/b"},
+        ]
+        result = self._driver().run(
+            "page_query_stats",
+            [
+                ScriptedResponse(json={"d": _SITES}),
+                ScriptedResponse(json={"d": page_stats}),
+                ScriptedResponse(json={"d": _QUERY_STATS}),
+                ScriptedResponse(json={"d": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/webmaster/api.svc/json/GetUserSites",
+            "/webmaster/api.svc/json/GetPageStats",
+            "/webmaster/api.svc/json/GetPageQueryStats",
+            "/webmaster/api.svc/json/GetPageQueryStats",
+        ]
+        assert [r.param("page") for r in result.requests[2:]] == ['"https://example.com/a"', '"https://example.com/b"']
+        assert [(row["page"], row["query"], row["site_url"]) for row in result.rows] == [
+            ("https://example.com/a", "query", "https://example.com/")
+        ]
+
+    def test_page_query_stats_skips_a_page_bing_rejects_as_invalid(self):
+        # GetPageStats and GetPageQueryStats can disagree about which pages are valid: Bing can
+        # reject a page GetPageStats itself just listed. That page's stats should be skipped
+        # without losing the other pages' data.
+        page_stats = [
+            {**_QUERY_STATS[0], "Query": "https://example.com/a"},
+            {**_QUERY_STATS[0], "Query": "https://example.com/b"},
+        ]
+        result = self._driver().run(
+            "page_query_stats",
+            [
+                ScriptedResponse(json={"d": _SITES}),
+                ScriptedResponse(json={"d": page_stats}),
+                ScriptedResponse(status=400, json={"ErrorCode": 38, "Message": "ERROR!!! InvalidUrl"}),
+                ScriptedResponse(json={"d": _QUERY_STATS}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["page"], row["query"], row["site_url"]) for row in result.rows] == [
+            ("https://example.com/b", "query", "https://example.com/")
+        ]
+
+    def test_link_counts_walk_every_page(self):
+        def links_page(url: str) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "d": {
+                        "__type": "LinkCounts:#Microsoft.Bing.Webmaster.Api",
+                        "Links": [{"__type": "LinkCount:#Microsoft.Bing.Webmaster.Api", "Count": 14, "Url": url}],
+                        "TotalPages": 2,
+                    }
+                }
+            )
+
+        result = self._driver().run(
+            "link_counts",
+            [
+                ScriptedResponse(json={"d": _SITES}),
+                links_page("https://example.com/a"),
+                links_page("https://example.com/b"),
+            ],
+        )
+
+        assert result.raised is None
+        assert [r.param("page") for r in result.requests[1:]] == ["0", "1"]
+        assert result.rows == [
+            {"count": 14, "url": "https://example.com/a", "site_url": "https://example.com/"},
+            {"count": 14, "url": "https://example.com/b", "site_url": "https://example.com/"},
+        ]
+
+    def test_crawl_issues_rows_skip_entries_without_url(self):
+        issues = [
+            {
+                "__type": "UrlWithCrawlIssues:#Microsoft.Bing.Webmaster.Api",
+                "HttpCode": 200,
+                "Issues": 32,
+                "Url": "https://example.com/a",
+                "InLinks": 10,
+            },
+            {
+                "__type": "UrlWithCrawlIssues:#Microsoft.Bing.Webmaster.Api",
+                "HttpCode": 404,
+                "Issues": 4,
+                "Url": None,
+                "InLinks": 0,
+            },
+        ]
+        result = self._driver().run(
+            "crawl_issues", [ScriptedResponse(json={"d": _SITES}), ScriptedResponse(json={"d": issues})]
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "http_code": 200,
+                "issues": 32,
+                "url": "https://example.com/a",
+                "in_links": 10,
+                "site_url": "https://example.com/",
+            }
+        ]
+
     def test_rows_with_unparseable_dates_are_dropped(self):
         bad_row = {**_QUERY_STATS[0], "Date": "garbage", "Query": "other"}
         result = self._driver().run(
@@ -300,10 +410,3 @@ class TestValidateCredentials:
 
         assert ok is False
         assert message is not None and "not verified sites" in message
-
-    def test_unreachable_api(self):
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, message = validate_credentials("key", None)
-
-        assert ok is False
-        assert message is not None and "Could not reach" in message

@@ -14,7 +14,8 @@ class SecurityHubEndpoint:
     result_key: str
     primary_keys: tuple[str, ...]
     partition_key: str | None = None
-    page_size: int = 100
+    # None for operations that return everything in one response and take no MaxResults.
+    page_size: int | None = 100
     params: tuple[tuple[str, Any], ...] = ()
     # Endpoint whose rows supply this endpoint's required path parameter, with that row field.
     parent: tuple[str, str] | None = None
@@ -56,9 +57,51 @@ ENDPOINTS: dict[str, SecurityHubEndpoint] = {
         # The API defaults to enabled members only. Include invited and removed accounts too.
         params=(("OnlyAssociated", False),),
     ),
+    "remediations": SecurityHubEndpoint(
+        operation="GetRemediationsV2", result_key="Items", primary_keys=("target_uid",)
+    ),
+    "remediation_exposures": SecurityHubEndpoint(
+        operation="ListExposuresByRemediationV2",
+        result_key="Items",
+        # One exposure finding can link to several remediation targets.
+        primary_keys=("target_uid", "metadata_uid"),
+        parent=("remediations", "TargetUid"),
+    ),
+    "insight_results": SecurityHubEndpoint(
+        operation="GetInsightResults",
+        result_key="InsightResults",
+        primary_keys=("insight_arn", "group_by_attribute_value"),
+        page_size=None,
+        parent=("insights", "InsightArn"),
+    ),
+    # Fans out over every finding. Each request takes the finding's Id and ProductArn.
+    "finding_history": SecurityHubEndpoint(
+        operation="GetFindingHistory",
+        result_key="Records",
+        primary_keys=("product_arn", "finding_id", "update_time"),
+        partition_key="update_time",
+    ),
+    "findings_v2": SecurityHubEndpoint(
+        operation="GetFindingsV2", result_key="Findings", primary_keys=("product_uid", "finding_uid")
+    ),
+    "resources_v2": SecurityHubEndpoint(
+        operation="GetResourcesV2",
+        result_key="Resources",
+        primary_keys=("account_id", "region", "resource_type", "resource_id"),
+    ),
 }
 
-INCREMENTAL_FIELDS = {"findings": [incremental_field("updated_at")]}
+# The pinned botocore model predates these operations. Each one is a POST with only JSON body members.
+UNMODELED_OPERATION_PATHS = {
+    "GetRemediationsV2": "/GetRemediationsV2",
+    "ListExposuresByRemediationV2": "/ListExposuresByRemediationV2",
+}
+
+INCREMENTAL_FIELDS = {
+    "findings": [incremental_field("updated_at")],
+    "finding_history": [incremental_field("update_time")],
+    "findings_v2": [incremental_field("modified_time")],
+}
 ENDPOINT_DESCRIPTIONS = {
     "findings": "Security findings with severity, resources, compliance status, and workflow status.",
     "standards": "Available security standards and their descriptions.",
@@ -68,6 +111,12 @@ ENDPOINT_DESCRIPTIONS = {
     "security_control_definitions": "Security control definitions with titles, severity, and remediation guidance.",
     "products": "Product integrations that can send findings to Security Hub, with vendor names and descriptions.",
     "members": "Member accounts of the Security Hub administrator account and their relationship status.",
+    "remediations": "Remediation targets for exposure findings, sorted by priority, with their expected outcome and affected resource.",
+    "remediation_exposures": "Exposure findings linked to each remediation target, with severity before and after the fix.",
+    "insight_results": "Finding counts for each group of every custom insight.",
+    "finding_history": "Changes to each finding over time, with the fields that changed and who changed them.",
+    "findings_v2": "Security Hub findings in the Open Cybersecurity Schema Framework (OCSF) format.",
+    "resources_v2": "Resources that Security Hub tracks, with their configuration, tags, and finding summaries.",
 }
 
 ACCESS_DENIED_CODES = frozenset({"AccessDenied", "AccessDeniedException", "InvalidAccessException"})

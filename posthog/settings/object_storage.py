@@ -103,24 +103,29 @@ AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
 INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
 # Training dag (products/signals/dags/inbox_ranking/training): how many daily snapshots back the
-# examples reach, how many trailing days of reports grade a candidate, and whether a winning
-# candidate rewrites the champion pointer on its own. Promotion stays manual by default; the
-# candidate is still trained and graded daily.
-INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 60, type_cast=int)
+# examples reach, and how many trailing days of reports grade a candidate. Promotion is manual: a
+# person runs `inbox_ranking_promote_job`, which writes the served pointer.
+INBOX_RANKING_TRAINING_LOOKBACK_DAYS = get_from_env("INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 90, type_cast=int)
 INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDOUT_DAYS", 7, type_cast=int)
-INBOX_RANKING_AUTO_PROMOTE = get_from_env("INBOX_RANKING_AUTO_PROMOTE", False, type_cast=str_to_bool)
-INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAYS", 0, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.
 INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRESH_MAX_RUNS", 6, type_cast=int)
-# The family whose champion the serving manifest serves. The scoring sweep reads the manifest
-# from the deployment's own object store, so this is the only place the served family is chosen.
-INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
 # A second deployment's object store that receives a copy of every serving publish, so a region
 # that does not train still serves the trained models. Reached via ambient AWS config. Unset means
 # no mirror.
 INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
 INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
+# Project vectors in the mirror region (products/signals/dags/inbox_ranking/mirror). The region builds
+# them from its own report embeddings and the engagement export the training region writes to its
+# object store. Off by default: the schedule skips its ticks until this is set.
+INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED = get_from_env(
+    "INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED", False, type_cast=str_to_bool
+)
+# Serving manifest (products/signals/dags/inbox_ranking/training/serving.py): how many of the served
+# family's newest versions the sweep also scores, read from the last 2N days. Each one costs the
+# sweep one more model per pass. The served entry, these versions and one challenger per other family
+# share the manifest's 5 entries, so a higher N leaves less room for the challengers.
+INBOX_RANKING_SERVING_RECENT_VERSIONS = get_from_env("INBOX_RANKING_SERVING_RECENT_VERSIONS", 2, type_cast=int)
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
 # larger call is paged at this size. The sweep also gives one scorer call at most this many ids, which
 # bounds the vectors and matrices one call holds.
@@ -137,6 +142,9 @@ INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE
 INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
     "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
 )
+# Activity summary tick (products/signals/backend/activity_summary/tick.py). The `activity-summary`
+# flag payload gates the work and holds the caps, so the schedule ticks in every environment.
+ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES = get_from_env("ACTIVITY_SUMMARY_TICK_INTERVAL_MINUTES", 60, type_cast=int)
 
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs

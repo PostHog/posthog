@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.temporal.activities.classifiers import classify_message_is_agent_directed
-from products.slack_app.backend.temporal.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
+from products.slack_app.backend.temporal.slack_app_mention_processing import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
 TASK_TITLE = "Fix the checkout button not firing autocapture events"
 THREAD = [

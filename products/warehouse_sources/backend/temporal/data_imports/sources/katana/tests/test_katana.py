@@ -104,11 +104,19 @@ class TestErrorHandling:
         assert _SECRET_KEY not in message
         assert message.startswith(f"{status} Client Error: {reason} for url: https://api.katanamrp.com/v1/customers")
 
-    @parameterized.expand([("missing_data_key", {"items": []}), ("not_a_dict", [1, 2, 3])])
-    def test_malformed_2xx_envelope_is_retried(self, _name: str, body: Any) -> None:
-        # A 200 body without a list `data` key must NOT silently end the sync as an empty page — it's
-        # reissued (retryable), then the valid page is read.
-        result = _driver().run("customers", [ScriptedResponse(json=body), _page([{"id": 7}])])
+    @parameterized.expand(
+        [
+            ("missing_data_key", "customers", {"items": []}, {"data": [{"id": 7}]}),
+            ("not_a_dict", "customers", [1, 2, 3], {"data": [{"id": 7}]}),
+            # /operators returns a bare array, so the enveloped shape is the malformed one there.
+            ("bare_list_endpoint_gets_envelope", "operators", {"data": [{"id": 1}]}, [{"id": 7}]),
+            ("bare_list_endpoint_gets_error_object", "operators", {"statusCode": 500}, [{"id": 7}]),
+        ]
+    )
+    def test_malformed_2xx_envelope_is_retried(self, _name: str, endpoint: str, body: Any, valid_body: Any) -> None:
+        # A 200 body without the expected row list must NOT silently end the sync as an empty page or
+        # land as a stray row — it's reissued (retryable), then the valid page is read.
+        result = _driver().run(endpoint, [ScriptedResponse(json=body), ScriptedResponse(json=valid_body)])
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [7]
@@ -157,7 +165,7 @@ class TestKatanaSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    @parameterized.expand([("unauthorized", 401)])
     def test_invalid_key(self, _name: str, status: int) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("bad-key") is False

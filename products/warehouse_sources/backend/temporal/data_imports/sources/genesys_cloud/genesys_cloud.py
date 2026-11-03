@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 import structlog
@@ -16,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.genesys_cloud.settings import (
     ANALYTICS_PAGE_SIZE,
-    CONVERSATION_DETAILS_PATH,
     GENESYS_CLOUD_ENDPOINTS,
     LISTING_PAGE_SIZE,
     REGIONS,
@@ -50,6 +50,8 @@ class GenesysCloudResumeConfig:
     window_start: Optional[str] = None
     # Listing endpoints: next page number to read.
     page_number: Optional[int] = None
+    # Scan endpoints: cursor of the next page to read. Genesys Cloud keeps a cursor for 24 hours.
+    cursor: Optional[str] = None
 
 
 def _validated_region(region: str) -> str:
@@ -121,6 +123,54 @@ def _to_rows(conversations: list[dict[str, Any]], flatten_participants: bool) ->
     return rows
 
 
+def _status_rows(
+    user_detail: dict[str, Any], start: datetime, end: datetime, include_earlier: bool
+) -> list[dict[str, Any]]:
+    user_id = user_detail.get("userId")
+    rows: list[dict[str, Any]] = []
+    for record_type, key in (("presence", "primaryPresence"), ("routing_status", "routingStatus")):
+        for record in user_detail.get(key) or []:
+            raw = record.get("startTime")
+            if not raw:
+                continue
+            record_start = _to_utc(raw)
+            # A record overlaps every window it spans, so emit it once per run: in the window it starts in, or in
+            # the first window when it started earlier. The first window refreshes the end time of long records.
+            if record_start >= end or (record_start < start and not include_earlier):
+                continue
+            rows.append({**record, "userId": user_id, "recordType": record_type})
+    return rows
+
+
+def _query_user_window(
+    session: requests.Session,
+    url: str,
+    start: datetime,
+    end: datetime,
+    include_earlier: bool,
+) -> Iterator[tuple[list[dict[str, Any]], Optional[datetime]]]:
+    """Yield `(rows, window_end)` per page. `window_end` is set on the last page of a window."""
+    page_number = 1
+    while True:
+        body = {
+            "interval": _interval(start, end),
+            "order": "asc",
+            "paging": {"pageSize": ANALYTICS_PAGE_SIZE, "pageNumber": page_number},
+        }
+        response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        data = response.json() or {}
+        total_hits = int(data.get("totalHits") or 0)
+        user_details = data.get("userDetails") or []
+        rows = [row for detail in user_details for row in _status_rows(detail, start, end, include_earlier)]
+        # Genesys Cloud can return short pages before the last one, so only totalHits ends the window.
+        is_last_page = not user_details or page_number * ANALYTICS_PAGE_SIZE >= total_hits
+        yield rows, (end if is_last_page else None)
+        if is_last_page:
+            return
+        page_number += 1
+
+
 def _query_window(
     session: requests.Session,
     url: str,
@@ -181,11 +231,18 @@ def _iter_analytics_rows(
     else:
         start = now - INITIAL_HISTORY
 
-    url = f"{base_url}{CONVERSATION_DETAILS_PATH}"
+    url = f"{base_url}{config.path}"
+    # A resumed run already emitted the records that started before its checkpoint.
+    first_window = resume is None or not resume.window_start
     while start < now:
         window_end = min(start + ANALYTICS_WINDOW, now)
-        for conversations, finished_window_end in _query_window(session, url, config, start, window_end):
-            rows = _to_rows(conversations, config.flatten_participants)
+        pages = (
+            _query_user_window(session, url, start, window_end, include_earlier=first_window)
+            if config.kind == "user_analytics"
+            else _query_window(session, url, config, start, window_end)
+        )
+        for records, finished_window_end in pages:
+            rows = _to_rows(records, config.flatten_participants)
             if finished_window_end is not None:
                 # Stage the cursor before the yield that covers it, so a resume starts after this window.
                 resumable_source_manager.save_state(
@@ -196,6 +253,7 @@ def _iter_analytics_rows(
             if rows:
                 yield rows
         start = window_end
+        first_window = False
 
     # A later sync must derive a fresh start from its watermark instead of reusing this run's cursor.
     resumable_source_manager.clear_state()
@@ -233,6 +291,54 @@ def _iter_listing_rows(
         page_number += 1
 
 
+def _next_cursor(data: dict[str, Any], cursor_param: str) -> Optional[str]:
+    cursor = (data.get("cursors") or {}).get("after")
+    if cursor:
+        return cursor
+    # The teams listing returns its next cursor only inside nextUri.
+    next_uri = data.get("nextUri")
+    if not next_uri:
+        return None
+    values = parse_qs(urlparse(next_uri).query).get(cursor_param)
+    return values[0] if values else None
+
+
+def _iter_scan_rows(
+    session: requests.Session,
+    base_url: str,
+    config: GenesysCloudEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[GenesysCloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    cursor = resume.cursor if resume is not None else None
+    sends_resumed_cursor = cursor is not None
+
+    url = f"{base_url}{config.path}"
+    while True:
+        params: dict[str, Any] = {**config.params, config.page_size_param: LISTING_PAGE_SIZE}
+        if cursor:
+            params[config.cursor_param] = cursor
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        if sends_resumed_cursor and response.status_code in (400, 422):
+            # The saved cursor expired. Restarting here would append rows this run already loaded, so drop the
+            # cursor and fail: the retry then runs as a fresh full refresh.
+            resumable_source_manager.clear_state()
+        sends_resumed_cursor = False
+        response.raise_for_status()
+        data = response.json() or {}
+        entities = data.get("entities") or []
+        next_cursor = _next_cursor(data, config.cursor_param)
+        has_next_page = bool(entities) and bool(next_cursor)
+        if has_next_page:
+            resumable_source_manager.save_state(GenesysCloudResumeConfig(cursor=next_cursor))
+        if entities:
+            yield entities
+        if not has_next_page:
+            resumable_source_manager.clear_state()
+            return
+        cursor = next_cursor
+
+
 def genesys_cloud_source(
     region: str,
     client_id: str,
@@ -246,10 +352,12 @@ def genesys_cloud_source(
 
     def items() -> Iterator[list[dict[str, Any]]]:
         session = _make_session(region, client_id, client_secret)
-        if config.kind == "analytics":
+        if config.kind in ("analytics", "user_analytics"):
             yield from _iter_analytics_rows(
                 session, base_url, config, resumable_source_manager, db_incremental_field_last_value
             )
+        elif config.kind == "scan":
+            yield from _iter_scan_rows(session, base_url, config, resumable_source_manager)
         else:
             yield from _iter_listing_rows(session, base_url, config, resumable_source_manager)
 
@@ -260,7 +368,8 @@ def genesys_cloud_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
-        sort_mode="asc",
+        # User status records arrive grouped by user, not ordered by startTime.
+        sort_mode=None if config.kind == "user_analytics" else "asc",
     )
 
 
@@ -276,17 +385,18 @@ def validate_credentials(
     try:
         if config is None:
             response = session.get(f"{base_url}/api/v2/organizations/me", timeout=VALIDATION_TIMEOUT_SECONDS)
-        elif config.kind == "analytics":
+        elif config.kind in ("analytics", "user_analytics"):
             now = datetime.now(UTC)
             response = session.post(
-                f"{base_url}{CONVERSATION_DETAILS_PATH}",
+                f"{base_url}{config.path}",
                 json={"interval": _interval(now - timedelta(hours=1), now), "paging": {"pageSize": 1, "pageNumber": 1}},
                 timeout=VALIDATION_TIMEOUT_SECONDS,
             )
         else:
             response = session.get(
                 f"{base_url}{config.path}",
-                params={"pageSize": 1, "pageNumber": 1},
+                # The scan listings reject a limit below 10.
+                params={config.page_size_param: 10} if config.kind == "scan" else {"pageSize": 1, "pageNumber": 1},
                 timeout=VALIDATION_TIMEOUT_SECONDS,
             )
     except OAuth2AuthRequestError as e:

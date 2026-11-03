@@ -33,6 +33,21 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         required=False,
         help_text="Bucket window over which the per-issue rate limit applies, in minutes.",
     )
+    ingestion_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the project ingests exception events. When false, ingestion drops every $exception event "
+            "for this project before it is stored or billed, and the events cannot be recovered."
+        ),
+    )
+    linear_status_sync_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once "
+            "every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active "
+            "again when a linked ticket reopens."
+        ),
+    )
 
 
 class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

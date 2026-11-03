@@ -61,6 +61,8 @@ export interface SetupDetectionLogicOptions {
      * and a query on every scene entry.
      */
     cacheHasData?: boolean
+    /** Entity products can become empty when users delete their last item. Recheck mutations even after data exists. */
+    allowReturnToSetup?: boolean
     /**
      * With `cacheHasData`, re-run detection once in the background after a cached has-data
      * answer, for data users can delete or that ages out of the probe's window. A no-data answer
@@ -163,6 +165,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
         recheckActionTypes,
         cacheHasData,
         revalidateCachedHasData,
+        allowReturnToSetup,
     } = options
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
@@ -195,7 +198,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 (recheckActionTypes?.() ?? []).map((actionType) => [
                     actionType,
                     () => {
-                        if (values.currentProjectId && values.setupStatus !== 'has-data') {
+                        if (values.currentProjectId && (allowReturnToSetup || values.setupStatus !== 'has-data')) {
                             actions.detectStatus()
                         }
                     },
@@ -215,7 +218,15 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                     }
                     return
                 }
-                actions.setDetectedStatus(detectedStatus)
+                if (allowReturnToSetup && isNoDataStatus(detectedStatus)) {
+                    clearCachedHasData(values.currentTeamId, productKey)
+                    productSetupStatusLogic({ productKey }).actions.applyDetectedStatus(
+                        detectedStatus,
+                        values.currentTeamId
+                    )
+                } else {
+                    actions.setDetectedStatus(detectedStatus)
+                }
                 onDetected?.(detectedStatus)
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {

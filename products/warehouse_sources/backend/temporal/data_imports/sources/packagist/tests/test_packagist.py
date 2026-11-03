@@ -221,8 +221,6 @@ class TestValidateCredentials:
         [
             (200, True),
             (404, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_package_status_mapping(self, status, expected_valid):

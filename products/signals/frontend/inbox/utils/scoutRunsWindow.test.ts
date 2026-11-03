@@ -35,6 +35,7 @@ const NOW = new Date('2026-06-27T22:00:00Z')
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: 'signals-scout-dev-report-probe',
         skill_version: 1,
         status: 'completed',
@@ -78,11 +79,9 @@ describe('scoutRunsWindow report channel', () => {
     })
 
     describe('formatRunCost', () => {
-        // A cheap run still cost something, and "$0.00" is exactly the number this readout exists
-        // to replace, so anything under a cent gets the digits to show it.
         it.each<[number, string]>([
             [4.0327, '$4.03'],
-            [0.0042, '$0.0042'],
+            [0.0042, '$0.00'],
             [0, '$0.00'],
         ])('%s → %s', (cost, expected) => {
             expect(formatRunCost(cost)).toEqual(expected)

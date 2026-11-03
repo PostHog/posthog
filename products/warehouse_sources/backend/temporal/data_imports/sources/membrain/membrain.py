@@ -209,7 +209,7 @@ def membrain_source(
         ],
     }
 
-    # Cross-run offset resume is only safe under the explicit stable sort we request; the four
+    # Cross-run offset resume is only safe under the explicit stable sort we request; the
     # paged endpoints with no documented SortBy have an unestablished default order, where a
     # `From=N` resume could silently skip or duplicate rows if that order shifts between runs.
     # Gate both loading and saving on the same predicate and those endpoints restart at offset 0

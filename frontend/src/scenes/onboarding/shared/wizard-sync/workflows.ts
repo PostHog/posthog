@@ -10,7 +10,7 @@
 /** The SDK install — what the app-wide sync surfaces watch by default. */
 export const POSTHOG_INTEGRATION_WORKFLOW_ID = 'posthog-integration'
 
-/** `wizard self-driving` — the program the self-driving onboarding runs. */
+/** `wizard self-driving`, the program that sets up the self-driving Inbox. */
 export const SELF_DRIVING_WORKFLOW_ID = 'self-driving'
 
 /**

@@ -61,7 +61,7 @@ On an experiment with a custom exposure event these queries read the flag's call
 
 ## A1 — Multi-variant exclusion bias on uneven split [HIGH]
 
-This is the signal behind the in-app banner "Setup likely introduced bias".
+This is the signal behind the in-app warning "The uneven split may bias the results".
 
 **Evidence.** The banner's check reports a finding when **all four** hold:
 
@@ -127,8 +127,9 @@ That holds for an even split, and a user may quote it: the banner is the product
 MUST read the product's value.
 MUST NOT run the test on event counts of your own: raw exposure events include test accounts, responses that are no variant, repeated events of one person and events outside the analysis window.
 
-<!-- Source for maintainers (may rot): _calculate_srm and SRM_MINIMUM_SAMPLE_SIZE in
-products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py; hasSampleRatioMismatch in
+<!-- Source for maintainers (may rot): _calculate_srm in
+products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py; sample_ratio_test and
+SRM_MINIMUM_SAMPLE_SIZE in products/experiments/backend/health/checks/srm.py; hasSampleRatioMismatch in
 products/experiments/frontend/health/exposureHealth.ts. -->
 
 **What it means.** The distribution of exposed people differs from the flag's current split by more than chance allows.

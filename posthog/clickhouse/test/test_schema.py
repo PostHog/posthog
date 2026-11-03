@@ -135,7 +135,8 @@ def test_logs_volume_bucket_retention_covers_raw_expiry(
                 observed_timestamp + toIntervalDay(arrayJoin(%(retentions)s)) AS original_expiry_timestamp,
                 'checkout' AS service_name,
                 'INFO' AS severity_text,
-                CAST(map(), 'Map(String, String)') AS resource_attributes
+                CAST(map(), 'Map(String, String)') AS resource_attributes,
+                '' AS internal_source
         )
         SELECT retention_days, log_count FROM ("""
         + select
@@ -169,14 +170,23 @@ def test_logs_pattern_buckets_keep_stamped_empty_patterns_and_drop_unstamped_row
                 'INFO' AS severity_text,
                 CAST(map(), 'Map(String, String)') AS resource_attributes,
                 toUInt8(row.1) AS pattern_version,
-                row.2 AS pattern
-            FROM (SELECT arrayJoin([(0, '', 14), (5, '', 14), (5, 'GET <N>', 14), (5, 'GET <N>', 30)]) AS row)
+                row.2 AS pattern,
+                row.4 AS internal_source
+            FROM (
+                SELECT arrayJoin([
+                    (0, '', 14, ''),
+                    (5, '', 14, ''),
+                    (5, 'GET <N>', 14, ''),
+                    (5, 'GET <N>', 30, ''),
+                    (5, 'GET <N>', 14, 'hog_flow')
+                ]) AS row
+            )
         )
-        SELECT pattern_version, pattern, retention_days, log_count FROM ("""
+        SELECT pattern_version, pattern, internal_source, retention_days, log_count FROM ("""
         + select
-        + ") ORDER BY pattern"
+        + ") ORDER BY pattern, internal_source"
     )
-    assert rows == [(5, "", 15, 1), (5, "GET <N>", 31, 2)]
+    assert rows == [(5, "", "", 15, 1), (5, "GET <N>", "", 31, 2), (5, "GET <N>", "hog_flow", 15, 1)]
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:
@@ -310,16 +320,10 @@ def _hogql_column_names(table: Table) -> set[str]:
 
 
 # _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
-# The person columns stay hidden until every stored row carries the values the producer writes.
-# Older rows hold '{}', epoch and 'full'. Read as values, those rows let internal users through
-# test-account filters and keep lifecycle from counting anyone as new.
 _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
     "_timestamp",
     "_offset",
     "_partition",
-    "person_properties",
-    "person_created_at",
-    "person_mode",
     *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES,
 }
 

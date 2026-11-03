@@ -126,8 +126,8 @@ class BloomerangSource(ResumableSource[BloomerangSourceConfig, BloomerangResumeC
             name=ExternalDataSourceType.BLOOMERANG,
             category=DataWarehouseSourceCategory.CRM,
             keywords=["donor", "nonprofit", "fundraising"],
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Bloomerang private API key to pull your donor database into the PostHog Data warehouse, including constituents, transactions, interactions, appeals, campaigns, and funds.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Enter your Bloomerang private API key to pull your donor database into the PostHog Data warehouse, including constituents, relationships, households, addresses, emails, phones, notes, tasks, transactions, refunds, soft credits, pledge payment failures, interactions, appeals, campaigns, and funds.
 
 Generate a private API key under **Settings → User Settings → API Keys** in your Bloomerang account. This key grants full read/write access to your Bloomerang data, so keep it secret.""",
             iconPath="/static/services/bloomerang.png",

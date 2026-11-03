@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 from collections.abc import Iterable
 from typing import Any, Optional, cast
@@ -37,9 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DocusignSourceConfig,
 )
 
-_SESSION_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign.make_tracked_session"
-)
+_DOCUSIGN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign"
+_SESSION_FACTORY = f"{_DOCUSIGN_MODULE}.make_tracked_session"
 
 USERINFO_PAYLOAD: dict[str, Any] = {
     "sub": "user-guid",
@@ -247,6 +247,28 @@ class TestDocusignTransport:
             }
         ]
 
+    def test_custom_fields_are_flattened_from_both_field_types(self, logger: FilteringBoundLogger) -> None:
+        page = envelope_page(1)
+        page["envelopes"][0]["customFields"] = {
+            "textCustomFields": [
+                {"fieldId": "11", "name": "Deal ID", "value": "D-42"},
+                {"name": "Ad hoc", "value": "x"},
+                {"value": "no name or id"},
+            ],
+            "listCustomFields": [{"fieldId": "11", "name": "Region", "value": "EMEA", "listItems": ["EMEA", "APAC"]}],
+        }
+        result = driver().run("envelope_custom_fields", [*auth_responses(), ScriptedResponse(json=page)], logger=logger)
+
+        assert result.raised is None
+        assert [(row["customFieldType"], row["fieldId"], row["value"]) for row in result.rows] == [
+            ("text", "11", "D-42"),
+            ("text", "Ad hoc", "x"),
+            ("list", "11", "EMEA"),
+        ]
+        assert {row["envelopeId"] for row in result.rows} == {"env-0"}
+        assert result.rows[0]["envelopeCreatedDateTime"] == "2024-01-01T00:00:00.0000000Z"
+        assert result.requests[-1].param("include") == "custom_fields"
+
     def test_envelopes_without_children_yield_no_rows_but_still_paginate(self, logger: FilteringBoundLogger) -> None:
         result = driver().run(
             "envelope_recipients",
@@ -262,6 +284,251 @@ class TestDocusignTransport:
         assert result.items == []
         assert [state.start_position for state in result.saved_states] == [PAGE_SIZE]
         assert result.params("start_position")[-2:] == ["0", "100"]
+
+    @pytest.mark.parametrize(
+        "endpoint_name,sub_resource,sub_body,empty_body,expected_rows",
+        [
+            (
+                "envelope_audit_events",
+                "audit_events",
+                {
+                    "auditEvents": [
+                        {"eventFields": [{"name": "logTime", "value": "t0"}, {"name": "Action", "value": "Sent"}]},
+                        {"eventFields": [{"name": "logTime", "value": "t1"}, {"name": "Action", "value": "Signed"}]},
+                    ]
+                },
+                {"auditEvents": []},
+                [
+                    {"envelopeId": "env-0", "logTime": "t0", "Action": "Sent", "eventIndex": 0},
+                    {"envelopeId": "env-0", "logTime": "t1", "Action": "Signed", "eventIndex": 1},
+                ],
+            ),
+            (
+                "envelope_templates",
+                "templates",
+                {
+                    "templates": [
+                        {"templateId": "tpl-1", "name": "NDA", "documentId": "1"},
+                        {"templateId": "tpl-1", "name": "NDA", "documentId": "2"},
+                        {"templateId": "tpl-2", "name": "Order form", "documentId": "3"},
+                    ]
+                },
+                {},
+                [
+                    {"envelopeId": "env-0", "templateId": "tpl-1", "name": "NDA", "documentId": "1"},
+                    {"envelopeId": "env-0", "templateId": "tpl-2", "name": "Order form", "documentId": "3"},
+                ],
+            ),
+            (
+                "envelope_form_data",
+                "form_data",
+                {"envelopeId": "env-0", "status": "completed", "formData": [{"name": "Company", "value": "Acme"}]},
+                {"envelopeId": "env-1", "status": "sent", "formData": []},
+                [
+                    {"envelopeId": "env-0", "status": "completed", "formData": [{"name": "Company", "value": "Acme"}]},
+                    {"envelopeId": "env-1", "status": "sent", "formData": []},
+                ],
+            ),
+        ],
+    )
+    def test_envelope_sub_resources_are_fetched_per_envelope(
+        self,
+        endpoint_name: str,
+        sub_resource: str,
+        sub_body: dict[str, Any],
+        empty_body: dict[str, Any],
+        expected_rows: list[dict[str, Any]],
+        logger: FilteringBoundLogger,
+    ) -> None:
+        result = driver().run(
+            endpoint_name,
+            [
+                *auth_responses(),
+                ScriptedResponse(json=envelope_page(2)),
+                ScriptedResponse(json=sub_body),
+                ScriptedResponse(json=empty_body),
+            ],
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                **row,
+                "envelopeCreatedDateTime": "2024-01-01T00:00:00.0000000Z",
+                "envelopeStatusChangedDateTime": "2024-02-01T00:00:00.0000000Z",
+            }
+            for row in expected_rows
+        ]
+        assert [path.rsplit("/", 2)[-2:] for path in result.paths[-2:]] == [
+            ["env-0", sub_resource],
+            ["env-1", sub_resource],
+        ]
+        # Form data is only released to the sender, so received envelopes must not be listed.
+        assert result.requests[-3].param("user_filter") == ("sender" if sub_resource == "form_data" else None)
+        assert result.final_state is None
+
+    @pytest.mark.parametrize("remaining,expect_pause", [("500", False), ("50", True)])
+    def test_per_envelope_requests_pause_when_the_hourly_quota_runs_low(
+        self, remaining: str, expect_pause: bool, logger: FilteringBoundLogger
+    ) -> None:
+        quota_headers = {
+            "X-RateLimit-Limit": "1000",
+            "X-RateLimit-Remaining": remaining,
+            "X-RateLimit-Reset": str(int(time.time()) + 600),
+        }
+        with mock.patch(f"{_DOCUSIGN_MODULE}.interruptible_wait") as wait:
+            result = driver().run(
+                "envelope_audit_events",
+                [
+                    *auth_responses(),
+                    ScriptedResponse(json=envelope_page(1), headers=quota_headers),
+                    ScriptedResponse(json={"auditEvents": []}),
+                ],
+                logger=logger,
+            )
+
+        assert result.raised is None
+        waits = [call.args[0] for call in wait.call_args_list]
+        if expect_pause:
+            assert len(waits) == 1 and 500 < waits[0] <= 600
+        else:
+            assert waits == []
+
+    @pytest.mark.parametrize(
+        "endpoint_name,body,expected_rows",
+        [
+            (
+                "bulk_send_batches",
+                {"bulkBatchSummaries": [{"batchId": "b-1", "submittedDate": "2024-01-01"}]},
+                [{"batchId": "b-1", "submittedDate": "2024-01-01"}],
+            ),
+            (
+                # The invoice listing is one response, so a `nextUri` must not start a second request.
+                "billing_invoices",
+                {"billingInvoices": [{"invoiceId": "inv-1", "balance": "0.00"}], "nextUri": "/restapi/next"},
+                [{"invoiceId": "inv-1", "balance": "0.00"}],
+            ),
+        ],
+    )
+    def test_date_scoped_full_refresh_endpoints_always_send_from_date(
+        self,
+        endpoint_name: str,
+        body: dict[str, Any],
+        expected_rows: list[dict[str, Any]],
+        logger: FilteringBoundLogger,
+    ) -> None:
+        result = driver().run(endpoint_name, [*auth_responses(), ScriptedResponse(json=body)], logger=logger)
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        # Without from_date DocuSign narrows the result: an account-wide batch summary with no batch
+        # list, or only the last 365 days of invoices.
+        assert result.requests[-1].param("from_date") is not None
+
+    def test_bulk_send_batch_envelopes_page_through_each_batch(self, logger: FilteringBoundLogger) -> None:
+        batches = {"bulkBatchSummaries": [{"batchId": "b-1"}, {"batchId": ""}, {"batchId": "b-2"}]}
+        result = driver().run(
+            "bulk_send_batch_envelopes",
+            [
+                *auth_responses(),
+                ScriptedResponse(json=batches),
+                ScriptedResponse(json=envelope_page(PAGE_SIZE, next_uri="/restapi/next")),
+                ScriptedResponse(json=envelope_page(1, offset=PAGE_SIZE)),
+                ScriptedResponse(json={"envelopes": [], "resultSetSize": "0"}),
+            ],
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert {row["bulkSendBatchId"] for row in result.rows} == {"b-1"}
+        assert result.rows[-1]["envelopeId"] == f"env-{PAGE_SIZE}"
+        assert result.paths[-4:] == [
+            "/restapi/v2.1/accounts/222/bulk_send_batch",
+            "/restapi/v2.1/accounts/222/bulk_send_batch/b-1/envelopes",
+            "/restapi/v2.1/accounts/222/bulk_send_batch/b-1/envelopes",
+            "/restapi/v2.1/accounts/222/bulk_send_batch/b-2/envelopes",
+        ]
+        assert result.params("start_position")[-3:] == ["0", str(PAGE_SIZE), "0"]
+        assert result.requests[-4].param("from_date") is not None
+        assert result.requests[-1].param("from_date") is None
+        assert result.final_state is None
+
+    def test_powerform_form_data_flattens_recipients_and_skips_unreadable_powerforms(
+        self, logger: FilteringBoundLogger
+    ) -> None:
+        powerforms = {"powerForms": [{"powerFormId": "pf-1"}, {"powerFormId": "pf-2"}, {"powerFormId": "pf-3"}]}
+        form_data = {
+            "envelopes": [
+                {
+                    "envelopeId": "env-a",
+                    "recipients": [
+                        {"recipientId": "1", "email": "a@example.com", "formData": [{"name": "Plan", "value": "Pro"}]},
+                        {"recipientId": "2", "email": "b@example.com", "formData": []},
+                    ],
+                },
+                {"envelopeId": "env-b", "recipients": []},
+                {"recipients": [{"recipientId": "9"}]},
+            ]
+        }
+        result = driver().run(
+            "powerform_form_data",
+            [
+                *auth_responses(),
+                ScriptedResponse(json=powerforms),
+                ScriptedResponse(status=403, json={"errorCode": "USER_LACKS_PERMISSIONS"}),
+                ScriptedResponse(json=form_data),
+                ScriptedResponse(status=404, json={"errorCode": "POWERFORM_DOES_NOT_EXIST"}),
+            ],
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "recipientId": "1",
+                "email": "a@example.com",
+                "formData": [{"name": "Plan", "value": "Pro"}],
+                "envelopeId": "env-a",
+                "powerFormId": "pf-2",
+            },
+            {
+                "recipientId": "2",
+                "email": "b@example.com",
+                "formData": [],
+                "envelopeId": "env-a",
+                "powerFormId": "pf-2",
+            },
+        ]
+        assert [path.rsplit("/", 2)[-2:] for path in result.paths[-3:]] == [
+            ["pf-1", "form_data"],
+            ["pf-2", "form_data"],
+            ["pf-3", "form_data"],
+        ]
+        assert result.requests[-1].param("data_layout") == "Native"
+
+    @pytest.mark.parametrize(
+        "endpoint_name,parent_body,status",
+        [
+            ("bulk_send_batch_envelopes", {"bulkBatchSummaries": [{"batchId": "b-1"}]}, 403),
+            ("powerform_form_data", {"powerForms": [{"powerFormId": "pf-1"}]}, 400),
+        ],
+    )
+    def test_fan_out_errors_outside_the_skip_list_fail_the_table(
+        self, endpoint_name: str, parent_body: dict[str, Any], status: int, logger: FilteringBoundLogger
+    ) -> None:
+        result = driver().run(
+            endpoint_name,
+            [
+                *auth_responses(),
+                ScriptedResponse(json=parent_body),
+                ScriptedResponse(status=status, json={"errorCode": "INVALID_REQUEST_PARAMETER"}),
+            ],
+            logger=logger,
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
 
     @pytest.mark.parametrize(
         "value,expected",

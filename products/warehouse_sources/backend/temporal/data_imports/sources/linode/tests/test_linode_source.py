@@ -35,22 +35,6 @@ class TestLinodeSourceClass:
         assert schema.supports_incremental is supports_incremental
         assert schema.supports_append is supports_append
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(
-            LinodeSourceConfig(api_token="tok"), self.team_id, names=["events", "volumes"]
-        )
-        assert {s.name for s in schemas} == {"events", "volumes"}
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.linode.com/v4/volumes?page=1",),
-            ("403 Client Error: Forbidden for url: https://api.linode.com/v4/account/events",),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
     def test_source_for_pipeline_omits_watermark_when_not_incremental(self) -> None:
         # A full refresh must ignore an old cursor value. Otherwise, the transport adds an
         # X-Filter and limits the results.

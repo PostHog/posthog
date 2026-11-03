@@ -24,7 +24,8 @@ def _created_at_incremental_fields() -> list[IncrementalField]:
 class DopplerEndpointConfig:
     name: str
     path: str  # Path under /v3, e.g. "/projects"
-    # Root key of the list in the JSON response (e.g. `logs` for /v3/logs).
+    # Root key of the list in the JSON response (e.g. `logs` for /v3/logs). Dotted for a list nested
+    # inside an object (`group.members`). A single object at the key becomes a one-row page.
     data_key: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Endpoint accepts a `page` query param. Doppler's environments list takes no pagination
@@ -37,9 +38,16 @@ class DopplerEndpointConfig:
     fan_out_over_projects: bool = False
     # Fan out one request-set per config: the endpoint requires both `project` and `config`.
     fan_out_over_configs: bool = False
-    # Stamp the fanned-out project slug onto each row. Only for endpoints whose rows omit it —
-    # most of Doppler's project-scoped responses already echo `project` back.
-    inject_project: bool = False
+    # Fan out one request-set per group: the endpoint takes the group slug in its `{slug}` path segment.
+    fan_out_over_groups: bool = False
+    # Stamp the fanned-out parent identifiers (project, config, group) onto each row. Only for
+    # endpoints whose rows omit them — most of Doppler's project-scoped responses already echo
+    # `project` back.
+    inject_parent: bool = False
+    # The list holds bare strings rather than objects; each becomes a row under this column name.
+    scalar_item_key: Optional[str] = None
+    # Extra query params sent on every request to this endpoint.
+    extra_params: dict[str, str] = field(default_factory=dict)
     # The endpoint's responses contain plaintext secret values. Those are redacted out of the
     # rows before they are yielded, and the responses are kept out of HTTP sample capture,
     # whose name-based scrubbers cannot recognise a secret under a field named `added`.
@@ -124,7 +132,7 @@ DOPPLER_ENDPOINTS: dict[str, DopplerEndpointConfig] = {
         # member by type and slug within a project, so all three make the row unique.
         primary_keys=["project", "type", "slug"],
         fan_out_over_projects=True,
-        inject_project=True,
+        inject_parent=True,
         description="Which workplace users, groups, service accounts, and invites can reach each project.",
     ),
     "project_roles": DopplerEndpointConfig(
@@ -161,6 +169,55 @@ DOPPLER_ENDPOINTS: dict[str, DopplerEndpointConfig] = {
         description=(
             "Per-config change history of secret edits and rollbacks. This table syncs each config "
             "separately, so it takes longer than the others."
+        ),
+    ),
+    "workplace": DopplerEndpointConfig(
+        name="workplace",
+        path="/workplace",
+        data_key="workplace",
+        paginated=False,
+        per_page=None,
+        description="The Doppler workplace the token belongs to, as a single row.",
+    ),
+    "group_members": DopplerEndpointConfig(
+        name="group_members",
+        # Doppler has no group members list endpoint; the group retrieve endpoint carries the full
+        # member list.
+        path="/workplace/groups/group/{slug}",
+        data_key="group.members",
+        # A member is addressed by type and slug within a group, and the table pools every group.
+        primary_keys=["group_slug", "type", "slug"],
+        paginated=False,
+        per_page=None,
+        fan_out_over_groups=True,
+        inject_parent=True,
+        description="Which workplace users and service accounts belong to each group.",
+    ),
+    "change_requests": DopplerEndpointConfig(
+        name="change_requests",
+        path="/workplace/change_requests",
+        # The docs show the list as a bare JSON array; an object wrapping it under this key is
+        # accepted too.
+        data_key="changeRequests",
+        description="Change requests that propose secret changes for review, with the status of each change unit.",
+    ),
+    "secret_names": DopplerEndpointConfig(
+        name="secret_names",
+        path="/configs/config/secrets/names",
+        data_key="names",
+        primary_keys=["project", "config", "name"],
+        paginated=False,
+        per_page=None,
+        fan_out_over_configs=True,
+        inject_parent=True,
+        scalar_item_key="name",
+        # Requesting dynamic secrets makes Doppler issue leases, so make sure it never does.
+        extra_params={"include_dynamic_secrets": "false"},
+        # One request per config, so this stays off by default like config_logs.
+        should_sync_default=False,
+        description=(
+            "The names of the secrets in each config, without their values. This table syncs each "
+            "config separately, so it takes longer than the others."
         ),
     ),
 }

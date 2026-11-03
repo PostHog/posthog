@@ -9,6 +9,8 @@ import { getBIFieldPillLabel, isDateTimeBIField } from 'products/business_intell
 import { BIShelfCard } from 'products/business_intelligence/frontend/components/BIShelfCard'
 
 import { BIMeasureAnalysis } from '../BIMeasureAnalysis'
+import { getBIChartFields } from '../biPaneConfig'
+import { BIPaneControls } from '../BIPaneControls'
 import { getBIScatterAxisOptions } from '../biScatter'
 import { biSceneLogic } from '../biSceneLogic'
 
@@ -55,8 +57,8 @@ export function BIMarksCard(): JSX.Element {
                 options={[
                     { value: '__automatic', label: 'Automatic colors' },
                     { value: null, label: 'Single color' },
-                    ...((scatter || config.rows.length + config.columns.length === 2) && !config.compareFilter?.compare
-                        ? [...config.rows, ...config.columns]
+                    ...((scatter || getBIChartFields(config).length === 2) && !config.compareFilter?.compare
+                        ? getBIChartFields(config)
                               .filter((field) => !isDateTimeBIField(field))
                               .map((field) => ({ value: field.id, label: `By ${getBIFieldPillLabel(field)}` }))
                         : []),
@@ -90,6 +92,7 @@ export function BIMarksCard(): JSX.Element {
             {config.values.map((_, index) => (
                 <BIMeasureAnalysis key={index} index={index} />
             ))}
+            <BIPaneControls />
         </BIShelfCard>
     )
 }

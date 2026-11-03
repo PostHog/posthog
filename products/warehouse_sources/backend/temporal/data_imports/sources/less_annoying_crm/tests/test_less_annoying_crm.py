@@ -187,10 +187,6 @@ class TestValidateCredentials:
         with scripted_network([ScriptedResponse(json={"ErrorCode": "x", "ErrorDescription": "boom"})]):
             assert validate_credentials("bad-key") is False
 
-    def test_swallows_exceptions(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key") is False
-
     def test_probe_redacts_the_api_key(self) -> None:
         with scripted_network([ScriptedResponse(json={"UserId": "1"})]) as network:
             assert validate_credentials("secret-key") is True

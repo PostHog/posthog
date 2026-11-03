@@ -14,7 +14,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.models import Team
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportEventsModel, BatchExportHogQLModel, BatchExportModel
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline import internal_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import STAGE_NON_RETRYABLE_ERROR_TYPES
@@ -76,7 +76,7 @@ async def test_hogql_staging_preserves_optional_bounds_and_cleanup_namespace(
         data_interval_start=start_str,
         data_interval_end=end_str,
         on_demand=True,
-        batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT 1 AS value"),
+        batch_export_model=BatchExportHogQLModel(query="SELECT 1 AS value", user_id=1, modifiers={}),
     )
 
     result = await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
@@ -110,13 +110,20 @@ async def test_unsupported_hogql_returns_nonretryable_staging_error(
         data_interval_start=None,
         data_interval_end=None,
         on_demand=True,
-        batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query),
+        batch_export_model=(
+            BatchExportHogQLModel(query=hogql_query, user_id=1, modifiers={})
+            if hogql_query is not None
+            else BatchExportModel(name="hogql", schema=None, user_id=1)
+        ),
     )
 
-    result = await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
-
-    assert result.error is not None
-    assert result.error.type == "UnsupportedHogQLQueryError"
+    if hogql_query is None:
+        with pytest.raises(ValueError, match="requires a query"):
+            await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
+    else:
+        result = await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)
+        assert result.error is not None
+        assert result.error.type == "UnsupportedHogQLQueryError"
     staging_clients[0].execute_query_with_summary.assert_not_called()
     staging_clients[1].list_objects_v2.assert_not_called()
 
@@ -142,7 +149,7 @@ async def test_hogql_staging_rejects_each_future_bound_without_waiting(
         data_interval_start=start.isoformat() if start is not None else None,
         data_interval_end=end.isoformat() if end is not None else None,
         on_demand=True,
-        batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query="SELECT 1 AS value"),
+        batch_export_model=BatchExportHogQLModel(query="SELECT 1 AS value", user_id=1, modifiers={}),
     )
     # Patch the helper rather than override settings.TEST, because DatabaseSyncToAsync calls
     # close_old_connections() whenever settings.TEST is False, and that needs a database.
@@ -179,7 +186,11 @@ async def test_missing_staging_inputs_raise(
         data_interval_start=None,
         data_interval_end=None,
         on_demand=on_demand,
-        batch_export_model=BatchExportModel(name=model_name, schema=None, hogql_query="SELECT 1 AS value"),
+        batch_export_model=(
+            BatchExportHogQLModel(query="SELECT 1 AS value", user_id=1, modifiers={})
+            if model_name == "hogql"
+            else BatchExportEventsModel()
+        ),
     )
     with pytest.raises(MissingRequiredInputsError, match="require"):
         await ActivityEnvironment().run(internal_stage.insert_into_internal_stage_activity, inputs)

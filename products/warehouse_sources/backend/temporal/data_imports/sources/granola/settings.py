@@ -56,6 +56,13 @@ GRANOLA_ENDPOINTS: dict[str, GranolaEndpointConfig] = {
         path="/v1/folders",
         data_key="folders",
     ),
+    # https://docs.granola.ai/api-reference/list-spaces
+    # No timestamp fields and no server-side time filter - full refresh only.
+    "spaces": GranolaEndpointConfig(
+        name="spaces",
+        path="/v1/spaces",
+        data_key="spaces",
+    ),
     # https://docs.granola.ai/api-reference/get-transcript
     # One row per transcript item, fanned out over the notes listing. Items carry no id, and the
     # endpoint has no server-side time filter, so this is full refresh only.

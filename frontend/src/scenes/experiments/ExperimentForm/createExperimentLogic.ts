@@ -539,7 +539,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 action: () =>
                                     router.actions.push(
                                         combineUrl(
-                                            urls.replayVisionScannerTemplate('new'),
+                                            urls.replayVisionScannerDetails('new'),
                                             experimentScannerParams({
                                                 experimentId: response.id as number,
                                                 variantKey: null,

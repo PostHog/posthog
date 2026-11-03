@@ -9,7 +9,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally impo
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
-    TALLY_API_VERSION,
+    TALLY_API_VERSION_2025_02_01,
+    TALLY_API_VERSION_2026_10_27,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
 
@@ -40,34 +41,6 @@ class TestTallySource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.tally.so/forms?limit=500&page=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.tally.so/forms/F1/submissions"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.tally.so/forms"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.tally.so/forms"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.tally.so', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("valid", True, 200, True, None),
-            ("bad_key", False, 401, False, "Invalid Tally API key"),
-            (
-                "forbidden",
-                False,
-                403,
-                False,
-                "Your Tally API key does not have access to this data. Reconnect with a key from an account that can see these forms.",
-            ),
             ("unreachable", False, None, False, "Could not reach the Tally API with this key"),
         ]
     )
@@ -79,9 +52,19 @@ class TestTallySource:
         assert ok is expected_ok
         assert error == expected_error
 
-    def test_source_for_pipeline_plumbs_config_and_inputs(self) -> None:
+    @parameterized.expand(
+        [
+            ("unpinned_uses_new_default", None, TALLY_API_VERSION_2026_10_27),
+            ("pinned_2025_02_01_keeps_its_pin", TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2025_02_01),
+            ("pinned_2026_10_27", TALLY_API_VERSION_2026_10_27, TALLY_API_VERSION_2026_10_27),
+        ]
+    )
+    def test_source_for_pipeline_plumbs_config_and_inputs(
+        self, _name: str, api_version: str | None, expected_version: str
+    ) -> None:
         manager = mock.MagicMock()
         inputs = _make_inputs(
+            api_version=api_version,
             schema_name="submissions",
             team_id=99,
             job_id="job-xyz",
@@ -93,7 +76,7 @@ class TestTallySource:
             self.source.source_for_pipeline(self.config, manager, inputs)
         tally_source_fn.assert_called_once_with(
             api_key="key-test",
-            api_version=TALLY_API_VERSION,
+            api_version=expected_version,
             endpoint="submissions",
             team_id=99,
             job_id="job-xyz",

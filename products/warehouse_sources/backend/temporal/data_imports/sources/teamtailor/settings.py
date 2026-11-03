@@ -22,6 +22,11 @@ TEAMTAILOR_ENDPOINTS: dict[str, TeamtailorEndpointConfig] = {
     "job_applications": TeamtailorEndpointConfig(name="job_applications", path="/job-applications"),
     "users": TeamtailorEndpointConfig(name="users", path="/users"),
     "departments": TeamtailorEndpointConfig(name="departments", path="/departments"),
+    "stages": TeamtailorEndpointConfig(name="stages", path="/stages"),
+    "movements": TeamtailorEndpointConfig(name="movements", path="/movements"),
+    "reject_reasons": TeamtailorEndpointConfig(name="reject_reasons", path="/reject-reasons"),
+    "locations": TeamtailorEndpointConfig(name="locations", path="/locations"),
+    "interview_kits": TeamtailorEndpointConfig(name="interview_kits", path="/interview-kits"),
 }
 
 ENDPOINTS = tuple(TEAMTAILOR_ENDPOINTS.keys())

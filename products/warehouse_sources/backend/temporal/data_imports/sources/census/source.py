@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
@@ -11,16 +12,22 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.census import (
+    UNSERVED_TABLE_ERROR,
     CensusResumeConfig,
     census_source,
     get_endpoint_permissions as get_census_endpoint_permissions,
     validate_credentials as validate_census_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.census.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    CENSUS_API_V1,
+    CENSUS_API_V2,
+    get_census_endpoints,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -41,6 +48,9 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://fivetran.com/docs/activations/rest-api"
+    supported_versions = (CENSUS_API_V1, CENSUS_API_V2)
+    default_version = CENSUS_API_V2
+    deprecated_versions = (VersionDeprecation(version=CENSUS_API_V1, sunset_at=datetime.date(2027, 1, 15)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -48,8 +58,9 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": "Census rejected the API token. Generate a new workspace access token in Census (workspace settings → API Access) and reconnect.",
+            "401 Client Error": "Census rejected the API token. Generate a new token in Census and reconnect. New connections need an Activations personal access token from your Fivetran user settings.",
             "403 Client Error": "Your Census API token does not have access to this resource. Check the token's permissions in Census and reconnect.",
+            UNSERVED_TABLE_ERROR: "This table is not available on the Census API version this source uses. Deselect the table, or remove its API version override.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -70,7 +81,10 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
     ) -> list[SourceSchema]:
         # Census has no server-side timestamp filter on any list endpoint (only page-based
         # pagination + creation-time ordering), so every table is full refresh only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        endpoints = get_census_endpoints(self.resolve_api_version(api_version))
+        return build_endpoint_schemas(
+            endpoints, {name: config.incremental_fields for name, config in endpoints.items()}, names
+        )
 
     def validate_credentials(
         self,
@@ -79,7 +93,9 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_census_credentials(config.api_key, config.region, schema_name=schema_name)
+        return validate_census_credentials(
+            config.api_key, config.region, self.resolve_api_version(api_version), schema_name=schema_name
+        )
 
     def get_endpoint_permissions(
         self,
@@ -88,7 +104,9 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
-        return get_census_endpoint_permissions(config.api_key, config.region, endpoints)
+        return get_census_endpoint_permissions(
+            config.api_key, config.region, endpoints, self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CensusResumeConfig]:
         return ResumableSourceManager[CensusResumeConfig](inputs, CensusResumeConfig)
@@ -106,6 +124,7 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )
 
     @property
@@ -116,7 +135,7 @@ class CensusSource(ResumableSource[CensusSourceConfig, CensusResumeConfig]):
             label="Census (Fivetran)",
             caption="""Enter a Census API access token to sync your syncs, sync runs, sources, destinations, and datasets.
 
-You can find or generate a workspace access token in Census under **Workspace settings → API Access**. The workspaces table lists every workspace in your organization, so it needs an organization-level token instead.
+Use an Activations personal access token. Create one in Fivetran under your Activations **User settings → Personal access tokens**. Activations tokens are separate from Fivetran API keys and Fivetran personal access tokens.
 """,
             keywords=["reverse etl", "data activation", "fivetran"],
             docsUrl="https://posthog.com/docs/cdp/sources/census",
@@ -144,5 +163,5 @@ You can find or generate a workspace access token in Census under **Workspace se
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

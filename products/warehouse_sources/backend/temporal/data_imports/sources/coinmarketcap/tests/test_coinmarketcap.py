@@ -14,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarket
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import (
+    CMC_AI_BATCH_SIZE,
+    CMC_AI_PAGE_SIZE,
     HISTORICAL_BACKFILL_DAYS,
     HISTORICAL_BATCH_SIZE,
     HISTORICAL_EXCHANGE_LIMIT,
@@ -29,10 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
     CoinMarketCapSourceConfig,
 )
-
-
-def _full_page() -> list[dict[str, Any]]:
-    return [{"id": i} for i in range(PAGE_SIZE)]
 
 
 class TestCoinMarketCapPaginator:
@@ -55,16 +53,34 @@ class TestCoinMarketCapSourceResumeBehavior:
     def _page_body(items: list[dict[str, Any]]) -> dict[str, Any]:
         return {"data": items, "status": {"error_code": 0, "error_message": None}}
 
-    @pytest.mark.parametrize("endpoint", ["cryptocurrency_map", "listings_latest", "fiat_map"])
-    def test_fresh_run_saves_start_after_each_non_terminal_page(self, endpoint: str) -> None:
-        result = _driver().run(
-            endpoint,
-            [_response(self._page_body(_full_page())), _response(self._page_body([{"id": "x"}]))],
-        )
+    @pytest.mark.parametrize(
+        ("endpoint", "list_key", "page_size"),
+        [
+            ("cryptocurrency_map", None, PAGE_SIZE),
+            ("listings_latest", None, PAGE_SIZE),
+            ("fiat_map", None, PAGE_SIZE),
+            ("liquidations_by_cryptocurrency_latest", "cryptocurrencies", PAGE_SIZE),
+            ("liquidations_by_exchange_latest", "exchanges", PAGE_SIZE),
+            # A 5000-row `limit` here would be rejected, and a 250-row page would read as the last one.
+            ("cmc_ai_latest", "insights", CMC_AI_PAGE_SIZE),
+        ],
+    )
+    def test_fresh_run_saves_start_after_each_non_terminal_page(
+        self, endpoint: str, list_key: str | None, page_size: int
+    ) -> None:
+        def body(items: list[dict[str, Any]]) -> dict[str, Any]:
+            if list_key is None:
+                return self._page_body(items)
+            return {"data": {list_key: items, "total_size": page_size + 1, "has_more": False}}
+
+        full_page = [{"id": i} for i in range(page_size)]
+        result = _driver().run(endpoint, [_response(body(full_page)), _response(body([{"id": "x"}]))])
 
         # First request starts at 1; the second carries the advanced start.
-        assert result.params("start") == ["1", str(1 + PAGE_SIZE)]
-        assert result.saved_states == [CoinMarketCapResumeConfig(start=1 + PAGE_SIZE)]
+        assert result.params("start") == ["1", str(1 + page_size)]
+        assert result.params("limit") == [str(page_size), str(page_size)]
+        assert result.saved_states == [CoinMarketCapResumeConfig(start=1 + page_size)]
+        assert len(result.rows) == page_size + 1
         assert result.raised is None
 
     def test_resume_seeds_paginator_with_saved_start(self) -> None:
@@ -89,10 +105,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
-            (200, True),
-            (401, False),
             (429, False),
-            (500, False),
         ],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
@@ -105,12 +118,6 @@ class TestValidateCredentials:
             assert error is not None
         assert network.requests_log[0].path == "/v1/key/info"
         assert network.requests_log[0].headers["x-cmc_pro_api_key"] == "test-key"
-
-    def test_network_error_returns_message(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("test-key")
-        assert valid is False
-        assert error is not None and "boom" in error
 
 
 class TestRowsFrom:
@@ -152,6 +159,30 @@ class TestRowsFrom:
     def test_quote_list_reads_the_nested_series(self) -> None:
         rows = _rows_from("quote_list", {"quotes": [{"timestamp": "2026-01-01T00:00:00.000Z", "btc_dominance": 50.0}]})
         assert rows == [{"timestamp": "2026-01-01T00:00:00.000Z", "btc_dominance": 50.0}]
+
+    def test_per_coin_insights_stamps_coin_identity_on_each_insight(self) -> None:
+        rows = _rows_from(
+            "per_coin_insights",
+            {
+                "coins": [
+                    {
+                        "crypto_id": 1,
+                        "symbol": "BTC",
+                        "insights": [
+                            {"type": "fixed_question", "answer_id": "a1", "question_key": "overview"},
+                            {"type": "top_news", "answer_id": "a2", "question_key": None},
+                        ],
+                    },
+                    # Covered but nothing generated yet: the coin contributes no rows.
+                    {"crypto_id": 1027, "symbol": "ETH", "insights": []},
+                ],
+                "total_size": 2,
+                "has_more": False,
+            },
+        )
+
+        assert [(row["crypto_id"], row["answer_id"]) for row in rows] == [(1, "a1"), (1, "a2")]
+        assert all(row["symbol"] == "BTC" and "insights" not in row for row in rows)
 
     @pytest.mark.parametrize("data", [None, {}, {"quotes": None}])
     def test_quote_list_tolerates_an_empty_body(self, data: Any) -> None:
@@ -259,6 +290,30 @@ class TestGetBatchRows:
         assert first_batch.path == "/v1/exchange/quotes/historical"
         assert first_batch.param("id") == ",".join(str(i) for i in range(1, HISTORICAL_BATCH_SIZE + 1))
         assert first_batch.param("time_start") == _history_start(None)
+        assert result.raised is None
+
+    def test_cmc_ai_coins_batches_the_coverage_map_by_crypto_id(self) -> None:
+        coverage = [{"crypto_id": coin_id} for coin_id in range(CMC_AI_BATCH_SIZE + 1, 0, -1)]
+        result = _driver().run(
+            "cmc_ai_coins_latest",
+            [
+                _response({"data": {"coins": coverage, "total_size": len(coverage), "has_more": False}}),
+                _response({"data": {"coins": [{"crypto_id": 1, "insights": [{"answer_id": "a1"}]}]}}),
+                _response({"data": {"coins": []}}),
+            ],
+        )
+
+        map_call, first_batch, second_batch = result.requests
+        assert map_call.path == "/v5/cmc-ai/coins/map"
+        assert map_call.param("limit") == str(CMC_AI_PAGE_SIZE)
+        # The coin list goes in `crypto_id`, not `id`, in ascending order so resume holds.
+        assert first_batch.path == "/v5/cmc-ai/coins/latest"
+        assert first_batch.param("id") is None
+        assert first_batch.param("crypto_id") == ",".join(str(i) for i in range(1, CMC_AI_BATCH_SIZE + 1))
+        assert first_batch.param("limit") == str(CMC_AI_BATCH_SIZE)
+        assert second_batch.param("crypto_id") == str(CMC_AI_BATCH_SIZE + 1)
+        assert result.rows == [{"crypto_id": 1, "answer_id": "a1"}]
+        assert result.saved_states[-1] == CoinMarketCapResumeConfig(last_coin_id=CMC_AI_BATCH_SIZE + 1)
         assert result.raised is None
 
 

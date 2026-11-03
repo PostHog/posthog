@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from products.slack_app.backend.services.model_catalogue import ModelChoice
 from products.slack_app.backend.temporal.activities.classifiers import classify_slack_app_model_override
-from products.slack_app.backend.temporal.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
+from products.slack_app.backend.temporal.slack_app_mention_processing import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
 CHOICES = (
     ModelChoice("claude", "claude-opus-5", "Claude Opus 5", ("low", "medium", "high", "max")),

@@ -38,6 +38,7 @@ DRIVER = SourceDriver(ChecklySource(), CONFIG)
         ("check_groups", "v3", "/v1/check-groups"),
         ("alert_channels", "v2", "/v1/alert-channels"),
         ("alert_channels", "v3", "/v1/alert-channels"),
+        ("error_groups", "v3", "/v1/error-groups"),
     ],
 )
 def test_list_pagination_auth_and_terminal_page(name: str, api_version: str, path: str) -> None:
@@ -77,6 +78,8 @@ def test_list_pagination_auth_and_terminal_page(name: str, api_version: str, pat
         ("checks", "v3"),
         ("check_groups", "v2"),
         ("alert_channels", "v2"),
+        ("private_locations", "v3"),
+        ("error_groups", "v3"),
     ],
 )
 def test_definitions_project_only_safe_metadata(name: str, api_version: str) -> None:
@@ -109,10 +112,14 @@ def test_definitions_project_only_safe_metadata(name: str, api_version: str) -> 
                         "newProviderField": "future-secret",
                         "requiredOutcomes": ["login succeeds"],
                         "constraints": [{"type": "REQUIRED_OUTCOME", "value": "login succeeds"}],
+                        "keys": [{"id": "key-a", "rawKey": "pl_secret", "maskedKey": "...cret"}],
+                        "proxyUrl": "https://user:secret@proxy.example.com:3128",
+                        "rawErrorMessage": "GET https://example.com/?token=secret failed",
+                        "rootCauseAnalyses": [{"analysis": "token=secret"}],
                     }
                 ]
             ),
-            ScriptedResponse(json=[]),
+            *([] if name == "private_locations" else [ScriptedResponse(json=[])]),
         ],
         api_version=api_version,
     )
@@ -264,6 +271,9 @@ def test_rejects_invalid_pipeline_inputs(name: str, watermark: object, error: st
         (200, "alert_channels", True, None, "/v1/alert-channels"),
         (200, "check_groups", True, None, "/v1/check-groups"),
         (200, "check_statuses", True, None, "/v1/check-statuses"),
+        (200, "locations", True, None, "/v1/locations"),
+        (200, "private_locations", True, None, "/v1/private-locations"),
+        (200, "error_groups", True, None, "/v1/error-groups"),
     ],
 )
 def test_credential_probe_and_auth_errors(
@@ -276,7 +286,9 @@ def test_credential_probe_and_auth_errors(
     assert result is valid
     assert reason is None if message is None else message in (reason or "")
     assert [request.path for request in network.requests_log] == [path]
-    assert network.requests_log[0].query == ({} if schema == "check_statuses" else {"limit": ("1",)})
+    assert network.requests_log[0].query == (
+        {} if schema in ("check_statuses", "locations", "private_locations") else {"limit": ("1",)}
+    )
     assert network.requests_log[0].headers["authorization"] == "Bearer fake-checkly-key"
     if not valid:
         assert reason in ChecklySource().get_non_retryable_errors().values()

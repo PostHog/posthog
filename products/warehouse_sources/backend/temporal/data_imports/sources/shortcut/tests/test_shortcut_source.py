@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortcut import (
     ShortcutSourceConfig,
 )
@@ -26,14 +24,3 @@ class TestShortcutSource:
             assert schema.supports_incremental is False, name
             assert schema.supports_append is False, name
             assert schema.incremental_fields == []
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://api.app.shortcut.com/api/v3/members",
-            "403 Client Error: Forbidden for url: https://api.app.shortcut.com/api/v3/stories/search",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)

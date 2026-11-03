@@ -68,7 +68,7 @@ class JumpcloudSource(ResumableSource[JumpcloudSourceConfig, JumpcloudResumeConf
             name=ExternalDataSourceType.JUMPCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="JumpCloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your JumpCloud admin API key to sync your directory and activity data into the PostHog Data warehouse.
 
 Find your API key in the JumpCloud Admin Portal: click your account initials in the top-right corner and select **My API Key**.

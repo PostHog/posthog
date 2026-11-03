@@ -98,6 +98,7 @@ impl ServiceTestContext {
                     Arc::new(common::UnusedLeader),
                     ctx.tables.clone(),
                     common::FAN_OUT_CONCURRENCY,
+                    personhog_identity::config::OutboxWrites::Disabled,
                 ),
                 DetachedDrives::new(common::FAN_OUT_CONCURRENCY),
             ),

@@ -41,6 +41,8 @@ class AshbyResumeConfig:
     """Fan-out: how many parents in that page are already finished."""
     child_cursor: Optional[str] = None
     """Fan-out: next page cursor for the parent currently in progress."""
+    variant_index: int = 0
+    """Variant listing: how many values of ``variant_param`` are already finished."""
 
 
 def _headers() -> dict[str, str]:
@@ -170,26 +172,43 @@ def _listed_pages(
     resumable_source_manager: ResumableSourceManager[AshbyResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start_cursor = resume.cursor if resume else None
+    variants: tuple[Optional[str], ...] = config.variant_values or (None,)
+    skip = resume.variant_index if resume else 0
 
-    def save_checkpoint(cursor: Optional[str]) -> None:
-        # Persist only when a next page remains; the checkpoint fires AFTER a page is yielded so a
-        # crash re-fetches from the next page (already-yielded pages are persisted); merge/replace
-        # dedupes on the primary key.
-        if cursor:
-            resumable_source_manager.save_state(AshbyResumeConfig(cursor=cursor))
+    for variant_index, variant in enumerate(variants):
+        if variant_index < skip:
+            continue
+        if variant_index > skip:
+            # Staged before this value's first page, so it covers every page of the values before it.
+            resumable_source_manager.save_state(AshbyResumeConfig(variant_index=variant_index))
 
-    body: dict[str, Any] = {} if config.page_size is None else {"limit": config.page_size}
-    for page, _ in _iter_pages(
-        api_key,
-        config.name,
-        config.path,
-        body,
-        team_id,
-        job_id,
-        start_cursor=resume.cursor if resume else None,
-        on_next_cursor=save_checkpoint,
-    ):
-        yield [row for item in page for row in (item.get(config.nested_field) or [])] if config.nested_field else page
+        def save_checkpoint(cursor: Optional[str], at: int = variant_index) -> None:
+            # Persist only when a next page remains; the checkpoint fires AFTER a page is yielded so a
+            # crash re-fetches from the next page (already-yielded pages are persisted); merge/replace
+            # dedupes on the primary key.
+            if cursor:
+                resumable_source_manager.save_state(AshbyResumeConfig(cursor=cursor, variant_index=at))
+
+        body: dict[str, Any] = {} if config.page_size is None else {"limit": config.page_size}
+        if config.variant_param and variant is not None:
+            body[config.variant_param] = variant
+
+        for page, _ in _iter_pages(
+            api_key,
+            config.name,
+            config.path,
+            body,
+            team_id,
+            job_id,
+            start_cursor=start_cursor,
+            on_next_cursor=save_checkpoint,
+        ):
+            yield (
+                [row for item in page for row in (item.get(config.nested_field) or [])] if config.nested_field else page
+            )
+
+        start_cursor = None
 
 
 def _fanned_out_pages(
@@ -275,7 +294,7 @@ def ashby_source(
     )
 
 
-def check_access(api_key: str, path: str) -> tuple[int, Optional[str]]:
+def check_access(api_key: str, path: str, body: Optional[dict[str, Any]] = None) -> tuple[int, Optional[str]]:
     """Probe a single endpoint to validate credentials.
 
     Ashby's RPC endpoints are POST-only and report many failures as HTTP 200 with
@@ -286,7 +305,11 @@ def check_access(api_key: str, path: str) -> tuple[int, Optional[str]]:
     session = make_tracked_session(redact_values=(api_key,))
     try:
         response = session.post(
-            f"{ASHBY_BASE_URL}/{path}", json={"limit": 1}, auth=(api_key, ""), headers=_headers(), timeout=15
+            f"{ASHBY_BASE_URL}/{path}",
+            json={"limit": 1} if body is None else body,
+            auth=(api_key, ""),
+            headers=_headers(),
+            timeout=15,
         )
     except Exception as e:
         return 0, f"Could not connect to Ashby: {e}"

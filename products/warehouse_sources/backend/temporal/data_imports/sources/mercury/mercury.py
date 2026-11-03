@@ -81,9 +81,10 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     params: dict[str, Any] = {}
     if config.paginated:
         params["limit"] = config.page_size
-        # Explicit ascending order so cursor pages arrive oldest-first and the incremental
-        # watermark only ever advances.
-        params["order"] = "asc"
+        if config.sends_order:
+            # Explicit ascending order so cursor pages arrive oldest-first and the incremental
+            # watermark only ever advances.
+            params["order"] = "asc"
 
     if should_use_incremental_field and config.incremental_param is not None:
         params[config.incremental_param] = {

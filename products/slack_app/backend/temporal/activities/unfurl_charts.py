@@ -1,11 +1,17 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from temporalio import activity
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.temporal.common.utils import close_db_connections
 
 from products.exports.backend.facade.api import create_png_export, get_delivery_image_url, png_export_has_content
-from products.slack_app.backend.logic.link_unfurl_charts import post_unfurl_charts, unfurl_chart_targets
+from products.slack_app.backend.logic.link_unfurl_charts import (
+    UNFURL_IMAGE_ASSET_TTL,
+    UNFURL_IMAGE_URL_TTL,
+    post_unfurl_charts,
+    unfurl_chart_targets,
+)
 from products.slack_app.backend.temporal.types import (
     SlackAppUnfurlChartsPostInput,
     SlackAppUnfurlChartsPrepared,
@@ -13,17 +19,13 @@ from products.slack_app.backend.temporal.types import (
     SlackUnfurlChartAsset,
 )
 
-# Slack fetches image_url again after the unfurl is posted, so the token must outlive the post.
-_CHART_URL_TTL = timedelta(days=30)
-_CHART_ASSET_TTL = timedelta(days=31)
-
 
 @activity.defn
 @close_db_connections
 def prepare_slack_unfurl_charts_activity(inputs: SlackAppUnfurlChartsWorkflowInputs) -> SlackAppUnfurlChartsPrepared:
     targets = unfurl_chart_targets(inputs)
     assets: list[SlackUnfurlChartAsset] = []
-    expires_after = datetime.now(UTC) + _CHART_ASSET_TTL
+    expires_after = datetime.now(UTC) + UNFURL_IMAGE_ASSET_TTL
     for chart in targets.charts:
         try:
             asset_id = create_png_export(
@@ -33,6 +35,8 @@ def prepare_slack_unfurl_charts_activity(inputs: SlackAppUnfurlChartsWorkflowInp
                 query=chart.query,
                 is_system=True,
                 expires_after=expires_after,
+                # A recent cached result is fresh enough for a preview and saves a query per unfurl.
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
         except ValueError:
             continue
@@ -54,7 +58,7 @@ def post_slack_unfurl_charts_activity(post: SlackAppUnfurlChartsPostInput) -> No
         image_url = get_delivery_image_url(
             team_id=request.team_id,
             asset_id=asset.asset_id,
-            expiry_delta=_CHART_URL_TTL,
+            expiry_delta=UNFURL_IMAGE_URL_TTL,
             created_by_id=request.user_id,
         )
         if image_url is not None:

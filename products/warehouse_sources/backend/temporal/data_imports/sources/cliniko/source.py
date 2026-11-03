@@ -107,7 +107,7 @@ class ClinikoSource(ResumableSource[ClinikoSourceConfig, ClinikoResumeConfig]):
         return SourceConfig(
             name=ExternalDataSourceType.CLINIKO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             label="Cliniko",
             caption="Enter your Cliniko API key. You can generate one from your Cliniko account "
             "under **My Info > API Keys**. The clinic's region (shard) is detected automatically "

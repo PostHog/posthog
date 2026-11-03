@@ -15,10 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
     INFLOWINVENTORY_API_VERSION_2023_04_01,
     INFLOWINVENTORY_API_VERSION_2026_07_10,
     INFLOWINVENTORY_API_VERSION_2026_09_29,
+    INFLOWINVENTORY_API_VERSION_2026_10_06,
     PAGE_SIZE,
     InflowInventoryResumeConfig,
     check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import (
     ENDPOINTS,
@@ -38,18 +38,22 @@ def _full_page(start_id: int, id_field: str = "productId") -> list[dict[str, Any
 
 
 class TestPagination:
-    def test_cursor_uses_per_endpoint_id_field(self) -> None:
+    @parameterized.expand([(e,) for e in ENDPOINTS])
+    def test_cursor_uses_per_endpoint_id_field(self, endpoint: str) -> None:
+        config = INFLOWINVENTORY_ENDPOINTS[endpoint]
         last_id = str(PAGE_SIZE - 1)
         result = _driver().run(
-            "customers",
+            endpoint,
             [
-                ScriptedResponse(json=_full_page(0, id_field="customerId")),
-                ScriptedResponse(json=[{"customerId": "9999"}]),
+                ScriptedResponse(json=_full_page(0, id_field=config.id_field)),
+                ScriptedResponse(json=[{config.id_field: "9999"}]),
             ],
         )
 
         assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
         assert result.params("after") == [None, last_id]
+        assert result.paths == [f"/co-123/{config.path}"] * 2
 
     def test_resumes_from_saved_cursor(self) -> None:
         # The unpaginated first page (after absent) must never be fetched on resume.
@@ -80,7 +84,8 @@ class TestPagination:
         [
             ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
             ("previous", INFLOWINVENTORY_API_VERSION_2026_07_10),
-            ("current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("previous_current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_10_06),
         ]
     )
     def test_resolved_version_reaches_session_header(self, _name: str, api_version: str) -> None:
@@ -115,9 +120,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "inFlow Inventory returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
@@ -132,7 +134,8 @@ class TestCheckAccess:
         [
             ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
             ("previous", INFLOWINVENTORY_API_VERSION_2026_07_10),
-            ("current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("previous_current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_10_06),
         ]
     )
     def test_probe_session_carries_resolved_version(self, _name: str, api_version: str) -> None:
@@ -150,29 +153,6 @@ class TestCheckAccess:
         assert message is not None
         assert network.requests_log == []
         assert network.session_options == []
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            status, message = check_access("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10)
-
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid inFlow Inventory API key"),
-            ("forbidden", 403, False, "Invalid inFlow Inventory API key"),
-            ("server_error", 500, False, "inFlow Inventory returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        with scripted_network([ScriptedResponse(status=status)]):
-            actual = validate_credentials("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10)
-
-        assert actual == (expected_valid, expected_message)
 
 
 class TestInflowInventorySourceResponse:

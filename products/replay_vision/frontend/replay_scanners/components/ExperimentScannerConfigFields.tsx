@@ -62,10 +62,10 @@ export function ExperimentScannerConfigFields({ scannerId }: ExperimentScannerCo
                         <>
                             Watches sessions of people exposed to{' '}
                             <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Each summary gets the
-                            person's variant from exposure data.
+                            person's variant from exposure data. Experiments that aggregate by group aren't listed.
                         </>
                     ) : (
-                        "Watches sessions of people exposed to this experiment. Each summary gets the person's variant from exposure data."
+                        "Watches sessions of people exposed to this experiment. Each summary gets the person's variant from exposure data. Experiments that aggregate by group aren't listed."
                     )
                 }
             >

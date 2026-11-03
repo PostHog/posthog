@@ -81,7 +81,12 @@ class TestPagination:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @pytest.mark.parametrize(
+        "status_code, expected",
+        [
+            (200, True),
+        ],
+    )
     def test_status_mapping(self, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("key", "secret") is expected

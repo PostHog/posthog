@@ -32,6 +32,18 @@ Both live in `products/signals/backend/ranking/sweep.py`.
 The video-export fleet does not register them.
 All other Signals workflows (ingestion, grouping, summaries, scouts) stay on the video-export fleet.
 
+## ClickHouse identity
+
+Signals pipeline and Dagster ranking reads use the `signals` user. Web/API reads, diagnostic commands, and Scout/MCP query execution keep their existing credentials.
+Existing workload routing and query limits stay unchanged.
+The video-export, self-driving, Django/Celery, and Dagster workloads need `CLICKHOUSE_SIGNALS_USER=signals` and `CLICKHOUSE_SIGNALS_PASSWORD_FILE=/var/run/secrets/clickhouse-auth/token`.
+
+Deploy the ClickHouse user and ServiceAccount mappings first, then chart credentials, then the application.
+Missing credentials fail queries.
+After rollout, verify `user` or `initial_user` is `signals` in `system.query_log` and check workflow completion and capacity errors.
+
+Local development and tests use the Docker ClickHouse user; `.env.services` supplies hobby credentials.
+
 ## The ranking sweep schedule
 
 `create_inbox_ranking_scoring_schedule` in `products/signals/backend/ranking/schedule.py` registers the schedule.

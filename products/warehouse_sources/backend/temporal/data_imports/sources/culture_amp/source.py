@@ -13,6 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -50,6 +53,7 @@ class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeC
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            OAUTH2_PERMANENT_ERROR_MARKER: "Culture Amp rejected the client ID or client secret. Check both values, then reconnect.",
             "400 Client Error: Bad Request for url: https://api.cultureamp.com/v1/oauth2/token": "Culture Amp rejected the token request. Please check your client ID, client secret, and account ID, and that the credentials have the required permissions.",
             "401 Client Error: Unauthorized for url: https://api.cultureamp.com/v1/oauth2/token": "Culture Amp authentication failed. Please check your client ID and client secret.",
             "403 Client Error: Forbidden for url: https://api.cultureamp.com": "Culture Amp denied access. Please check that your API credentials have the required permissions for this dataset.",
@@ -66,7 +70,7 @@ class CultureAmpSource(ResumableSource[CultureAmpSourceConfig, CultureAmpResumeC
 An account admin can generate API credentials in Culture Amp under Settings > Integrations > Culture Amp API. Grant the employees, employee demographics, and performance evaluations read permissions. The account ID is the entity ID shown alongside your credentials.""",
             iconPath="/static/services/culture_amp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/culture-amp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

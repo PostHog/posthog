@@ -56,6 +56,25 @@ def test_pagination_and_resume(
     assert result.sort_mode is None
 
 
+def test_experiment_results_continue_past_pages_without_snapshots(
+    config: GrowthBookSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    http: responses.RequestsMock,
+) -> None:
+    inputs.schema_name = "experiment_results"
+    url = "https://api.growthbook.io/api/v1/experiments/results"
+    snapshot = {"id": "snp_one", "experimentId": "exp_one", "phase": "0", "results": []}
+    http.add(responses.GET, url, json={"experimentResults": [], "count": 0, "hasMore": True, "nextOffset": 100})
+    http.add(
+        responses.GET, url, json={"experimentResults": [snapshot], "count": 1, "hasMore": False, "nextOffset": None}
+    )
+    result = GrowthBookSource().source_for_pipeline(config, manager, inputs)
+    assert [row for batch in cast(Iterable[Any], result.items()) for row in batch] == [snapshot]
+    assert [parse_qs(urlsplit(call.request.url).query)["offset"] for call in http.calls] == [["0"], ["100"]]
+    assert result.partition_keys is None
+
+
 @pytest.mark.parametrize("empty", [True, False])
 def test_empty_collection_or_missing_envelope(
     config: GrowthBookSourceConfig,

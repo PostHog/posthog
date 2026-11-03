@@ -82,7 +82,7 @@ from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, user_product_list
+from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
@@ -231,13 +231,6 @@ projects_router.register(
     ["team_id"],
 )
 
-
-projects_router.register(
-    r"user_product_list",
-    user_product_list.UserProductListViewSet,
-    "project_user_product_list",
-    ["team_id"],
-)
 
 projects_router.register(
     r"event_definitions",
@@ -435,7 +428,6 @@ from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
-from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -444,7 +436,6 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 projects_router.register(r"events", EventViewSet, "project_events", ["team_id"])
-projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
 projects_router.register(

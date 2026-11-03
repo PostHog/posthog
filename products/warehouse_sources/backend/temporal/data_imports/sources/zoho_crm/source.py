@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
     REFRESH_TOKEN_REJECTED_MESSAGE,
+    TOKEN_ERROR_MESSAGES,
+    TOKEN_REFRESH_FAILED_PREFIX,
     ZohoCRMResumeConfig,
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
@@ -74,7 +76,8 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Zoho CRM token refresh failed": REFRESH_TOKEN_REJECTED_MESSAGE,
+            **{f"{TOKEN_REFRESH_FAILED_PREFIX}: {code}": message for code, message in TOKEN_ERROR_MESSAGES.items()},
+            TOKEN_REFRESH_FAILED_PREFIX: REFRESH_TOKEN_REJECTED_MESSAGE,
             "400 Client Error: Bad Request for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             # Some responses carry no reason phrase (e.g. over HTTP/2, which has none), so
             # `requests.raise_for_status()` renders it blank instead of "Bad Request" — match that
@@ -92,10 +95,10 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             category=DataWarehouseSourceCategory.CRM,
             keywords=["zoho"],
             label="Zoho CRM",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Zoho CRM account to pull leads, contacts, deals, and your other modules into the PostHog Data warehouse.
 
-In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
+In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a code for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. That code is not a refresh token and expires within minutes. Exchange it for a refresh token by sending a POST request to `/oauth/v2/token` on your data center's Zoho accounts domain, with `grant_type=authorization_code`, your client ID, client secret, and the code. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
             iconPath="/static/services/zoho_crm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoho-crm",
             fields=cast(

@@ -57,7 +57,7 @@ class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]
             name=ExternalDataSourceType.CHURNKEY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Churnkey",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["churn", "retention", "cancellation"],
             caption="""Enter your Churnkey **Data API** key and App ID to pull your cancel-flow session data into the PostHog Data warehouse.
 

@@ -120,7 +120,7 @@ class RevolutMerchantSource(ResumableSource[RevolutMerchantSourceConfig, Revolut
             label="Revolut Merchant",
             iconPath="/static/services/revolut_merchant.png",
             docsUrl="https://posthog.com/docs/cdp/sources/revolut-merchant",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Enter your Merchant Secret API key from Revolut Business. Use the key for the selected environment. "
             "The checkout Public key and Revolut Business API credentials cannot be used here.",
             fields=cast(

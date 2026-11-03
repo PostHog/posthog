@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
@@ -24,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
     ATTRIBUTION_TYPE,
     DEFAULT_BACKFILL_DAYS,
+    FLOWS_PAGE_SIZE,
+    FLOWS_UNSUPPORTED_DATA_CENTERS,
     MAX_BACKFILL_DAYS,
     MAX_RETRY_ATTEMPTS,
     METRIC_TYPE,
@@ -39,11 +44,17 @@ START_DATE_TOO_OLD_ERROR = (
     f"Start date can't be more than {MAX_BACKFILL_DAYS // 365} years ago. Pick a more recent date."
 )
 
+FLOWS_UNSUPPORTED_DATA_CENTER_ERROR = (
+    "MoEngage doesn't offer the Flows API on this data center, so the flows table can't sync. Disable the flows table."
+)
+
 
 @frozen
 class MoEngageResumeConfig:
     # Campaign search checkpoint: {"page": <next 1-indexed page>}.
     search_state: dict | None = None
+    # Flow search checkpoint: {"cursor": <next_cursor of the last yielded page>}.
+    flows_state: dict | None = None
     # Daily report checkpoint: {"start": "YYYY-MM-DD"}, the first day not yet fully yielded. The
     # within-day stats offset is deliberately not saved: replaying a whole day costs at most a few
     # request sets and merge dedupes the overlap on the synthesized `id`.
@@ -226,6 +237,10 @@ def _stats_body(start_date: date, end_date: date) -> dict[str, Any]:
     }
 
 
+def parse_flow_teams(value: Optional[str]) -> list[str]:
+    return [team.strip() for team in (value or "").split(",") if team.strip()]
+
+
 def parse_iso_date(value: str) -> date:
     # Accept a bare date or a full timestamp; only the calendar day matters for the fan-out.
     return date.fromisoformat(value.strip()[:10])
@@ -363,6 +378,8 @@ def moengage_source(
     configured_start_date: Optional[str] = None,
     last_synced_at: Optional[datetime] = None,
     db_incremental_field_last_value_before_lookback: Optional[Any] = None,
+    project_code: Optional[str] = None,
+    flow_teams: Optional[str] = None,
 ) -> SourceResponse:
     endpoint_config = MOENGAGE_ENDPOINTS.get(endpoint)
     if endpoint_config is None:
@@ -412,6 +429,77 @@ def moengage_source(
             resume_hook=save_search_checkpoint,
             initial_paginator_state=resume.search_state if resume is not None else None,
         )
+    elif endpoint == "flows":
+        if data_center in FLOWS_UNSUPPORTED_DATA_CENTERS:
+            raise ValueError(FLOWS_UNSUPPORTED_DATA_CENTER_ERROR)
+        flows_body: dict[str, Any] = {"include_archived": True, "limit": FLOWS_PAGE_SIZE}
+        teams = parse_flow_teams(flow_teams)
+        # Workspaces with the Flows-teams feature reject a search without team names, and the
+        # others reject a search with them, so the list is sent only when configured.
+        if teams:
+            flows_body["teams"] = teams
+        flows_resource: EndpointResource = {
+            "name": endpoint,
+            "write_disposition": "replace",
+            "table_format": "delta",
+            "endpoint": {
+                "path": endpoint_config.path,
+                "method": "POST",
+                "json": flows_body,
+                "data_selector": "data.flows",
+                "paginator": JSONResponseCursorPaginator(
+                    cursor_path="data.next_cursor",
+                    cursor_param="cursor",
+                    param_location="json",
+                    raise_on_repeated_cursor=True,
+                ),
+            },
+        }
+        flows_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [flows_resource],
+        }
+
+        def save_flows_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state and state.get("cursor"):
+                resumable_source_manager.save_state(MoEngageResumeConfig(flows_state=state))
+            else:
+                resumable_source_manager.clear_state()
+
+        resource = rest_api_resource(
+            flows_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_flows_checkpoint,
+            initial_paginator_state=resume.flows_state if resume is not None else None,
+        )
+    elif endpoint in ("segments", "subscription_categories"):
+        # Both endpoints return the whole catalog in one unpaginated response.
+        if endpoint == "subscription_categories" and project_code and project_code.strip():
+            # Required by subscription categories on workspaces with the Portfolio feature enabled.
+            client_config["headers"] = {
+                **(client_config.get("headers") or {}),
+                "MOE-PROJECT-CODE": project_code.strip(),
+            }
+        catalog_resource: EndpointResource = {
+            "name": endpoint,
+            "write_disposition": "replace",
+            "table_format": "delta",
+            "endpoint": {
+                "path": endpoint_config.path,
+                "method": "GET",
+                "data_selector": "data",
+                "paginator": "single_page",
+            },
+        }
+        catalog_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": None,
+            "resources": [catalog_resource],
+        }
+        resource = rest_api_resource(catalog_config, team_id, job_id, db_incremental_field_last_value)
     elif endpoint == "campaign_report":
         # A per-campaign snapshot of the trailing window the stats API allows in one call. The
         # whole table restates each sync, so it is full-refresh only and not resumed: the window is

@@ -17,10 +17,12 @@ OHLC_ENDPOINT = "coins_ohlc"
 # string.
 EXCHANGE_RATES_ENDPOINT = "exchange_rates"
 GLOBAL_MARKET_CAP_CHART_ENDPOINT = "global_market_cap_chart"
+FEAR_AND_GREED_CHART_ENDPOINT = "global_fear_and_greed_chart"
 
 # /global/market_cap_chart takes a relative `days` window from a fixed enum rather than a from/to
 # range. `days=1` is served at hourly granularity and every larger value at daily, so 1 is left out:
 # a shorter window would return hourly points that don't line up with the daily rows already synced.
+# /global/fear_and_greed_chart takes the same enum and is always daily, so it reuses these options.
 GLOBAL_CHART_DAYS_OPTIONS = ("7", "14", "30", "90", "180", "365", "max")
 
 # /coins/{id}/tickers is fixed at 100 items per page, unlike the 250 the other list endpoints take.
@@ -193,6 +195,17 @@ COINGECKO_ENDPOINTS: dict[str, CoinGeckoEndpointConfig] = {
         extra_params={"vs_currency": "usd"},
         pro_only=True,
     ),
+    # Daily Fear & Greed index history, from 2024-08-14 onwards. A bare array of
+    # [timestamp, value, sentiment] points under a `fear_and_greed` envelope, mapped onto a row per
+    # day. Requires a Pro key on the Analyst plan or above.
+    FEAR_AND_GREED_CHART_ENDPOINT: CoinGeckoEndpointConfig(
+        name=FEAR_AND_GREED_CHART_ENDPOINT,
+        path="/global/fear_and_greed_chart",
+        data_selector="fear_and_greed",
+        date_field="timestamp",
+        primary_keys=["timestamp"],
+        pro_only=True,
+    ),
     # BTC-to-currency rates, which normalise the BTC-denominated columns on the derivatives and
     # exchanges tables into any other currency. One object keyed by currency code under a `rates`
     # envelope, flattened into a row per currency.
@@ -222,6 +235,26 @@ COINGECKO_ENDPOINTS: dict[str, CoinGeckoEndpointConfig] = {
         path="/nfts/markets",
         paginated=True,
         pro_only=True,
+    ),
+    # Tokenized real-world assets (stocks, commodities, ETFs) with aggregated onchain price, market
+    # cap and volume in USD under a nested `tokenized_market_data` object. Paginated.
+    "rwas_markets": CoinGeckoEndpointConfig(
+        name="rwas_markets",
+        path="/rwas/markets",
+        paginated=True,
+        # The default market_cap_desc order shifts while a sync pages through it, which can skip or
+        # repeat rows at page boundaries. Sorting on the id keeps every page stable.
+        extra_params={"order": "id_asc"},
+    ),
+    # Reference list of RWA id/symbol/name/asset_type rows. Single response.
+    "rwas_list": CoinGeckoEndpointConfig(
+        name="rwas_list",
+        path="/rwas/list",
+    ),
+    # Reference list of RWA issuer id/name pairs. Single response.
+    "rwas_issuers_list": CoinGeckoEndpointConfig(
+        name="rwas_issuers_list",
+        path="/rwas/issuers/list",
     ),
 }
 

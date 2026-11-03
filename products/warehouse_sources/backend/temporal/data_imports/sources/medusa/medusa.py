@@ -237,15 +237,19 @@ def get_resource(
             raise ValueError(f"Medusa endpoint '{config.name}' has no incremental field '{incremental_field_name}'")
         cursor_field = config.incremental_field_name
 
+    params: dict[str, Any] = {
+        # Explicit ascending sort: it keeps offset page boundaries stable while rows are
+        # inserted mid-sync, and on incremental runs it matches sort_mode="asc" so the
+        # watermark checkpoints correctly. `created_at` is immutable, so a full refresh
+        # sorts on it; incremental runs sort on the cursor field itself.
+        "order": cursor_field,
+    }
+    if config.extra_fields:
+        params["fields"] = ",".join(f"+{field}" for field in config.extra_fields)
+
     endpoint: Endpoint = {
         "path": f"/admin{config.path}",
-        "params": {
-            # Explicit ascending sort: it keeps offset page boundaries stable while rows are
-            # inserted mid-sync, and on incremental runs it matches sort_mode="asc" so the
-            # watermark checkpoints correctly. `created_at` is immutable, so a full refresh
-            # sorts on it; incremental runs sort on the cursor field itself.
-            "order": cursor_field,
-        },
+        "params": params,
         "paginator": MedusaPaginator(),
         "data_selector": config.data_selector,
     }

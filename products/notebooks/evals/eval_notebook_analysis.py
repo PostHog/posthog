@@ -26,6 +26,7 @@ Because these cases need a completed Python run, run them on docker:
 
 from __future__ import annotations
 
+from products.notebooks.evals.offline_config import offline_suite
 from products.notebooks.evals.scorers import (
     CellRunsCompleted,
     ChurnCohortSurfaced,
@@ -33,7 +34,7 @@ from products.notebooks.evals.scorers import (
     NotebookCreated,
 )
 from products.notebooks.evals.seeders import seed_churn_signal
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
@@ -123,8 +124,18 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-notebook-analysis-cli",
+        offline_suite=offline_suite(
+            "notebooks/eval_notebook_analysis::eval_notebook_analysis",
+            metrics=[
+                "required_tool_call",
+                "notebook_created",
+                "cell_runs_completed",
+                "churn_cohort_surfaced",
+                "notebook_approach_quality",
+            ],
+        ),
         cases=cases,
         scorers=[
             RequiredToolCall({"notebooks-add-cell"}),

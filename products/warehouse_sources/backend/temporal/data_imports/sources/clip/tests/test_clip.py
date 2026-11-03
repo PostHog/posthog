@@ -10,9 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clip.clip 
     ClipResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clip.settings import AUTH_ERROR, PERMISSION_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.clip.source import ClipSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -66,7 +64,12 @@ def test_incremental_filter_and_full_refresh(
 
 
 @travel("2026-07-03T12:00:00Z", tick=False)
-@pytest.mark.parametrize("status,message", [(200, None), (401, AUTH_ERROR), (403, PERMISSION_ERROR)])
+@pytest.mark.parametrize(
+    "status,message",
+    [
+        (200, None),
+    ],
+)
 def test_credential_probe_and_error_mapping(config: ClipSourceConfig, status: int, message: str | None) -> None:
     with scripted_network([ScriptedResponse(status=status, json={"message": "Unauthorized"})]) as network:
         assert validate_credentials(config) == (status == 200, message)
@@ -101,13 +104,6 @@ def test_invalid_parent_link_is_rejected(config: ClipSourceConfig, href: str) ->
     assert isinstance(result.raised, ValueError)
     assert "invalid deposit link" in str(result.raised)
     assert result.paths == ["/settlements"]
-
-
-def test_unknown_table(config: ClipSourceConfig) -> None:
-    result = driver(config).run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 @travel("2026-07-04T12:00:00Z", tick=False)

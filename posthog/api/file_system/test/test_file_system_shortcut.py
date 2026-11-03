@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.test.starred_products import start_without_default_starred_products
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -16,6 +17,10 @@ from products.product_analytics.backend.facade.models import Insight
 
 
 class TestFileSystemShortcutAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        start_without_default_starred_products(self)
+
     def test_list_shortcuts_initially_empty(self):
         response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -210,7 +215,7 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         second = self.client.post(f"/api/projects/{self.team.id}/file_system_shortcut/", payload, format="json")
 
         self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.json())
-        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.json())
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.json())
         self.assertEqual(second.json()["id"], first.json()["id"])
         self.assertEqual(FileSystemShortcut.objects.filter(team=self.team, user=self.user).count(), 1)
 
@@ -288,6 +293,7 @@ class TestFileSystemShortcutAPI(APIBaseTest):
 class TestFileSystemShortcutAccessLevels(APIBaseTest):
     def setUp(self):
         super().setUp()
+        start_without_default_starred_products(self)
         self.organization.available_product_features = [
             {"key": "access_control", "name": "access_control"},
             {"key": "role_based_access", "name": "role_based_access"},

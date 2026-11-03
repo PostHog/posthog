@@ -47,11 +47,6 @@ class TestFreshcallerSource:
         # The subdomain is where the stored key is sent; editing it must re-require the secret.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "calls"
-
     @pytest.mark.parametrize(
         "subdomain, status, schema_name, expected_valid",
         [

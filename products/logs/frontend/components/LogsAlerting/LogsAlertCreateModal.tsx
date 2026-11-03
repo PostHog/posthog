@@ -10,6 +10,7 @@ import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/component
 
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
+import { GROUP_BY_LABELS } from './logsAlertGrouping'
 import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
@@ -30,7 +31,9 @@ export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalPr
 
 function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
     const formLogicProps = { alert: null, onSubmitSuccess: onClose }
-    const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(logsAlertFormLogic(formLogicProps))
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormValidationErrors, canGroup } = useValues(
+        logsAlertFormLogic(formLogicProps)
+    )
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
@@ -39,12 +42,15 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
         ? undefined
         : 'Select at least one severity or service, or add an attribute filter.'
     const configurationCannotAdvanceReason = nameError ?? filterError
+    const triggerCannotAdvanceReason = alertFormValidationErrors.maxInstances as string | undefined
     const steps = buildLogsAlertWizardSteps({
         alertForm,
         pendingNotifications,
         configurationCannotAdvanceReason,
+        triggerCannotAdvanceReason,
         nameError,
         filterError,
+        canGroup,
     })
 
     return (
@@ -75,14 +81,18 @@ function buildLogsAlertWizardSteps({
     alertForm,
     pendingNotifications,
     configurationCannotAdvanceReason,
+    triggerCannotAdvanceReason,
     nameError,
     filterError,
+    canGroup,
 }: {
     alertForm: LogsAlertFormType
     pendingNotifications: PendingLogsAlertNotification[]
     configurationCannotAdvanceReason: string | undefined
+    triggerCannotAdvanceReason: string | undefined
     nameError: string | undefined
     filterError: string | undefined
+    canGroup: boolean
 }): AlertWizardStep[] {
     return [
         {
@@ -102,6 +112,8 @@ function buildLogsAlertWizardSteps({
             key: 'trigger',
             title: 'Set trigger',
             description: 'Set the log count that fires the alert and reduce notification noise if needed.',
+            canAdvance: !triggerCannotAdvanceReason,
+            cannotAdvanceReason: triggerCannotAdvanceReason,
             content: (
                 <div className="space-y-6">
                     <LogsAlertTrigger />
@@ -123,7 +135,13 @@ function buildLogsAlertWizardSteps({
             key: 'review',
             title: 'Review',
             description: 'Confirm the alert before you create it.',
-            content: <LogsAlertReview alertForm={alertForm} pendingNotifications={pendingNotifications} />,
+            content: (
+                <LogsAlertReview
+                    alertForm={alertForm}
+                    pendingNotifications={pendingNotifications}
+                    canGroup={canGroup}
+                />
+            ),
         },
     ]
 }
@@ -131,9 +149,11 @@ function buildLogsAlertWizardSteps({
 function LogsAlertReview({
     alertForm,
     pendingNotifications,
+    canGroup,
 }: {
     alertForm: LogsAlertFormType
     pendingNotifications: PendingLogsAlertNotification[]
+    canGroup: boolean
 }): JSX.Element {
     const severity = alertForm.severityLevels.length ? alertForm.severityLevels.join(', ') : 'all severities'
     const services = alertForm.serviceNames.length ? alertForm.serviceNames.join(', ') : 'all services'
@@ -165,6 +185,17 @@ function LogsAlertReview({
                     label: 'Fires when',
                     value: `log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`,
                 },
+                ...(canGroup
+                    ? [
+                          {
+                              label: 'Group by',
+                              value:
+                                  alertForm.groupBy === 'none'
+                                      ? GROUP_BY_LABELS.none
+                                      : `${GROUP_BY_LABELS[alertForm.groupBy]}, up to ${alertForm.maxInstances} groups`,
+                          },
+                      ]
+                    : []),
                 {
                     label: 'Noise reduction',
                     value: `${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`,

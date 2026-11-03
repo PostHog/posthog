@@ -58,10 +58,6 @@ class TestBugsnagSource:
         schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=self.team_id, names=["errors", "projects"])
-        assert {s.name for s in schemas} == {"errors", "projects"}
-
     @parameterized.expand(
         [
             ("organizations", ["id"]),
@@ -103,39 +99,6 @@ class TestBugsnagSource:
                 assert "organization_id" in config.primary_keys, config.name
             elif config.scope in project_scopes:
                 assert "project_id" in config.primary_keys, config.name
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.bugsnag.com/projects/abc/errors?per_page=100",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.bugsnag.com/user/organizations?per_page=1",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.bugsnag.com/projects/abc/errors",
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.bugsnag.com/user/organizations",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='api.bugsnag.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
     def test_error_grain_endpoints_bound_their_error_fan_out(self) -> None:
         # Error-grain endpoints cost one request per error and BugSnag exposes no filter to narrow

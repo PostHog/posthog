@@ -51,6 +51,7 @@ class NewInsightTile:
     description: str
     query: dict[str, Any]
     layout: TileLayout
+    show_description: bool | None = None
 
 
 @frozen
@@ -75,6 +76,7 @@ class NewDashboard:
     # An unlisted dashboard stays out of the dashboard list, and its insights stay out of the saved insights list.
     # The product that created it opens it by id.
     unlisted: bool = False
+    filters: dict[str, Any] | None = None
 
 
 @frozen
@@ -132,7 +134,10 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
             name=dashboard.name[:MAX_DASHBOARD_NAME_LENGTH],
             description=dashboard.description,
             created_by=user,
-            filters={"date_from": dashboard.date_from} if dashboard.date_from else {},
+            filters={
+                **(dashboard.filters or {}),
+                **({"date_from": dashboard.date_from} if dashboard.date_from else {}),
+            },
             creation_mode=Dashboard.CreationMode.UNLISTED if dashboard.unlisted else Dashboard.CreationMode.DEFAULT,
         )
         for index, tile in enumerate(dashboard.tiles):
@@ -150,7 +155,11 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                 if not was_created:
                     raise ValueError("A dashboard was already created with this idempotency key.")
                 created_tile = DashboardTile.objects.create(
-                    dashboard=created, team_id=team_id, insight_id=insight_id, layouts=_layouts(tile.layout)
+                    dashboard=created,
+                    team_id=team_id,
+                    insight_id=insight_id,
+                    layouts=_layouts(tile.layout),
+                    show_description=tile.show_description,
                 )
                 insight_count += 1
             else:
@@ -226,6 +235,17 @@ def read_dashboard_tiles(*, team_id: int, dashboard_id: int) -> tuple[DashboardT
     return tuple(
         sorted(snapshots, key=lambda snapshot: (snapshot.layout.y, snapshot.layout.x) if snapshot.layout else (0, 0))
     )
+
+
+def read_dashboard_metric_variables(*, team_id: int, dashboard_id: int) -> list[dict[str, Any]]:
+    """The metrics dashboard variables of a dashboard, as MetricsDashboardVariable JSON."""
+    filters = (
+        Dashboard.objects.filter(team_id=team_id, id=dashboard_id, deleted=False)
+        .values_list("filters", flat=True)
+        .first()
+    )
+    variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+    return [variable for variable in variables if isinstance(variable, dict)] if isinstance(variables, list) else []
 
 
 def delete_unlisted_dashboard(*, team_id: int, dashboard_id: int) -> bool:

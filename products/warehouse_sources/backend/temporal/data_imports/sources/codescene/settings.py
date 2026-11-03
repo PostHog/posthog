@@ -22,8 +22,9 @@ class CodesceneEndpointConfig:
     primary_key: str | list[str] = "id"
     page_size: int = 100
     # The endpoints differ in what they page on: most take `page` + `page_size` and report
-    # `max_pages`, `analyses` pages on `page` alone, and `author-statistics` returns the whole
-    # collection in a single unpaginated response.
+    # `max_pages`, `analyses` and `delta-analyses` page on `page` alone, and `author-statistics`,
+    # `branch-statistics` and `commit-activity` return the whole collection in a single
+    # unpaginated response.
     paginated: bool = True
     page_size_param: str | None = "page_size"
     fanout: DependentEndpointConfig | None = None
@@ -117,6 +118,65 @@ CODESCENE_ENDPOINTS: dict[str, CodesceneEndpointConfig] = {
         data_selector=None,
         primary_key=["project_id", "author"],
         paginated=False,
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "Commits": CodesceneEndpointConfig(
+        name="Commits",
+        path="/projects/{project_id}/analyses/latest/commits",
+        data_selector="commits",
+        # A project can span several repositories, so a commit hash is only unique per repository.
+        primary_key=["project_id", "repository", "rev"],
+        page_size=200,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "CommitActivity": CodesceneEndpointConfig(
+        name="CommitActivity",
+        path="/projects/{project_id}/analyses/latest/commit-activity",
+        data_selector="commit_activity_trend",
+        primary_key=["project_id", "date"],
+        paginated=False,
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "BranchStatistics": CodesceneEndpointConfig(
+        name="BranchStatistics",
+        path="/projects/{project_id}/analyses/latest/branch-statistics",
+        data_selector=None,
+        primary_key=["project_id", "repository_name", "branch"],
+        paginated=False,
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="Projects",
+            resolve_param="project_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "project_id"},
+        ),
+    ),
+    "DeltaAnalyses": CodesceneEndpointConfig(
+        name="DeltaAnalyses",
+        path="/projects/{project_id}/delta-analyses",
+        data_selector="delta_analyses",
+        primary_key=["project_id", "id"],
         page_size_param=None,
         fanout=DependentEndpointConfig(
             parent_name="Projects",

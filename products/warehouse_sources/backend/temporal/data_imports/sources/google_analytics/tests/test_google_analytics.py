@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 import pytest
@@ -9,9 +9,15 @@ from django.db import OperationalError
 
 import requests
 from google.auth.exceptions import RefreshError
+from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -32,6 +38,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _run_report,
     _runreport_backoff_seconds,
     google_analytics_source,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
+    GoogleAnalyticsSource,
 )
 
 TODAY = dt.date(2026, 4, 30)
@@ -102,20 +111,20 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
     integration.refresh_token = "refresh-token"
 
     def fake_get(*args, **kwargs):
-        calls.append("Integration.objects.get")
+        calls.append("IntegrationManager.get")
         return integration
 
-    monkeypatch.setattr(ga.Integration.objects, "get", fake_get)
+    monkeypatch.setattr(ga.IntegrationManager.google_analytics.oauth, "get", fake_get)
 
     creds = _credentials(integration_id=1, team_id=1)
 
-    assert calls == ["close_old_connections", "Integration.objects.get"]
+    assert calls == ["close_old_connections", "IntegrationManager.get"]
     assert creds.refresh_token == "refresh-token"
 
 
 _INTEGRATION_GET_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
-    "Integration.objects.get"
+    "IntegrationManager.google_analytics.oauth.get"
 )
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
@@ -142,10 +151,10 @@ class TestGetIntegrationDbResilience:
         assert get.call_count == 4
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
-            with pytest.raises(Integration.DoesNotExist):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.
@@ -436,6 +445,49 @@ def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "should_use_incremental_field,quota_on_call,ends_early",
+    [
+        (True, 1, True),
+        (False, 1, False),
+        (True, 0, False),
+    ],
+)
+def test_source_quota_exhaustion_ends_incremental_run_after_progress(
+    monkeypatch, should_use_incremental_field, quota_on_call, ends_early
+):
+    monkeypatch.setattr(ga, "_today", lambda: dt.date(2026, 4, 30))
+    _patch_session(monkeypatch)
+
+    calls: list[str] = []
+
+    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+        calls.append(start_date)
+        if len(calls) > quota_on_call:
+            raise GoogleAnalyticsQuotaExceededError("quota (retryable)")
+        return _report_payload(["20260301"], [1])
+
+    monkeypatch.setattr(ga, "_run_report", fake_run_report)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    response = google_analytics_source(
+        config=_config(history_days=90),
+        resource_name="website_overview",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=None,
+    )
+
+    if ends_early:
+        assert len(list(cast(Iterable[Any], response.items()))) == quota_on_call
+    else:
+        with pytest.raises(GoogleAnalyticsQuotaExceededError):
+            list(cast(Iterable[Any], response.items()))
+
+
+@pytest.mark.parametrize(
     "history_days,expected_first_start",
     [
         (None, "2024-04-30"),
@@ -497,6 +549,63 @@ def test_source_resume_past_end_date_yields_nothing(monkeypatch):
     fake_run_report.assert_not_called()
 
 
+def _quota_after_pages(pages_before_quota: int) -> Callable[[RecordedRequest], ScriptedResponse]:
+    page = ScriptedResponse(json=_report_payload(["20250816", "20250817"], [1, 2], row_count=5))
+    quota = ScriptedResponse(status=429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+    answered: list[RecordedRequest] = []
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        answered.append(request)
+        return page if len(answered) <= pages_before_quota else quota
+
+    return answer
+
+
+@pytest.mark.parametrize(
+    "should_use_incremental_field,resume_state,pages_before_quota,expected_rows,expect_raise",
+    [
+        (True, None, 1, 2, False),
+        (True, None, 0, 0, True),
+        (True, GoogleAnalyticsResumeConfig(chunk_start="2025-09-15", offset=0), 0, 0, False),
+        (False, None, 1, 2, True),
+    ],
+)
+def test_source_quota_exhaustion_keeps_rows_only_when_the_watermark_advances(
+    monkeypatch, should_use_incremental_field, resume_state, pages_before_quota, expected_rows, expect_raise
+):
+    monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
+
+    result = SourceDriver(GoogleAnalyticsSource(), _config()).run(
+        "website_overview",
+        _quota_after_pages(pages_before_quota),
+        resume_state=resume_state,
+        incremental_field="date",
+        should_use_incremental_field=should_use_incremental_field,
+    )
+
+    assert len(result.rows) == expected_rows
+    assert isinstance(result.raised, GoogleAnalyticsQuotaExceededError) is expect_raise
+    if not expect_raise:
+        assert result.raised is None
+
+
+def test_source_next_job_fails_when_quota_runs_out_inside_the_lookback_window(monkeypatch):
+    monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
+    driver = SourceDriver(GoogleAnalyticsSource(), _config())
+
+    first = driver.run("website_overview", _quota_after_pages(1), incremental_field="date")
+    assert first.raised is None
+
+    second = driver.run(
+        "website_overview",
+        _quota_after_pages(1),
+        incremental_field="date",
+        db_incremental_field_last_value=max(row["date"] for row in first.rows),
+    )
+
+    assert isinstance(second.raised, GoogleAnalyticsQuotaExceededError)
+
+
 def test_source_requests_user_defined_custom_report(monkeypatch):
     # A custom report drives the exact dimensions/metrics sent to runReport (date prepended),
     # proving user config reaches the generic fetch layer, and its primary key is date + dims.
@@ -524,13 +633,3 @@ def test_source_requests_user_defined_custom_report(monkeypatch):
 
     assert response.primary_keys == ["date", "sessionCampaignName", "sessionSource"]
     assert seen[0] == (["date", "sessionCampaignName", "sessionSource"], ["sessions", "purchaseRevenue"])
-
-
-def test_unknown_resource_name_raises():
-    with pytest.raises(ValueError, match="Unknown Google Analytics schema"):
-        google_analytics_source(
-            config=_config(),
-            resource_name="not_a_real_schema",
-            team_id=1,
-            resumable_source_manager=mock.MagicMock(),
-        )

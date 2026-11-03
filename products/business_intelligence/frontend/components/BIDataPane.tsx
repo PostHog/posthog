@@ -8,6 +8,7 @@ import { BIDataPaneSection } from 'products/business_intelligence/frontend/BIDat
 import { BIDataSourcePicker } from 'products/business_intelligence/frontend/BIDataSourcePicker'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { BIHierarchySection } from 'products/business_intelligence/frontend/BIHierarchySection'
+import { BISourceContext } from 'products/business_intelligence/frontend/BISourceContext'
 
 import { BIMemberAliasesModal } from '../BIMemberAliasesModal'
 import { biSceneLogic } from '../biSceneLogic'
@@ -19,6 +20,8 @@ import { BIConnectionSelector } from './BIConnectionSelector'
 export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
     const {
         config,
+        allTables,
+        databaseConnectionId,
         dataPaneFields,
         dataPaneFieldsLoading,
         dataPaneFieldsError,
@@ -31,6 +34,10 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
 
     const hasFields = dataPaneFields.dimensions.length > 0 || dataPaneFields.measures.length > 0
     const hasMatches = filteredDataPaneFields.dimensions.length > 0 || filteredDataPaneFields.measures.length > 0
+    const sourceTable =
+        !config.source?.connectionId && !databaseConnectionId
+            ? allTables.find((table) => table.name === config.source?.table)
+            : undefined
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
@@ -47,6 +54,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                 >
                     View source data
                 </LemonButton>
+                {sourceTable && <BISourceContext table={sourceTable} />}
                 {config.source ? (
                     <LemonInput
                         type="search"
@@ -101,21 +109,19 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                         />
                     </>
                 )}
+                {config.source && !dataPaneFieldsError && (
+                    <LemonButton
+                        icon={<IconPlus />}
+                        size="xsmall"
+                        fullWidth
+                        onClick={() => editCalculatedField()}
+                        data-attr="bi-editor-add-calculated-measure"
+                    >
+                        Add calculated field
+                    </LemonButton>
+                )}
                 {config.source && !dataPaneFieldsError ? <BIHierarchySection tabId={tabId} /> : null}
                 {config.source && !dataPaneFieldsError ? <BIConnections /> : null}
-            </div>
-            <div className="border-t p-2">
-                <LemonButton
-                    icon={<IconPlus />}
-                    size="xsmall"
-                    fullWidth
-                    type="secondary"
-                    onClick={() => editCalculatedField()}
-                    disabledReason={!config.source ? 'Select a data source first' : undefined}
-                    data-attr="bi-editor-add-calculated-measure"
-                >
-                    Add calculated field
-                </LemonButton>
             </div>
         </div>
     )

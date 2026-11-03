@@ -1839,10 +1839,10 @@ mod tests {
 
     #[test]
     fn test_epoch_expire_at_spread_survives_sharding() {
-        // `select_redis_client` shards on `DefaultHasher` of the same key. If
-        // the expiry offset used that hash too, a shard count sharing a factor
-        // with the window would leave each shard only a fraction of the
-        // offsets, and the expiry burst would come back per shard.
+        // `select_redis_client` shards on a hash of the same key. If the expiry
+        // offset used that hash too, a shard count sharing a factor with the
+        // window would leave each shard only a fraction of the offsets, and the
+        // expiry burst would come back per shard.
         let window = Duration::from_secs(120);
         let ttl = Duration::from_secs(240);
         for shards in [2usize, 3, 4, 8] {
@@ -1850,9 +1850,7 @@ mod tests {
                 std::collections::HashMap::new();
             for i in 0..4000 {
                 let key = format!("key{i}");
-                let mut h = DefaultHasher::new();
-                key.hash(&mut h);
-                let shard = (h.finish() as usize) % shards;
+                let shard = instance_index(&key, shards);
                 per_shard
                     .entry(shard)
                     .or_default()

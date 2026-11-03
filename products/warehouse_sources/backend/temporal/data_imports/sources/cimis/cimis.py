@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.settings import (
     CIMIS_BASE_URL,
@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.sett
     DEFAULT_HOURLY_DATA_ITEMS,
     CimisEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT = 60
@@ -113,7 +116,7 @@ def _flatten_record(record: dict[str, Any]) -> dict[str, Any]:
     return flat
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((CimisRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
@@ -194,8 +197,9 @@ def _get_data_rows(
     session = make_tracked_session(headers=_headers(), redact_values=(app_key,))
     rpd = _records_per_day(config.scope)
 
-    # Keep the date window as the outer loop so rows are emitted in ascending Date order even when the
-    # target set is large enough to require multiple requests per window (sort_mode="asc" relies on it).
+    # Keep the date window as the outer loop so the windows are emitted in ascending Date order even when
+    # the target set is large enough to require multiple requests per window. Rows inside a window have
+    # no documented order.
     if len(targets) * rpd <= CIMIS_RECORD_CAP:
         window_days = max(1, CIMIS_RECORD_CAP // (len(targets) * rpd))
         target_batches = [targets]
@@ -304,5 +308,4 @@ def cimis_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
     )

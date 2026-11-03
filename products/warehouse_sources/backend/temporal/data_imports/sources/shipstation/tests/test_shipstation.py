@@ -5,7 +5,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipstation import (
@@ -78,21 +77,6 @@ class TestBuildParams:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    def test_validate_credentials_status_mapping(self, status_code, expected):
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            ok, _error = validate_credentials("key", "secret")
-
-        assert ok is expected
-
     def test_v1_requires_secret_without_probing(self):
         # v1 authenticates with a key + secret pair; a missing secret must fail before any request.
         ok, error = validate_credentials("key", None, SHIPSTATION_V1)

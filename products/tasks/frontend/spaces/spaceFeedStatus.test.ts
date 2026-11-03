@@ -1,13 +1,18 @@
 import { TaskRunDetailDTOApi } from '../generated/api.schemas'
 import { spaceFeedStatus } from './spaceFeedStatus'
 
-const run = (status: string, environment: string, output: TaskRunDetailDTOApi['output'] = null): TaskRunDetailDTOApi =>
-    ({ status, environment, output }) as TaskRunDetailDTOApi
+const run = (
+    status: string,
+    environment: string,
+    output: TaskRunDetailDTOApi['output'] = null,
+    mode = 'background'
+): TaskRunDetailDTOApi => ({ status, environment, output, state: { mode } }) as unknown as TaskRunDetailDTOApi
 
 describe('spaceFeedStatus', () => {
     it.each([
         ['no run', null, 'Draft'],
         ['a cloud run in progress', run('in_progress', 'cloud'), 'In progress'],
+        ['an interactive cloud run between turns', run('in_progress', 'cloud', null, 'interactive'), 'Ready'],
         ['a local run in progress', run('in_progress', 'local'), null],
         ['a local run that completed', run('completed', 'local'), 'Ready'],
         [

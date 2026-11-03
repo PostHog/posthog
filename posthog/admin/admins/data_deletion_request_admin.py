@@ -19,11 +19,13 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
     build_deletion_count_query,
+    count_adhoc_event_deletion_backlog,
     count_remaining_for_request,
     fetch_deletion_stats,
     invalidate_compiled_predicate_cache,
     refresh_deletion_stats,
 )
+from posthog.models.team import Team
 
 CRITERIA_FIELDS = {
     "request_type",
@@ -215,6 +217,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
     list_filter = ("request_type", "status", "requires_approval", "approved", "approved_automatically")
     search_fields = ("team_id", "events", "properties", "person_properties", "notes")
     readonly_fields = (
+        "team_details",
         "status",
         "count",
         "part_count",
@@ -333,6 +336,30 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             )
             created += 1
         messages.success(request, f"Duplicated {created} request(s) as new draft(s).")
+
+    @admin.display(description="Team")
+    def team_details(self, obj: DataDeletionRequest) -> str:
+        team = Team.objects.select_related("organization").filter(id=obj.team_id).first()
+        if team is None:
+            return format_html("{} <em>(team not found)</em>", obj.team_id)
+        return format_html(
+            '<a href="{}">{}</a> {} · organization <a href="{}">{}</a> {}',
+            reverse("admin:posthog_team_change", args=[team.pk]),
+            team.pk,
+            team.name,
+            reverse("admin:posthog_organization_change", args=[team.organization_id]),
+            team.organization_id,
+            team.organization.name,
+        )
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is None:
+            return fieldsets
+        return [
+            (name, {**options, "fields": tuple("team_details" if f == "team_id" else f for f in options["fields"])})
+            for name, options in fieldsets
+        ]
 
     @admin.display(description="Last Dagster run")
     def last_dagster_run(self, obj: DataDeletionRequest) -> str:
@@ -766,9 +793,17 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only pending requests can be approved.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        # The backlog only informs the approver, so a ClickHouse failure must not block approval.
+        try:
+            adhoc_backlog = count_adhoc_event_deletion_backlog(obj.team_id)
+        except Exception as e:
+            adhoc_backlog = None
+            messages.warning(request, f"Could not count queued adhoc event deletions: {e}")
+
         context = {
             **self.admin_site.each_context(request),
             "obj": obj,
+            "adhoc_backlog": adhoc_backlog,
             "supports_deferred": supports_deferred,
             "is_hogql_event_removal": is_hogql_event_removal,
             "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,

@@ -23,8 +23,13 @@ The payload's `installation.id` goes into the delivery context as `installation_
 
 Two apps share this incarnation, each subscribed to its own event types in GitHub.
 
-- `posthog`, the customer-facing App. Its secret is the instance setting `GITHUB_WEBHOOK_SECRET`, so an operator can rotate it without a deploy.
-- `stamphog`, the review App. Its secret is the Django setting `STAMPHOG_GITHUB_APP_WEBHOOK_SECRET`, because it is instance-wide infrastructure.
+- `posthog`, the customer-facing App. Its secret is `GITHUB_WEBHOOK_SECRET`, held as an instance setting so an operator can rotate it without a deploy.
+- `stamphog`, the review App. Its secret is `STAMPHOG_GITHUB_APP_WEBHOOK_SECRET`, held as a Django setting because it is instance-wide infrastructure.
+
+Both secrets are read from the credentials service first.
+A secret that the service does not hold comes from its setting, and with the service off only the setting is read.
+Each read is cached for five minutes, so a rotated secret reaches each process within five minutes.
+When the service cannot answer, the delivery gets 503, so GitHub can send it again.
 
 A consumer registers against an app name, so the two apps share no consumers.
 
@@ -60,7 +65,7 @@ See `products/commands/README.md`.
 
 One installation can link to several projects in a region, so `installation.id` never names one project.
 A consumer picks its projects in one of two shapes.
-A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` from `posthog/github/installations.py`, never its own `Integration` query.
+A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` or `installation_team_ids()` from `posthog/github/installations.py`, never its own `Integration` query.
 
 **Subscriptions.**
 Deliver the event to every project that has its own row for the repository, for example a workflow, a loop trigger, an issue link, or a monitored repository.

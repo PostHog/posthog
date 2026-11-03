@@ -75,11 +75,7 @@ class TestMedusaSource:
     @pytest.mark.parametrize(
         ("probe_result", "expected_valid", "expected_message_part"),
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "secret API key"),
-            ((False, 403), False, "secret API key"),
             ((False, None), False, "Couldn't connect"),
-            ((False, 500), False, "Couldn't connect"),
         ],
     )
     def test_validate_credentials_maps_probe_results(

@@ -70,7 +70,7 @@ class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConf
             name=ExternalDataSourceType.DOCKERHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Docker Hub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Docker Hub username and a personal access token to pull your container repositories, tags and organization activity into the PostHog Data warehouse.
 
 You can create a personal access token with **Read** access under **Account settings → Personal access tokens** in [Docker Hub](https://app.docker.com/settings/personal-access-tokens). To import an organization's repositories instead of your own, set the namespace field to the organization name.

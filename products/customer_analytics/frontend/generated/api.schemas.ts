@@ -1762,6 +1762,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -1791,9 +1793,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -1801,6 +1801,43 @@ export interface HogQLQueryModifiersApi {
     useWebAnalyticsPreAggregatedTables?: boolean | null
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+export type AccountsTableCustomPropertyDisplayTypeApi =
+    (typeof AccountsTableCustomPropertyDisplayTypeApi)[keyof typeof AccountsTableCustomPropertyDisplayTypeApi]
+
+export const AccountsTableCustomPropertyDisplayTypeApi = {
+    Text: 'text',
+    Link: 'link',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+export interface AccountsTableCustomPropertyOptionApi {
+    color: string
+    id?: string | null
+    label: string
+}
+
+export interface AccountsTableCustomPropertySourceApi {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyDefinitionApi {
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayTypeApi
+    has_workflow_reference: boolean
+    id: string
+    is_big_number?: boolean | null
+    is_canonical: boolean
+    name: string
+    options?: AccountsTableCustomPropertyOptionApi[] | null
+    source?: AccountsTableCustomPropertySourceApi | null
 }
 
 export interface ClickhouseQueryProgressApi {
@@ -1883,7 +1920,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -1903,9 +1940,19 @@ export interface QueryStatusApi {
     team_id: number
 }
 
+export interface AccountsTableRelationshipDefinitionApi {
+    description?: string | null
+    id: string
+    is_controlled: boolean
+    is_single_holder?: boolean | null
+    name: string
+}
+
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export interface AccountsTableCustomPropertyHistoryPointApi {
@@ -1967,6 +2014,8 @@ export interface DataWarehouseSourceUsageApi {
     source_type?: string | null
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean | null
 }
 
 export interface DataWarehouseSyncWarningApi {
@@ -1998,6 +2047,17 @@ export interface AccessControlFilterWarningApi {
 }
 
 export interface AccountsTableQueryResponseApi {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -2012,6 +2072,7 @@ export interface AccountsTableQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -2087,6 +2148,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -2103,6 +2166,7 @@ export interface AccountsTableQueryApi {
     response?: AccountsTableQueryResponseApi | null
     sort?: AccountsTableSortApi | null
     tags?: QueryLogTagsApi | null
+    useDefaultColumns?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -2203,6 +2267,41 @@ export interface MetricsQueryFilterApi {
     value: string
 }
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
+
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
 export const PropertyOperatorApi = {
@@ -2232,6 +2331,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -2307,6 +2407,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -2539,8 +2643,9 @@ export interface DashboardFilterApi {
     filterTestAccounts?: boolean | null
     /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
     interval?: IntervalTypeApi | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariableApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi
@@ -3577,6 +3682,23 @@ export interface CustomerTaskUpdateApi {
      */
     account_id?: string | null
     /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+    /**
      * Replacement task name.
      * @maxLength 400
      */
@@ -3586,6 +3708,14 @@ export interface CustomerTaskUpdateApi {
      * @nullable
      */
     description?: string | null
+}
+
+export interface PatchedCustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
     /**
      * Replacement assignee ID, or null to unassign.
      * @nullable
@@ -3603,14 +3733,6 @@ export interface CustomerTaskUpdateApi {
      * * `completed` - Completed
      * * `canceled` - Canceled */
     status?: CustomerTaskStatusEnumApi
-}
-
-export interface PatchedCustomerTaskUpdateApi {
-    /**
-     * UUID of a visible account, or null to remove the account link.
-     * @nullable
-     */
-    account_id?: string | null
     /**
      * Replacement task name.
      * @maxLength 400
@@ -3621,23 +3743,6 @@ export interface PatchedCustomerTaskUpdateApi {
      * @nullable
      */
     description?: string | null
-    /**
-     * Replacement assignee ID, or null to unassign.
-     * @nullable
-     */
-    assigned_to_id?: number | null
-    /**
-     * Replacement ISO 8601 deadline, or null to clear it.
-     * @nullable
-     */
-    due_at?: string | null
-    /** Replacement task status.
-     *
-     * * `open` - Open
-     * * `in_progress` - In progress
-     * * `completed` - Completed
-     * * `canceled` - Canceled */
-    status?: CustomerTaskStatusEnumApi
 }
 
 /**
@@ -3708,6 +3813,54 @@ export interface CustomerTaskActivityPageApi {
     readonly previous: string | null
     /** Activities in this page. */
     readonly results: readonly CustomerTaskActivityApi[]
+}
+
+export interface CustomerTaskBulkPatchApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+    /** Archive tasks when true, or restore them when false. */
+    archived?: boolean
+}
+
+export interface CustomerTaskBulkUpdateApi {
+    /**
+     * UUIDs of up to 100 tasks to update together.
+     * @minItems 1
+     * @maxItems 100
+     */
+    task_ids: string[]
+    /** Changes to apply to every selected task. */
+    updates: CustomerTaskBulkPatchApi
+}
+
+export interface CustomerTaskBulkUpdateResultApi {
+    /** Number of tasks changed by this batch. */
+    readonly updated_count: number
+}
+
+export interface CustomerTaskBulkUpdateErrorApi {
+    /** Reason the batch could not be updated. */
+    readonly detail: string
 }
 
 /**
@@ -4604,6 +4757,7 @@ export interface PatchedGroupUsageMetricApi {
 /**
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
+ * * `account_field` - Account field
  */
 export type AccountPropertyPinKindEnumApi =
     (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
@@ -4611,15 +4765,20 @@ export type AccountPropertyPinKindEnumApi =
 export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
+    AccountField: 'account_field',
 } as const
 
 export interface PinnedAccountPropertyApi {
-    /** Definition type for this pinned account property.
+    /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
      *
      * * `custom_property` - Custom property
-     * * `relationship` - Relationship */
+     * * `relationship` - Relationship
+     * * `account_field` - Account field */
     kind: AccountPropertyPinKindEnumApi
-    /** Team-scoped custom property or relationship definition UUID. */
+    /**
+     * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+     * @maxLength 64
+     */
     id: string
 }
 
@@ -4740,6 +4899,7 @@ export type AccountNotesListParams = {
     created_by?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4755,17 +4915,30 @@ export type AccountNotesListParams = {
 export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: AccountRelationshipDefinitionsListPagination
 }
+
+export type AccountRelationshipDefinitionsListPagination =
+    (typeof AccountRelationshipDefinitionsListPagination)[keyof typeof AccountRelationshipDefinitionsListPagination]
+
+export const AccountRelationshipDefinitionsListPagination = {
+    None: 'none',
+} as const
 
 export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4800,6 +4973,7 @@ export type AccountsListParams = {
     include_ignored?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4849,6 +5023,7 @@ export type AccountsRelationshipsListParams = {
 export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4860,6 +5035,7 @@ export type AccountsEmailThreadsListParams = {
 export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -4871,6 +5047,7 @@ export type AccountsEmailThreadMessagesListParams = {
 export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4886,6 +5063,7 @@ export type AccountsMeetingsListParams = {
 export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4897,6 +5075,7 @@ export type AccountsSummariesListParams = {
 export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -4917,6 +5096,7 @@ export type AccountsByExternalIdRetrieveParams = {
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4928,13 +5108,25 @@ export type AnnouncementsListParams = {
 export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: CustomPropertyDefinitionsListPagination
 }
+
+export type CustomPropertyDefinitionsListPagination =
+    (typeof CustomPropertyDefinitionsListPagination)[keyof typeof CustomPropertyDefinitionsListPagination]
+
+export const CustomPropertyDefinitionsListPagination = {
+    None: 'none',
+} as const
 
 export type CustomPropertyDefinitionsValuesRetrieveParams = {
     /**
@@ -4950,6 +5142,7 @@ export type CustomPropertyDefinitionsValuesRetrieveParams = {
 export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4961,6 +5154,7 @@ export type CustomPropertySourcesListParams = {
 export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4976,6 +5170,7 @@ export type CustomPropertySourcesRunsListParams = {
 export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4987,6 +5182,7 @@ export type CustomerJourneysListParams = {
 export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5119,6 +5315,7 @@ export type FeatureRequestsListParams = {
     created_by_ids?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

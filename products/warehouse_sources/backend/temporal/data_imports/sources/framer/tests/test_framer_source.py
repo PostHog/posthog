@@ -48,6 +48,7 @@ class TestFramerSource:
         [
             ("Framer API error POOL_EXHAUSTED: busy",),
             ("Framer API error INTERNAL: Navigation failed: connection",),
+            ("Framer API error SERVER_BUSY: Framer is very busy right now. Please try again in a few minutes.",),
         ]
     )
     def test_transient_channel_errors_stay_retryable(self, observed_error: str) -> None:

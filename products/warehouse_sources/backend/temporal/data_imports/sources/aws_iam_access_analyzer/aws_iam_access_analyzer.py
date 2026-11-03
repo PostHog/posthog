@@ -19,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_ac
     ENDPOINTS,
     ERROR_MESSAGES,
     PAGE_SIZE,
-    PARTITION_KEY,
     TIMESTAMP_COLUMNS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -38,6 +37,7 @@ class AwsIamAccessAnalyzerResumeConfig:
     next_token: str | None = None
     analyzers_next_token: str | None = None
     pending_analyzers: list[dict[str, str]] = field(default_factory=list)
+    pending_findings: list[str] = field(default_factory=list)
     finished: bool = False
 
 
@@ -86,6 +86,7 @@ class AwsIamAccessAnalyzerClient:
         endpoint: str,
         *,
         analyzer: dict[str, str] | None = None,
+        finding_id: str | None = None,
         next_token: str | None = None,
         page_size: int = PAGE_SIZE,
     ) -> dict[str, Any]:
@@ -97,10 +98,14 @@ class AwsIamAccessAnalyzerClient:
         if endpoint != "analyzers":
             if analyzer is None:
                 raise ValueError(f"An analyzer is required for {endpoint}.")
-            if endpoint == "findings":
-                payload["analyzerArn"] = analyzer["arn"]
-            else:
+            if "{analyzer_name}" in path:
                 path = path.format(analyzer_name=quote(analyzer["name"], safe=""))
+            else:
+                payload["analyzerArn"] = analyzer["arn"]
+            if "{id}" in path:
+                if finding_id is None:
+                    raise ValueError(f"A finding ID is required for {endpoint}.")
+                path = path.format(id=quote(finding_id, safe=""))
         url = self.url + path
         body = None
         if definition.method == "GET":
@@ -143,6 +148,63 @@ def normalize_row(row: dict[str, Any], region: str, analyzer: dict[str, str] | N
     return result
 
 
+def select_analyzers(endpoint: str, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    types = ENDPOINTS[endpoint].analyzer_types
+    return [{"arn": row["arn"], "name": row["name"]} for row in rows if types is None or row.get("type") in types]
+
+
+def select_finding_ids(endpoint: str, rows: list[dict[str, Any]]) -> list[str]:
+    types = ENDPOINTS[endpoint].finding_types
+    return [row["id"] for row in rows if types is None or row.get("findingType") in types]
+
+
+def advance(
+    state: AwsIamAccessAnalyzerResumeConfig, next_token: str | None, pending_findings: list[str]
+) -> AwsIamAccessAnalyzerResumeConfig:
+    analyzer_done = next_token is None and not pending_findings
+    pending = state.pending_analyzers[1:] if analyzer_done else state.pending_analyzers
+    return AwsIamAccessAnalyzerResumeConfig(
+        next_token=next_token,
+        pending_analyzers=pending,
+        pending_findings=pending_findings,
+        analyzers_next_token=state.analyzers_next_token,
+        finished=not pending and state.analyzers_next_token is None,
+    )
+
+
+def get_finding_row(
+    client: AwsIamAccessAnalyzerClient,
+    endpoint: str,
+    analyzer: dict[str, str],
+    finding_id: str,
+    manager: ResumableSourceManager[AwsIamAccessAnalyzerResumeConfig],
+) -> dict[str, Any] | None:
+    result_key = ENDPOINTS[endpoint].result_key
+    row: dict[str, Any] = {}
+    items: list[Any] = []
+    next_token = None
+    while True:
+        try:
+            page = client.request(endpoint, analyzer=analyzer, finding_id=finding_id, next_token=next_token)
+        except AwsIamAccessAnalyzerError as error:
+            # The finding was deleted, or no recommendation was generated for it.
+            if error.code == "ResourceNotFoundException":
+                return None
+            raise
+        if not row:
+            row = {key: value for key, value in page.items() if key != "nextToken"}
+        items.extend(page.get(result_key) or [])
+        next_token = page.get("nextToken") or None
+        if next_token is None:
+            break
+        manager.safe_point()
+    row[result_key] = items
+    result = normalize_row(row, client.region, analyzer)
+    if endpoint == "finding_recommendations":
+        result["finding_id"] = finding_id
+    return result
+
+
 def get_rows(
     config: AwsIamAccessAnalyzerSourceConfig,
     endpoint: str,
@@ -160,7 +222,7 @@ def get_rows(
             if endpoint != "analyzers":
                 if not state.pending_analyzers:
                     parent_page = client.request("analyzers", next_token=state.analyzers_next_token)
-                    parents = [{"arn": row["arn"], "name": row["name"]} for row in parent_page["analyzers"]]
+                    parents = select_analyzers(endpoint, parent_page["analyzers"])
                     parent_token = parent_page.get("nextToken") or None
                     state = AwsIamAccessAnalyzerResumeConfig(
                         pending_analyzers=parents,
@@ -172,6 +234,25 @@ def get_rows(
                         manager.safe_point()
                         continue
                 analyzer = state.pending_analyzers[0]
+            if analyzer is not None and ENDPOINTS[endpoint].per_finding:
+                if state.pending_findings:
+                    row = get_finding_row(client, endpoint, analyzer, state.pending_findings[0], manager)
+                    state = advance(state, state.next_token, state.pending_findings[1:])
+                    manager.save_state(state)
+                    if row is not None:
+                        yield [row]
+                else:
+                    try:
+                        page = client.request("findings", analyzer=analyzer, next_token=state.next_token)
+                    except AwsIamAccessAnalyzerError as error:
+                        if error.code != "ResourceNotFoundException":
+                            raise
+                        page = {"findings": []}
+                    finding_ids = select_finding_ids(endpoint, page["findings"])
+                    state = advance(state, page.get("nextToken") or None, finding_ids)
+                    manager.save_state(state)
+                manager.safe_point()
+                continue
             try:
                 page = client.request(endpoint, analyzer=analyzer, next_token=state.next_token)
             except AwsIamAccessAnalyzerError as error:
@@ -183,13 +264,7 @@ def get_rows(
             if endpoint == "analyzers":
                 state = AwsIamAccessAnalyzerResumeConfig(next_token=next_token, finished=next_token is None)
             else:
-                pending = state.pending_analyzers if next_token else state.pending_analyzers[1:]
-                state = AwsIamAccessAnalyzerResumeConfig(
-                    next_token=next_token,
-                    pending_analyzers=pending,
-                    analyzers_next_token=state.analyzers_next_token,
-                    finished=not pending and state.analyzers_next_token is None,
-                )
+                state = advance(state, next_token, [])
             manager.save_state(state)
             if rows:
                 yield rows
@@ -210,10 +285,26 @@ def validate_credentials(
         try:
             page = client.request("analyzers", page_size=1)
             if schema_name is not None and schema_name != "analyzers":
-                while not page["analyzers"] and page.get("nextToken"):
+                analyzers = select_analyzers(schema_name, page["analyzers"])
+                while not analyzers and page.get("nextToken"):
                     page = client.request("analyzers", page_size=1, next_token=page["nextToken"])
-                if page["analyzers"]:
-                    client.request(schema_name, analyzer=page["analyzers"][0], page_size=1)
+                    analyzers = select_analyzers(schema_name, page["analyzers"])
+                if analyzers and ENDPOINTS[schema_name].per_finding:
+                    findings_page = client.request("findings", analyzer=analyzers[0])
+                    finding_ids = select_finding_ids(schema_name, findings_page["findings"])
+                    while not finding_ids and findings_page.get("nextToken"):
+                        findings_page = client.request(
+                            "findings", analyzer=analyzers[0], next_token=findings_page["nextToken"]
+                        )
+                        finding_ids = select_finding_ids(schema_name, findings_page["findings"])
+                    if finding_ids:
+                        try:
+                            client.request(schema_name, analyzer=analyzers[0], finding_id=finding_ids[0], page_size=1)
+                        except AwsIamAccessAnalyzerError as error:
+                            if error.code != "ResourceNotFoundException":
+                                raise
+                elif analyzers:
+                    client.request(schema_name, analyzer=analyzers[0], page_size=1)
             return True, None
         finally:
             client.close()
@@ -235,13 +326,14 @@ def aws_iam_access_analyzer_source(
 ) -> SourceResponse:
     if endpoint not in ENDPOINTS:
         raise ValueError(f"Unknown AWS IAM Access Analyzer table: {endpoint}")
+    partition_key = ENDPOINTS[endpoint].partition_key
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(config, endpoint, manager, api_version),
         primary_keys=list(ENDPOINTS[endpoint].primary_keys),
-        partition_keys=[PARTITION_KEY],
-        partition_mode="datetime",
-        partition_format="month",
+        partition_keys=[partition_key] if partition_key else None,
+        partition_mode="datetime" if partition_key else None,
+        partition_format="month" if partition_key else None,
         sort_mode=None,
         on_complete=manager.clear_state,
     )

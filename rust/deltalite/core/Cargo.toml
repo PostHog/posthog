@@ -53,6 +53,8 @@ arrow-ord = { version = "58" }
 delta_kernel = { package = "buoyant_kernel", version = "=0.22.2", default-features = false }
 chrono = { workspace = true }
 indexmap = "2"
+# Already linked by `deltalake`; decodes Add paths into the form the snapshot reports.
+percent-encoding = "2"
 sqlparser = "0.61"
 
 async-trait = { workspace = true }
@@ -66,6 +68,8 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# Paused time for the deadline and permit-wait tests.
+tokio = { workspace = true, features = ["test-util"] }
 # For the commit_overhead example (counted:// store registration) and table-fixture tests.
 tempfile = "3"
 url = { workspace = true }

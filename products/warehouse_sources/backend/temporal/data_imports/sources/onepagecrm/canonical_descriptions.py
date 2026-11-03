@@ -171,4 +171,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "total_count": "Number of contacts across the account with this lead source.",
         },
     },
+    "call_results": {
+        "description": "Call outcomes configured on the account, with per-result call counts.",
+        "docs_url": "https://developer.onepagecrm.com/api/reference/calls/get-call_results/",
+        "columns": {
+            "result": "Identifier of the call result, referenced by calls.",
+            "text": "Display text of the call result.",
+            "counts": "Number of the API user's calls with this result.",
+            "total_counts": "Number of calls across the account with this result.",
+            "team_counts": "Number of calls with this result for each user.",
+        },
+    },
+    "pipelines": {
+        "description": "Deal pipelines on the account, each with its ordered deal stages.",
+        "docs_url": "https://developer.onepagecrm.com/api/reference/pipelines/get-pipelines/",
+        "columns": {
+            "id": "Unique identifier of the pipeline.",
+            "name": "Name of the pipeline.",
+            "type": "Type of the pipeline (sales or delivery).",
+            "default": "Whether this pipeline is the default for the API user.",
+            "won_column_enabled": "Whether the WON column is enabled for the pipeline.",
+            "won_column_name": "Name of the WON column for the pipeline.",
+            "stages": "Deal stages of the pipeline, each with a numeric stage (0 to 100) and a label.",
+        },
+    },
+    "custom_fields": {
+        "description": "Definitions of the custom fields configured for contacts.",
+        "docs_url": "https://developer.onepagecrm.com/api/reference/custom-fields/get-custom_fields/",
+        "columns": {
+            "id": "Unique identifier of the custom field, referenced by contact custom field values.",
+            "name": "Name of the custom field.",
+            "type": "Data type of the custom field (for example date, number, select_box, or section_divider).",
+            "position": "Position of the custom field in the list.",
+            "choices": "Possible choices for multiple_choice and select_box fields.",
+        },
+    },
+    "deal_fields": {
+        "description": "Definitions of the custom fields configured for deals.",
+        "docs_url": "https://developer.onepagecrm.com/api/reference/deal-fields/get-deal_fields/",
+        "columns": {
+            "id": "Unique identifier of the deal field, referenced by deal custom field values.",
+            "name": "Name of the deal field.",
+            "type": "Data type of the deal field (for example date, number, select_box, or section_divider).",
+            "position": "Position of the deal field in the list.",
+            "choices": "Possible choices for multiple_choice and select_box fields.",
+        },
+    },
 }

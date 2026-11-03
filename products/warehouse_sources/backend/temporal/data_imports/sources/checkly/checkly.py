@@ -91,6 +91,14 @@ _SAFE_FIELDS_BY_RESOURCE = {
     "checks": frozenset({"id", "name", "checkType", "groupId", "created_at"}),
     "check_groups": frozenset({"id", "name"}),
     "alert_channels": frozenset({"id", "type", "created_at"}),
+    # Private locations carry raw agent keys and proxy URLs with credentials.
+    "private_locations": frozenset(
+        {"id", "name", "slugName", "icon", "created_at", "updated_at", "lastSeen", "agentCount", "minAgentVersion"}
+    ),
+    # The raw error message can echo request URLs, headers, or script output.
+    "error_groups": frozenset(
+        {"id", "checkId", "errorHash", "cleanedErrorMessage", "firstSeen", "lastSeen", "archivedUntilNextEvent"}
+    ),
 }
 
 

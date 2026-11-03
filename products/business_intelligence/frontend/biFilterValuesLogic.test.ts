@@ -1,4 +1,3 @@
-import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -12,7 +11,10 @@ import { biFilterValuesLogic } from 'products/business_intelligence/frontend/biF
 describe('BI filter suggestions', () => {
     beforeEach(() => initKeaTests())
 
-    afterEach(() => jest.restoreAllMocks())
+    afterEach(() => {
+        jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
 
     it('cancels a pending value lookup on replacement and unmount without cancelling completed queries', async () => {
         const requests: AbortSignal[] = []
@@ -31,14 +33,17 @@ describe('BI filter suggestions', () => {
         })
         const unmount = logic.mount()
         expect(requests).toHaveLength(1)
+        jest.useFakeTimers()
         await expectLogic(logic, () => logic.actions.setSearch('new')).toDispatchActions(['loadOptions'])
         expect(requests[0].aborted).toBe(true)
         expect(cancelQuery).toHaveBeenCalledWith(performQuery.mock.calls[0][3])
-        await waitFor(() => expect(requests).toHaveLength(2))
+        await jest.advanceTimersByTimeAsync(300)
+        expect(requests).toHaveLength(2)
         unmount()
         expect(requests.every((signal) => signal.aborted)).toBe(true)
         expect(cancelQuery).toHaveBeenCalledTimes(requests.length)
 
+        jest.useRealTimers()
         performQuery.mockResolvedValue({ results: [['done']] } as never)
         const completed = biFilterValuesLogic({
             query: { kind: NodeKind.HogQLQuery, query: 'SELECT DISTINCT region AS value FROM accounts' },
@@ -68,7 +73,12 @@ describe('BI filter suggestions', () => {
         expect(logic.values.options).toHaveLength(101)
         expect(logic.values.hasMore).toBe(false)
         expect((performQuery.mock.calls[1][0] as HogQLQuery).query).toContain('OFFSET 100')
-        await expectLogic(logic, () => logic.actions.setSearch("O'Reilly")).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setSearch('')).toFinishAllListeners()
+        expect(performQuery).toHaveBeenCalledTimes(2)
+        expect(logic.values.options).toHaveLength(101)
+        logic.actions.setSearch("O'Reilly")
+        expect(logic.values.options).toHaveLength(101)
+        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.options).toEqual(["O'Reilly"])
         expect((performQuery.mock.calls[2][0] as HogQLQuery).query).toContain(
             "positionCaseInsensitiveUTF8(value, 'O\\'Reilly')"

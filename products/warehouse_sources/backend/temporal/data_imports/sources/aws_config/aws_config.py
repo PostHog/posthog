@@ -39,6 +39,9 @@ _TIMESTAMP_COLUMNS = {
     "result_recorded_time",
     "config_rule_invoked_time",
     "ordering_timestamp",
+    "configuration_item_delivery_time",
+    "invocation_time",
+    "evaluation_start_timestamp",
 }
 
 # Config reads use POST, so the transport must retry this method for transient HTTP failures.
@@ -58,6 +61,8 @@ class AwsConfigResumeConfig:
     # Fan-out tables: the parent page to fetch again, and the parent that `next_token` continues.
     parent_next_token: str | None = None
     parent_key: str | None = None
+    # Incremental start time of the interrupted attempt, because page tokens belong to the original filter.
+    since: float | None = None
 
 
 class AwsConfigError(Exception):
@@ -139,13 +144,43 @@ class AwsConfigClient:
         return parsed
 
 
-def request_payload(endpoint: AwsConfigEndpoint, *, probe: bool = False) -> dict[str, Any]:
+def request_payload(endpoint: AwsConfigEndpoint, *, probe: bool = False, since: float | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = dict(endpoint.params or {})
     if endpoint.page_size is not None:
-        payload["Limit"] = 1 if probe else endpoint.page_size
+        payload[endpoint.limit_key] = 1 if probe else endpoint.page_size
     if endpoint.expression is not None:
         payload["Expression"] = endpoint.expression
+    if since is not None and endpoint.incremental_filter:
+        *parents, leaf = endpoint.incremental_filter
+        target = payload
+        for key in parents:
+            target = target.setdefault(key, {})
+        target[leaf] = since
     return payload
+
+
+def epoch_seconds(value: Any) -> float:
+    if isinstance(value, str):
+        value = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if isinstance(value, dt.datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=dt.UTC)).timestamp()
+    if isinstance(value, dt.date):
+        return dt.datetime.combine(value, dt.time(), tzinfo=dt.UTC).timestamp()
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    raise ValueError(f"Unsupported AWS Config incremental value: {value!r}")
+
+
+def incremental_start(
+    endpoint: AwsConfigEndpoint, should_use_incremental_field: bool, last_value: Any, now: dt.datetime
+) -> float | None:
+    if endpoint.incremental_field is None:
+        return None
+    if should_use_incremental_field and last_value is not None:
+        return epoch_seconds(last_value)
+    if endpoint.initial_window is not None:
+        return (now - endpoint.initial_window).timestamp()
+    return None
 
 
 def snake_case(key: str) -> str:
@@ -178,7 +213,7 @@ def parse_page(
         if not isinstance(item, dict):
             raise ValueError("AWS Config returned an invalid resource. Try the sync again.")
         rows.append(normalize_row(item, region, endpoint.flatten))
-    token = body.get("NextToken") or None
+    token = body.get(endpoint.token_key) or None
     if token is not None and (not isinstance(token, str) or token == previous_token):
         raise ValueError("AWS Config returned an invalid page token. Try the sync again.")
     return rows, token
@@ -190,10 +225,13 @@ def request_page(
     payload: dict[str, Any],
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
     resumed: bool,
+    empty_error_codes: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     try:
         return client.request(operation, payload)
     except AwsConfigError as error:
+        if error.code in empty_error_codes:
+            return {}
         if resumed and error.code == "InvalidNextTokenException":
             # A fresh retry must restart the full-refresh destination as well as extraction.
             manager.clear_state()
@@ -205,17 +243,18 @@ def get_page_rows(
     endpoint: AwsConfigEndpoint,
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
     resume: AwsConfigResumeConfig | None,
+    since: float | None,
 ) -> Generator[list[dict[str, Any]]]:
     next_token = resume.next_token if resume else None
     restarting = next_token is not None
     while True:
-        payload = request_payload(endpoint)
+        payload = request_payload(endpoint, since=since)
         if next_token:
-            payload["NextToken"] = next_token
+            payload[endpoint.token_key] = next_token
         body = request_page(client, endpoint.operation, payload, manager, restarting)
         restarting = False
         rows, next_token = parse_page(endpoint, body, client.region, next_token)
-        manager.save_state(AwsConfigResumeConfig(next_token=next_token, complete=next_token is None))
+        manager.save_state(AwsConfigResumeConfig(next_token=next_token, complete=next_token is None, since=since))
         if rows:
             yield rows
         manager.safe_point()
@@ -223,16 +262,37 @@ def get_page_rows(
             break
 
 
+def parent_values(parent: AwsConfigEndpoint, item: Any, params: tuple[str, ...]) -> tuple[str, ...]:
+    if parent.expression is not None and isinstance(item, str):
+        try:
+            item = json.loads(item)
+        except ValueError:
+            item = None
+    values: list[str] = []
+    for param in params:
+        value = item.get(param) if isinstance(item, dict) else None
+        if not isinstance(value, str) or not value:
+            raise ValueError("AWS Config returned an invalid parent resource. Try the sync again.")
+        values.append(value)
+    return tuple(values)
+
+
+def parent_key(values: tuple[str, ...]) -> str:
+    # Single-value keys stay plain strings so checkpoints saved before composite keys still resume.
+    return values[0] if len(values) == 1 else json.dumps(values)
+
+
 def get_fan_out_rows(
     client: AwsConfigClient,
     endpoint: AwsConfigEndpoint,
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
     resume: AwsConfigResumeConfig | None,
+    since: float | None,
 ) -> Generator[list[dict[str, Any]]]:
-    parent, param = endpoint.parent, endpoint.parent_param
-    if parent is None or param is None:
+    parent, params = endpoint.parent, endpoint.parent_params
+    if parent is None or not params:
         raise ValueError(f"AWS Config table {endpoint.operation} has no parent.")
-    column = snake_case(param)
+    columns = [snake_case(param) for param in params]
     parent_token = resume.parent_next_token if resume else None
     resume_key = resume.parent_key if resume else None
     child_token = resume.next_token if resume else None
@@ -241,13 +301,12 @@ def get_fan_out_rows(
     while True:
         payload = request_payload(parent)
         if parent_token:
-            payload["NextToken"] = parent_token
+            payload[parent.token_key] = parent_token
         body = request_page(client, parent.operation, payload, manager, restarting_parent)
         restarting_parent = False
-        names = [item.get(param) if isinstance(item, dict) else None for item in body.get(parent.result_key) or []]
-        if not all(isinstance(name, str) and name for name in names):
-            raise ValueError("AWS Config returned an invalid parent resource. Try the sync again.")
-        next_parent_token = body.get("NextToken") or None
+        parents = [parent_values(parent, item, params) for item in body.get(parent.result_key) or []]
+        names = [parent_key(values) for values in parents]
+        next_parent_token = body.get(parent.token_key) or None
         if next_parent_token is not None and (
             not isinstance(next_parent_token, str) or next_parent_token == parent_token
         ):
@@ -260,30 +319,35 @@ def get_fan_out_rows(
         resume_key = None
         if not names:
             manager.save_state(
-                AwsConfigResumeConfig(parent_next_token=next_parent_token)
+                AwsConfigResumeConfig(parent_next_token=next_parent_token, since=since)
                 if next_parent_token is not None
                 else AwsConfigResumeConfig(complete=True)
             )
             manager.safe_point()
         for index in range(start, len(names)):
             name = names[index]
+            values = parents[index]
             if index + 1 < len(names):
-                done = AwsConfigResumeConfig(parent_next_token=parent_token, parent_key=names[index + 1])
+                done = AwsConfigResumeConfig(parent_next_token=parent_token, parent_key=names[index + 1], since=since)
             elif next_parent_token is not None:
-                done = AwsConfigResumeConfig(parent_next_token=next_parent_token)
+                done = AwsConfigResumeConfig(parent_next_token=next_parent_token, since=since)
             else:
                 done = AwsConfigResumeConfig(complete=True)
             while True:
-                child_payload = {**request_payload(endpoint), param: name}
+                child_payload = {**request_payload(endpoint, since=since), **dict(zip(params, values))}
                 if child_token:
-                    child_payload["NextToken"] = child_token
-                child_body = request_page(client, endpoint.operation, child_payload, manager, restarting_child)
+                    child_payload[endpoint.token_key] = child_token
+                child_body = request_page(
+                    client, endpoint.operation, child_payload, manager, restarting_child, endpoint.empty_error_codes
+                )
                 restarting_child = False
                 rows, child_token = parse_page(endpoint, child_body, client.region, child_token)
                 for row in rows:
-                    row[column] = name
+                    row.update(zip(columns, values))
                 manager.save_state(
-                    AwsConfigResumeConfig(parent_next_token=parent_token, parent_key=name, next_token=child_token)
+                    AwsConfigResumeConfig(
+                        parent_next_token=parent_token, parent_key=name, next_token=child_token, since=since
+                    )
                     if child_token is not None
                     else done
                 )
@@ -302,17 +366,20 @@ def get_rows(
     endpoint: AwsConfigEndpoint,
     api_version: str,
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
+    since: float | None = None,
 ) -> Generator[list[dict[str, Any]]]:
     resume = manager.load_state() if manager.can_resume() else None
     if resume is not None and resume.complete:
         manager.clear_state()
         return
+    if resume is not None and resume.since is not None:
+        since = resume.since
     client = AwsConfigClient(config, api_version)
     try:
         if endpoint.parent is None:
-            yield from get_page_rows(client, endpoint, manager, resume)
+            yield from get_page_rows(client, endpoint, manager, resume, since)
         else:
-            yield from get_fan_out_rows(client, endpoint, manager, resume)
+            yield from get_fan_out_rows(client, endpoint, manager, resume, since)
         manager.clear_state()
     finally:
         client.close()
@@ -332,12 +399,19 @@ def validate_credentials(
     operation = probe.operation
     try:
         body = client.request(operation, request_payload(probe, probe=True))
-        if endpoint.parent is not None and endpoint.parent_param is not None:
+        if endpoint.parent is not None and endpoint.parent_params:
             parents = body.get(endpoint.parent.result_key) or []
-            name = parents[0].get(endpoint.parent_param) if parents and isinstance(parents[0], dict) else None
-            if name:
+            if parents:
+                values = parent_values(endpoint.parent, parents[0], endpoint.parent_params)
                 operation = endpoint.operation
-                client.request(operation, {**request_payload(endpoint, probe=True), endpoint.parent_param: name})
+                try:
+                    client.request(
+                        operation,
+                        {**request_payload(endpoint, probe=True), **dict(zip(endpoint.parent_params, values))},
+                    )
+                except AwsConfigError as error:
+                    if error.code not in endpoint.empty_error_codes:
+                        raise
     except AwsConfigError as error:
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:
@@ -356,13 +430,24 @@ def aws_config_source(
     endpoint: str,
     api_version: str,
     manager: "ResumableSourceManager[AwsConfigResumeConfig]",
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint_config = AWS_CONFIG_ENDPOINTS.get(endpoint)
     if endpoint_config is None:
         raise ValueError(f"Unknown AWS Config table: {endpoint}")
+    since = incremental_start(
+        endpoint_config, should_use_incremental_field, db_incremental_field_last_value, dt.datetime.now(dt.UTC)
+    )
+    partition_key = endpoint_config.partition_key
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint_config, api_version, manager),
+        items=lambda: get_rows(config, endpoint_config, api_version, manager, since),
         primary_keys=list(endpoint_config.primary_key),
+        partition_count=1 if partition_key else None,
+        partition_size=1 if partition_key else None,
+        partition_mode="datetime" if partition_key else None,
+        partition_format="month" if partition_key else None,
+        partition_keys=[partition_key] if partition_key else None,
         sort_mode=None,
     )

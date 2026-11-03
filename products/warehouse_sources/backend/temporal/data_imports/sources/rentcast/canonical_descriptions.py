@@ -76,4 +76,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "daysOnMarket": "The number of days the property has been on the market.",
         },
     },
+    "markets": {
+        "description": "Aggregate sale and rental market statistics and monthly historical trends for one US ZIP code.",
+        "docs_url": "https://developers.rentcast.io/reference/market-data-schema",
+        "columns": {
+            "id": "The ZIP code id, as a 5-digit number.",
+            "zipCode": "The ZIP code name, as a 5-digit number.",
+            "saleData": "Aggregate sale market statistics and property price trends for this ZIP code, including breakdowns by property type and bedrooms and monthly history. Absent when no sale statistics are available.",
+            "rentalData": "Aggregate rental market statistics and rent trends for this ZIP code, including breakdowns by property type and bedrooms and monthly history. Absent when no rental statistics are available.",
+        },
+    },
 }

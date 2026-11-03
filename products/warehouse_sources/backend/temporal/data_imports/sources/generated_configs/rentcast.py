@@ -7,3 +7,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class RentCastSourceConfig(config.Config):
     api_key: str
+    zip_codes: str | None = None

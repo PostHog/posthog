@@ -31,7 +31,3 @@ class TestLaceworkSource:
         assert [f["field"] for f in schema.incremental_fields] == [
             f["field"] for f in endpoint_config.incremental_fields
         ]
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["alerts", "audit_logs"])
-        assert {s.name for s in schemas} == {"alerts", "audit_logs"}

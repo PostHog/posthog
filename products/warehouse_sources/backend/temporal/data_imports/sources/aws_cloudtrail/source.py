@@ -70,7 +70,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
         }
         errors.update(
             {
-                f"AWS CloudTrail request failed: {code}": "Grant cloudtrail:LookupEvents, cloudtrail:DescribeTrails, or cloudtrail:ListEventDataStores for the tables you select."
+                f"AWS CloudTrail request failed: {code}": "Grant the CloudTrail permissions listed in the source setup for the tables you select."
                 for code in ACCESS_DENIED_CODES
             }
         )
@@ -139,15 +139,18 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
             caption="""Sync CloudTrail events and settings from one AWS region.
 
 Grant `cloudtrail:LookupEvents`, `cloudtrail:DescribeTrails`, and `cloudtrail:ListEventDataStores` for the tables you select.
+Insights tables also need `cloudtrail:ListInsightsData`.
+The Lake queries table also needs `cloudtrail:ListQueries` and `cloudtrail:DescribeQuery`.
 Enter an access key ID and secret access key. Add a session token for temporary credentials.
 
 Event imports cover the past 90 days. They include management events and trail Insights events, but exclude data events.
 Insights must be enabled on a trail to return Insights events.
 The event stores table imports CloudTrail Lake settings, not stored events.
+The Lake queries table imports query history from the past 7 days, not query results.
 CloudTrail Lake is available only to existing customers after May 31, 2026.""",
             iconPath="/static/services/aws_cloudtrail.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-cloudtrail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "cloudtrail", "audit", "events"],
             fields=cast(
                 list[FieldType],

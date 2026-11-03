@@ -51,16 +51,11 @@ def _parse_level(request: request.Request) -> int | None:
 def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bool, max_depth: int | None) -> set[str]:
     """Walk the data modeling graph from a saved query and identify what it reaches.
 
-    The walk starts from every node that stands for the query and unions what they reach: a
-    saved query can hold a node in more than one DAG, and a query in a managed DAG is also
-    represented by a proxy table node in each DAG that reads from it. Without the proxies a
-    consumer would report the managed query upstream while the managed query reported no
-    consumer downstream.
+    The walk starts from every node that stands for the query and unions what they reach.
 
     Each reached node is identified the way the lineage endpoints have always identified it: a
-    query by its saved-query id, an imported warehouse table by its `DataWarehouseTable` id, a
-    cross-DAG proxy by the id of the saved query it stands in for, and a PostHog system table by
-    its name. A table node carries the id in its properties
+    query by its saved-query id, an imported warehouse table by its `DataWarehouseTable` id, and a
+    PostHog system table by its name. A table node carries the id in its properties
     (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
     """
     start_node_ids = saved_query_node_ids(saved_query.team_id, saved_query.id)
@@ -78,8 +73,6 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
             continue
         if saved_query_id is not None:
             identifiers.add(str(saved_query_id))
-        elif properties.get("saved_query_id"):
-            identifiers.add(str(properties["saved_query_id"]))
         elif properties.get("warehouse_table_id"):
             identifiers.add(str(properties["warehouse_table_id"]))
         else:

@@ -177,6 +177,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "volume": "Total trading volume over the 24 hours to that point, in USD.",
         },
     },
+    "global_fear_and_greed_chart": {
+        "description": "Daily history of the crypto Fear & Greed index, from 14 August 2024 onwards. The current value is on global_market_data. Requires a Pro API key on the Analyst plan or above.",
+        "docs_url": "https://docs.coingecko.com/reference/global-fear-and-greed-chart",
+        "columns": {
+            "timestamp": "Day of the data point, at 00:00 UTC.",
+            "value": "Fear & Greed index value from 0 (extreme fear) to 100 (extreme greed).",
+            "sentiment": "Sentiment band for the value: `extreme_fear` (0-30), `fear` (31-45), `neutral` (46-55), `greed` (56-70), or `extreme_greed` (71-100).",
+        },
+    },
     "exchange_rates": {
         "description": "Exchange rate of 1 BTC against every currency CoinGecko tracks, covering fiat, commodities and other crypto. Use it to convert the BTC-denominated columns on the derivatives and exchange tables into another currency.",
         "docs_url": "https://docs.coingecko.com/reference/exchange-rates",
@@ -253,6 +262,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "one_day_sales_24h_percentage_change": "Percentage change in daily sales count over 24 hours.",
             "one_day_average_sale_price": "Average sale price over the last day, in the native currency.",
             "one_day_average_sale_price_24h_percentage_change": "Percentage change in average sale price over 24 hours.",
+        },
+    },
+    "rwas_markets": {
+        "description": "Tokenized real-world assets (stocks, commodities, ETFs) with aggregated onchain market data in USD. Reflects the tokenized market, not the underlying asset's spot market.",
+        "docs_url": "https://docs.coingecko.com/reference/rwas-markets",
+        "columns": {
+            "id": "CoinGecko RWA id.",
+            "symbol": "Ticker symbol of the RWA.",
+            "name": "Display name of the RWA.",
+            "asset_type": "Asset type: stock, commodity or etf.",
+            "image": "Image URL of the token with the largest market cap for this RWA.",
+            "tokenized_market_data": "Aggregated tokenized market data in USD: current price, market cap, total volume, 24h high/low, 24h price and market cap changes, and last updated time.",
+        },
+    },
+    "rwas_list": {
+        "description": "Every tokenized real-world asset CoinGecko supports, as id/symbol/name reference rows.",
+        "docs_url": "https://docs.coingecko.com/reference/rwas-list",
+        "columns": {
+            "id": "CoinGecko RWA id (joins rwas_markets).",
+            "symbol": "Ticker symbol of the RWA.",
+            "name": "Display name of the RWA.",
+            "asset_type": "Asset type: stock, commodity or etf.",
+        },
+    },
+    "rwas_issuers_list": {
+        "description": "Reference list of the issuers behind tokenized real-world assets.",
+        "docs_url": "https://docs.coingecko.com/reference/rwas-issuers-list",
+        "columns": {
+            "id": "CoinGecko issuer id (used as the issuer filter on /rwas/markets).",
+            "name": "Display name of the issuer.",
         },
     },
 }

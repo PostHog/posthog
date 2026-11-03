@@ -3,9 +3,6 @@ import pytest
 from requests.exceptions import HTTPError
 from requests_mock import Mocker
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onehundredms import (
     OneHundredMsSourceConfig,
 )
@@ -43,9 +40,11 @@ def test_credentials_probe_and_error_mapping(
 
 
 @pytest.mark.parametrize("status", [429, 500])
-def test_transient_probe_errors_are_not_invalid_credentials(requests_mock: Mocker, status: int) -> None:
+def test_transient_probe_errors_report_an_unreachable_vendor(requests_mock: Mocker, status: int) -> None:
     config = OneHundredMsSourceConfig(app_access_key="example-key", app_secret="example-secret-for-tests-only-12345")
     requests_mock.get("https://api.100ms.live/v2/sessions", status_code=status, json={"code": status})
-    with pytest.raises(RESTClientRetryableError):
-        OneHundredMsSource().validate_credentials(config, 1)
+    assert OneHundredMsSource().validate_credentials(config, 1) == (
+        False,
+        "Couldn't reach 100ms to check your credentials. Try again in a few minutes.",
+    )
     assert requests_mock.call_count == 1

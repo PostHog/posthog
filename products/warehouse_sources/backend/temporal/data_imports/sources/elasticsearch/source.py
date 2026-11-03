@@ -97,7 +97,7 @@ class ElasticsearchSource(SimpleSource[ElasticsearchSourceConfig], ValidateDatab
 Enter the full cluster URL (e.g. `https://my-deployment.es.us-east-1.aws.found.io:9243`) and credentials with read access to the indices you want to sync. Each non-system index and data stream appears as a separate table.""",
             iconPath="/static/services/elasticsearch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/elasticsearch",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

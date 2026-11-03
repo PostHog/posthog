@@ -55,7 +55,7 @@ class ShippoSource(ResumableSource[ShippoSourceConfig, ShippoResumeConfig]):
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Shippo",
             keywords=["shipping", "shipping labels", "logistics", "goshippo"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Shippo API token to pull your shipping data into the PostHog Data warehouse.
 
 You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API tokens under **Settings → API** in the [Shippo dashboard](https://apps.goshippo.com/settings/api). The token grants read access to your shipments, labels, orders, addresses, parcels, refunds, customs data, and carrier accounts.

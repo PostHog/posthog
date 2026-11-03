@@ -54,7 +54,7 @@ class SavvyCalSource(ResumableSource[SavvyCalSourceConfig, SavvyCalResumeConfig]
             name=ExternalDataSourceType.SAVVYCAL,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SavvyCal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SavvyCal personal access token to pull your scheduling data into the PostHog Data warehouse.
 
 You can create a token under [Developer Settings](https://savvycal.com/developers) in SavvyCal — click **Create a token** and give it a name. The token carries your account's full read access, covering events, scheduling links, webhooks, and workflows.

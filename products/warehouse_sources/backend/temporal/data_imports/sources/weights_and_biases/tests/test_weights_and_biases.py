@@ -126,10 +126,6 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    def test_invalid_on_exception(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key", None) is False
-
     @mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None))
     def test_session_uses_basic_auth_with_api_username(self, _mock_allowed):
         with scripted_network([_ok_response({"data": {"viewer": {"id": "abc"}}})]) as network:

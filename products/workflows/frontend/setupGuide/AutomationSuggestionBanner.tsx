@@ -21,7 +21,7 @@ export function AutomationSuggestionBanner(): JSX.Element | null {
             onClose={dismissAutomationSuggestion}
             action={{
                 children: 'Set up an automation',
-                to: onboardingWizardUrl('automation'),
+                to: onboardingWizardUrl('automation', { entry: 'automation_banner' }),
                 'data-attr': 'workflows-automation-suggestion',
             }}
         >

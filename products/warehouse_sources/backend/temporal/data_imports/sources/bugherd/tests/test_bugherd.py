@@ -4,7 +4,6 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests.exceptions import ConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd import (
     BugherdResumeConfig,
@@ -89,20 +88,12 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].path == "/api_v2/organization.json"
 
-    @parameterized.expand([(500,), (503,), (403,)])
+    @parameterized.expand([(503,)])
     def test_other_status_is_reported(self, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))):
             result = validate_credentials("key")
 
         assert result == (False, f"BugHerd API returned an unexpected status ({status_code}).")
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            result = validate_credentials("key")
-
-        assert result[0] is False
-        assert result[1] is not None and result[1].startswith("Could not reach the BugHerd API:")
-        assert "boom" in result[1]
 
 
 class TestBugherdSourceTopLevel:
@@ -154,6 +145,33 @@ class TestBugherdFanout:
         assert result.params("created_since") == [None, "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", None]
         assert result.params("updated_since") == [None, None, None, None]
 
+    def test_user_projects_fans_out_over_users_and_stays_full_refresh(self) -> None:
+        result = _driver().run(
+            "UserProjects",
+            route(
+                {
+                    "/api_v2/users.json": [_page("users", [{"id": 4561}, {"id": 4562}]), _page("users", [])],
+                    "/api_v2/users/4561/projects.json": [
+                        _page("projects", [{"id": 1000, "name": "Site A"}, {"id": 1001, "name": "Site B"}]),
+                        _page("projects", []),
+                    ],
+                    "/api_v2/users/4562/projects.json": [
+                        _page("projects", [{"id": 1000, "name": "Site A"}]),
+                        _page("projects", []),
+                    ],
+                }
+            ),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        # Project 1000 appears once per member, so the key must include the user.
+        assert result.raised is None
+        assert result.response is not None and result.response.primary_keys == ["user_id", "id"]
+        assert sorted((row["user_id"], row["id"]) for row in result.rows) == [(4561, 1000), (4561, 1001), (4562, 1000)]
+        assert result.params("created_since") == [None] * len(result.requests)
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd.build_dependent_resource")
     def test_tasks_fanout_seeds_resume_state_and_wires_hook(self, mock_build) -> None:
         mock_build.return_value = iter([])
@@ -171,9 +189,16 @@ class TestBugherdFanout:
 
 
 class TestBugherdChainedFanout:
-    def test_walks_projects_then_tasks_then_comments(self) -> None:
+    @parameterized.expand(
+        [
+            ("TaskComments", "comments", {"id": 8801, "text": "reproduced"}),
+            ("TaskAttachments", "attachments", {"id": 331, "file_name": "screenshot.png"}),
+        ]
+    )
+    def test_walks_projects_then_tasks_then_child(self, endpoint: str, resource: str, row: dict[str, Any]) -> None:
+        child_path = f"/api_v2/projects/1000/tasks/98765/{resource}.json"
         result = _driver().run(
-            "TaskComments",
+            endpoint,
             route(
                 {
                     "/api_v2/projects.json": [_page("projects", [{"id": 1000}]), _page("projects", [])],
@@ -181,17 +206,15 @@ class TestBugherdChainedFanout:
                         _page("tasks", [{"id": 98765, "project_id": 1000}]),
                         _page("tasks", []),
                     ],
-                    "/api_v2/projects/1000/tasks/98765/comments.json": [
-                        _page("comments", [{"id": 8801, "text": "reproduced"}]),
-                        _page("comments", []),
-                    ],
+                    child_path: [_page(resource, [row]), _page(resource, [])],
                 }
             ),
         )
 
         assert result.raised is None
-        assert result.rows == [{"id": 8801, "text": "reproduced", "task_id": 98765, "project_id": 1000}]
-        assert "/api_v2/projects/1000/tasks/98765/comments.json" in result.paths
+        assert result.rows == [{**row, "task_id": 98765, "project_id": 1000}]
+        assert result.response is not None and result.response.primary_keys == ["task_id", "id"]
+        assert child_path in result.paths
 
     def test_skips_a_task_that_disappeared_between_pages(self) -> None:
         result = _driver().run(

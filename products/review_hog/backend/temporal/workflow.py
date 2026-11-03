@@ -41,6 +41,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
@@ -443,6 +444,7 @@ class ReviewPRWorkflow:
             raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
             terminal = completed or non_retryable or _out_of_attempts()
+            # Label run histories from before the deploy can hold a scheduled label removal; delete once they drain.
             if (
                 workflow.patched("remove-reviewhog-trigger-label-2026-08")
                 and terminal
@@ -563,19 +565,9 @@ class ReviewPRWorkflow:
             return report_id
         # Trigger-aware opt-outs, read off the resolve-time settings snapshot (mid-run edits can't
         # flip gates). Inbox re-checks the receiver-side gate here for snapshot-at-resolve
-        # consistency. A label always runs, and manual stays ungated.
-        # Histories from before the patch recorded the label opt-out, so they replay its early return.
-        if (
-            inputs.trigger_source == TRIGGER_LABEL
-            and not workflow.patched("reviewhog-label-always-runs-2026-10")
-            and inputs.acting_user_id is None
-            and not acting.review_labeled_prs
-        ):
-            workflow.logger.info(
-                f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
-                "turned off; skipping review"
-            )
-            return report_id
+        # consistency. A Stamphog handoff and manual stay ungated.
+        # Histories that carry the patch marker replay with deprecate_patch; delete it once those runs drain.
+        workflow.deprecate_patch("reviewhog-label-always-runs-2026-10")
         if inputs.trigger_source == TRIGGER_INBOX and not acting.review_inbox_prs:
             workflow.logger.info(f"Acting user {acting.acting_user_id} has inbox reviews turned off; skipping review")
             return report_id
@@ -591,6 +583,7 @@ class ReviewPRWorkflow:
 
         # Only an automatic follow-up is gated. The first automatic review of a PR and every human
         # trigger always run. The gate fails open: an activity failure reviews the push.
+        gate: PushGateDecision | None = None
         if (
             workflow.patched("reviewhog-push-gate-2026-10")
             and inputs.trigger_source == TRIGGER_AUTOMATIC
@@ -607,6 +600,9 @@ class ReviewPRWorkflow:
                         head_sha=head_sha,
                         run_index=meta.run_index,
                         review_mode=inputs.review_mode,
+                        zero_change_skip=meta.zero_change_skip,
+                        delta_band=meta.delta_band,
+                        coordinator=meta.coordinator,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -616,6 +612,12 @@ class ReviewPRWorkflow:
                     return report_id
             except ActivityError:
                 workflow.logger.warning("The push gate failed; reviewing the push")
+        # A gate that failed or never ran leaves the whole PR to review. The patch keeps older histories on full turns.
+        delta_since_head_sha = (
+            meta.automatic_reviewed_head_sha
+            if gate is not None and gate.delta_review and workflow.patched("reviewhog-p1-lite-delta-2026-10")
+            else None
+        )
 
         # The design comes off the recorded fetch result. The patch keeps a history that reached this
         # point before the single-agent design existed on the pipeline when it replays.
@@ -642,6 +644,9 @@ class ReviewPRWorkflow:
                         review_design=review_design,
                         review_design_reason=meta.review_design_reason,
                         coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
+                        arm_set=meta.arm_set,
+                        zero_change_skip_arm=meta.zero_change_skip,
+                        delta_band_arm=meta.delta_band,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -712,6 +717,7 @@ class ReviewPRWorkflow:
                             review_design=review_design,
                             coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                             publishes=publishes_to_pr,
+                            arm_set=meta.arm_set,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -731,6 +737,8 @@ class ReviewPRWorkflow:
                 flash_reasoning_effort=acting.flash_reasoning_effort,
                 review_design=review_design,
                 trigger_source=inputs.trigger_source,
+                delta_since_head_sha=delta_since_head_sha,
+                arm_set=meta.arm_set,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -741,7 +749,8 @@ class ReviewPRWorkflow:
             ):
                 flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
             elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
-                flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count)
+                lens_parts = 1 if delta_since_head_sha is not None else meta.lens_chunk_count
+                flash_sessions = await self._review_with_single_agent(stage, lens_parts)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
 
@@ -868,6 +877,11 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
+                            last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
+                            arm_set=meta.arm_set,
+                            zero_change_skip_arm=meta.zero_change_skip,
+                            delta_band_arm=meta.delta_band,
+                            coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -903,6 +917,10 @@ class ReviewPRWorkflow:
                     review_design=review_design,
                     flash_turn=dedup.flash_stats if dedup is not None else None,
                     flash_sessions=flash_sessions,
+                    zero_change_skip_arm=meta.zero_change_skip,
+                    delta_band_arm=meta.delta_band,
+                    delta_review=delta_since_head_sha is not None,
+                    arm_set=meta.arm_set,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -1026,11 +1044,12 @@ class ReviewPRWorkflow:
         # Workflow time, so a replay measures the same durations.
         session_seconds: list[float] = []
 
-        async def _main_session() -> None:
+        # Each session returns whether it fell back to the control arm, or None in a history from before the result.
+        async def _main_session() -> bool | None:
             async with semaphore:
                 started = workflow.now()
                 try:
-                    await workflow.execute_activity(
+                    return await workflow.execute_activity(
                         single_agent_review_activity,
                         stage,
                         start_to_close_timeout=_SANDBOX_TIMEOUT,
@@ -1040,11 +1059,11 @@ class ReviewPRWorkflow:
                 finally:
                     session_seconds.append((workflow.now() - started).total_seconds())
 
-        async def _lens_session(lens: str, chunk_id: int) -> None:
+        async def _lens_session(lens: str, chunk_id: int) -> bool | None:
             async with semaphore:
                 started = workflow.now()
                 try:
-                    await workflow.execute_activity(
+                    return await workflow.execute_activity(
                         lens_review_activity,
                         LensReviewInput(
                             team_id=stage.team_id,
@@ -1057,6 +1076,8 @@ class ReviewPRWorkflow:
                             review_mode=stage.review_mode,
                             flash_reasoning_effort=stage.flash_reasoning_effort,
                             review_design=stage.review_design,
+                            delta_since_head_sha=stage.delta_since_head_sha,
+                            arm_set=stage.arm_set,
                             lens=lens,
                             chunk_id=chunk_id,
                         ),
@@ -1088,6 +1109,7 @@ class ReviewPRWorkflow:
             lens_failures=lens_failures,
             lens_timeouts=lens_timeouts,
             slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
+            arm_fallbacks=sum(result is True for result in (main_result, *lens_results)),
         )
 
     @staticmethod

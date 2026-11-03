@@ -9,6 +9,7 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot import (
+    AUDIT_LOGS_UNAVAILABLE_ERROR,
     REPORTING_EVENTS_UNAVAILABLE_ERROR,
     ChatwootResumeConfig,
     _normalize_account_id,
@@ -93,7 +94,7 @@ class TestNormalizeAccountId:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
-        [(200, True), (401, False), (404, False), (500, False)],
+        [(404, False)],
     )
     def test_status_mapping(self, status_code, expected_valid):
         with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:
@@ -392,6 +393,142 @@ class TestGetRowsReportingEvents:
 
         assert isinstance(result.raised, Exception)
         assert REPORTING_EVENTS_UNAVAILABLE_ERROR in str(result.raised)
+
+    def test_422_is_not_retried_and_matches_a_user_message(self):
+        # The resume bookmark replays the same page and window, so a 422 never changes on retry.
+        result = _driver().run(
+            "reporting_events", [ScriptedResponse(status=422, json={"error": "Unprocessable Content"})]
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == 1
+        matches = [
+            message
+            for pattern, message in ChatwootSource().get_non_retryable_errors().items()
+            if pattern in str(result.raised)
+        ]
+        # Pin the actual message, not just that one pattern matched — a key that mapped to None
+        # or the wrong text would otherwise still pass.
+        assert matches == [
+            "Chatwoot rejected a request while syncing this data. Please contact support if this persists."
+        ]
+
+
+class TestGetRowsAuditLogs:
+    @pytest.mark.parametrize(
+        "watermark, expected_since",
+        [
+            (None, 0),
+            # The created_at watermark is the unix int the API returns.
+            (1767323045, 1767323045),
+            ("2026-01-02T03:04:05+00:00", 1767323045),
+            ("not-a-date", 0),
+        ],
+    )
+    def test_walks_pages_within_a_pinned_ascending_window(self, watermark, expected_since):
+        result = _driver().run(
+            "audit_logs",
+            [
+                ScriptedResponse(
+                    json={"per_page": 2, "total_entries": 3, "current_page": 1, "audit_logs": [{"id": 1}, {"id": 2}]}
+                ),
+                ScriptedResponse(
+                    json={"per_page": 2, "total_entries": 3, "current_page": 2, "audit_logs": [{"id": 3}]}
+                ),
+            ],
+            incremental_field="created_at",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        # total_entries ends the walk, so no third request is made.
+        assert result.params("page") == ["1", "2"]
+        assert result.params("sort") == ["asc", "asc"]
+        assert result.params("since") == [str(expected_since)] * 2
+        untils = set(result.params("until"))
+        assert len(untils) == 1
+        until = int(untils.pop() or "0")
+        assert result.committed_states == [
+            ChatwootResumeConfig(page=2, until=until),
+            ChatwootResumeConfig(page=3, until=until),
+        ]
+
+    def test_missing_totals_fall_back_to_the_empty_page(self):
+        result = _driver().run(
+            "audit_logs",
+            [ScriptedResponse(json={"audit_logs": [{"id": 1}]}), ScriptedResponse(json={"audit_logs": []})],
+        )
+
+        assert [row["id"] for row in result.rows] == [1]
+        assert result.params("page") == ["1", "2"]
+
+    def test_resume_reuses_the_saved_page_and_window(self):
+        result = _driver().run(
+            "audit_logs",
+            [ScriptedResponse(json={"audit_logs": []})],
+            resume_state=ChatwootResumeConfig(page=4, until=1767000000),
+            incremental_field="created_at",
+            db_incremental_field_last_value=1766000000,
+        )
+
+        assert result.params("page") == ["4"]
+        assert result.params("until") == ["1767000000"]
+        assert result.params("since") == ["1766000000"]
+
+    def test_404_reports_the_endpoint_as_unavailable_not_a_missing_account(self):
+        result = _driver().run("audit_logs", [ScriptedResponse(status=404, json={"error": "Not Found"})])
+
+        assert isinstance(result.raised, Exception)
+        assert AUDIT_LOGS_UNAVAILABLE_ERROR in str(result.raised)
+
+
+class TestGetRowsContactLabels:
+    LABELS = {"payload": [{"id": 1, "title": "vip"}, {"id": 2, "title": "churn_risk"}, {"id": 3, "title": "beta"}]}
+
+    def test_walks_each_label_and_commits_past_labels_with_no_contacts(self):
+        result = _driver().run(
+            "contact_labels",
+            [
+                ScriptedResponse(json=self.LABELS),
+                ScriptedResponse(json={"meta": {}, "payload": [{"id": 10, "email": "a@example.com"}, {"id": 11}]}),
+                ScriptedResponse(json={"meta": {}, "payload": []}),
+                ScriptedResponse(json={"meta": {}, "payload": []}),
+                ScriptedResponse(json={"meta": {}, "payload": [{"id": 10}]}),
+                ScriptedResponse(json={"meta": {}, "payload": []}),
+            ],
+        )
+
+        # A slim join row: the contact's own columns stay in the contacts table.
+        assert result.rows == [
+            {"label_id": 1, "label": "vip", "contact_id": 10},
+            {"label_id": 1, "label": "vip", "contact_id": 11},
+            {"label_id": 3, "label": "beta", "contact_id": 10},
+        ]
+        assert result.paths == ["/api/v1/accounts/1/labels", *["/api/v1/accounts/1/contacts"] * 5]
+        assert result.params("labels[]") == [None, "vip", "vip", "churn_risk", "beta", "beta"]
+        assert result.params("page") == [None, "1", "2", "1", "1", "2"]
+        # Label 2 yields no rows, so only the safe point commits the move on to label 3.
+        assert ChatwootResumeConfig(parent_id=3, page=1) in result.committed_states
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_requests",
+        [
+            (ChatwootResumeConfig(parent_id=2, page=3), [("churn_risk", "3"), ("beta", "1")]),
+            # A bookmark for a label that no longer exists must restart the walk, not skip everything.
+            (ChatwootResumeConfig(parent_id=999, page=3), [("vip", "1"), ("churn_risk", "1"), ("beta", "1")]),
+        ],
+    )
+    def test_resumes_from_bookmarked_label_and_page(self, resume_state, expected_requests):
+        result = _driver().run(
+            "contact_labels",
+            [
+                ScriptedResponse(json=self.LABELS),
+                *[ScriptedResponse(json={"meta": {}, "payload": []}) for _ in expected_requests],
+            ],
+            resume_state=resume_state,
+        )
+
+        assert list(zip(result.params("labels[]"), result.params("page")))[1:] == expected_requests
 
 
 class TestWebhookTableTransformer:

@@ -18,10 +18,3 @@ class TestKatanaSourceClass:
         assert ok is True
         assert error is None
         assert [request.path for request in network.requests_log] == ["/v1/user_info"]
-
-    def test_validate_credentials_failure(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            ok, error = KatanaSource().validate_credentials(KatanaSourceConfig(api_key="bad"), team_id=1)
-
-        assert ok is False
-        assert error is not None

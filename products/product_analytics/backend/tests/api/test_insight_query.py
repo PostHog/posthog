@@ -99,6 +99,17 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert box_plot["xAxisColumn"] is None
         assert box_plot["seriesColumn"] is None
 
+    def test_keeps_pie_chart_options_under_their_wire_names(self) -> None:
+        normalized_query = MCPInsightSerializer().validate_query(
+            {
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "vizSpecificOptions": {"ActionsPie": {"hideAggregation": True}},
+            }
+        )
+
+        assert normalized_query["vizSpecificOptions"] == {"ActionsPie": {"hideAggregation": True}}
+
     @parameterized.expand(
         [
             (
@@ -557,7 +568,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert update_response.json()["query"] == response.json()["query"]
         assert Insight.objects.get(pk=insight_id).query == stored_query
 
-    def test_mcp_bi_member_alias_null_round_trip(self) -> None:
+    def test_mcp_bi_config_round_trip(self) -> None:
+        query_snapshot = {"kind": "HogQLQuery", "query": "SELECT 1"}
         aliases = [
             {
                 "field": {
@@ -583,6 +595,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "limit": 1000,
                 "memberAliases": aliases,
                 "colorBy": None,
+                "querySnapshot": query_snapshot,
+                "catalogMetric": "example_total",
             },
         }
         response = self.client.post(
@@ -601,6 +615,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         saved = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true").json()["query"]
         assert saved["config"]["memberAliases"] == aliases
         assert saved["config"]["colorBy"] is None
+        assert saved["config"]["querySnapshot"] == query_snapshot
+        assert saved["config"]["catalogMetric"] == "example_total"
 
     def test_mcp_create_rejects_disallowed_query_kind(self) -> None:
         response = self.client.post(

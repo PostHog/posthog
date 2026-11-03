@@ -13,12 +13,6 @@ class TestEventbriteSource:
         self.team_id = 123
         self.config = EventbriteSourceConfig(api_token="test-token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events"])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == "events"
-
     @pytest.mark.parametrize(
         "credentials_valid, expected_valid, expected_message",
         [

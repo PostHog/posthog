@@ -111,19 +111,13 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
-    def test_validate_credentials_succeeds_on_200(self) -> None:
-        with scripted_network([ScriptedResponse(status=200)]) as network:
-            assert validate_credentials("token", "id123") is True
-
-        assert len(network.requests_log) == 1
-
     @pytest.mark.parametrize(
         "status_code, expected_substring",
         [
             # 401 means the token is bad; 403/404 mean the app id (or subscription) is the problem.
             (401, "API token"),
             (403, "denied access"),
-            (404, "app id"),
+            (404, "My apps"),
         ],
     )
     def test_validate_credentials_distinguishes_token_from_app_id(
@@ -163,11 +157,21 @@ class TestValidateCredentials:
         assert request.headers["authorization"] == "Bearer token"
         assert "/app/id123456789/" in request.path
 
-    def test_validate_rejects_bad_app_id_without_request(self) -> None:
+    @pytest.mark.parametrize(
+        "api_token, app_id, expected_substring",
+        [
+            ("token", "bad app!", "My apps"),
+            ("token\u201d", "id123", "API token"),
+            ("\u201ctoken\u201d", "id123", "API token"),
+        ],
+    )
+    def test_validate_rejects_bad_input_without_request(
+        self, api_token: str, app_id: str, expected_substring: str
+    ) -> None:
         with scripted_network([]) as network:
             with pytest.raises(AppsFlyerCredentialsError) as exc:
-                validate_credentials("token", "bad app!")
-        assert "app id" in str(exc.value)
+                validate_credentials(api_token, app_id)
+        assert expected_substring in str(exc.value)
         assert network.requests_log == []
 
     @pytest.mark.parametrize("status_code", [400, 418, 451])

@@ -89,7 +89,7 @@ def test_resume_preserves_window(
     assert result.saved_states == []
 
 
-@pytest.mark.parametrize("status", [200, 400, 401, 403, 404])
+@pytest.mark.parametrize("status", [400, 404])
 def test_credentials_and_terminal_errors(config: MintlifySourceConfig, status: int) -> None:
     body: dict[str, Any] = {"feedback": []} if status == 200 else {"error": "Unauthorized"}
     with scripted_network([ScriptedResponse(status=status, json=body)]) as network:

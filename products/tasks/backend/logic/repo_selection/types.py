@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class ReportResearchContext(BaseModel):
+    mode: Literal["code", "data_only"]
+    repository_status: Literal[
+        "available", "no_integration", "no_repositories", "selection_unresolved", "github_unavailable"
+    ]
 
 
 class RepoSelectionResult(BaseModel):
@@ -13,6 +22,9 @@ class RepoSelectionResult(BaseModel):
 
     repository: str | None = Field(
         description="Selected repository in 'owner/repo' format, or null if none of the candidates are relevant."
+    )
+    research_context: ReportResearchContext | None = Field(
+        default=None, description="Server-recorded code availability during report research; null for older reports."
     )
     reason: str = Field(
         description=(

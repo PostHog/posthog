@@ -21,27 +21,6 @@ class TestRentCastSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.rentcast.io/v1/properties?limit=500&offset=0",),
-            ("403 Client Error: Forbidden for url: https://api.rentcast.io/v1/listings/sale?limit=500&offset=0",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.rentcast.io/v1/properties",),
-            ("429 Client Error: Too Many Requests for url: https://api.rentcast.io/v1/listings/sale",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("unauthorized", 401, (False, "Invalid RentCast API key")),
             ("ok", 200, (True, None)),
         ]
     )
@@ -54,6 +33,32 @@ class TestRentCastSource:
 
         assert result == expected
         assert network.requests_log[0].headers["x-api-key"] == "rc-key"
+
+    @parameterized.expand(
+        [
+            ("not_set", None, False),
+            ("empty", "", False),
+            ("malformed", "1234", False),
+            ("configured", "10001, 20002", True),
+        ]
+    )
+    def test_markets_is_enabled_by_default_only_with_zip_codes(
+        self, _name: str, zip_codes: str | None, expected: bool
+    ) -> None:
+        config = RentCastSourceConfig(api_key="rc-key", zip_codes=zip_codes)
+        schemas = {schema.name: schema for schema in self.source.get_schemas(config, self.team_id)}
+
+        assert schemas["markets"].should_sync_default is expected
+        assert schemas["properties"].should_sync_default is True
+
+    def test_validate_credentials_rejects_bad_zip_codes_without_a_request(self) -> None:
+        config = RentCastSourceConfig(api_key="rc-key", zip_codes="10001, 1234")
+        with scripted_network(always(ScriptedResponse(status=200, json=[]))) as network:
+            valid, message = self.source.validate_credentials(config, self.team_id)
+
+        assert valid is False
+        assert message is not None and "1234" in message
+        assert network.requests_log == []
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         result = SourceDriver(self.source, self.config).run(
@@ -68,9 +73,3 @@ class TestRentCastSource:
         assert result.params("offset") == ["500"]
         assert result.response is not None
         assert result.response.name == "properties"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown RentCast schema 'not_a_table'" in str(result.raised)

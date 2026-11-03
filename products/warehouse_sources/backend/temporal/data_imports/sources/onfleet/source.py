@@ -60,7 +60,7 @@ class OnfleetSource(ResumableSource[OnfleetSourceConfig, OnfleetResumeConfig]):
 You can create an API key in your [Onfleet dashboard](https://onfleet.com/dashboard#/manage) under **Settings → API & Webhooks**. Onfleet API keys are org-scoped and grant read access to your organization's data.""",
             iconPath="/static/services/onfleet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/onfleet",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

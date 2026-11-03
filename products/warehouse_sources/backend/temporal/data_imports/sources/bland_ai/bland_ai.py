@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import TJsonPath
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
     OffsetPaginator,
     PageNumberPaginator,
     SinglePagePaginator,
@@ -37,6 +38,10 @@ SMS_PAGE_SIZE = 100
 # GET /v1/personas documented maximum page size (the default is 20).
 PERSONAS_PAGE_SIZE = 100
 
+# GET /v1/evals/runs and /v1/evals/runs/{run_id}/call-results documented maximum page size (the
+# default is 25).
+EVALS_PAGE_SIZE = 100
+
 
 @dataclasses.dataclass(frozen=True)
 class BlandAIResumeConfig:
@@ -44,13 +49,15 @@ class BlandAIResumeConfig:
     offset: int = 0
     # Page number (`page` query param) of the next unfetched page of SMS conversations.
     page: int | None = None
+    # `starting_after` cursor of the next unfetched page of eval runs.
+    cursor: str | None = None
     # The exact creation-time filter the interrupted run used — `start_date` on the call
     # endpoints, the `created_at` `gte` filter entry on the SMS endpoints. The pipeline
     # checkpoints the incremental watermark per batch, so on resume
     # `db_incremental_field_last_value` may already have advanced past the value we filtered by —
     # reusing the original filter keeps the saved cursor pointing into the same result set.
     start_date: str | None = None
-    # Framework fan-out checkpoint for call_transcripts and sms_messages (completed/current child
+    # Framework fan-out checkpoint for the fan-out endpoints (completed/current child
     # paths plus the in-progress child paginator state). Optional so state saved before this field
     # existed (offset-only) still parses; such state restarts the fan-out fresh under the saved
     # filter.
@@ -105,21 +112,48 @@ class _PathwaysBodySelector(JSONPath):
         return [DatumInContext(rows)]
 
 
+class _EventStreamSelector(JSONPath):
+    """Data selector for GET /v1/event_stream/{call_id}, numbering each event in the stream.
+
+    The docs only describe the shape of one event, so accept a bare list or a common list wrapper.
+    Events carry no id; their position in the chronological stream keys the row.
+    """
+
+    def find(self, data: Any) -> list[DatumInContext]:
+        if isinstance(data, list):
+            events = data
+        elif isinstance(data, dict):
+            events = next((data[key] for key in ("events", "data") if isinstance(data.get(key), list)), [])
+        else:
+            events = []
+        rows = [{**event, "event_index": index} for index, event in enumerate(events) if isinstance(event, dict)]
+        return [DatumInContext(rows)]
+
+
 # Endpoints that return their whole collection in one unpaginated body, keyed to the path and the
-# selector that picks the rows out of it. All three are small account-level collections with no
+# selector that picks the rows out of it. All are small account-level collections with no
 # timestamp filters, so they are full refresh only.
 SINGLE_PAGE_ENDPOINTS: dict[str, tuple[str, TJsonPath]] = {
     "pathways": ("v1/pathway", _PathwaysBodySelector()),
     "inbound_numbers": ("v1/inbound", "inbound_numbers"),
     "voices": ("v1/voices", "voices"),
+    "web_agents": ("v1/agents", "agents"),
+}
+
+# Endpoints that list calls and hydrate each one, keyed to the per-call path and the selector that
+# picks the child rows out of the per-call body.
+CALL_FANOUT_ENDPOINTS: dict[str, tuple[str, TJsonPath]] = {
+    # A call with no transcripts (e.g. unanswered) is a legit zero-row detail.
+    "call_transcripts": ("v1/calls/{call_id}", "transcripts"),
+    "call_events": ("v1/event_stream/{call_id}", _EventStreamSelector()),
 }
 
 
 def _adopt_parent_call_fields(row: dict[str, Any]) -> dict[str, Any]:
-    # Rename the injected parent fields onto the utterance row: `call_id` (part of the composite
-    # primary key) and `call_created_at`, the parent call's creation time. Utterance `created_at`s
-    # aren't monotonic across calls (a long call's utterances postdate the next call's creation),
-    # so `call_created_at` is the field the incremental cursor and partitioning key off.
+    # Rename the injected parent fields onto the utterance or event row: `call_id` (part of the
+    # composite primary key) and `call_created_at`, the parent call's creation time. Child
+    # timestamps aren't monotonic across calls (a long call's utterances postdate the next call's
+    # creation), so `call_created_at` is the field the incremental cursor and partitioning key off.
     # `pop` without a default on purpose: a silent None here would corrupt partitions and stall
     # the incremental watermark.
     row["call_id"] = row.pop("_calls_call_id")
@@ -143,6 +177,130 @@ def _calls_list_resource(params: dict[str, Any]) -> EndpointResource:
             ),
         },
     }
+
+
+def _adopt_parent_pathway_id(row: dict[str, Any]) -> dict[str, Any]:
+    row["pathway_id"] = row.pop("_pathways_id")
+    return row
+
+
+def _evals_cursor_paginator() -> JSONResponseCursorPaginator:
+    # The list sits under `data.data`; `data.next_cursor` is null on the last page.
+    return JSONResponseCursorPaginator(cursor_path="data.next_cursor", cursor_param="starting_after")
+
+
+def _eval_runs_list_resource() -> EndpointResource:
+    return {
+        "name": "eval_runs",
+        "endpoint": {
+            "path": "v1/evals/runs",
+            "params": {"limit": EVALS_PAGE_SIZE},
+            "data_selector": "data.data",
+            "paginator": _evals_cursor_paginator(),
+        },
+    }
+
+
+def _pathway_versions_resource(
+    rest_config: RESTAPIConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
+) -> Resource:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(BlandAIResumeConfig(fanout_state=state))
+
+    rest_config["resources"] = [
+        {
+            "name": "pathways",
+            "endpoint": {
+                "path": "v1/pathway",
+                "data_selector": _PathwaysBodySelector(),
+                "paginator": SinglePagePaginator(),
+            },
+        },
+        {
+            "name": "pathway_versions",
+            "include_from_parent": ["id"],
+            "data_map": _adopt_parent_pathway_id,
+            "endpoint": {
+                "path": "v1/pathway/{pathway_id}/versions",
+                "params": {"pathway_id": {"type": "resolve", "resource": "pathways", "field": "id"}},
+                # The documented body is a bare list of versions.
+                "data_selector": "$",
+                "paginator": SinglePagePaginator(),
+            },
+        },
+    ]
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume is not None else None,
+    )
+    return next(r for r in resources if r.name == "pathway_versions")
+
+
+def _evals_resource(
+    rest_config: RESTAPIConfig,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BlandAIResumeConfig],
+) -> Resource:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if endpoint == "eval_runs":
+        initial_paginator_state = {"cursor": resume.cursor} if resume is not None and resume.cursor else None
+
+        def save_runs_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state and state.get("cursor"):
+                resumable_source_manager.save_state(BlandAIResumeConfig(cursor=str(state["cursor"])))
+
+        rest_config["resources"] = [_eval_runs_list_resource()]
+        return rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_runs_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
+    # eval_call_results: each row already carries its `eval_run_id`, so no parent field is injected.
+    def save_results_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(BlandAIResumeConfig(fanout_state=state))
+
+    rest_config["resources"] = [
+        _eval_runs_list_resource(),
+        {
+            "name": "eval_call_results",
+            "endpoint": {
+                "path": "v1/evals/runs/{run_id}/call-results",
+                "params": {
+                    "run_id": {"type": "resolve", "resource": "eval_runs", "field": "id"},
+                    "limit": EVALS_PAGE_SIZE,
+                },
+                "data_selector": "data.data",
+                "paginator": _evals_cursor_paginator(),
+            },
+        },
+    ]
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_results_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume is not None else None,
+    )
+    return next(r for r in resources if r.name == "eval_call_results")
 
 
 def _adopt_parent_conversation_fields(row: dict[str, Any]) -> dict[str, Any]:
@@ -312,6 +470,10 @@ def bland_ai_source(
             }
         ]
         resource = rest_api_resource(rest_config, team_id, job_id, None)
+    elif endpoint == "pathway_versions":
+        resource = _pathway_versions_resource(rest_config, team_id, job_id, resumable_source_manager)
+    elif endpoint in ("eval_runs", "eval_call_results"):
+        resource = _evals_resource(rest_config, endpoint, team_id, job_id, resumable_source_manager)
     elif endpoint in ("sms_conversations", "sms_messages"):
         resource = _sms_resource(
             rest_config,
@@ -360,25 +522,26 @@ def bland_ai_source(
                 resume_hook=save_calls_checkpoint,
                 initial_paginator_state=initial_paginator_state,
             )
-        else:  # call_transcripts
-            # Transcripts are excluded from the list endpoint for size reasons, so this endpoint
-            # lists calls (same pagination/filtering as `calls`) and hydrates each via
-            # GET /v1/calls/{call_id}, emitting one row per transcript utterance.
-            def save_transcripts_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        else:  # call_transcripts, call_events
+            # Transcripts are excluded from the list endpoint for size reasons, and events live on
+            # their own endpoint, so these list calls (same pagination/filtering as `calls`) and
+            # hydrate each one, emitting one row per utterance or event.
+            child_path, child_selector = CALL_FANOUT_ENDPOINTS[endpoint]
+
+            def save_call_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
                 if state is not None:
                     resumable_source_manager.save_state(BlandAIResumeConfig(start_date=start_date, fanout_state=state))
 
             rest_config["resources"] = [
                 _calls_list_resource(list_params),
                 {
-                    "name": "call_transcripts",
+                    "name": endpoint,
                     "include_from_parent": ["call_id", "created_at"],
                     "data_map": _adopt_parent_call_fields,
                     "endpoint": {
-                        "path": "v1/calls/{call_id}",
+                        "path": child_path,
                         "params": {"call_id": {"type": "resolve", "resource": "calls", "field": "call_id"}},
-                        # A call with no transcripts (e.g. unanswered) is a legit zero-row detail.
-                        "data_selector": "transcripts",
+                        "data_selector": child_selector,
                         "paginator": SinglePagePaginator(),
                     },
                 },
@@ -388,10 +551,10 @@ def bland_ai_source(
                 team_id,
                 job_id,
                 None,
-                resume_hook=save_transcripts_checkpoint,
+                resume_hook=save_call_fanout_checkpoint,
                 initial_paginator_state=resume.fanout_state if resume is not None else None,
             )
-            resource = next(r for r in resources if r.name == "call_transcripts")
+            resource = next(r for r in resources if r.name == endpoint)
 
     return SourceResponse(
         name=endpoint,
@@ -403,7 +566,7 @@ def bland_ai_source(
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
         # Call endpoints request `ascending=true&sort_by=created_at` and the SMS endpoints
-        # `sortBy=created_at&sortDir=asc`; the lookup endpoints are single unordered pages on
-        # full-refresh-only tables, so the value never drives a watermark for them.
+        # `sortBy=created_at&sortDir=asc`; the other endpoints are full-refresh-only tables, so
+        # the value never drives a watermark for them.
         sort_mode="asc",
     )

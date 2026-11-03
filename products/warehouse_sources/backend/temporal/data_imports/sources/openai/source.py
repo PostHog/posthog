@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
     OPENAI_BASE_URL,
+    PROJECT_KEY_MISSING_MESSAGE,
     OpenAIResumeConfig,
     openai_source,
     validate_credentials as validate_openai_credentials,
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openai.set
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     OPENAI_ENDPOINTS,
+    PROJECT_KEY_PATHS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -112,10 +114,12 @@ class OpenAISource(ResumableSource[OpenAISourceConfig, OpenAIResumeConfig]):
             name=ExternalDataSourceType.OPENAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="OpenAI",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your OpenAI Admin API key to pull your organization's API usage, cost, and admin data into the PostHog Data warehouse.
 
-Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.""",
+Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization settings](https://platform.openai.com/settings/organization/admin-keys). Only organization owners can create one; a regular project API key cannot read organization usage or costs.
+
+To also sync models, batches, stored chat completions, and evals, add a [project API key](https://platform.openai.com/api-keys). OpenAI doesn't accept Admin API keys for these tables, and they only include data from the key's project. A restricted key needs read access to each of them.""",
             iconPath="/static/services/openai.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/openai",
             keywords=["llm", "gpt", "chatgpt", "ai usage", "cost"],
@@ -130,6 +134,14 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
                         placeholder="sk-admin...",
                         secret=True,
                     ),
+                    SourceFieldInputConfig(
+                        name="project_api_key",
+                        label="Project API key (optional)",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="sk-proj-...",
+                        secret=True,
+                    ),
                 ],
             ),
         )
@@ -142,7 +154,19 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        project_key_errors: dict[str, str | None] = {}
+        for path in PROJECT_KEY_PATHS:
+            project_key_errors[f"401 Client Error: Unauthorized for url: {OPENAI_BASE_URL}{path}"] = (
+                "Your OpenAI project API key is invalid or has been revoked. Create a new project API key, then update it in the source settings."
+            )
+            project_key_errors[f"403 Client Error: Forbidden for url: {OPENAI_BASE_URL}{path}"] = (
+                "Your OpenAI project API key can't read this table. Give the key read access to it in your OpenAI project, or stop syncing this table."
+            )
         return {
+            # Platform tables authenticate with the project API key, so their auth failures point
+            # at that key. Listed first because the organization messages below also match them.
+            **project_key_errors,
+            PROJECT_KEY_MISSING_MESSAGE: None,
             "401 Client Error: Unauthorized for url: https://api.openai.com": "Your OpenAI Admin API key is invalid or has been revoked. Create a new Admin API key in your OpenAI organization settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.openai.com": "Your OpenAI API key does not have organization admin access. Use an Admin API key (prefixed sk-admin) created by an organization owner, then reconnect.",
             # Reached only after every later start time in the source's fallback was rejected too.
@@ -195,7 +219,22 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_openai_credentials(config.api_key)
+        return validate_openai_credentials(config.api_key, config.project_api_key)
+
+    def get_endpoint_permissions(
+        self,
+        config: OpenAISourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        missing_key_reason = None if config.project_api_key else "Add a project API key to sync this table."
+        return {
+            name: missing_key_reason
+            if name in OPENAI_ENDPOINTS and OPENAI_ENDPOINTS[name].requires_project_key
+            else None
+            for name in endpoints
+        }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OpenAIResumeConfig]:
         return ResumableSourceManager[OpenAIResumeConfig](inputs, OpenAIResumeConfig)
@@ -212,6 +251,7 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            project_api_key=config.project_api_key,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,

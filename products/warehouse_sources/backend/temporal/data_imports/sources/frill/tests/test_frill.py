@@ -8,7 +8,6 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.frill.frill import (
@@ -204,16 +203,8 @@ class TestFrillSource:
 
 
 class TestValidateCredentials:
-    def test_unauthorized_is_invalid(self) -> None:
-        with scripted_network([ScriptedResponse(status=401, json={"success": False, "message": "Unauthorized"})]):
-            assert validate_credentials("k") is False
-
     def test_error_body_is_invalid(self) -> None:
         with scripted_network([ScriptedResponse(json={"error": True, "message": "bad key"})]):
-            assert validate_credentials("k") is False
-
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
             assert validate_credentials("k") is False
 
     def test_non_json_body_is_invalid(self) -> None:

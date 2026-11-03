@@ -193,7 +193,7 @@ class TestProbeCredentials:
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
     def test_returns_status_code(self, _name: str, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
-            assert probe_credentials("bs_test", "incidents") == status_code
+            assert probe_credentials("bs_test", "v3", "incidents") == status_code
         assert network.requests_log[0].path == "/api/v3/incidents"
 
 
@@ -244,6 +244,27 @@ class TestOrganizationHost:
         assert result.raised is None
         assert result.requests[0].origin == "https://betterstack.com"
         assert result.requests[0].path == f"/api{path}"
+
+
+class TestApiVersionDispatch:
+    @parameterized.expand(
+        [
+            ("policies_v2", "escalation_policies", "v2", "/api/v2/policies"),
+            ("policies_v3", "escalation_policies", "v3", "/api/v3/policies"),
+            ("policies_unpinned_uses_default", "escalation_policies", None, "/api/v3/policies"),
+            ("incidents_v2", "incidents", "v2", "/api/v3/incidents"),
+            ("incidents_v3", "incidents", "v3", "/api/v3/incidents"),
+            ("monitors_v2", "monitors", "v2", "/api/v2/monitors"),
+            ("monitors_v3", "monitors", "v3", "/api/v2/monitors"),
+        ]
+    )
+    def test_request_path_follows_the_pin(
+        self, _name: str, endpoint: str, api_version: str | None, expected_path: str
+    ) -> None:
+        result = _driver().run(endpoint, [_response([{"id": "1", "attributes": {}}])], api_version=api_version)
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
 
 
 class TestFanout:
@@ -327,19 +348,21 @@ class TestFanout:
 class TestProbeCredentialsForFanoutEndpoints:
     @parameterized.expand(
         [
-            ("monitor_availability", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
-            ("monitor_response_times", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
-            ("incident_comments", f"{BETTER_STACK_BASE_URL}/v3/incidents?per_page=1"),
-            ("heartbeat_availability", f"{BETTER_STACK_BASE_URL}/v2/heartbeats?per_page=1"),
-            ("status_page_resources", f"{BETTER_STACK_BASE_URL}/v2/status-pages?per_page=1"),
-            ("on_call_events", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
-            ("on_call_rotations", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
-            ("team_members", f"{BETTER_STACK_ORG_BASE_URL}/v2/team-members?per_page=1"),
+            ("monitor_availability", "v3", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
+            ("monitor_response_times", "v3", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
+            ("incident_comments", "v3", f"{BETTER_STACK_BASE_URL}/v3/incidents?per_page=1"),
+            ("heartbeat_availability", "v3", f"{BETTER_STACK_BASE_URL}/v2/heartbeats?per_page=1"),
+            ("status_page_resources", "v3", f"{BETTER_STACK_BASE_URL}/v2/status-pages?per_page=1"),
+            ("on_call_events", "v3", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
+            ("on_call_rotations", "v3", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
+            ("team_members", "v3", f"{BETTER_STACK_ORG_BASE_URL}/v2/team-members?per_page=1"),
+            ("escalation_policies", "v2", f"{BETTER_STACK_BASE_URL}/v2/policies?per_page=1"),
+            ("escalation_policies", "v3", f"{BETTER_STACK_BASE_URL}/v3/policies?per_page=1"),
         ]
     )
-    def test_probes_a_reachable_collection(self, endpoint: str, expected_url: str) -> None:
+    def test_probes_a_reachable_collection(self, endpoint: str, api_version: str, expected_url: str) -> None:
         with scripted_network([ScriptedResponse()]) as network:
-            probe_credentials("bs_test", endpoint)
+            probe_credentials("bs_test", api_version, endpoint)
 
         # A fan-out child has no collection of its own, so its parent is probed instead.
         assert network.requests_log[0].url == expected_url

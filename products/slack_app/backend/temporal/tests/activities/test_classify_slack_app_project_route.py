@@ -8,7 +8,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.temporal.activities.classifiers import classify_slack_app_project_route
-from products.slack_app.backend.temporal.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
+from products.slack_app.backend.temporal.slack_app_mention_processing import POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS
 
 
 def _project(*, team_id: int, integration_id: int, name: str) -> Integration:
@@ -55,7 +55,7 @@ class TestClassifySlackAppProjectRoute:
             classify_slack_app_project_route("check staging", PROJECTS)
 
     def test_token_cap_uses_the_reasoning_model_parameter(self):
-        # `gpt-5.6-luna` rejects `max_tokens` on chat completions, and the activity turns
+        # The reasoning-class model rejects `max_tokens` on chat completions, and the activity turns
         # that rejection into its fallback — a mention would silently never route.
         fake_client = self._fake_client('{"project_id": null}')
         with patch(CLASSIFIER, return_value=fake_client):

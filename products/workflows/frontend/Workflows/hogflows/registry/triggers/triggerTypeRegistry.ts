@@ -51,6 +51,8 @@ export type TriggerTypeDefinition = {
     frequencyOptions?: TriggerFrequencyOption[]
     /** Copy under the "Frequency" heading; defaults to the generic person-centric wording */
     frequencyDescription?: string
+    /** Show the exit condition section. Only for triggers the executor re-checks before each step. */
+    showExitConditions?: boolean
 }
 
 const triggerTypeDefinitions: TriggerTypeDefinition[] = []

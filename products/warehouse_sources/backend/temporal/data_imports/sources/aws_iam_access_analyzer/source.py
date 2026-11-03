@@ -121,16 +121,17 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
             name=ExternalDataSourceType.AWSIAMACCESSANALYZER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS IAM Access Analyzer",
-            caption="""Sync access analyzers, findings, and archive rules from one AWS region.
+            caption="""Sync access analyzers, findings, archive rules, analyzed resources, finding details, and finding recommendations from one AWS region.
 
-Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings`, and `access-analyzer:ListArchiveRules` for the tables you select.
+Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings`, `access-analyzer:ListArchiveRules`, `access-analyzer:ListAnalyzedResources`, `access-analyzer:GetFinding`, and `access-analyzer:GetFindingRecommendation` for the tables you select.
 Enter an access key ID and secret access key. Add a session token for temporary credentials.
 Temporary credentials expire, so update them before later syncs.
 
-All tables use full refresh. The API does not support a date-range filter for findings.""",
+All tables use full refresh. The API does not support a date-range filter for findings.
+Finding recommendations only include recommendations that you already generated in AWS. The sync does not generate new ones.""",
             iconPath="/static/services/aws_iam_access_analyzer.png",
             docsUrl=API_DOCS_URL,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "iam", "access analyzer", "security"],
             fields=cast(
                 list[FieldType],

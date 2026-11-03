@@ -106,9 +106,11 @@ def fetch_app_metrics_trends(
 
     clickhouse_kwargs: dict[str, Any] = {}
 
+    # The bucket alias must not be `timestamp`. ClickHouse resolves SELECT aliases inside WHERE, so the
+    # range filter would compare the bucket start to `after` and drop the first, partial bucket.
     clickhouse_query = f"""
         SELECT
-            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as timestamp,
+            toStartOfInterval(timestamp, INTERVAL 1 {interval}) as bucket,
             metric_{breakdown_by} as breakdown,
             sum(count) as count
         FROM app_metrics2
@@ -120,8 +122,8 @@ def fetch_app_metrics_trends(
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}
-        GROUP BY timestamp, breakdown
-        ORDER BY timestamp ASC
+        GROUP BY bucket, breakdown
+        ORDER BY bucket ASC
     """
 
     clickhouse_kwargs["team_id"] = team_id
@@ -129,8 +131,9 @@ def fetch_app_metrics_trends(
     clickhouse_kwargs["app_source_id"] = app_source_id
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
-    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    # Keep the microseconds: a `before` of "now" truncated to the second excludes rows written earlier in that second.
+    clickhouse_kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    clickhouse_kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")
     clickhouse_kwargs["instance_id"] = instance_id
     clickhouse_kwargs["name"] = name
     clickhouse_kwargs["kind"] = kind
@@ -199,6 +202,7 @@ def fetch_app_metric_totals(
     instance_id: Optional[str] = None,
     name: Optional[list[str]] = None,
     kind: Optional[list[str]] = None,
+    before_exclusive: bool = False,
 ) -> AppMetricsTotalsResponse:
     """
     Calculate the totals for the app metrics over the given period.
@@ -209,16 +213,19 @@ def fetch_app_metric_totals(
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
+    # Keep the microseconds: a `before` of "now" truncated to the second excludes rows written earlier in that second.
     clickhouse_kwargs: dict[str, Any] = {
         "team_id": team_id,
         "app_source": app_source,
         "app_source_id": app_source_id,
-        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
-        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
+        "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") if after else None,
+        "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") if before else None,
         "instance_id": instance_id,
         "name": name,
         "kind": kind,
     }
+
+    before_operator = "<" if before_exclusive else "<="
 
     clickhouse_query = f"""
         SELECT
@@ -229,7 +236,7 @@ def fetch_app_metric_totals(
         AND app_source = %(app_source)s
         AND app_source_id = %(app_source_id)s
         {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
-        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
+        {f"AND timestamp {before_operator} toDateTime64(%(before)s, 6)" if before else ""}
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}

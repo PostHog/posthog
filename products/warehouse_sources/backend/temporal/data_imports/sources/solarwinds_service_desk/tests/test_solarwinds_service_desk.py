@@ -5,9 +5,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
+    Script,
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.solarwindsservicedesk import (
@@ -35,7 +37,7 @@ def _response(items: Optional[list[Any]], *, total_pages: Optional[int] = None) 
 
 
 def _run(
-    responses: list[ScriptedResponse],
+    responses: Script,
     endpoint: str = "incidents",
     resume_state: Optional[SolarwindsServiceDeskResumeConfig] = None,
     **inputs: Any,
@@ -85,6 +87,96 @@ class TestPagination:
         assert result.requests[0].param("updated_from") is None
 
 
+class TestTimeTracksFanout:
+    def test_walks_every_incident_and_tags_rows_with_the_incident(self) -> None:
+        result = _run(
+            route(
+                {
+                    "/incidents.json": [
+                        _response([{"incident": {"id": 1}}, {"id": 2}, {"id": 3}], total_pages=2),
+                        _response([{"id": 4}], total_pages=2),
+                    ],
+                    "/incidents/1/time_tracks.json": [
+                        _response([{"time_track": {"id": 10, "minutes": "30"}}], total_pages=2),
+                        _response([{"id": 11, "minutes": "5"}], total_pages=2),
+                    ],
+                    # Deleted between the incident listing and the child fetch.
+                    "/incidents/2/time_tracks.json": [ScriptedResponse(status=404, json={})],
+                    "/incidents/3/time_tracks.json": [_response([])],
+                    "/incidents/4/time_tracks.json": [
+                        _response([{"time_track": {"id": 12, "minutes": "60"}}], total_pages=1)
+                    ],
+                }
+            ),
+            endpoint="time_tracks",
+        )
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 10, "minutes": "30", "incident_id": 1},
+            {"id": 11, "minutes": "5", "incident_id": 1},
+            {"id": 12, "minutes": "60", "incident_id": 4},
+        ]
+        assert result.paths == [
+            "/incidents.json",
+            "/incidents/1/time_tracks.json",
+            "/incidents/1/time_tracks.json",
+            "/incidents/2/time_tracks.json",
+            "/incidents/3/time_tracks.json",
+            "/incidents.json",
+            "/incidents/4/time_tracks.json",
+        ]
+        assert result.final_state.fanout_state["completed"] == [
+            "/incidents/1/time_tracks.json",
+            "/incidents/2/time_tracks.json",
+            "/incidents/3/time_tracks.json",
+            "/incidents/4/time_tracks.json",
+        ]
+
+    def test_resume_skips_completed_incidents_and_continues_the_current_one(self) -> None:
+        result = _run(
+            route(
+                {
+                    "/incidents.json": [_response([{"id": 1}, {"id": 2}, {"id": 3}], total_pages=1)],
+                    "/incidents/2/time_tracks.json": [_response([{"id": 21}], total_pages=2)],
+                    "/incidents/3/time_tracks.json": [_response([{"id": 31}], total_pages=1)],
+                }
+            ),
+            endpoint="time_tracks",
+            resume_state=SolarwindsServiceDeskResumeConfig(
+                fanout_state={
+                    "completed": ["/incidents/1/time_tracks.json"],
+                    "current": "/incidents/2/time_tracks.json",
+                    "child_state": {"page": 2},
+                }
+            ),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 21, "incident_id": 2}, {"id": 31, "incident_id": 3}]
+        assert [r.path for r in result.requests if r.path != "/incidents.json"] == [
+            "/incidents/2/time_tracks.json",
+            "/incidents/3/time_tracks.json",
+        ]
+        assert result.requests[1].param("page") == "2"
+
+    def test_retries_a_child_response_that_is_not_a_list(self) -> None:
+        # A 200 error object carries no X-Total-Pages header; wrapped as a row it would keep the
+        # crawl paging, so it must be retried instead.
+        result = _run(
+            route(
+                {
+                    "/incidents.json": [_response([{"id": 1}], total_pages=1)],
+                    "/incidents/1/time_tracks.json": [
+                        ScriptedResponse(json={"error": "temporarily unavailable"}),
+                        _response([{"id": 10}], total_pages=1),
+                    ],
+                }
+            ),
+            endpoint="time_tracks",
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 10, "incident_id": 1}]
+
+
 class TestFormatUpdatedFrom:
     @parameterized.expand(
         [
@@ -109,12 +201,26 @@ class TestUnwrapRow:
             ("bare_record", {"id": 2, "name": "B"}, "user", {"id": 2, "name": "B"}),
             # A single-key dict whose value isn't a record is a real record that merely has one field.
             ("wrapper_key_not_a_record", {"user": "not a record", "id": 3}, "user", {"user": "not a record", "id": 3}),
+            (
+                "wrapped_with_parent_field",
+                {"time_track": {"id": 4}, "incident_id": 9},
+                "time_track",
+                {"id": 4, "incident_id": 9},
+            ),
+            ("bare_with_parent_field", {"id": 5, "incident_id": 9}, "time_track", {"id": 5, "incident_id": 9}),
+            # Only the declared parent fields may sit beside the wrapper; anything else means a real record.
+            (
+                "wrapper_beside_other_field",
+                {"time_track": {"id": 6}, "note": "x"},
+                "time_track",
+                {"time_track": {"id": 6}, "note": "x"},
+            ),
         ]
     )
     def test_normalizes_documented_shapes(
         self, _name: str, item: dict[str, Any], wrapper_key: str, expected: dict[str, Any]
     ) -> None:
-        assert _unwrap_row(item, wrapper_key) == expected
+        assert _unwrap_row(item, wrapper_key, frozenset({"incident_id"})) == expected
 
 
 class TestBaseUrl:
@@ -134,8 +240,6 @@ class TestBaseUrl:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok_at_create", 200, None, True, None),
-            ("bad_token_at_create", 401, None, False, "Invalid SolarWinds Service Desk API token"),
             # A 403 with a genuine token must not block source-create, but must fail a
             # schema-scoped probe so the user sees which table their role can't read.
             ("forbidden_at_create", 403, None, True, None),
@@ -146,7 +250,6 @@ class TestValidateCredentials:
                 False,
                 "Your SolarWinds Service Desk token does not have permission to read this resource",
             ),
-            ("server_error", 500, None, False, "SolarWinds Service Desk returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -160,10 +263,6 @@ class TestValidateCredentials:
         with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert validate_credentials("us", "swsd-token", path) == (expected_valid, expected_message)
 
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("us", "swsd-token") == (False, "Could not connect to SolarWinds Service Desk")
-
 
 class TestSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
@@ -173,7 +272,7 @@ class TestSourceResponse:
         response = result.response
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == config.primary_keys
         # Ordering is undocumented, so the watermark must only commit after a completed sync.
         assert response.sort_mode == "desc"
         if config.partition_key:

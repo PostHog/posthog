@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import (
     BASE_URL,
+    EVALS_PAGE_SIZE,
     PAGE_SIZE,
     SMS_PAGE_SIZE,
     BlandAIResumeConfig,
@@ -119,6 +120,43 @@ class TestCallTranscripts:
         assert result.rows[0]["text"] == "hello"
         # One list request plus one hydration request per listed call.
         assert result.paths == ["/v1/calls", "/v1/calls/c1", "/v1/calls/c2"]
+
+    @parameterized.expand(
+        [
+            ("bare_list", lambda events: events),
+            ("wrapped_events", lambda events: {"events": events}),
+            ("wrapped_data", lambda events: {"data": events, "errors": None}),
+        ]
+    )
+    def test_call_events_hydrates_each_call_and_numbers_events(self, _name: str, wrap: Any) -> None:
+        events = [
+            {"level": "queue", "message": "Call queued", "category": "info", "timestamp": "2026-01-01T00:00:00Z"},
+            {"level": "call", "message": "LLM 420ms", "category": "performance", "timestamp": "2026-01-01T00:00:02Z"},
+        ]
+        result = _driver().run(
+            "call_events",
+            [
+                ScriptedResponse(
+                    json={
+                        "total_count": 2,
+                        "count": 2,
+                        "calls": [
+                            {"call_id": "c1", "created_at": "2026-01-01T00:00:00+00:00"},
+                            {"call_id": "c2", "created_at": "2026-01-02T00:00:00+00:00"},
+                        ],
+                    }
+                ),
+                ScriptedResponse(json=wrap(events)),
+                ScriptedResponse(json=wrap([])),
+            ],
+        )
+
+        assert result.raised is None
+        # Events carry no id; the position in the stream completes the composite key.
+        assert [(row["call_id"], row["event_index"]) for row in result.rows] == [("c1", 0), ("c1", 1)]
+        assert [row["category"] for row in result.rows] == ["info", "performance"]
+        assert all(row["call_created_at"] == "2026-01-01T00:00:00+00:00" for row in result.rows)
+        assert result.paths == ["/v1/calls", "/v1/event_stream/c1", "/v1/event_stream/c2"]
 
     def test_old_format_resume_state_restarts_fanout_under_saved_filter(self) -> None:
         saved_filter = "2026-01-05T00:00:00+00:00"
@@ -282,19 +320,98 @@ class TestLookupEndpoints:
         [
             # The response wrapper key differs per endpoint; a wrong selector silently yields
             # zero rows instead of failing.
-            ("inbound_numbers", "v1/inbound", {"inbound_numbers": [{"phone_number": "+15550001111"}]}, "phone_number"),
-            ("voices", "v1/voices", {"voices": [{"id": "voice-1", "name": "Karen"}]}, "id"),
+            ("inbound_numbers", "v1/inbound", "inbound_numbers", {"phone_number": "+15550001111"}, "phone_number"),
+            ("voices", "v1/voices", "voices", {"id": "voice-1", "name": "Karen"}, "id"),
+            ("web_agents", "v1/agents", "agents", {"agent_id": "agent-1", "voice": "Karen"}, "agent_id"),
         ]
     )
     def test_single_page_lookup_selects_rows(
-        self, endpoint: str, path: str, api_response: dict[str, Any], key: str
+        self, endpoint: str, path: str, wrapper: str, row: dict[str, Any], key: str
     ) -> None:
-        result = _driver().run(endpoint, [ScriptedResponse(json=api_response)])
+        result = _driver().run(endpoint, [ScriptedResponse(json={wrapper: [row]})])
 
         assert result.raised is None
         assert len(result.rows) == 1
-        assert result.rows[0][key] == api_response[endpoint][0][key]
+        assert result.rows[0][key] == row[key]
         assert result.paths == [f"/{path}"]
+
+
+class TestPathwayVersions:
+    def test_fans_out_over_pathways_and_injects_pathway_id(self) -> None:
+        result = _driver().run(
+            "pathway_versions",
+            [
+                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),
+                ScriptedResponse(
+                    json=[
+                        {"id": "v1", "version_number": 1, "created_at": "2026-01-01T00:00:00Z", "is_latest": False},
+                        {"id": "v2", "version_number": 2, "created_at": "2026-01-02T00:00:00Z", "is_latest": True},
+                    ]
+                ),
+                # A single version still parses as one row, not as a list of keys.
+                ScriptedResponse(json=[{"id": "v1", "version_number": 1, "created_at": "2026-01-03T00:00:00Z"}]),
+            ],
+        )
+
+        assert result.raised is None
+        # Version ids repeat across pathways, so the parent id must reach every row.
+        assert [(row["pathway_id"], row["id"]) for row in result.rows] == [("p1", "v1"), ("p1", "v2"), ("p2", "v1")]
+        assert result.paths == ["/v1/pathway", "/v1/pathway/p1/versions", "/v1/pathway/p2/versions"]
+
+
+def _evals_page(rows: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": {"object": "list", "data": rows, "has_more": next_cursor is not None, "next_cursor": next_cursor},
+            "errors": None,
+        }
+    )
+
+
+class TestEvals:
+    @parameterized.expand(
+        [
+            ("fresh", None, [None, "r2"]),
+            ("resumed", BlandAIResumeConfig(cursor="r0"), ["r0", "r2"]),
+        ]
+    )
+    def test_eval_runs_walk_cursor_pages(
+        self, _name: str, resume_state: BlandAIResumeConfig | None, expected_cursors: list[str | None]
+    ) -> None:
+        result = _driver().run(
+            "eval_runs",
+            [_evals_page([{"id": "r1"}, {"id": "r2"}], "r2"), _evals_page([{"id": "r3"}], None)],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["r1", "r2", "r3"]
+        # A null next_cursor ends the walk without a third request.
+        assert result.paths == ["/v1/evals/runs", "/v1/evals/runs"]
+        assert result.params("starting_after") == expected_cursors
+        assert result.params("limit") == [str(EVALS_PAGE_SIZE)] * 2
+
+    def test_eval_call_results_paginate_per_run(self) -> None:
+        result = _driver().run(
+            "eval_call_results",
+            [
+                _evals_page([{"id": "r1"}, {"id": "r2"}], None),
+                _evals_page([{"id": "cr1", "eval_run_id": "r1", "overall_score_normalized_0_100": 88.0}], "cr1"),
+                _evals_page([{"id": "cr2", "eval_run_id": "r1"}], None),
+                _evals_page([{"id": "cr3", "eval_run_id": "r2"}], None),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["eval_run_id"], row["id"]) for row in result.rows] == [("r1", "cr1"), ("r1", "cr2"), ("r2", "cr3")]
+        assert result.paths == [
+            "/v1/evals/runs",
+            "/v1/evals/runs/r1/call-results",
+            "/v1/evals/runs/r1/call-results",
+            "/v1/evals/runs/r2/call-results",
+        ]
+        # The first run's cursor must not leak into the second run's first request.
+        assert result.params("starting_after") == [None, None, "cr1", None]
 
 
 class TestBlandAISourceResponse:

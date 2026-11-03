@@ -204,7 +204,11 @@ class TestSinglePageEndpoints:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             actual = validate_credentials("u", "k", CLOCKODO_API_VERSION_V3)

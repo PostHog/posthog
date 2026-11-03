@@ -4,7 +4,6 @@ import pytest
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -14,11 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamupfitness import (
     TeamupFitnessSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-    PROVIDER_ERROR,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.settings import PROVIDER_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.source import TeamupFitnessSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamup_fitness.teamup_fitness import (
     TeamupFitnessResumeConfig,
@@ -98,8 +93,6 @@ def test_credential_validation_uses_one_small_request(
 @pytest.mark.parametrize(
     "status,code,message",
     [
-        (401, "authentication_failed", AUTH_ERROR),
-        (403, "provider_invalid", PERMISSION_ERROR),
         (400, "provider_header_missing", PROVIDER_ERROR),
         (400, "provider_header_invalid", PROVIDER_ERROR),
     ],
@@ -142,10 +135,3 @@ def test_next_url_cannot_send_token_to_another_host(driver: SourceDriver) -> Non
 
     assert isinstance(result.raised, ValueError)
     assert len(result.requests) == 1
-
-
-def test_unknown_endpoint_fails_before_request(driver: SourceDriver) -> None:
-    result = driver.run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

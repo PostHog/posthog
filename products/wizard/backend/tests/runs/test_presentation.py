@@ -347,7 +347,7 @@ class TestWizardRunViewSet(APIBaseTest):
     ) -> None:
         # The run mints its gateway token later with no request, so an IP rule only matches here.
         with patch(
-            "products.wizard.backend.presentation.runs.views.security_access_refused", return_value=refused
+            "products.wizard.backend.presentation.security.security_access_refused", return_value=refused
         ) as check:
             response = self.client.post(
                 self._url(), self._cloud_payload(idempotency_key=f"rules-{_name}"), format="json"

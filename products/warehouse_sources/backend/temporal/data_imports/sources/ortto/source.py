@@ -70,7 +70,7 @@ class OrttoSource(ResumableSource[OrttoSourceConfig, OrttoResumeConfig]):
 Create a custom API key in Ortto under Settings > API keys, and pick the region your Ortto instance lives in. Ortto's API has no updated-since filter, so all tables fully refresh on each sync.""",
             iconPath="/static/services/ortto.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ortto",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

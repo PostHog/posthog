@@ -10,7 +10,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'

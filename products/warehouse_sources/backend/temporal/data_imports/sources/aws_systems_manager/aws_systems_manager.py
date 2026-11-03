@@ -1,7 +1,9 @@
 import re
 import json
+import hashlib
 import datetime as dt
-from collections.abc import Iterator
+import dataclasses
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 import requests
@@ -18,6 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_system
     API_VERSION,
     ENDPOINTS,
     ERROR_MESSAGES,
+    EXCLUDED_INVENTORY_TYPES,
+    MISSING_PARENT_ERRORS,
+    SESSION_STATES,
     SystemsManagerEndpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -36,12 +41,37 @@ TRANSPORT_RETRY = BoundedRetry(
     raise_on_status=False,
 )
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# Inventory type names and OpsItem data keys are dynamic, so retain them in one JSON column.
+_JSON_COLUMNS = frozenset({"Data", "OperationalData"})
+# DescribeInstancePatchStates accepts at most this many nodes in one request.
+_PATCH_STATE_BATCH_SIZE = 50
+
+_PLACEHOLDER_INSTANCE_ID = "i-00000000000000000"
+_PLACEHOLDER_UUID = "00000000-0000-0000-0000-000000000000"
+# Well-formed identifiers that exist nowhere, so a probe reaches the IAM check and then fails as not found.
+PLACEHOLDER_PARENTS: dict[str, dict[str, Any]] = {
+    "resource_compliance_summaries": {
+        "ResourceId": _PLACEHOLDER_INSTANCE_ID,
+        "ResourceType": "ManagedInstance",
+        "ComplianceType": "Patch",
+    },
+    "inventory": {"Id": _PLACEHOLDER_INSTANCE_ID},
+    "managed_instances": {"InstanceId": _PLACEHOLDER_INSTANCE_ID},
+    "associations": {"AssociationId": _PLACEHOLDER_UUID},
+    "association_executions": {"AssociationId": _PLACEHOLDER_UUID, "ExecutionId": _PLACEHOLDER_UUID},
+}
 
 
 @frozen
 class SystemsManagerResumeConfig:
     next_token: str | None = None
     completed: bool = False
+    # (page token, child key) of the parent row being expanded at each fan-out level, outermost first.
+    parents: tuple[tuple[str | None, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        # Saved state comes back from JSON with lists in place of tuples.
+        object.__setattr__(self, "parents", tuple((token, key) for token, key in self.parents))
 
 
 class SystemsManagerError(Exception):
@@ -131,12 +161,74 @@ def request_payload(endpoint: SystemsManagerEndpoint, *, probe: bool = False) ->
     return payload
 
 
+def root_payloads(endpoint: SystemsManagerEndpoint, *, probe: bool = False) -> list[dict[str, Any]]:
+    payload = request_payload(endpoint, probe=probe)
+    if endpoint.operation == "DescribeSessions":
+        return [{**payload, "State": state} for state in SESSION_STATES]
+    return [payload]
+
+
+def endpoint_chain(endpoint: SystemsManagerEndpoint) -> list[SystemsManagerEndpoint]:
+    chain = [endpoint]
+    while chain[0].parent is not None:
+        chain.insert(0, ENDPOINTS[chain[0].parent])
+    return chain
+
+
+def _instance_status(item: dict[str, Any]) -> str | None:
+    data = item.get("Data")
+    info = data.get("AWS:InstanceInformation") if isinstance(data, dict) else None
+    content = info.get("Content") if isinstance(info, dict) else None
+    if isinstance(content, list) and content and isinstance(content[0], dict):
+        return content[0].get("InstanceStatus")
+    return None
+
+
+def child_payloads(
+    endpoint: SystemsManagerEndpoint, parent: dict[str, Any], inventory_types: Sequence[str]
+) -> list[dict[str, Any]]:
+    if endpoint.operation == "ListComplianceItems":
+        return [
+            {
+                "ResourceIds": [parent["ResourceId"]],
+                "ResourceTypes": [parent["ResourceType"]],
+                "Filters": [{"Key": "ComplianceType", "Values": [parent["ComplianceType"]], "Type": "EQUAL"}],
+            }
+        ]
+    if endpoint.operation == "ListInventoryEntries":
+        # ListInventoryEntries rejects terminated nodes, which GetInventory still lists.
+        if _instance_status(parent) == "Terminated":
+            return []
+        return [{"InstanceId": parent["Id"], "TypeName": type_name} for type_name in inventory_types]
+    if endpoint.operation == "DescribeAssociationExecutions":
+        return [{"AssociationId": parent["AssociationId"]}]
+    if endpoint.operation == "DescribeAssociationExecutionTargets":
+        return [{"AssociationId": parent["AssociationId"], "ExecutionId": parent["ExecutionId"]}]
+    if endpoint.operation == "DescribeInstancePatchStates":
+        return [{"InstanceIds": [parent["InstanceId"]]}]
+    if endpoint.operation == "DescribeInstancePatches":
+        return [{"InstanceId": parent["InstanceId"]}]
+    raise ValueError(f"AWS Systems Manager table has no parent mapping: {endpoint.operation}")
+
+
+def page_child_payloads(
+    endpoint: SystemsManagerEndpoint, parents: Sequence[dict[str, Any]], inventory_types: Sequence[str]
+) -> list[dict[str, Any]]:
+    payloads = [payload for parent in parents for payload in child_payloads(endpoint, parent, inventory_types)]
+    if endpoint.operation != "DescribeInstancePatchStates":
+        return payloads
+    instance_ids = [instance_id for payload in payloads for instance_id in payload["InstanceIds"]]
+    return [
+        {"InstanceIds": instance_ids[start : start + _PATCH_STATE_BATCH_SIZE]}
+        for start in range(0, len(instance_ids), _PATCH_STATE_BATCH_SIZE)
+    ]
+
+
 def _flatten(obj: dict[str, Any], prefix: str = "") -> dict[str, Any]:
     row: dict[str, Any] = {}
     for key, value in obj.items():
         column = prefix + _CAMEL_BOUNDARY.sub("_", key).lower()
-        if key == "Data" and not prefix:
-            # Inventory type names and content keys are dynamic, so retain them in one JSON column.
+        if key in _JSON_COLUMNS and not prefix:
             row[column] = json.dumps(value)
         elif isinstance(value, dict):
             row.update(_flatten(value, column + "_"))
@@ -155,6 +247,172 @@ def normalize_row(item: dict[str, Any], endpoint: SystemsManagerEndpoint, region
     return row
 
 
+def page_rows(
+    endpoint: SystemsManagerEndpoint, body: dict[str, Any], payload: dict[str, Any], region: str
+) -> list[dict[str, Any]]:
+    items = body.get(endpoint.result_key) or []
+    if endpoint.operation == "DescribeInstancePatches":
+        # Patches do not name the node they belong to.
+        return [{**normalize_row(item, endpoint, region), "instance_id": payload["InstanceId"]} for item in items]
+    if endpoint.operation != "ListInventoryEntries":
+        return [normalize_row(item, endpoint, region) for item in items]
+    capture_time = body.get("CaptureTime")
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        # Entry keys depend on the inventory type, and entries carry no identifier of their own.
+        entry = json.dumps(item, sort_keys=True)
+        rows.append(
+            {
+                "region": region,
+                "instance_id": payload["InstanceId"],
+                "type_name": payload["TypeName"],
+                "schema_version": body.get("SchemaVersion"),
+                "capture_time": dt.datetime.fromisoformat(capture_time) if isinstance(capture_time, str) else None,
+                "entry_id": hashlib.sha256(entry.encode()).hexdigest(),
+                "entry": entry,
+            }
+        )
+    return rows
+
+
+def _next_token(body: dict[str, Any], token: str | None) -> str | None:
+    next_token = body.get("NextToken") or None
+    if next_token is not None and (not isinstance(next_token, str) or next_token == token):
+        raise ValueError("AWS Systems Manager returned an invalid or repeated page token.")
+    return next_token
+
+
+class SystemsManagerWalk:
+    """Walks an endpoint and its fan-out parents, yielding each page with the state that resumes after it."""
+
+    def __init__(
+        self,
+        client: SystemsManagerClient,
+        chain: list[SystemsManagerEndpoint],
+        manager: ResumableSourceManager[SystemsManagerResumeConfig],
+    ) -> None:
+        self._client = client
+        self._chain = chain
+        self._manager = manager
+        self._inventory_types: tuple[str, ...] = ()
+
+    def pages(
+        self, state: SystemsManagerResumeConfig | None
+    ) -> Iterator[tuple[list[dict[str, Any]], SystemsManagerResumeConfig]]:
+        if any(endpoint.operation == "ListInventoryEntries" for endpoint in self._chain):
+            self._inventory_types = self._load_inventory_types()
+        payloads = root_payloads(self._chain[0])
+        if len(payloads) == 1:
+            yield from self._walk(0, payloads[0], (), state)
+            return
+        # Each root payload is walked like a parent row, so resume state records which one was in progress.
+        key = state.parents[0][1] if state and state.parents else ""
+        inner = dataclasses.replace(state, parents=state.parents[1:]) if state and state.parents else None
+        roots = {json.dumps(payload, sort_keys=True): payload for payload in payloads}
+        keys = list(roots)
+        start = keys.index(key) if key in roots else 0
+        for root_key in keys[start:]:
+            yield from self._walk(0, roots[root_key], ((None, root_key),), inner if root_key == key else None)
+        yield [], SystemsManagerResumeConfig(completed=True)
+
+    def _load_inventory_types(self) -> tuple[str, ...]:
+        names: set[str] = set()
+        token: str | None = None
+        while True:
+            payload: dict[str, Any] = {"MaxResults": 200}
+            if token:
+                payload["NextToken"] = token
+            body = self._client.request("GetInventorySchema", payload)
+            names.update(
+                schema["TypeName"]
+                for schema in body.get("Schemas") or []
+                if isinstance(schema, dict) and isinstance(schema.get("TypeName"), str)
+            )
+            self._manager.safe_point()
+            token = _next_token(body, token)
+            if token is None:
+                return tuple(sorted(names - EXCLUDED_INVENTORY_TYPES))
+
+    def _fetch(
+        self,
+        endpoint: SystemsManagerEndpoint,
+        payload: dict[str, Any],
+        token: str | None,
+        *,
+        resumed: bool,
+        child: bool,
+    ) -> tuple[dict[str, Any], str | None]:
+        while True:
+            try:
+                return self._client.request(
+                    endpoint.operation, {**payload, "NextToken": token} if token else payload
+                ), token
+            except SystemsManagerError as error:
+                if resumed and token and error.code == "InvalidNextToken":
+                    token, resumed = None, False
+                    continue
+                if child and error.code in MISSING_PARENT_ERRORS:
+                    return {}, token
+                raise
+
+    def _walk(
+        self,
+        level: int,
+        payload: dict[str, Any],
+        prefix: tuple[tuple[str | None, str], ...],
+        state: SystemsManagerResumeConfig | None,
+    ) -> Iterator[tuple[list[dict[str, Any]], SystemsManagerResumeConfig]]:
+        if state is not None and state.completed and not state.parents:
+            return
+        endpoint = self._chain[level]
+        if level == len(self._chain) - 1:
+            token = state.next_token if state else None
+            resumed = token is not None
+            while True:
+                body, token = self._fetch(endpoint, payload, token, resumed=resumed, child=level > 0)
+                resumed = False
+                next_token = _next_token(body, token)
+                rows = page_rows(endpoint, body, payload, self._client.region)
+                yield (
+                    rows,
+                    SystemsManagerResumeConfig(parents=prefix, next_token=next_token, completed=next_token is None),
+                )
+                if next_token is None:
+                    return
+                token = next_token
+
+        token, key = state.parents[0] if state and state.parents else (None, "")
+        inner = dataclasses.replace(state, parents=state.parents[1:]) if state and state.parents else None
+        resumed = token is not None
+        child_endpoint = self._chain[level + 1]
+        while True:
+            body, used = self._fetch(endpoint, payload, token, resumed=resumed, child=level > 0)
+            if used != token:
+                key, inner = "", None
+            token, resumed = used, False
+            next_token = _next_token(body, token)
+            children = {
+                json.dumps(child, sort_keys=True): child
+                for child in page_child_payloads(
+                    child_endpoint, body.get(endpoint.result_key) or [], self._inventory_types
+                )
+            }
+            keys = list(children)
+            start = keys.index(key) if key in children else 0
+            for child_key in keys[start:]:
+                yield from self._walk(
+                    level + 1,
+                    {"MaxResults": child_endpoint.page_size, **children[child_key]},
+                    (*prefix, (token, child_key)),
+                    inner if child_key == key else None,
+                )
+            if next_token is None:
+                yield [], SystemsManagerResumeConfig(parents=prefix, completed=True)
+                return
+            token, key, inner = next_token, "", None
+            yield [], SystemsManagerResumeConfig(parents=(*prefix, (token, "")))
+
+
 def get_rows(
     config: AwsSystemsManagerSourceConfig,
     endpoint: SystemsManagerEndpoint,
@@ -162,38 +420,28 @@ def get_rows(
     manager: ResumableSourceManager[SystemsManagerResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     state = manager.load_state() if manager.can_resume() else None
-    if state and state.completed:
+    if state and state.completed and not state.parents:
         return
-    next_token = state.next_token if state else None
-    resumed = bool(next_token)
     client = SystemsManagerClient(config, api_version)
     try:
-        while True:
-            payload = request_payload(endpoint)
-            if next_token:
-                payload["NextToken"] = next_token
-            try:
-                body = client.request(endpoint.operation, payload)
-            except SystemsManagerError as error:
-                if resumed and error.code == "InvalidNextToken":
-                    next_token = None
-                    resumed = False
-                    continue
-                raise
-            resumed = False
-            rows = [normalize_row(item, endpoint, client.region) for item in body.get(endpoint.result_key, [])]
-            token = body.get("NextToken") or None
-            if token is not None and (not isinstance(token, str) or token == next_token):
-                raise ValueError("AWS Systems Manager returned an invalid or repeated page token.")
-            next_token = token
-            manager.save_state(SystemsManagerResumeConfig(next_token=next_token, completed=next_token is None))
+        for rows, next_state in SystemsManagerWalk(client, endpoint_chain(endpoint), manager).pages(state):
+            manager.save_state(next_state)
             if rows:
                 yield rows
             manager.safe_point()
-            if next_token is None:
-                return
     finally:
         client.close()
+
+
+def probe_payload(child: SystemsManagerEndpoint, parent_body: dict[str, Any]) -> dict[str, Any]:
+    # IAM can scope the child operations to specific resources, so probe a real parent row when one exists.
+    parent_endpoint = ENDPOINTS[child.parent or ""]
+    for item in (parent_body.get(parent_endpoint.result_key) or [])[:1]:
+        payloads = child_payloads(child, item, ("AWS:Application",))
+        if payloads:
+            return {**payloads[0], "MaxResults": child.probe_size}
+    payload = child_payloads(child, PLACEHOLDER_PARENTS[child.parent or ""], ("AWS:Application",))[0]
+    return {**payload, "MaxResults": child.probe_size}
 
 
 def validate_credentials(
@@ -208,13 +456,26 @@ def validate_credentials(
         client = SystemsManagerClient(config, api_version)
     except ValueError as error:
         return False, str(error)
+    chain = endpoint_chain(endpoint)
+    operation = chain[0].operation
     try:
-        client.request(endpoint.operation, request_payload(endpoint, probe=True))
+        body = client.request(operation, root_payloads(chain[0], probe=True)[0])
+        if endpoint.operation == "ListInventoryEntries":
+            operation = "GetInventorySchema"
+            client.request(operation, {"MaxResults": 50})
+        for child in chain[1:]:
+            operation = child.operation
+            try:
+                body = client.request(operation, probe_payload(child, body))
+            except SystemsManagerError as error:
+                if error.code not in MISSING_PARENT_ERRORS:
+                    raise
+                body = {}
     except SystemsManagerError as error:
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:
                 return True, None
-            return False, f"Grant ssm:{endpoint.operation} to read this table."
+            return False, f"Grant ssm:{operation} to read this table."
         return False, ERROR_MESSAGES.get(
             error.code, "AWS Systems Manager could not validate the credentials. Try again."
         )

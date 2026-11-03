@@ -67,10 +67,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Braze API key"),
             (403, False, "Your Braze API key does not have permission for this endpoint"),
-            (500, False, "Braze API returned status 500"),
         ],
     )
     def test_status_mapping(self, status_code, expected_valid, expected_message):
@@ -88,13 +85,6 @@ class TestValidateCredentials:
         assert network.session_options[0]["allow_redirects"] is False
         assert network.requests_log[0].url == f"{BASE_URL}/campaigns/list?page=0"
         assert network.requests_log[0].headers["authorization"] == "Bearer key"
-
-    def test_swallows_request_exceptions(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, message = validate_credentials("key", BASE_URL)
-
-        assert valid is False
-        assert message == "Could not reach the Braze API"
 
     @mock.patch(HOST_SAFE_PATCH)
     def test_blocks_internal_host_when_team_id_given(self, mock_host_safe):

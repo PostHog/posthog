@@ -170,6 +170,7 @@ impl MergeWorkerDeps {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub(crate) async fn handle_merge(
     partition_id: u16,
     handle: &StoreHandle,
@@ -344,6 +345,7 @@ pub(crate) async fn handle_merge(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub(crate) async fn handle_apply(
     partition_id: u16,
     handle: &StoreHandle,
@@ -502,6 +504,7 @@ const REDRIVE_MAX_ATTEMPTS_PER_TICK: usize = 8;
 /// the next few ticks' worth of work staged without copying the whole outbox each tick.
 const SCAN_PENDING_TRANSFERS_LIMIT: usize = REDRIVE_MAX_ATTEMPTS_PER_TICK * 8;
 
+#[hotpath::measure]
 pub(crate) async fn handle_redrive(
     partition_id: u16,
     handle: &StoreHandle,

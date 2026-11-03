@@ -52,7 +52,12 @@ class TestImpactSourceClass:
     @parameterized.expand(
         [
             ("valid", True, True, None),
-            ("invalid", False, False, "Invalid Impact.com Account SID or Auth Token"),
+            (
+                "invalid",
+                False,
+                False,
+                "Your impact.com Account SID or Auth token isn't valid for a brand account. Check both values, or use the impact.com Partner source for a partner account.",
+            ),
         ]
     )
     def test_validate_credentials(self, _name: str, api_result: bool, ok: bool, err: Optional[str]) -> None:

@@ -29,21 +29,27 @@ Source: Veeqo — multichannel ecommerce inventory, order and shipping managemen
 
 ## Endpoints
 
-| Schema             | Path                | Primary key | Partition key | Incremental | Notes                                                           |
-| ------------------ | ------------------- | ----------- | ------------- | ----------- | --------------------------------------------------------------- |
-| `orders`           | `/orders`           | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`.               |
-| `products`         | `/products`         | `id`        | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`; max page 100. |
-| `customers`        | `/customers`        | `id`        | —             | ➖ full     | Only `page`/`page_size`/`query`/`customer_type` documented.     |
-| `purchase_orders`  | `/purchase_orders`  | `id`        | `created_at`  | ➖ full     | `show_complete=true` sent so completed POs are included.        |
-| `suppliers`        | `/suppliers`        | `id`        | —             | ➖ full     |                                                                 |
-| `warehouses`       | `/warehouses`       | `id`        | —             | ➖ full     |                                                                 |
-| `stores`           | `/channels`         | `id`        | —             | ➖ full     | Veeqo calls stores "channels" in the API.                       |
-| `tags`             | `/tags`             | `id`        | —             | ➖ full     | No pagination params documented; fetched as a single page.      |
-| `delivery_methods` | `/delivery_methods` | `id`        | `created_at`  | ➖ full     |                                                                 |
+| Schema                     | Path                                      | Primary key                          | Partition key | Incremental | Notes                                                                          |
+| -------------------------- | ----------------------------------------- | ------------------------------------ | ------------- | ----------- | ------------------------------------------------------------------------------ |
+| `orders`                   | `/orders`                                 | `id`                                 | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`.                              |
+| `products`                 | `/products`                               | `id`                                 | `created_at`  | ✅          | `updated_at_min` / `created_at_min` / `since_id`; max page 100.                |
+| `customers`                | `/customers`                              | `id`                                 | —             | ➖ full     | Only `page`/`page_size`/`query`/`customer_type` documented.                    |
+| `purchase_orders`          | `/purchase_orders`                        | `id`                                 | `created_at`  | ➖ full     | `show_complete=true` sent so completed POs are included.                       |
+| `suppliers`                | `/suppliers`                              | `id`                                 | —             | ➖ full     |                                                                                |
+| `warehouses`               | `/warehouses`                             | `id`                                 | —             | ➖ full     |                                                                                |
+| `stores`                   | `/channels`                               | `id`                                 | —             | ➖ full     | Veeqo calls stores "channels" in the API.                                      |
+| `tags`                     | `/tags`                                   | `id`                                 | —             | ➖ full     | No pagination params documented; fetched as a single page.                     |
+| `delivery_methods`         | `/delivery_methods`                       | `id`                                 | `created_at`  | ➖ full     |                                                                                |
+| `returns`                  | `/orders`                                 | `order_id`, `id`                     | `created_at`  | ➖ full     | Exploded from each order's embedded `returns`.                                 |
+| `stock_entries`            | `/products`                               | `sellable_id`, `warehouse_id`        | —             | ➖ full     | Exploded from each product's `sellables[].stock_entries`.                      |
+| `shipment_tracking_events` | `/shipping/tracking_events/{shipment_id}` | `shipment_id`, `timestamp`, `status` | —             | ➖ full     | Fan-out: one request per `orders[].allocations[].shipment`; 404 skipped.       |
+| `bundle_contents`          | `/kits/{kit_id}`                          | `kit_id`, `id`                       | —             | ➖ full     | Fan-out: one request per product sellable of type `Kit`; rows from `contents`. |
 
 ## Possible future work
 
-- **Nested resources.** Order allocations/shipments, product sellables and per-warehouse stock
-  entries are nested in the orders/products payloads today; dedicated fan-out endpoints
-  (`/sellables/{id}/warehouses/{id}/stock_entry`) exist if flattened tables are ever needed.
+- **Nested resources.** Order allocations/shipments and product sellables are still nested in
+  the orders/products payloads.
+- **Fan-out cost.** `shipment_tracking_events` and `bundle_contents` make one request per
+  shipment or bundle on every sync, at Veeqo's 5 requests/second rate limit. Veeqo has no
+  server-side filter that limits them to changed shipments or bundles.
 - **Webhooks.** Veeqo has no webhook API, so `WebhookSource` is not applicable.

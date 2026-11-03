@@ -67,7 +67,7 @@ class ShutterstockSource(ResumableSource[ShutterstockSourceConfig, ShutterstockR
             name=ExternalDataSourceType.SHUTTERSTOCK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Shutterstock",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stock photos", "stock media"],
             caption="""Pull your Shutterstock media catalog and account data into the PostHog Data warehouse.
 

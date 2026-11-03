@@ -185,6 +185,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact_statuses": "Contact statuses that belong to the lifecycle stage.",
         },
     },
+    "contact_statuses": {
+        "description": "A contact status configured in the portal. Resolves the contact_status_id carried on contacts.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the contact status.",
+            "name": "Name of the contact status.",
+        },
+    },
+    "territories": {
+        "description": "A sales territory configured in the portal. Resolves the territory_id carried on contacts, accounts and deals.",
+        "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",
+        "columns": {
+            "id": "Unique identifier for the territory.",
+            "name": "Name of the territory.",
+        },
+    },
     "lead_sources": {
         "description": "A lead source configured in the portal. Resolves the lead_source_id carried on contacts and deals.",
         "docs_url": "https://developers.freshworks.com/crm/api/#admin_configuration",

@@ -66,6 +66,8 @@ import type {
     CustomerProfileConfigsListParams,
     CustomerTaskActivityPageApi,
     CustomerTaskApi,
+    CustomerTaskBulkUpdateApi,
+    CustomerTaskBulkUpdateResultApi,
     CustomerTaskCreateApi,
     CustomerTaskPageApi,
     CustomerTaskUpdateApi,
@@ -1995,6 +1997,26 @@ export const customerTasksRestoreCreate = async (
     })
 }
 
+export const getCustomerTasksBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/customer_tasks/bulk_update/`
+}
+
+/**
+ * Update selected tasks in one transaction. No tasks change if any task fails validation.
+ */
+export const customerTasksBulkUpdateCreate = async (
+    projectId: string,
+    customerTaskBulkUpdateApi: CustomerTaskBulkUpdateApi,
+    options?: RequestInit
+): Promise<CustomerTaskBulkUpdateResultApi> => {
+    return apiMutator<CustomerTaskBulkUpdateResultApi>(getCustomerTasksBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerTaskBulkUpdateApi),
+    })
+}
+
 export const getEventStreamsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_streams/`
 }
@@ -2712,7 +2734,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (

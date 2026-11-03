@@ -252,6 +252,29 @@ class TestUnversionedEndpoints:
                 ],
                 [{"id": "code1", "promotion_id": "pr1"}, {"id": "code2", "promotion_id": "pr2"}],
             ),
+            (
+                "store_credit_transactions",
+                [
+                    {
+                        "data": [
+                            {
+                                "id": "internal-1",
+                                "customer_id": "cust-1",
+                                "store_credit_transactions": [{"id": "tx1"}, {"id": "tx2"}],
+                            },
+                            {"id": "internal-2", "customer_id": "cust-2", "store_credit_transactions": None},
+                            {"customer_id": "cust-3", "store_credit_transactions": [{"id": "tx3"}]},
+                        ]
+                    }
+                ],
+                None,
+                [("/store_credits", {})],
+                [
+                    {"id": "tx1", "customer_id": "cust-1"},
+                    {"id": "tx2", "customer_id": "cust-1"},
+                    {"id": "tx3", "customer_id": "cust-3"},
+                ],
+            ),
         ],
     )
     def test_pages_without_record_versions(

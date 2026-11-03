@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { loadConfig } from './config.ts'
 import { ORT_THREADS, SCRUB_WORKERS } from './cores.ts'
 import { bindingRatio } from './floors.ts'
-import { ScrubMetrics, trackPool } from './metrics.ts'
+import { ScrubMetrics, recordPlanInfo, trackPool } from './metrics.ts'
 import { startPool } from './pool.ts'
 import { limitsFromEnv } from './scale-plan.ts'
 import { startServer } from './server.ts'
@@ -17,6 +17,7 @@ const SVG_RASTERIZER_PATH = fileURLToPath(new URL('./svg-rasterizer-process.mjs'
 
 const cfg = loadConfig()
 const SCRUB_LIMITS = limitsFromEnv()
+recordPlanInfo(SCRUB_LIMITS)
 // Thread sizing is derived (workers and ORT threads from the cgroup quota) or set outside the process
 // (UV_THREADPOOL_SIZE in the Dockerfile), so log what this process actually resolved: a pool sized
 // wrong shows up as latency rather than as an error, with no other way to tell from a running pod.
@@ -25,6 +26,7 @@ console.log(
     `[image-scrub] concurrency=${cfg.maxConcurrency} workers=${SCRUB_WORKERS} ortThreads=${ORT_THREADS} ` +
         `uvThreadpoolSize=${process.env.UV_THREADPOOL_SIZE ?? '4 (libuv default)'} ` +
         `framePixels=${SCRUB_LIMITS.framePixels} storedPixels=${SCRUB_LIMITS.storedPixels} ` +
+        `storedMaxSide=${SCRUB_LIMITS.storedMaxSide} faceInputSide=${SCRUB_LIMITS.faceInputSide} ` +
         `ratio=${(bindingRatio() * SCRUB_LIMITS.safetyFactor).toFixed(2)}x`
 )
 // The pool is process-wide and every worker's sharp stages queue onto it, so below the worker count

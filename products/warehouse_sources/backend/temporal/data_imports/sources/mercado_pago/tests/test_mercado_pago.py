@@ -10,9 +10,6 @@ from unittest.mock import MagicMock
 import responses
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
-    RESTClientRetryableError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -186,16 +183,38 @@ def test_auth_errors_are_actionable(status: int) -> None:
     assert len(network.requests_log) + len(result.requests) == 2
 
 
-@pytest.mark.parametrize("status", [200, 400, 429, 503])
-def test_credential_validation_uses_one_request(status: int) -> None:
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (200, (True, None)),
+        (400, HTTPError),
+        (
+            429,
+            (
+                False,
+                "Couldn't reach Mercado Pago (Mercado Libre) to check your credentials. Try again in a few minutes.",
+            ),
+        ),
+        (
+            503,
+            (
+                False,
+                "Couldn't reach Mercado Pago (Mercado Libre) to check your credentials. Try again in a few minutes.",
+            ),
+        ),
+    ],
+)
+def test_credential_validation_uses_one_request(
+    status: int, expected: type[Exception] | tuple[bool, str | None]
+) -> None:
     body: dict[str, Any] = {"results": [], "paging": {"total": 0}} if status == 200 else {"error": "test_error"}
     source = MercadoPagoSource()
     config = MercadoPagoSourceConfig(access_token=TOKEN)
     with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
-        if status == 200:
-            assert source.validate_credentials(config, team_id=1) == (True, None)
+        if isinstance(expected, tuple):
+            assert source.validate_credentials(config, team_id=1) == expected
         else:
-            with pytest.raises(RESTClientRetryableError if status >= 429 else HTTPError):
+            with pytest.raises(expected):
                 source.validate_credentials(config, team_id=1)
     assert len(network.requests_log) == 1
     request = network.requests_log[0]

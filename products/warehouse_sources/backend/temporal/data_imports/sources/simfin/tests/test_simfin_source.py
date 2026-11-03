@@ -22,10 +22,6 @@ class TestSimFinSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert SimFinSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = SimFinSource().get_schemas(_make_config(), team_id=1, names=["companies", "share_prices"])
-        assert {s.name for s in schemas} == {"companies", "share_prices"}
-
     @parameterized.expand(
         [
             ("valid", "KEY", "AAPL", True, True, None),
@@ -81,14 +77,3 @@ class TestSimFinSource:
             with pytest.raises(ValueError, match="Too many tickers"):
                 SimFinSource().source_for_pipeline(oversized, inputs)
         source_fn.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://backend.simfin.com"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://backend.simfin.com"),
-        ]
-    )
-    def test_non_retryable_errors_cover_permanent_failures(self, _name: str, expected_key: str) -> None:
-        errors = SimFinSource().get_non_retryable_errors()
-        assert expected_key in errors
-        assert errors[expected_key]

@@ -15,6 +15,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.polar.sett
 POLAR_BASE_URL = "https://api.polar.sh"
 PAGE_SIZE = 100
 
+# Polar selects a dated API version via the `Polar-Version` header and serves its floating
+# "Current" version when the header is absent. The legacy unversioned label ("v1") predates
+# this source declaring a version and keeps sending no header, so already-pinned rows make the
+# exact request they always have. Dated labels send the header so they stay on that contract.
+POLAR_VERSION_2026_10 = "2026-10"
+
+_VERSION_HEADER: dict[str, str] = {
+    POLAR_VERSION_2026_10: POLAR_VERSION_2026_10,
+}
+
 
 @dataclasses.dataclass
 class PolarResumeConfig:
@@ -30,6 +40,17 @@ def _get_polar_session() -> requests.Session:
     # Retry-After), so a dropped connection mid-sync doesn't fail the whole activity.
     # 401/403 aren't in its status_forcelist, so credential errors still surface immediately.
     return make_tracked_session()
+
+
+def _build_headers(api_key: str, api_version: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
+    version = _VERSION_HEADER.get(api_version)
+    if version:
+        headers["Polar-Version"] = version
+    return headers
 
 
 def _build_url(endpoint: str, page: int) -> str:
@@ -52,12 +73,10 @@ def _page_from_url(url: str) -> int:
 def get_rows(
     api_key: str,
     endpoint: str,
+    api_version: str,
     resumable_source_manager: ResumableSourceManager[PolarResumeConfig],
 ):
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
+    headers = _build_headers(api_key, api_version)
 
     url: Optional[str] = _build_url(endpoint, page=1)
 
@@ -102,12 +121,14 @@ def get_rows(
 def polar_source(
     api_key: str,
     endpoint: str,
+    api_version: str,
     resumable_source_manager: ResumableSourceManager[PolarResumeConfig],
 ) -> SourceResponse:
     def items():
         yield from get_rows(
             api_key=api_key,
             endpoint=endpoint,
+            api_version=api_version,
             resumable_source_manager=resumable_source_manager,
         )
 
@@ -119,11 +140,8 @@ def polar_source(
     )
 
 
-def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Accept": "application/json",
-    }
+def validate_credentials(api_key: str, api_version: str, table_name: Optional[str] = None) -> bool:
+    headers = _build_headers(api_key, api_version)
     session = _get_polar_session()
 
     # When called per-schema (the incremental_fields action), a 403 should surface

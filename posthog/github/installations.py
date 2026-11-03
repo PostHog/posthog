@@ -55,12 +55,7 @@ def installation_team_ids(payload: dict) -> list[int]:
 
     # One installation can link to several teams. The order only keeps results stable, so never treat
     # the first team as the owner. See posthog/ingress/github/README.md#picking-the-project.
-    return list(
-        Integration.objects.using(SCOPE_DB_ALIAS)
-        .filter(kind="github", integration_id=external_id)
-        .order_by("team_id")
-        .values_list("team_id", flat=True)
-    )
+    return [integration.team_id for integration in installation_integrations(external_id)]
 
 
 def _resolve_external_team(payload: dict) -> Team | None:

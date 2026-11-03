@@ -71,7 +71,7 @@ class HiBobSource(SimpleSource[HiBobSourceConfig]):
 Create a Service User in Bob under Settings > Integrations > Automation > Service Users, then add it to a permission group with read access to the data categories you want to sync (e.g. People). Calls return 403 until permissions are granted.""",
             iconPath="/static/services/hibob.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hibob",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

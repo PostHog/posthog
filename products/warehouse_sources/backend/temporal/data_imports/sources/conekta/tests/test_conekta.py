@@ -9,6 +9,7 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.conekta import (
@@ -151,3 +152,92 @@ class TestRequests:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["ord_5"]
         assert result.queries == [{"limit": (str(PAGE_SIZE),), "next": ("ord_4",)}]
+
+
+class TestBalance:
+    def test_single_object_becomes_one_row_without_list_params(self) -> None:
+        balance = {
+            "available": [{"amount": 150000, "currency": "MXN"}],
+            "pending": [{"amount": 2500, "currency": "MXN"}],
+            "target_collateral_amount": {},
+        }
+
+        result = _driver().run("balance", [ScriptedResponse(json=balance)])
+
+        assert result.raised is None
+        assert result.rows == [balance]
+        assert result.paths == ["/balance"]
+        assert result.queries == [{}]
+
+
+class TestCustomerFanout:
+    @pytest.mark.parametrize("endpoint", ["subscriptions", "payment_sources"])
+    def test_walks_every_customer_and_keys_rows_by_customer(self, endpoint: str) -> None:
+        script = route(
+            {
+                "/customers": [
+                    _scripted_page([{"id": "cus_1"}], "cus_1"),
+                    _scripted_page([{"id": "cus_2"}, {"id": "cus_3"}], None),
+                ],
+                f"/customers/cus_1/{endpoint}": [
+                    _scripted_page([{"id": "item_1"}], "item_1"),
+                    _scripted_page([{"id": "item_2"}], None),
+                ],
+                # A customer deleted between the listing and its child fetch.
+                f"/customers/cus_2/{endpoint}": [
+                    ScriptedResponse(status=404, json={"type": "resource_not_found_error"})
+                ],
+                f"/customers/cus_3/{endpoint}": [_scripted_page([{"id": "item_1"}], None)],
+            }
+        )
+
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert [(row["customer_id"], row["id"]) for row in result.rows] == [
+            ("cus_1", "item_1"),
+            ("cus_1", "item_2"),
+            ("cus_3", "item_1"),
+        ]
+        child_queries = [
+            query for path, query in zip(result.paths, result.queries) if path == f"/customers/cus_1/{endpoint}"
+        ]
+        assert child_queries == [
+            {"limit": (str(PAGE_SIZE),)},
+            {"limit": (str(PAGE_SIZE),), "next": ("item_1",)},
+        ]
+
+    def test_resume_skips_completed_customers(self) -> None:
+        script = route(
+            {
+                "/customers": [_scripted_page([{"id": "cus_1"}, {"id": "cus_2"}], None)],
+                "/customers/cus_2/subscriptions": [_scripted_page([{"id": "sub_2"}], None)],
+            }
+        )
+
+        result = _driver().run(
+            "subscriptions",
+            script,
+            resume_state=ConektaResumeConfig(
+                fanout_state={"completed": ["/customers/cus_1/subscriptions"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["sub_2"]
+        assert result.paths == ["/customers", "/customers/cus_2/subscriptions"]
+
+    def test_subscription_body_without_data_fails_loud(self) -> None:
+        script = route(
+            {
+                "/customers": [_scripted_page([{"id": "cus_1"}], None)],
+                "/customers/cus_1/subscriptions": [
+                    ScriptedResponse(json={"id": "sub_1", "object": "subscription", "status": "active"})
+                ],
+            }
+        )
+
+        result = _driver().run("subscriptions", script)
+
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []

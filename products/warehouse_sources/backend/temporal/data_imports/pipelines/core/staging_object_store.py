@@ -103,3 +103,15 @@ async def aretry_staged_read(
     and produces no rows, so a retried open can't duplicate anything a prior attempt already sent.
     """
     return await _aretry_staged_operation(operation, verb="open", path=path, logger=logger)
+
+
+async def aretry_staged_delete(
+    operation: Callable[[], Coroutine[Any, Any, None]], *, path: str, logger: FilteringBoundLogger
+) -> None:
+    """Delete one staged file, retrying a transient object-store failure with backoff.
+
+    Pass a zero-arg callable that produces the awaitable, not the awaitable itself, so a retry can
+    reissue the delete. Safe to retry: DeleteObject is idempotent, and a staged file is only ever
+    deleted after it has already been fully consumed.
+    """
+    await _aretry_staged_operation(operation, verb="delete", path=path, logger=logger)

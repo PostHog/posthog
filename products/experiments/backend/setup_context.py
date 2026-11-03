@@ -128,6 +128,11 @@ SDK_PROFILE_WINDOW_DAYS: Final = 7
 SDK_ANY_EVENT_WINDOW_DAYS: Final = 1
 TARGET_WINDOW_DAYS: Final = 14
 SDK_PROFILE_MAX_LIBS: Final = 10
+# The event properties that the SDK profile's queries read. Keep it in step with `_compute_sdk_profile` and
+# `_libs_on_any_event`: `build_project_setup_facts` skips the profile for a reader denied one of them.
+SDK_PROFILE_PROPERTIES: Final[frozenset[str]] = frozenset(
+    {"$feature_flag", "$feature_flag_response", "$lib", "locally_evaluated", "$device_id", "$is_identified"}
+)
 TARGET_SURFACE_MAX_LIBS: Final = 5
 DEFAULT_LIST_LIMIT: Final = 10
 MAX_LIST_LIMIT: Final = 25
@@ -418,6 +423,29 @@ class ExperimentSetupContext:
 
 # A skipped section never runs a provider, so the observer never hears about it.
 SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
+
+
+@frozen
+class ProjectSetupFacts:
+    """The sections of the setup context that describe the project as it is, without a planned experiment."""
+
+    team_defaults: SetupContextSection[TeamDefaults]
+    sdk_profile: SetupContextSection[SdkProfile]
+
+
+def build_project_setup_facts(
+    team: Team, *, can_query_events: bool, denied_event_properties: frozenset[str]
+) -> ProjectSetupFacts:
+    """The team's experiment defaults and its SDK profile. The SDK profile queries events across the project without
+    the reader and is cached for every reader, so it is skipped for a reader who may not query events or is denied a
+    property it reads."""
+    may_read_sdk_profile = can_query_events and not (denied_event_properties & SDK_PROFILE_PROPERTIES)
+    return ProjectSetupFacts(
+        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
+        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team))
+        if may_read_sdk_profile
+        else SetupContextSection(status=SetupContextSectionStatus.SKIPPED),
+    )
 
 
 def build_setup_context(
@@ -1107,7 +1135,10 @@ def _custom_exposure(experiment: Experiment, exposure_criteria: dict[str, Any]) 
         return exposure
     if isinstance(config, ActionsNode):
         return dataclasses.replace(exposure, action_id=int(config.id))
-    return dataclasses.replace(exposure, event=str(config.event) if config and config.event else None)
+    return dataclasses.replace(
+        exposure,
+        event=str(config.event) if isinstance(config, ExperimentEventExposureConfig) and config.event else None,
+    )
 
 
 def _filters_test_accounts(exposure_criteria: dict[str, Any]) -> bool:

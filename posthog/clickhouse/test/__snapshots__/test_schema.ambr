@@ -154,6 +154,28 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_email_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_error_tracking_fingerprint_issue_state]
   '''
   
@@ -1543,6 +1565,74 @@
   
   '''
 # ---
+# name: test_create_table_query[email_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'email_status_data')
+  
+  '''
+# ---
+# name: test_create_table_query[email_status_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_data
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(created_at)
+  ORDER BY (team_id, message_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[email_status_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS email_status_mv
+  TO email_status_data
+  AS SELECT
+      team_id,
+      message_id,
+      status,
+      version,
+      created_at,
+      status_at,
+      reason,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_email_status
+  
+  '''
+# ---
 # name: test_create_table_query[error_tracking_fingerprint_issue_state]
   '''
   
@@ -2577,6 +2667,28 @@
       timestamp DateTime64(6, 'UTC')
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'distinct_id_usage_events_json_test', kafka_group_name = 'clickhouse_distinct_id_usage', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_email_status]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
   
   '''
 # ---
@@ -3921,6 +4033,7 @@
       `_record_count` UInt64,
       `pattern` String,
       `pattern_version` UInt8,
+      `internal_source` LowCardinality(String) DEFAULT '',
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -4031,6 +4144,7 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
@@ -4043,6 +4157,7 @@
       severity_text,
       pattern_version,
       pattern,
+      internal_source,
       maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
@@ -4068,11 +4183,12 @@
           lower(severity_text) AS severity_text,
           pattern_version,
           pattern,
+          internal_source,
           toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
       FROM posthog_test.logs34
       WHERE pattern_version != 0
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source
   
   '''
 # ---
@@ -4141,6 +4257,7 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
@@ -4151,6 +4268,7 @@
       namespace,
       environment,
       severity_text,
+      internal_source,
       maxSimpleState(retention_days) AS retention_days,
       sumSimpleState(1) AS log_count
   FROM
@@ -4174,10 +4292,11 @@
               )
           ) AS environment,
           lower(severity_text) AS severity_text,
+          internal_source,
           toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
       FROM posthog_test.logs34
   )
-  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
+  GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source
   
   '''
 # ---
@@ -4261,12 +4380,13 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
@@ -4291,12 +4411,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
@@ -5185,7 +5307,16 @@
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
       INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+      PROJECTION service_freshness_by_hour
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              service_name,
+              max(arrayMax(timestamp_arr))
+          GROUP BY team_id, time_bucket, service_name
+      )
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
@@ -5193,7 +5324,8 @@
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,
-      ttl_only_drop_parts = 1
+      ttl_only_drop_parts = 1,
+      deduplicate_merge_projection_mode = 'rebuild'
   
   '''
 # ---
@@ -5255,54 +5387,6 @@
 # ---
 # name: test_create_table_query[metrics_distributed]
   "CREATE TABLE IF NOT EXISTS posthog_test.metrics_distributed AS posthog_test.metrics2 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics2')"
-# ---
-# name: test_create_table_query[ops_query_log_archive_mv]
-  '''
-  CREATE MATERIALIZED VIEW IF NOT EXISTS ops_query_log_archive_mv
-  TO writable_query_log_archive
-  AS 
-  SELECT
-      hostname,
-      user,
-      query_id,
-      initial_query_id,
-      is_initial_query,
-      type,
-  
-      event_date,
-      event_time,
-      event_time_microseconds,
-      query_start_time,
-      query_start_time_microseconds,
-      query_duration_ms,
-  
-      read_rows,
-      read_bytes,
-      written_rows,
-      written_bytes,
-      result_rows,
-      result_bytes,
-      memory_usage,
-      peak_threads_usage,
-  
-      current_database,
-      query,
-      formatted_query,
-      normalized_query_hash,
-      query_kind,
-  
-      exception_code,
-      exception,
-      stack_trace,
-  
-      JSONExtractInt(log_comment, 'team_id') as team_id,
-      if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
-      ProfileEvents
-  FROM system.query_log
-  WHERE
-      type != 'QueryStart'
-  
-  '''
 # ---
 # name: test_create_table_query[ops_query_log_archive_v3_mv]
   '''
@@ -6003,6 +6087,7 @@
       labels Map(String, String),
       condition_snapshot String,
       source_config_snapshot String,
+      source_detail String,
       query_duration_ms Nullable(UInt32),
       error_message String,
       consecutive_failures UInt32,
@@ -6338,234 +6423,6 @@
 # name: test_create_table_query[query_log_archive]
   '''
   CREATE TABLE IF NOT EXISTS query_log_archive (
-      initial_query_start_time DateTime64(6, 'UTC'),
-      team_id Int64,
-      initial_query_id String,
-      is_initial_query SimpleAggregateFunction(max, UInt8),
-      hostname SimpleAggregateFunction(max, LowCardinality(String)),
-      user SimpleAggregateFunction(max, LowCardinality(String)),
-      type SimpleAggregateFunction(max, Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4)),
-      event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-      query_duration_ms SimpleAggregateFunction(max, UInt64),
-      read_rows SimpleAggregateFunction(sum, UInt64),
-      read_bytes SimpleAggregateFunction(sum, UInt64),
-      written_rows SimpleAggregateFunction(sum, UInt64),
-      written_bytes SimpleAggregateFunction(sum, UInt64),
-      result_rows SimpleAggregateFunction(sum, UInt64),
-      result_bytes SimpleAggregateFunction(sum, UInt64),
-      memory_usage SimpleAggregateFunction(max, UInt64),
-      memory_usage_sum SimpleAggregateFunction(sum, UInt64),
-      peak_threads_usage SimpleAggregateFunction(sum, UInt64),
-      execution_count SimpleAggregateFunction(sum, UInt64),
-      current_database SimpleAggregateFunction(max, LowCardinality(String)),
-      query SimpleAggregateFunction(max, String),
-      normalized_query_hash SimpleAggregateFunction(max, UInt64),
-      query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)),
-      tables SimpleAggregateFunction(max, Array(String)),
-      exception_code SimpleAggregateFunction(max, Int32),
-      exception SimpleAggregateFunction(max, String),
-      stack_trace SimpleAggregateFunction(max, String),
-      ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
-      ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
-      lc_org_id SimpleAggregateFunction(max, String),
-      lc_user_id SimpleAggregateFunction(max, Int64),
-      lc_session_id SimpleAggregateFunction(max, String),
-      lc_is_impersonated SimpleAggregateFunction(max, Bool),
-      lc_workflow SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_kind SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_id SimpleAggregateFunction(max, String),
-      lc_route_id SimpleAggregateFunction(max, String),
-      lc_access_method SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_api_key_label SimpleAggregateFunction(max, String),
-      lc_api_key_mask SimpleAggregateFunction(max, String),
-      lc_query_type SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_product SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_chargeable SimpleAggregateFunction(max, Bool),
-      lc_name SimpleAggregateFunction(max, String),
-      lc_request_name SimpleAggregateFunction(max, String),
-      lc_client_query_id SimpleAggregateFunction(max, String),
-      lc_dashboard_id SimpleAggregateFunction(max, Int64),
-      lc_insight_id SimpleAggregateFunction(max, Int64),
-      lc_cohort_id SimpleAggregateFunction(max, Int64),
-      lc_batch_export_id SimpleAggregateFunction(max, String),
-      lc_experiment_id SimpleAggregateFunction(max, Int64),
-      lc_experiment_feature_flag_key SimpleAggregateFunction(max, String),
-      lc_alert_config_id SimpleAggregateFunction(max, String),
-      lc_feature SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_table_id SimpleAggregateFunction(max, String),
-      lc_warehouse_query SimpleAggregateFunction(max, Bool),
-      lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_service_name SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_workload SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_query__query SimpleAggregateFunction(max, String),
-      lc_query SimpleAggregateFunction(max, String),
-      lc_modifiers SimpleAggregateFunction(max, String),
-      lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_temporal__workflow_id SimpleAggregateFunction(max, String),
-      lc_temporal__workflow_run_id SimpleAggregateFunction(max, String),
-      lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_temporal__activity_id SimpleAggregateFunction(max, String),
-      lc_temporal__attempt SimpleAggregateFunction(max, Int64),
-      lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_dagster__run_id SimpleAggregateFunction(max, String),
-      lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_name SimpleAggregateFunction(max, String),
-      lc_experiment_metric_name SimpleAggregateFunction(max, String),
-      lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_precompute_table SimpleAggregateFunction(max, String),
-      lc_experiment_query_group_id SimpleAggregateFunction(max, String),
-      lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)),
-      lc_experiment_scan_date_from SimpleAggregateFunction(max, String),
-      lc_experiment_scan_date_to SimpleAggregateFunction(max, String),
-      lc_precompute_window_start SimpleAggregateFunction(max, String),
-      lc_precompute_window_end SimpleAggregateFunction(max, String),
-      lc_plan_fingerprint SimpleAggregateFunction(max, String),
-      lc_estimated_rows SimpleAggregateFunction(max, Int64),
-      lc_estimated_bytes SimpleAggregateFunction(max, Int64),
-      query_id String,
-      event_time DateTime('UTC'),
-      event_date Date,
-      query_start_time DateTime('UTC'),
-      query_start_time_microseconds DateTime64(6, 'UTC'),
-      query_kind LowCardinality(String),
-      formatted_query String,
-      query_shape String,
-      hogql_shape String,
-      exception_name String,
-      ProfileEvents Map(String, UInt64)
-  ) ENGINE = Distributed('ops', 'posthog_test', 'sharded_query_log_archive_v3')
-  '''
-# ---
-# name: test_create_table_query[query_log_archive_buffer]
-  '''
-  CREATE TABLE IF NOT EXISTS query_log_archive_buffer (
-  
-      hostname                              LowCardinality(String),
-      user                                  LowCardinality(String),
-      query_id                              String,
-      initial_query_id                      String,
-      is_initial_query                      UInt8,
-      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
-  
-      event_date                            Date,
-      event_time                            DateTime,
-      event_time_microseconds               DateTime64(6),
-      query_start_time                      DateTime,
-      query_start_time_microseconds         DateTime64(6),
-      query_duration_ms                     UInt64,
-  
-      read_rows                             UInt64,
-      read_bytes                            UInt64,
-      written_rows                          UInt64,
-      written_bytes                         UInt64,
-      result_rows                           UInt64,
-      result_bytes                          UInt64,
-      memory_usage                          UInt64,
-      peak_threads_usage                    UInt64,
-  
-      current_database                      LowCardinality(String),
-      query                                 String,
-      formatted_query                       String,
-      normalized_query_hash                 UInt64,
-      query_kind                            LowCardinality(String),
-  
-      exception_code                        Int32,
-      exception                             String,
-      stack_trace                           String,
-  
-      team_id                               Int64,
-      log_comment                           JSON(
-          max_dynamic_paths = 256,
-          team_id Int64,
-          user_id Int64,
-          org_id String,
-          session_id String,
-          access_method LowCardinality(String),
-          api_key_label String,
-          api_key_mask String,
-          workflow LowCardinality(String),
-          kind LowCardinality(String),
-          id String,
-          route_id String,
-          query_type LowCardinality(String),
-          product LowCardinality(String),
-          chargeable Bool,
-          name String,
-          request_name String,
-          client_query_id String,
-          is_impersonated Bool,
-          dashboard_id Int64,
-          insight_id Int64,
-          cohort_id Int64,
-          batch_export_id String,
-          experiment_id Int64,
-          experiment_feature_flag_key String,
-          alert_config_id String,
-          feature LowCardinality(String),
-          table_id String,
-          warehouse_query Bool,
-          person_on_events_mode LowCardinality(String),
-          service_name String,
-          workload LowCardinality(String),
-          `temporal.workflow_namespace` String,
-          `temporal.workflow_type` String,
-          `temporal.workflow_id` String,
-          `temporal.workflow_run_id` String,
-          `temporal.activity_type` String,
-          `temporal.activity_id` String,
-          `temporal.attempt` Int64,
-          `dagster.job_name` String,
-          `dagster.run_id` String,
-          `dagster.tags.owner` String,
-          SKIP user_email,
-          SKIP query_settings,
-          SKIP timings,
-          SKIP `filter`,
-          SKIP hogql_features,
-          SKIP http_referer,
-          SKIP http_user_agent,
-          SKIP http_request_id,
-          SKIP cache_key
-      ),
-      ProfileEvents                         Map(String, UInt64)
-  ) ENGINE = Buffer('posthog_test', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000) 
-  '''
-# ---
-# name: test_create_table_query[query_log_archive_v3]
-  '''
-  CREATE TABLE IF NOT EXISTS query_log_archive_v3 (
       initial_query_start_time DateTime64(6, 'UTC'),
       team_id Int64,
       initial_query_id String,
@@ -7097,8 +6954,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -7106,12 +6963,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -7120,8 +6978,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -7160,7 +7018,7 @@
               `$geoip_country_code` Nullable(String),
               `$geoip_subdivision_1_code` Nullable(String),
               `$geoip_subdivision_1_name` Nullable(String),
-              `$geoip_subdivision_city_name` Nullable(String),
+              `$geoip_city_name` Nullable(String),
               `$geoip_time_zone` Nullable(String),
               `$referring_domain` Nullable(String),
               `utm_source` Nullable(String),
@@ -7176,20 +7034,40 @@
               `dclid` Nullable(String),
               `gbraid` Nullable(String),
               `wbraid` Nullable(String),
+              `gad_campaignid` Nullable(String),
+              `srsltid` Nullable(String),
               `msclkid` Nullable(String),
               `twclid` Nullable(String),
               `li_fat_id` Nullable(String),
               `mc_cid` Nullable(String),
               `igshid` Nullable(String),
               `ttclid` Nullable(String),
+              `rdt_cid` Nullable(String),
               `epik` Nullable(String),
               `qclid` Nullable(String),
               `sccid` Nullable(String),
               `_kx` Nullable(String),
-              `irclid` Nullable(String)
+              `irclid` Nullable(String),
+              `irclickid` Nullable(String),
+              `utm_id` Nullable(String),
+              `utm_source_platform` Nullable(String),
+              `utm_creative_format` Nullable(String),
+              `utm_marketing_tactic` Nullable(String),
+              `yclid` Nullable(String),
+              `tblci` Nullable(String),
+              `dicbo` Nullable(String),
+              `ndclid` Nullable(String),
+              `cjevent` Nullable(String),
+              `awc` Nullable(String),
+              `syclid` Nullable(String),
+              `_bhlid` Nullable(String),
+              `rtid` Nullable(String),
+              `oppref` Nullable(String),
+              `bfcid` Nullable(String)
           )') as p,
           JSONExtractString(person_properties, 'email') as _person_email,
           tupleElement(p, '$current_url') as _current_url,
+          if(event = '$pageview' OR event = '$screen', left(coalesce(_current_url, ''), 16384), '') as _attribution_url,
           tupleElement(p, '$external_click_url') as _external_click_url,
           tupleElement(p, '$browser') as _browser,
           tupleElement(p, '$browser_version') as _browser_version,
@@ -7201,7 +7079,7 @@
           tupleElement(p, '$geoip_country_code') as _geoip_country_code,
           tupleElement(p, '$geoip_subdivision_1_code') as _geoip_subdivision_1_code,
           tupleElement(p, '$geoip_subdivision_1_name') as _geoip_subdivision_1_name,
-          tupleElement(p, '$geoip_subdivision_city_name') as _geoip_subdivision_city_name,
+          tupleElement(p, '$geoip_city_name') as _geoip_subdivision_city_name,
           tupleElement(p, '$geoip_time_zone') as _geoip_time_zone,
           tupleElement(p, '$referring_domain') as _referring_domain,
           tupleElement(p, 'utm_source') as _utm_source,
@@ -7212,54 +7090,75 @@
           tupleElement(p, 'gclid') as _gclid,
           tupleElement(p, 'gad_source') as _gad_source,
           tupleElement(p, 'fbclid') as _fbclid,
-          tupleElement(p, 'gclsrc') as gclsrc,
-          tupleElement(p, 'dclid') as dclid,
-          tupleElement(p, 'gbraid') as gbraid,
-          tupleElement(p, 'wbraid') as wbraid,
-          tupleElement(p, 'msclkid') as msclkid,
-          tupleElement(p, 'twclid') as twclid,
-          tupleElement(p, 'li_fat_id') as li_fat_id,
-          tupleElement(p, 'mc_cid') as mc_cid,
-          tupleElement(p, 'igshid') as igshid,
-          tupleElement(p, 'ttclid') as ttclid,
-          tupleElement(p, 'epik') as epik,
-          tupleElement(p, 'qclid') as qclid,
-          tupleElement(p, 'sccid') as sccid,
-          tupleElement(p, '_kx') as _kx,
-          tupleElement(p, 'irclid') as irclid,
-          CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-              'gclsrc', gclsrc,
-              'dclid', dclid,
-              'gbraid', gbraid,
-              'wbraid', wbraid,
-              'msclkid', msclkid,
-              'twclid', twclid,
-              'li_fat_id', li_fat_id,
-              'mc_cid', mc_cid,
-              'igshid', igshid,
-              'ttclid', ttclid,
-              'epik', epik,
-              'qclid', qclid,
-              'sccid', sccid,
-              '_kx', _kx,
-              'irclid', irclid
-          )) AS Map(String, String)) as ad_ids_map,
+          coalesce(nullIf(tupleElement(p, 'gclsrc'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'gclsrc')), 2048)), '')) as gclsrc,
+          coalesce(nullIf(tupleElement(p, 'dclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'dclid')), 2048)), '')) as dclid,
+          coalesce(nullIf(tupleElement(p, 'gbraid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'gbraid')), 2048)), '')) as gbraid,
+          coalesce(nullIf(tupleElement(p, 'wbraid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'wbraid')), 2048)), '')) as wbraid,
+          coalesce(nullIf(tupleElement(p, 'gad_campaignid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'gad_campaignid')), 2048)), '')) as gad_campaignid,
+          coalesce(nullIf(tupleElement(p, 'srsltid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'srsltid')), 2048)), '')) as srsltid,
+          coalesce(nullIf(tupleElement(p, 'msclkid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'msclkid')), 2048)), '')) as msclkid,
+          coalesce(nullIf(tupleElement(p, 'twclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'twclid')), 2048)), '')) as twclid,
+          coalesce(nullIf(tupleElement(p, 'li_fat_id'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'li_fat_id')), 2048)), '')) as li_fat_id,
+          coalesce(nullIf(tupleElement(p, 'mc_cid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'mc_cid')), 2048)), '')) as mc_cid,
+          coalesce(nullIf(tupleElement(p, 'igshid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'igshid')), 2048)), '')) as igshid,
+          coalesce(nullIf(tupleElement(p, 'ttclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'ttclid')), 2048)), '')) as ttclid,
+          coalesce(nullIf(tupleElement(p, 'rdt_cid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'rdt_cid')), 2048)), '')) as rdt_cid,
+          coalesce(nullIf(tupleElement(p, 'epik'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'epik')), 2048)), '')) as epik,
+          coalesce(nullIf(tupleElement(p, 'qclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'qclid')), 2048)), '')) as qclid,
+          coalesce(nullIf(tupleElement(p, 'sccid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'sccid')), 2048)), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'ScCid')), 2048)), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'SsCid')), 2048)), '')) as sccid,
+          coalesce(nullIf(tupleElement(p, '_kx'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, '_kx')), 2048)), '')) as _kx,
+          coalesce(nullIf(tupleElement(p, 'irclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'irclid')), 2048)), '')) as irclid,
+          coalesce(nullIf(tupleElement(p, 'irclickid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'irclickid')), 2048)), '')) as irclickid,
+          coalesce(nullIf(tupleElement(p, 'utm_id'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_id')), 2048)), '')) as utm_id,
+          coalesce(nullIf(tupleElement(p, 'utm_source_platform'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_source_platform')), 2048)), '')) as utm_source_platform,
+          coalesce(nullIf(tupleElement(p, 'utm_creative_format'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_creative_format')), 2048)), '')) as utm_creative_format,
+          coalesce(nullIf(tupleElement(p, 'utm_marketing_tactic'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'utm_marketing_tactic')), 2048)), '')) as utm_marketing_tactic,
+          coalesce(nullIf(tupleElement(p, 'yclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'yclid')), 2048)), '')) as yclid,
+          coalesce(nullIf(tupleElement(p, 'tblci'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'tblci')), 2048)), '')) as tblci,
+          coalesce(nullIf(tupleElement(p, 'dicbo'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'dicbo')), 2048)), '')) as dicbo,
+          coalesce(nullIf(tupleElement(p, 'ndclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'ndclid')), 2048)), '')) as ndclid,
+          coalesce(nullIf(tupleElement(p, 'cjevent'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'cjevent')), 2048)), '')) as cjevent,
+          coalesce(nullIf(tupleElement(p, 'awc'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'awc')), 2048)), '')) as awc,
+          coalesce(nullIf(tupleElement(p, 'syclid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'syclid')), 2048)), '')) as syclid,
+          coalesce(nullIf(tupleElement(p, '_bhlid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, '_bhlid')), 2048)), '')) as _bhlid,
+          coalesce(nullIf(tupleElement(p, 'rtid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'rtid')), 2048)), '')) as rtid,
+          coalesce(nullIf(tupleElement(p, 'oppref'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'oppref')), 2048)), '')) as oppref,
+          coalesce(nullIf(tupleElement(p, 'bfcid'), ''), nullIf(toValidUTF8(left(decodeURLFormComponent(extractURLParameter(_attribution_url, 'bfcid')), 2048)), '')) as bfcid,
           CAST(arrayFilter(x -> x IS NOT NULL, [
-              if(gclsrc IS NOT NULL, 'gclsrc', NULL),
-              if(dclid IS NOT NULL, 'dclid', NULL),
-              if(gbraid IS NOT NULL, 'gbraid', NULL),
-              if(wbraid IS NOT NULL, 'wbraid', NULL),
-              if(msclkid IS NOT NULL, 'msclkid', NULL),
-              if(twclid IS NOT NULL, 'twclid', NULL),
-              if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
-              if(mc_cid IS NOT NULL, 'mc_cid', NULL),
-              if(igshid IS NOT NULL, 'igshid', NULL),
-              if(ttclid IS NOT NULL, 'ttclid', NULL),
-              if(epik IS NOT NULL, 'epik', NULL),
-              if(qclid IS NOT NULL, 'qclid', NULL),
-              if(sccid IS NOT NULL, 'sccid', NULL),
-              if(_kx IS NOT NULL, '_kx', NULL),
-              if(irclid IS NOT NULL, 'irclid', NULL)
+              if(gclsrc IS NOT NULL, concat('gclsrc=', gclsrc), NULL),
+              if(dclid IS NOT NULL, concat('dclid=', dclid), NULL),
+              if(gbraid IS NOT NULL, concat('gbraid=', gbraid), NULL),
+              if(wbraid IS NOT NULL, concat('wbraid=', wbraid), NULL),
+              if(gad_campaignid IS NOT NULL, concat('gad_campaignid=', gad_campaignid), NULL),
+              if(srsltid IS NOT NULL, concat('srsltid=', srsltid), NULL),
+              if(msclkid IS NOT NULL, concat('msclkid=', msclkid), NULL),
+              if(twclid IS NOT NULL, concat('twclid=', twclid), NULL),
+              if(li_fat_id IS NOT NULL, concat('li_fat_id=', li_fat_id), NULL),
+              if(mc_cid IS NOT NULL, concat('mc_cid=', mc_cid), NULL),
+              if(igshid IS NOT NULL, concat('igshid=', igshid), NULL),
+              if(ttclid IS NOT NULL, concat('ttclid=', ttclid), NULL),
+              if(rdt_cid IS NOT NULL, concat('rdt_cid=', rdt_cid), NULL),
+              if(epik IS NOT NULL, concat('epik=', epik), NULL),
+              if(qclid IS NOT NULL, concat('qclid=', qclid), NULL),
+              if(sccid IS NOT NULL, concat('sccid=', sccid), NULL),
+              if(_kx IS NOT NULL, concat('_kx=', _kx), NULL),
+              if(irclid IS NOT NULL, concat('irclid=', irclid), NULL),
+              if(irclickid IS NOT NULL, concat('irclickid=', irclickid), NULL),
+              if(utm_id IS NOT NULL, concat('utm_id=', utm_id), NULL),
+              if(utm_source_platform IS NOT NULL, concat('utm_source_platform=', utm_source_platform), NULL),
+              if(utm_creative_format IS NOT NULL, concat('utm_creative_format=', utm_creative_format), NULL),
+              if(utm_marketing_tactic IS NOT NULL, concat('utm_marketing_tactic=', utm_marketing_tactic), NULL),
+              if(yclid IS NOT NULL, concat('yclid=', yclid), NULL),
+              if(tblci IS NOT NULL, concat('tblci=', tblci), NULL),
+              if(dicbo IS NOT NULL, concat('dicbo=', dicbo), NULL),
+              if(ndclid IS NOT NULL, concat('ndclid=', ndclid), NULL),
+              if(cjevent IS NOT NULL, concat('cjevent=', cjevent), NULL),
+              if(awc IS NOT NULL, concat('awc=', awc), NULL),
+              if(syclid IS NOT NULL, concat('syclid=', syclid), NULL),
+              if(_bhlid IS NOT NULL, concat('_bhlid=', _bhlid), NULL),
+              if(rtid IS NOT NULL, concat('rtid=', rtid), NULL),
+              if(oppref IS NOT NULL, concat('oppref=', oppref), NULL),
+              if(bfcid IS NOT NULL, concat('bfcid=', bfcid), NULL)
           ]) AS Array(String)) as ad_ids_set,
           tupleElement(p, '$host') as _host,
       -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
@@ -7311,21 +7210,21 @@
       initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) as entry_fbclid,
   
       -- has gclid/fbclid for reading fewer bytes when calculating channel type
-      initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
-      initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
+      -- clients send "gclid": "" and that is not a click id, so an empty value must not count as present
+      initializeAggregation('argMinState', nullIf(_gclid, '') IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+      initializeAggregation('argMinState', nullIf(_fbclid, '') IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
   
       -- other ad ids
-      initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
       initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
   
       -- channel type
-      initializeAggregation('argMinState', tuple(_utm_source, _utm_medium, _utm_campaign, _referring_domain, _gclid IS NOT NULL, _fbclid IS NOT NULL, _gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
+      initializeAggregation('argMinState', tuple(_utm_source, _utm_medium, _utm_campaign, _referring_domain, nullIf(_gclid, '') IS NOT NULL, nullIf(_fbclid, '') IS NOT NULL, _gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
   
   
       -- counts
-      initializeAggregation('uniqExactState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-      initializeAggregation('uniqExactState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-      initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
+      initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
+      initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+      initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- perf
       initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
@@ -7333,7 +7232,6 @@
   
       -- flags
       arrayMap((k, v) -> concat(k, '=', v), mapKeys(properties_group_feature_flags), mapValues(properties_group_feature_flags)) as flag_key_values,
-      mapKeys(properties_group_feature_flags) as flag_keys,
   
       -- event names
       [event] as event_names,
@@ -7347,6 +7245,11 @@
       false as has_replay_events
   FROM posthog_test.sharded_events AS source_table
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+  -- Clients can send a UUIDv7 session id with a garbage timestamp (1970, year 6339). Each one puts its session in its
+  -- own monthly partition, and its events stretch the session duration across months. Keep only events within 31 days
+  -- of the session id's timestamp. The bound is symmetric because the client mints the session id with its own clock
+  -- while the server corrects event timestamps, so a client clock that runs days ahead is still a real session.
+  AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) BETWEEN timestamp - INTERVAL 31 DAY AND timestamp + INTERVAL 31 DAY
   AND TRUE
       
   
@@ -7415,16 +7318,15 @@
       initializeAggregation('argMinState', false, max_ts_64) as entry_has_fbclid,
   
       -- other ad ids
-      initializeAggregation('argMinState', CAST(map(), 'Map(String, String)'), max_ts_64) as entry_ad_ids_map,
       initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) as entry_ad_ids_set,
   
       -- channel type
       initializeAggregation('argMinState', tuple(null_s, null_s, null_s, null_s, false, false, null_s), max_ts_64) as entry_channel_type_properties,
   
       -- counts
-      initializeAggregation('uniqExactState', null_uuid) as pageview_uniq,
-      initializeAggregation('uniqExactState', null_uuid) as autocapture_uniq,
-      initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
+      initializeAggregation('uniqState', null_uuid) as pageview_uniq,
+      initializeAggregation('uniqState', null_uuid) as autocapture_uniq,
+      initializeAggregation('uniqState', null_uuid) as screen_uniq,
   
       -- perf
       initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
@@ -7432,7 +7334,6 @@
   
       -- flags
       CAST([], 'Array(String)') as flag_key_values,
-      CAST([], 'Array(String)') as flag_keys,
   
       -- event names
       CAST([], 'Array(String)') as event_names,
@@ -7447,6 +7348,9 @@
       true as has_replay_events
   FROM posthog_test.sharded_session_replay_events AS source_table
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+  -- same session timestamp guard as the events SELECT. accurateCastOrNull because accurateCast throws on a malformed
+  -- session_id, and ClickHouse can evaluate this condition before the uuidv7 check above filters those rows out
+  AND fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) BETWEEN min_first_timestamp - INTERVAL 31 DAY AND min_first_timestamp + INTERVAL 31 DAY
   AND TRUE
       
   
@@ -8437,14 +8341,14 @@
   
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}', _timestamp)
-  -- Monthly, matching the events family. Daily partitions would put ~90 of them
-  -- under a 90-day TTL, and enough parts across them to strain merges. The cost
+  -- Monthly, matching the events family. Daily partitions would put one partition
+  -- under the TTL for each retained day, and enough parts across them to strain merges. The cost
   -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
   -- row expires, so rows survive up to a month past the TTL.
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---
@@ -8719,6 +8623,7 @@
       labels Map(String, String),
       condition_snapshot String,
       source_config_snapshot String,
+      source_detail String,
       query_duration_ms Nullable(UInt32),
       error_message String,
       consecutive_failures UInt32,
@@ -8886,181 +8791,6 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalculated_person_properties', '{replica}', _timestamp)
   ORDER BY (team_id, condition, distinct_id)
   
-  '''
-# ---
-# name: test_create_table_query[sharded_query_log_archive]
-  '''
-  CREATE TABLE IF NOT EXISTS sharded_query_log_archive (
-  
-      hostname                              LowCardinality(String),
-      user                                  LowCardinality(String),
-      query_id                              String,
-      initial_query_id                      String,
-      is_initial_query                      UInt8,
-      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
-  
-      event_date                            Date,
-      event_time                            DateTime,
-      event_time_microseconds               DateTime64(6),
-      query_start_time                      DateTime,
-      query_start_time_microseconds         DateTime64(6),
-      query_duration_ms                     UInt64,
-  
-      read_rows                             UInt64,
-      read_bytes                            UInt64,
-      written_rows                          UInt64,
-      written_bytes                         UInt64,
-      result_rows                           UInt64,
-      result_bytes                          UInt64,
-      memory_usage                          UInt64,
-      peak_threads_usage                    UInt64,
-  
-      current_database                      LowCardinality(String),
-      query                                 String,
-      formatted_query                       String,
-      normalized_query_hash                 UInt64,
-      query_kind                            LowCardinality(String),
-  
-      exception_code                        Int32,
-      exception                             String,
-      stack_trace                           String,
-  
-      team_id                               Int64,
-      log_comment                           JSON(
-          max_dynamic_paths = 256,
-          team_id Int64,
-          user_id Int64,
-          org_id String,
-          session_id String,
-          access_method LowCardinality(String),
-          api_key_label String,
-          api_key_mask String,
-          workflow LowCardinality(String),
-          kind LowCardinality(String),
-          id String,
-          route_id String,
-          query_type LowCardinality(String),
-          product LowCardinality(String),
-          chargeable Bool,
-          name String,
-          request_name String,
-          client_query_id String,
-          is_impersonated Bool,
-          dashboard_id Int64,
-          insight_id Int64,
-          cohort_id Int64,
-          batch_export_id String,
-          experiment_id Int64,
-          experiment_feature_flag_key String,
-          alert_config_id String,
-          feature LowCardinality(String),
-          table_id String,
-          warehouse_query Bool,
-          person_on_events_mode LowCardinality(String),
-          service_name String,
-          workload LowCardinality(String),
-          `temporal.workflow_namespace` String,
-          `temporal.workflow_type` String,
-          `temporal.workflow_id` String,
-          `temporal.workflow_run_id` String,
-          `temporal.activity_type` String,
-          `temporal.activity_id` String,
-          `temporal.attempt` Int64,
-          `dagster.job_name` String,
-          `dagster.run_id` String,
-          `dagster.tags.owner` String,
-          SKIP user_email,
-          SKIP query_settings,
-          SKIP timings,
-          SKIP `filter`,
-          SKIP hogql_features,
-          SKIP http_referer,
-          SKIP http_user_agent,
-          SKIP http_request_id,
-          SKIP cache_key
-      ),
-      ProfileEvents                         Map(String, UInt64),
-  
-      exception_name String ALIAS errorCodeToName(exception_code),
-  
-      ProfileEvents_RealTimeMicroseconds Int64 ALIAS ProfileEvents['RealTimeMicroseconds'],
-      ProfileEvents_OSCPUVirtualTimeMicroseconds Int64 ALIAS ProfileEvents['OSCPUVirtualTimeMicroseconds'],
-      ProfileEvents_S3Clients Int64 ALIAS ProfileEvents['S3Clients'],
-      ProfileEvents_S3DeleteObjects Int64 ALIAS ProfileEvents['S3DeleteObjects'],
-      ProfileEvents_S3CopyObject Int64 ALIAS ProfileEvents['S3CopyObject'],
-      ProfileEvents_S3ListObjects Int64 ALIAS ProfileEvents['S3ListObjects'],
-      ProfileEvents_S3HeadObject Int64 ALIAS ProfileEvents['S3HeadObject'],
-      ProfileEvents_S3GetObjectAttributes Int64 ALIAS ProfileEvents['S3GetObjectAttributes'],
-      ProfileEvents_S3CreateMultipartUpload Int64 ALIAS ProfileEvents['S3CreateMultipartUpload'],
-      ProfileEvents_S3UploadPartCopy Int64 ALIAS ProfileEvents['S3UploadPartCopy'],
-      ProfileEvents_S3UploadPart Int64 ALIAS ProfileEvents['S3UploadPart'],
-      ProfileEvents_S3AbortMultipartUpload Int64 ALIAS ProfileEvents['S3AbortMultipartUpload'],
-      ProfileEvents_S3CompleteMultipartUpload Int64 ALIAS ProfileEvents['S3CompleteMultipartUpload'],
-      ProfileEvents_S3PutObject Int64 ALIAS ProfileEvents['S3PutObject'],
-      ProfileEvents_S3GetObject Int64 ALIAS ProfileEvents['S3GetObject'],
-      ProfileEvents_ReadBufferFromS3Bytes Int64 ALIAS ProfileEvents['ReadBufferFromS3Bytes'],
-      ProfileEvents_WriteBufferFromS3Bytes Int64 ALIAS ProfileEvents['WriteBufferFromS3Bytes'],
-  
-      lc_workflow LowCardinality(String) ALIAS log_comment.workflow,
-      lc_kind LowCardinality(String) ALIAS log_comment.kind,
-      lc_id String ALIAS log_comment.id::String,
-      lc_route_id String ALIAS log_comment.route_id::String,
-      lc_access_method LowCardinality(String) ALIAS log_comment.access_method,
-      lc_api_key_label String ALIAS log_comment.api_key_label::String,
-      lc_api_key_mask String ALIAS log_comment.api_key_mask::String,
-      lc_query_type LowCardinality(String) ALIAS log_comment.query_type,
-      lc_product LowCardinality(String) ALIAS log_comment.product,
-      lc_chargeable Bool ALIAS log_comment.chargeable,
-      lc_name String ALIAS log_comment.name::String,
-      lc_request_name String ALIAS log_comment.request_name::String,
-      lc_client_query_id String ALIAS log_comment.client_query_id::String,
-      lc_org_id String ALIAS log_comment.org_id::String,
-      lc_user_id Int64 ALIAS log_comment.user_id,
-      lc_is_impersonated Bool ALIAS log_comment.is_impersonated,
-      lc_session_id String ALIAS log_comment.session_id::String,
-      lc_dashboard_id Int64 ALIAS log_comment.dashboard_id,
-      lc_insight_id Int64 ALIAS log_comment.insight_id,
-      lc_cohort_id Int64 ALIAS log_comment.cohort_id,
-      lc_batch_export_id String ALIAS log_comment.batch_export_id::String,
-      lc_experiment_id Int64 ALIAS log_comment.experiment_id,
-      lc_experiment_feature_flag_key String ALIAS log_comment.experiment_feature_flag_key::String,
-      lc_alert_config_id String ALIAS log_comment.alert_config_id::String,
-      lc_feature LowCardinality(String) ALIAS log_comment.feature,
-      lc_table_id String ALIAS log_comment.table_id::String,
-      lc_warehouse_query Bool ALIAS log_comment.warehouse_query,
-      lc_person_on_events_mode LowCardinality(String) ALIAS log_comment.person_on_events_mode,
-      lc_service_name String ALIAS log_comment.service_name::String,
-      lc_workload LowCardinality(String) ALIAS log_comment.workload,
-  
-      lc_query__kind LowCardinality(String) ALIAS if(JSONHas(toString(log_comment), 'query', 'source'),
-          JSONExtractString(toString(log_comment), 'query', 'source', 'kind'),
-          JSONExtractString(toString(log_comment), 'query', 'kind')),
-      lc_query__query String ALIAS multiIf(not is_initial_query, '',
-          JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'),
-          JSONExtractString(toString(log_comment), 'query', 'query')),
-      lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
-  
-      lc_temporal__workflow_namespace String ALIAS log_comment.`temporal.workflow_namespace`::String,
-      lc_temporal__workflow_type String ALIAS log_comment.`temporal.workflow_type`::String,
-      lc_temporal__workflow_id String ALIAS log_comment.`temporal.workflow_id`::String,
-      lc_temporal__workflow_run_id String ALIAS log_comment.`temporal.workflow_run_id`::String,
-      lc_temporal__activity_type String ALIAS log_comment.`temporal.activity_type`::String,
-      lc_temporal__activity_id String ALIAS log_comment.`temporal.activity_id`::String,
-      lc_temporal__attempt Int64 ALIAS log_comment.`temporal.attempt`,
-  
-      lc_dagster__job_name String ALIAS log_comment.`dagster.job_name`::String,
-      lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
-      lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
-  
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
-  
-      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
-      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
-      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
-  PARTITION BY toYYYYMM(event_date)
-  ORDER BY (team_id, event_date, event_time, query_id)
-  PRIMARY KEY (team_id, event_date, event_time, query_id) SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'
   '''
 # ---
 # name: test_create_table_query[sharded_query_log_archive_v3]
@@ -9365,8 +9095,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -9374,12 +9104,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -9388,8 +9119,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -9406,8 +9137,7 @@
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_key_values_text flag_key_values TYPE text(tokenizer = splitByString(['='])),
       INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
       INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
@@ -11584,101 +11314,6 @@
   
   '''
 # ---
-# name: test_create_table_query[writable_query_log_archive]
-  '''
-  CREATE TABLE IF NOT EXISTS writable_query_log_archive (
-  
-      hostname                              LowCardinality(String),
-      user                                  LowCardinality(String),
-      query_id                              String,
-      initial_query_id                      String,
-      is_initial_query                      UInt8,
-      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
-  
-      event_date                            Date,
-      event_time                            DateTime,
-      event_time_microseconds               DateTime64(6),
-      query_start_time                      DateTime,
-      query_start_time_microseconds         DateTime64(6),
-      query_duration_ms                     UInt64,
-  
-      read_rows                             UInt64,
-      read_bytes                            UInt64,
-      written_rows                          UInt64,
-      written_bytes                         UInt64,
-      result_rows                           UInt64,
-      result_bytes                          UInt64,
-      memory_usage                          UInt64,
-      peak_threads_usage                    UInt64,
-  
-      current_database                      LowCardinality(String),
-      query                                 String,
-      formatted_query                       String,
-      normalized_query_hash                 UInt64,
-      query_kind                            LowCardinality(String),
-  
-      exception_code                        Int32,
-      exception                             String,
-      stack_trace                           String,
-  
-      team_id                               Int64,
-      log_comment                           JSON(
-          max_dynamic_paths = 256,
-          team_id Int64,
-          user_id Int64,
-          org_id String,
-          session_id String,
-          access_method LowCardinality(String),
-          api_key_label String,
-          api_key_mask String,
-          workflow LowCardinality(String),
-          kind LowCardinality(String),
-          id String,
-          route_id String,
-          query_type LowCardinality(String),
-          product LowCardinality(String),
-          chargeable Bool,
-          name String,
-          request_name String,
-          client_query_id String,
-          is_impersonated Bool,
-          dashboard_id Int64,
-          insight_id Int64,
-          cohort_id Int64,
-          batch_export_id String,
-          experiment_id Int64,
-          experiment_feature_flag_key String,
-          alert_config_id String,
-          feature LowCardinality(String),
-          table_id String,
-          warehouse_query Bool,
-          person_on_events_mode LowCardinality(String),
-          service_name String,
-          workload LowCardinality(String),
-          `temporal.workflow_namespace` String,
-          `temporal.workflow_type` String,
-          `temporal.workflow_id` String,
-          `temporal.workflow_run_id` String,
-          `temporal.activity_type` String,
-          `temporal.activity_id` String,
-          `temporal.attempt` Int64,
-          `dagster.job_name` String,
-          `dagster.run_id` String,
-          `dagster.tags.owner` String,
-          SKIP user_email,
-          SKIP query_settings,
-          SKIP timings,
-          SKIP `filter`,
-          SKIP hogql_features,
-          SKIP http_referer,
-          SKIP http_user_agent,
-          SKIP http_request_id,
-          SKIP cache_key
-      ),
-      ProfileEvents                         Map(String, UInt64)
-  ) ENGINE = Distributed('ops', 'posthog_test', 'query_log_archive_buffer') 
-  '''
-# ---
 # name: test_create_table_query[writable_query_log_archive_v3]
   '''
   CREATE TABLE IF NOT EXISTS writable_query_log_archive_v3 (
@@ -11956,8 +11591,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -11965,12 +11600,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -11979,8 +11615,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -12326,6 +11962,32 @@
       version UInt32 DEFAULT toUnixTimestamp(now())
   ) ENGINE = ReplacingMergeTree(version)
   ORDER BY (team_id, column_index);
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[email_status_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS email_status_data
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
+      reason String
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.email_status_data', '{replica}-{shard}', version)
+  PARTITION BY toYYYYMMDD(created_at)
+  ORDER BY (team_id, message_id)
+  
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -12779,6 +12441,7 @@
       `_record_count` UInt64,
       `pattern` String,
       `pattern_version` UInt8,
+      `internal_source` LowCardinality(String) DEFAULT '',
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -12873,12 +12536,13 @@
       `severity_text` LowCardinality(String),
       `pattern_version` UInt8,
       `pattern` String,
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source)
   PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
@@ -12896,12 +12560,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `internal_source` LowCardinality(String),
       `retention_days` SimpleAggregateFunction(max, UInt16),
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_volume_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
   
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
   
@@ -13431,7 +13097,16 @@
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
       INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+      PROJECTION service_freshness_by_hour
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              service_name,
+              max(arrayMax(timestamp_arr))
+          GROUP BY team_id, time_bucket, service_name
+      )
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
@@ -13439,7 +13114,8 @@
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,
-      ttl_only_drop_parts = 1
+      ttl_only_drop_parts = 1,
+      deduplicate_merge_projection_mode = 'rebuild'
   
   '''
 # ---
@@ -13821,101 +13497,6 @@
   SETTINGS
       index_granularity = 8192
   
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[query_log_archive_buffer]
-  '''
-  CREATE TABLE IF NOT EXISTS query_log_archive_buffer (
-  
-      hostname                              LowCardinality(String),
-      user                                  LowCardinality(String),
-      query_id                              String,
-      initial_query_id                      String,
-      is_initial_query                      UInt8,
-      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
-  
-      event_date                            Date,
-      event_time                            DateTime,
-      event_time_microseconds               DateTime64(6),
-      query_start_time                      DateTime,
-      query_start_time_microseconds         DateTime64(6),
-      query_duration_ms                     UInt64,
-  
-      read_rows                             UInt64,
-      read_bytes                            UInt64,
-      written_rows                          UInt64,
-      written_bytes                         UInt64,
-      result_rows                           UInt64,
-      result_bytes                          UInt64,
-      memory_usage                          UInt64,
-      peak_threads_usage                    UInt64,
-  
-      current_database                      LowCardinality(String),
-      query                                 String,
-      formatted_query                       String,
-      normalized_query_hash                 UInt64,
-      query_kind                            LowCardinality(String),
-  
-      exception_code                        Int32,
-      exception                             String,
-      stack_trace                           String,
-  
-      team_id                               Int64,
-      log_comment                           JSON(
-          max_dynamic_paths = 256,
-          team_id Int64,
-          user_id Int64,
-          org_id String,
-          session_id String,
-          access_method LowCardinality(String),
-          api_key_label String,
-          api_key_mask String,
-          workflow LowCardinality(String),
-          kind LowCardinality(String),
-          id String,
-          route_id String,
-          query_type LowCardinality(String),
-          product LowCardinality(String),
-          chargeable Bool,
-          name String,
-          request_name String,
-          client_query_id String,
-          is_impersonated Bool,
-          dashboard_id Int64,
-          insight_id Int64,
-          cohort_id Int64,
-          batch_export_id String,
-          experiment_id Int64,
-          experiment_feature_flag_key String,
-          alert_config_id String,
-          feature LowCardinality(String),
-          table_id String,
-          warehouse_query Bool,
-          person_on_events_mode LowCardinality(String),
-          service_name String,
-          workload LowCardinality(String),
-          `temporal.workflow_namespace` String,
-          `temporal.workflow_type` String,
-          `temporal.workflow_id` String,
-          `temporal.workflow_run_id` String,
-          `temporal.activity_type` String,
-          `temporal.activity_id` String,
-          `temporal.attempt` Int64,
-          `dagster.job_name` String,
-          `dagster.run_id` String,
-          `dagster.tags.owner` String,
-          SKIP user_email,
-          SKIP query_settings,
-          SKIP timings,
-          SKIP `filter`,
-          SKIP hogql_features,
-          SKIP http_referer,
-          SKIP http_user_agent,
-          SKIP http_request_id,
-          SKIP cache_key
-      ),
-      ProfileEvents                         Map(String, UInt64)
-  ) ENGINE = Buffer('posthog_test', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000) 
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[query_log_archive_v3_buffer]
@@ -14652,14 +14233,14 @@
   
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.flag_evaluations', '{replica}', _timestamp)
-  -- Monthly, matching the events family. Daily partitions would put ~90 of them
-  -- under a 90-day TTL, and enough parts across them to strain merges. The cost
+  -- Monthly, matching the events family. Daily partitions would put one partition
+  -- under the TTL for each retained day, and enough parts across them to strain merges. The cost
   -- is coarser expiry: with ttl_only_drop_parts a part only drops once its newest
   -- row expires, so rows survive up to a month past the TTL.
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))
   
-  SETTINGS ttl_only_drop_parts = 1
+  SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
   
   '''
 # ---
@@ -14934,6 +14515,7 @@
       labels Map(String, String),
       condition_snapshot String,
       source_config_snapshot String,
+      source_detail String,
       query_duration_ms Nullable(UInt32),
       error_message String,
       consecutive_failures UInt32,
@@ -15101,181 +14683,6 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalculated_person_properties', '{replica}', _timestamp)
   ORDER BY (team_id, condition, distinct_id)
   
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[sharded_query_log_archive]
-  '''
-  CREATE TABLE IF NOT EXISTS sharded_query_log_archive (
-  
-      hostname                              LowCardinality(String),
-      user                                  LowCardinality(String),
-      query_id                              String,
-      initial_query_id                      String,
-      is_initial_query                      UInt8,
-      type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
-  
-      event_date                            Date,
-      event_time                            DateTime,
-      event_time_microseconds               DateTime64(6),
-      query_start_time                      DateTime,
-      query_start_time_microseconds         DateTime64(6),
-      query_duration_ms                     UInt64,
-  
-      read_rows                             UInt64,
-      read_bytes                            UInt64,
-      written_rows                          UInt64,
-      written_bytes                         UInt64,
-      result_rows                           UInt64,
-      result_bytes                          UInt64,
-      memory_usage                          UInt64,
-      peak_threads_usage                    UInt64,
-  
-      current_database                      LowCardinality(String),
-      query                                 String,
-      formatted_query                       String,
-      normalized_query_hash                 UInt64,
-      query_kind                            LowCardinality(String),
-  
-      exception_code                        Int32,
-      exception                             String,
-      stack_trace                           String,
-  
-      team_id                               Int64,
-      log_comment                           JSON(
-          max_dynamic_paths = 256,
-          team_id Int64,
-          user_id Int64,
-          org_id String,
-          session_id String,
-          access_method LowCardinality(String),
-          api_key_label String,
-          api_key_mask String,
-          workflow LowCardinality(String),
-          kind LowCardinality(String),
-          id String,
-          route_id String,
-          query_type LowCardinality(String),
-          product LowCardinality(String),
-          chargeable Bool,
-          name String,
-          request_name String,
-          client_query_id String,
-          is_impersonated Bool,
-          dashboard_id Int64,
-          insight_id Int64,
-          cohort_id Int64,
-          batch_export_id String,
-          experiment_id Int64,
-          experiment_feature_flag_key String,
-          alert_config_id String,
-          feature LowCardinality(String),
-          table_id String,
-          warehouse_query Bool,
-          person_on_events_mode LowCardinality(String),
-          service_name String,
-          workload LowCardinality(String),
-          `temporal.workflow_namespace` String,
-          `temporal.workflow_type` String,
-          `temporal.workflow_id` String,
-          `temporal.workflow_run_id` String,
-          `temporal.activity_type` String,
-          `temporal.activity_id` String,
-          `temporal.attempt` Int64,
-          `dagster.job_name` String,
-          `dagster.run_id` String,
-          `dagster.tags.owner` String,
-          SKIP user_email,
-          SKIP query_settings,
-          SKIP timings,
-          SKIP `filter`,
-          SKIP hogql_features,
-          SKIP http_referer,
-          SKIP http_user_agent,
-          SKIP http_request_id,
-          SKIP cache_key
-      ),
-      ProfileEvents                         Map(String, UInt64),
-  
-      exception_name String ALIAS errorCodeToName(exception_code),
-  
-      ProfileEvents_RealTimeMicroseconds Int64 ALIAS ProfileEvents['RealTimeMicroseconds'],
-      ProfileEvents_OSCPUVirtualTimeMicroseconds Int64 ALIAS ProfileEvents['OSCPUVirtualTimeMicroseconds'],
-      ProfileEvents_S3Clients Int64 ALIAS ProfileEvents['S3Clients'],
-      ProfileEvents_S3DeleteObjects Int64 ALIAS ProfileEvents['S3DeleteObjects'],
-      ProfileEvents_S3CopyObject Int64 ALIAS ProfileEvents['S3CopyObject'],
-      ProfileEvents_S3ListObjects Int64 ALIAS ProfileEvents['S3ListObjects'],
-      ProfileEvents_S3HeadObject Int64 ALIAS ProfileEvents['S3HeadObject'],
-      ProfileEvents_S3GetObjectAttributes Int64 ALIAS ProfileEvents['S3GetObjectAttributes'],
-      ProfileEvents_S3CreateMultipartUpload Int64 ALIAS ProfileEvents['S3CreateMultipartUpload'],
-      ProfileEvents_S3UploadPartCopy Int64 ALIAS ProfileEvents['S3UploadPartCopy'],
-      ProfileEvents_S3UploadPart Int64 ALIAS ProfileEvents['S3UploadPart'],
-      ProfileEvents_S3AbortMultipartUpload Int64 ALIAS ProfileEvents['S3AbortMultipartUpload'],
-      ProfileEvents_S3CompleteMultipartUpload Int64 ALIAS ProfileEvents['S3CompleteMultipartUpload'],
-      ProfileEvents_S3PutObject Int64 ALIAS ProfileEvents['S3PutObject'],
-      ProfileEvents_S3GetObject Int64 ALIAS ProfileEvents['S3GetObject'],
-      ProfileEvents_ReadBufferFromS3Bytes Int64 ALIAS ProfileEvents['ReadBufferFromS3Bytes'],
-      ProfileEvents_WriteBufferFromS3Bytes Int64 ALIAS ProfileEvents['WriteBufferFromS3Bytes'],
-  
-      lc_workflow LowCardinality(String) ALIAS log_comment.workflow,
-      lc_kind LowCardinality(String) ALIAS log_comment.kind,
-      lc_id String ALIAS log_comment.id::String,
-      lc_route_id String ALIAS log_comment.route_id::String,
-      lc_access_method LowCardinality(String) ALIAS log_comment.access_method,
-      lc_api_key_label String ALIAS log_comment.api_key_label::String,
-      lc_api_key_mask String ALIAS log_comment.api_key_mask::String,
-      lc_query_type LowCardinality(String) ALIAS log_comment.query_type,
-      lc_product LowCardinality(String) ALIAS log_comment.product,
-      lc_chargeable Bool ALIAS log_comment.chargeable,
-      lc_name String ALIAS log_comment.name::String,
-      lc_request_name String ALIAS log_comment.request_name::String,
-      lc_client_query_id String ALIAS log_comment.client_query_id::String,
-      lc_org_id String ALIAS log_comment.org_id::String,
-      lc_user_id Int64 ALIAS log_comment.user_id,
-      lc_is_impersonated Bool ALIAS log_comment.is_impersonated,
-      lc_session_id String ALIAS log_comment.session_id::String,
-      lc_dashboard_id Int64 ALIAS log_comment.dashboard_id,
-      lc_insight_id Int64 ALIAS log_comment.insight_id,
-      lc_cohort_id Int64 ALIAS log_comment.cohort_id,
-      lc_batch_export_id String ALIAS log_comment.batch_export_id::String,
-      lc_experiment_id Int64 ALIAS log_comment.experiment_id,
-      lc_experiment_feature_flag_key String ALIAS log_comment.experiment_feature_flag_key::String,
-      lc_alert_config_id String ALIAS log_comment.alert_config_id::String,
-      lc_feature LowCardinality(String) ALIAS log_comment.feature,
-      lc_table_id String ALIAS log_comment.table_id::String,
-      lc_warehouse_query Bool ALIAS log_comment.warehouse_query,
-      lc_person_on_events_mode LowCardinality(String) ALIAS log_comment.person_on_events_mode,
-      lc_service_name String ALIAS log_comment.service_name::String,
-      lc_workload LowCardinality(String) ALIAS log_comment.workload,
-  
-      lc_query__kind LowCardinality(String) ALIAS if(JSONHas(toString(log_comment), 'query', 'source'),
-          JSONExtractString(toString(log_comment), 'query', 'source', 'kind'),
-          JSONExtractString(toString(log_comment), 'query', 'kind')),
-      lc_query__query String ALIAS multiIf(not is_initial_query, '',
-          JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'),
-          JSONExtractString(toString(log_comment), 'query', 'query')),
-      lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
-  
-      lc_temporal__workflow_namespace String ALIAS log_comment.`temporal.workflow_namespace`::String,
-      lc_temporal__workflow_type String ALIAS log_comment.`temporal.workflow_type`::String,
-      lc_temporal__workflow_id String ALIAS log_comment.`temporal.workflow_id`::String,
-      lc_temporal__workflow_run_id String ALIAS log_comment.`temporal.workflow_run_id`::String,
-      lc_temporal__activity_type String ALIAS log_comment.`temporal.activity_type`::String,
-      lc_temporal__activity_id String ALIAS log_comment.`temporal.activity_id`::String,
-      lc_temporal__attempt Int64 ALIAS log_comment.`temporal.attempt`,
-  
-      lc_dagster__job_name String ALIAS log_comment.`dagster.job_name`::String,
-      lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
-      lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
-  
-      lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
-  
-      lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
-      lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
-      lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_query_log_archive', '{replica}-{shard}')
-  PARTITION BY toYYYYMM(event_date)
-  ORDER BY (team_id, event_date, event_time, query_id)
-  PRIMARY KEY (team_id, event_date, event_time, query_id) SETTINGS object_shared_data_serialization_version='map_with_buckets',object_serialization_version='v3'
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_query_log_archive_v3]
@@ -15580,8 +14987,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -15589,12 +14996,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -15603,8 +15011,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -15621,8 +15029,7 @@
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_key_values_text flag_key_values TYPE text(tokenizer = splitByString(['='])),
       INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
       INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')

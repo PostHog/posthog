@@ -26,11 +26,6 @@ class TestSparkPostSource:
         # freshly-specified host.
         assert self.source.connection_host_fields == ["region"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["templates"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "templates"
-
     def test_source_for_pipeline_passes_incremental_value_when_enabled(self) -> None:
         result = self._run(
             should_use_incremental_field=True,

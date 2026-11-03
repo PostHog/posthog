@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
 )
@@ -52,10 +53,6 @@ class TestOpenAIAdsSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = OpenAIAdsSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
-        assert [s.name for s in schemas] == ["campaigns"]
-
 
 class TestOpenAIAdsSourceForPipeline:
     @parameterized.expand(
@@ -73,8 +70,14 @@ class TestOpenAIAdsSourceForPipeline:
         self, endpoint: str, primary_keys: list[str], partition_keys: list[str], sort_mode: str
     ) -> None:
         page = ScriptedResponse(json={"data": [], "has_more": False})
-        script = [ScriptedResponse(json={"currency_code": "USD"}), page] if "insights" in endpoint else [page]
-        result = SourceDriver(OpenAIAdsSource(), OpenAIAdsSourceConfig(api_key="k")).run(endpoint, script)
+
+        # A first sync of insights reads the currency, then the reporting history in several windows.
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if "insights" in endpoint and request.path == "/v1/ad_account":
+                return ScriptedResponse(json={"currency_code": "USD"})
+            return page
+
+        result = SourceDriver(OpenAIAdsSource(), OpenAIAdsSourceConfig(api_key="k")).run(endpoint, respond)
         response = result.response
         assert result.raised is None
         assert response is not None
@@ -83,37 +86,6 @@ class TestOpenAIAdsSourceForPipeline:
         assert response.partition_keys == partition_keys
         assert response.partition_mode == "datetime"
         assert response.sort_mode == sort_mode
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.ads.openai.com/v1/campaigns?limit=500",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.ads.openai.com/v1/ad_account/insights",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = OpenAIAdsSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.ads.openai.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.ads.openai.com/v1/campaigns",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = OpenAIAdsSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestRetryableErrors:

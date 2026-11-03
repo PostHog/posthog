@@ -14,7 +14,10 @@ TALLY_BASE_URL = "https://api.tally.so"
 # the API key happened to be created against (the 2025-02-01 release turned /forms from a bare array
 # into a paginated envelope), so every request pins it explicitly.
 TALLY_VERSION_HEADER = "tally-version"
-TALLY_API_VERSION = "2025-02-01"
+TALLY_API_VERSION_2025_02_01 = "2025-02-01"
+# Read endpoints keep their paths, pagination and envelopes. The breaking changes up to this date
+# hit write endpoints and API key validity (a key stops working once its creator leaves the org).
+TALLY_API_VERSION_2026_10_27 = "2026-10-27"
 
 # /forms and /forms/{formId}/submissions both cap `limit` at 500. Tally allows 100 requests per
 # minute and submissions are fetched once per form, so the largest page keeps the fan-out cheap.

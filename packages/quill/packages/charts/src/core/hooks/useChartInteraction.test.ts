@@ -129,7 +129,8 @@ describe('useChartInteraction — tooltip pinning', () => {
     function renderInteraction(
         pinnable = true,
         onPointClick?: (data: unknown) => void,
-        resolveClickToNearestSeries = false
+        resolveClickToNearestSeries = false,
+        onPointContextMenu?: (data: unknown) => void
     ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
@@ -143,6 +144,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 pinnable,
                 resolveClickToNearestSeries,
                 onPointClick: onPointClick as never,
+                onPointContextMenu: onPointContextMenu as never,
                 resolveValue: (s, i) => s.data[i],
             })
         )
@@ -428,6 +430,38 @@ describe('useChartInteraction — tooltip pinning', () => {
             expect(result.current.tooltipCtx?.isPinned).toBe(false)
         }
     )
+
+    it.each<[string, boolean, boolean, string | null]>([
+        ['fires onPointContextMenu for the nearest series', true, false, 'b'],
+        ['fires onPointContextMenu and keeps the pin on a pinned tooltip', true, true, 'b'],
+        ['does nothing without onPointContextMenu', false, false, null],
+    ])('a right click %s', (_, withContextMenu, pinned, expectedKey) => {
+        const onPointClick = jest.fn()
+        const onPointContextMenu = jest.fn()
+        const { result } = renderInteraction(
+            true,
+            onPointClick,
+            false,
+            withContextMenu ? onPointContextMenu : undefined
+        )
+        if (pinned) {
+            hoverAndPin(result)
+        }
+
+        mockWrapperRect(refs)
+        act(() => {
+            result.current.handlers.onContextMenu({
+                target: refs.wrapperRef.current!,
+                currentTarget: refs.wrapperRef.current!,
+                clientX: 200,
+                clientY: 185,
+            } as unknown as React.MouseEvent<HTMLDivElement>)
+        })
+
+        expect(onPointContextMenu.mock.calls.map(([data]) => data.series.key)).toEqual(expectedKey ? [expectedKey] : [])
+        expect(onPointClick).not.toHaveBeenCalled()
+        expect(result.current.tooltipCtx?.isPinned ?? false).toBe(pinned)
+    })
 
     it('rebuilds the pinned tooltip when series data changes underneath the pin', () => {
         const { rerender, result } = renderHook(

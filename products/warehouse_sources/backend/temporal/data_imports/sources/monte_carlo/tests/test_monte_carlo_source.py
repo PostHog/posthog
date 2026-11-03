@@ -15,15 +15,16 @@ class TestMonteCarloSource:
         self.source = MonteCarloSource()
         self.config = MonteCarloSourceConfig(api_key_id="key-id", api_key_secret="key-secret")
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["alerts", "monitors"])
-        assert {s.name for s in schemas} == {"alerts", "monitors"}
-
     @parameterized.expand(
         [
             ("alerts", True),
+            ("dbt_runs", False),
+            ("dbt_test_results", True),
             ("domains", False),
             ("events", True),
+            ("fh_events", True),
+            ("job_executions", True),
+            ("job_schedules", False),
             ("monitors", False),
             ("tables", False),
             ("users", False),

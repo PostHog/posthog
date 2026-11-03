@@ -51,4 +51,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "provider": "Provider of the voice.",
         },
     },
+    "agent_versions": {
+        "description": "Stored versions of every voice and chat agent, with publish state and version lineage.",
+        "docs_url": "https://docs.retellai.com/api-references/list-agent-versions",
+        "columns": {
+            "agent_id": "Identifier of the agent the version belongs to.",
+            "version": "Version number of the agent.",
+            "is_published": "Whether the agent version is published.",
+            "version_title": "Optional title of the agent version.",
+            "version_description": "Optional description of the agent version.",
+            "base_version": "Version that this agent version was based on.",
+            "last_modification_timestamp": "Last modification time in epoch milliseconds.",
+        },
+    },
+    "test_case_definitions": {
+        "description": "Simulation test case definitions for every Retell LLM and conversation flow, with prompts, metrics, and tool mocks.",
+        "docs_url": "https://docs.retellai.com/api-references/list-test-case-definitions",
+        "columns": {
+            "test_case_definition_id": "Unique identifier of the test case definition.",
+            "name": "Name of the test case definition.",
+            "response_engine": "Retell LLM or conversation flow the test case runs against.",
+            "user_prompt": "User prompt to simulate in the test case.",
+            "metrics": "Metric names the test case evaluates.",
+            "dynamic_variables": "Dynamic variables injected into the response engine.",
+            "tool_mocks": "Mock tool calls used during the test.",
+            "llm_model": "LLM model used for the simulation.",
+            "creation_timestamp": "Creation time in epoch milliseconds.",
+            "user_modified_timestamp": "Last modification time in epoch milliseconds.",
+        },
+    },
 }

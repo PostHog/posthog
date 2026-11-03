@@ -1,8 +1,9 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-import requests
+import httpx
 from parameterized import parameterized
 
 from products.mcp_store.backend.oauth import (
@@ -13,6 +14,8 @@ from products.mcp_store.backend.oauth import (
     discover_oauth_metadata,
     register_dcr_client,
 )
+
+pytestmark = pytest.mark.usefixtures("pin_oauth_urls")
 
 
 class TestResolveIssuer(SimpleTestCase):
@@ -49,7 +52,7 @@ class TestResolveIssuer(SimpleTestCase):
         self.assertEqual(result, expected_result)
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_mismatched_issuer_triggers_cross_validation(self, mock_get, _allow):
         cross_validated = {
             "issuer": "https://real-auth.example.com",
@@ -57,7 +60,7 @@ class TestResolveIssuer(SimpleTestCase):
             "token_endpoint": "https://real-auth.example.com/token",
         }
         mock_resp = MagicMock()
-        mock_resp.ok = True
+        mock_resp.is_success = True
         mock_resp.json.return_value = cross_validated
         mock_resp.raise_for_status = MagicMock()
         mock_get.return_value = mock_resp
@@ -74,10 +77,10 @@ class TestResolveIssuer(SimpleTestCase):
         self.assertIn("real-auth.example.com", mock_get.call_args.args[0])
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_cross_validation_mismatch_raises(self, mock_get, _allow):
         mock_resp = MagicMock()
-        mock_resp.ok = True
+        mock_resp.is_success = True
         mock_resp.json.return_value = {
             "issuer": "https://someone-else.com",
             "authorization_endpoint": "https://someone-else.com/authorize",
@@ -95,10 +98,12 @@ class TestResolveIssuer(SimpleTestCase):
             _resolve_issuer(metadata, "https://origin.com")
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_cross_validation_fetch_fails(self, mock_get, _allow):
         mock_resp = MagicMock()
-        mock_resp.raise_for_status.side_effect = requests.HTTPError(response=mock_resp)
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Upstream error", request=httpx.Request("GET", "https://example.com"), response=mock_resp
+        )
         mock_get.return_value = mock_resp
 
         metadata = {
@@ -106,7 +111,7 @@ class TestResolveIssuer(SimpleTestCase):
             "authorization_endpoint": "https://origin.com/authorize",
             "token_endpoint": "https://origin.com/token",
         }
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(httpx.HTTPStatusError):
             _resolve_issuer(metadata, "https://origin.com")
 
 
@@ -119,12 +124,14 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
 
     def _make_response(self, *, ok=True, status_code=200, json_data=None):
         resp = MagicMock()
-        resp.ok = ok
+        resp.is_success = ok
         resp.status_code = status_code
         resp.json.return_value = json_data or {}
         resp.raise_for_status = MagicMock()
         if status_code >= 400:
-            resp.raise_for_status.side_effect = requests.HTTPError(response=resp)
+            resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Upstream error", request=httpx.Request("GET", "https://example.com"), response=resp
+            )
         return resp
 
     def _valid_metadata(self, issuer: str) -> dict:
@@ -135,7 +142,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
         }
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_variant_1_success_makes_no_fallback_calls(self, mock_get, _allow):
         """Regression guard: when variant 1 succeeds, the loop stops — no fallback URLs are tried."""
         mcp_url = "https://mcp.example.com"
@@ -157,7 +164,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
             assert mock_get.call_args_list[index].args[0] == expected_url
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_auth_server_with_path_falls_back_to_oidc_path_insertion(self, mock_get, _allow):
         """Variant 1 404s, variant 2 (OIDC path insertion) succeeds."""
         mcp_url = "https://mcp.example.com"
@@ -181,7 +188,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
             assert mock_get.call_args_list[index].args[0] == expected_url
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_auth_server_with_path_falls_back_to_oidc_path_append(self, mock_get, _allow):
         """Variants 1 and 2 404, variant 3 (OIDC path append) succeeds — the BuildBetter case."""
         mcp_url = "https://mcp.example.com"
@@ -206,7 +213,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
             assert mock_get.call_args_list[index].args[0] == expected_url
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_auth_server_without_path_falls_back_to_oidc(self, mock_get, _allow):
         """Root auth-server URL: oauth-authorization-server 404, openid-configuration 200."""
         mcp_url = "https://mcp.example.com"
@@ -230,7 +237,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
             assert mock_get.call_args_list[index].args[0] == expected_url
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_all_discovery_candidates_fail_raises(self, mock_get, _allow):
         """When every spec-mandated candidate returns 404, discovery raises and the view layer surfaces the 400."""
         mcp_url = "https://mcp.example.com"
@@ -240,11 +247,11 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
 
         mock_get.side_effect = [resource_resp, not_found, not_found, not_found]
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(httpx.HTTPStatusError):
             discover_oauth_metadata(mcp_url)
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_variant_1_malformed_metadata_does_not_fall_back(self, mock_get, _allow):
         """A 200 with malformed metadata is a real misconfiguration — surface it instead of probing fallbacks."""
         mcp_url = "https://mcp.example.com"
@@ -260,7 +267,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
         assert mock_get.call_count == 2
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
-    @patch("products.mcp_store.backend.oauth.requests.get")
+    @patch("products.mcp_store.backend.oauth.httpx.Client.get")
     def test_variant_1_server_error_does_not_fall_back(self, mock_get, _allow):
         """A 500 is a transient failure, not 'endpoint not implemented' — surface it without retrying variants."""
         mcp_url = "https://mcp.example.com"
@@ -270,7 +277,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
 
         mock_get.side_effect = [resource_resp, server_error]
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(httpx.HTTPStatusError):
             discover_oauth_metadata(mcp_url)
 
         assert mock_get.call_count == 2

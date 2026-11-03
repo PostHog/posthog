@@ -5,7 +5,7 @@ import sys
 import uuid
 import logging
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +24,7 @@ class _TranscriptSink:
         self.lock = threading.Lock()
         self.finished = False
         self.ends_with_newline = True
+        self.console_output: Callable[[str], None] | None = None
 
     def write(self, terminal: TextIO, text: str, *, terminal_text: str | None = None) -> int:
         with self.lock:
@@ -35,8 +36,11 @@ class _TranscriptSink:
                 self.ends_with_newline = text.endswith("\n")
         console_text = text if terminal_text is None else terminal_text
         if console_text:
-            terminal.write(console_text)
-            terminal.flush()
+            if self.console_output is not None:
+                self.console_output(console_text)
+            else:
+                terminal.write(console_text)
+                terminal.flush()
         return len(text)
 
     def flush(self, terminal: TextIO) -> None:
@@ -81,8 +85,11 @@ class _TranscriptLogHandler(logging.Handler):
             elif record.levelno >= logging.WARNING and record.name.startswith("products.posthog_ai.eval_harness"):
                 message = str(
                     record.msg.get("event", record.msg) if isinstance(record.msg, dict) else record.getMessage()
-                ).splitlines()
-                terminal_text = f"{record.levelname}: {record.name}: {message[0][:240] if message else ''}\n"
+                )
+                if record.exc_info and (error := record.exc_info[1]) is not None:
+                    message = f"{message}: {type(error).__name__}: {error}"
+                lines = message.splitlines()
+                terminal_text = f"{record.levelname}: {record.name}: {lines[0][:240] if lines else ''}\n"
             self._sink.write(self._terminal, detail, terminal_text=terminal_text)
         except Exception:
             self.handleError(record)
@@ -181,15 +188,19 @@ class RunTranscript:
                     self._sink.stdout = terminal
 
     @contextmanager
-    def capture(self, *, verbose: bool = True) -> Iterator[None]:
+    def capture(self, *, verbose: bool = True, console_output: Callable[[str], None] | None = None) -> Iterator[None]:
         self._stdout._verbose = verbose
         self._stderr._verbose = verbose
-        with ExitStack() as stack:
-            stack.enter_context(self._capture_file_descriptor(self._stdout, 1))
-            stack.enter_context(self._capture_file_descriptor(self._stderr, 2))
-            stack.enter_context(redirect_stdout(self._stdout))
-            stack.enter_context(redirect_stderr(self._stderr))
-            yield
+        self._sink.console_output = console_output
+        try:
+            with ExitStack() as stack:
+                stack.enter_context(self._capture_file_descriptor(self._stdout, 1))
+                stack.enter_context(self._capture_file_descriptor(self._stderr, 2))
+                stack.enter_context(redirect_stdout(self._stdout))
+                stack.enter_context(redirect_stderr(self._stderr))
+                yield
+        finally:
+            self._sink.console_output = None
 
     def finish(self) -> None:
         self._sink.finish()

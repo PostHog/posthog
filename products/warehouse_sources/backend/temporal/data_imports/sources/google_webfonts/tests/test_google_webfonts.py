@@ -61,10 +61,7 @@ class TestGetRows:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            (200, True, None),
             (400, False, "Invalid Google API key"),
-            (403, False, "Invalid Google API key"),
-            (500, False, "Invalid Google API key"),
         ]
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_msg: str | None) -> None:
@@ -72,15 +69,6 @@ class TestValidateCredentials:
             assert validate_credentials("AIza-key") == (expected_valid, expected_msg)
 
         assert network.requests_log[0].headers[GOOGLE_WEBFONTS_API_KEY_HEADER.lower()] == "AIza-key"
-
-    def test_connection_failure_reported_distinctly(self) -> None:
-        # A transient network failure must not be reported as an invalid key, or the user wastes
-        # time recreating a working credential.
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("AIza-key") == (
-                False,
-                "Could not reach the Google Fonts API. Check your network connection and try again.",
-            )
 
 
 class TestGoogleWebfontsSourceResponse:

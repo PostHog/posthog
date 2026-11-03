@@ -43,13 +43,15 @@ class TestGumroadSource:
     def test_get_endpoint_permissions_reports_missing_scope_per_table(self, mock_probe: mock.MagicMock) -> None:
         # A token can hold view_public without view_payouts, and the user needs to see which
         # table that costs them rather than having source creation fail.
-        mock_probe.side_effect = lambda _token, path: path != "/v2/payouts"
+        mock_probe.side_effect = lambda _token, path: path not in ("/v2/payouts", "/v2/earnings")
 
         results = self.source.get_endpoint_permissions(
-            self.config, self.team_id, ["sales", "payouts", "products", "offer_codes"]
+            self.config, self.team_id, ["sales", "payouts", "products", "offer_codes", "earnings"]
         )
 
         assert results["sales"] is None
         assert results["products"] is None
         assert results["offer_codes"] is None
         assert results["payouts"] is not None and "view_payouts" in results["payouts"]
+        # A US-only Tax Center also denies earnings, so the message can't blame the scope alone.
+        assert results["earnings"] is not None and "Tax Center" in results["earnings"]

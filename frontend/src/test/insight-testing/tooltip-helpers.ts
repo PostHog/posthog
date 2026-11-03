@@ -1,11 +1,11 @@
-import { createHogChartTooltip, type HogChartTooltip } from '@posthog/quill-charts/testing'
+import { createChartTooltipAccessor, type ChartTooltipAccessor } from '@posthog/quill-charts/testing'
 
 /** Insight-flavored tooltip accessor. Extends the generic hog-charts tooltip
  *  with helpers for reading a per-series tooltip. Insight charts render hog-charts'
  *  `DefaultTooltip` (`hog-chart-tooltip-*` rows); the legacy `InsightTooltip` table
  *  branch (`<th>` header, `<tr>` rows with `.datum-column` / `.datum-counts-column`)
  *  is retained for any remaining table-based tooltip readers. */
-export interface InsightTooltipAccessor extends HogChartTooltip {
+export interface InsightTooltipAccessor extends ChartTooltipAccessor {
     /** Header text — typically the hovered date (e.g. "Wednesday, 12 Jun (UTC)"). */
     title(): string
     /** Value cell text for the row whose label contains `label`. */
@@ -19,7 +19,7 @@ export function createInsightTooltipAccessor(element: HTMLElement): InsightToolt
     const defaultRows = (): HTMLElement[] =>
         Array.from(element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]'))
 
-    return Object.assign(createHogChartTooltip(element), {
+    return Object.assign(createChartTooltipAccessor(element), {
         title(): string {
             if (isDefaultTooltip()) {
                 return element.querySelector('[data-attr="hog-chart-tooltip-label"]')?.textContent?.trim() ?? ''

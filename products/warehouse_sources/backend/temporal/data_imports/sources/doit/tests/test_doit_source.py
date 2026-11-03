@@ -44,7 +44,34 @@ class TestDoItSource:
             schemas = self.source.get_schemas(CONFIG, team_id=1)
 
         assert [(s.name, s.label, s.schema_metadata) for s in schemas] == [
-            ("cost_by_product", "Cost by product", {"report_id": "r1"})
+            ("cost_by_product", "Cost by product", {"report_id": "r1"}),
+            ("Budgets", None, None),
+            ("Insights", None, None),
+            ("Anomalies", None, None),
+            ("Invoices", None, None),
+            ("Assets", None, None),
+            ("Annotations", None, None),
+            ("SupportTickets", None, None),
+            ("InsightResourceResults", None, None),
+        ]
+
+    def test_get_schemas_lets_a_report_keep_a_name_a_fixed_table_would_take(self):
+        # Both would normalize to the same warehouse table, and the report's table already exists.
+        with patch(
+            f"{_SOURCE_MODULE}.doit_list_reports",
+            return_value=[DoItReport(id="r1", name="invoices", report_name="Invoices")],
+        ):
+            schemas = self.source.get_schemas(CONFIG, team_id=1)
+
+        assert [s.name for s in schemas] == [
+            "invoices",
+            "Budgets",
+            "Insights",
+            "Anomalies",
+            "Assets",
+            "Annotations",
+            "SupportTickets",
+            "InsightResourceResults",
         ]
 
     def test_source_for_pipeline_fetches_the_report_id_from_schema_metadata(self):

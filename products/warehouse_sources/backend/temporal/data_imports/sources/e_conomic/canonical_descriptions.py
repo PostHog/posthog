@@ -347,4 +347,68 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "supplierInvoiceNumber": "Identifier of the supplier invoice, if any.",
         },
     },
+    "vat_types": {
+        "description": "A VAT type, which says whether a VAT account is used for sales, purchases or reverse charge.",
+        "docs_url": "https://restdocs.e-conomic.com/#get-vat-types",
+        "columns": {
+            "vatTypeNumber": "Unique identifier of the VAT type.",
+            "name": "Name of the VAT type.",
+        },
+    },
+    "vat_accounts": {
+        "description": "A VAT code with its rate and the accounts VAT is posted to. Resolves the vatAccount references on entries and other resources.",
+        "docs_url": "https://restdocs.e-conomic.com/#get-vat-accounts",
+        "columns": {
+            "vatCode": "Unique VAT code.",
+            "name": "Name of the VAT account.",
+            "ratePercentage": "VAT rate in percent.",
+            "vatType": "The VAT type of the VAT account.",
+            "account": "The account VAT is posted to.",
+            "contraAccount": "The contra account used for reverse-charge VAT, if any.",
+        },
+    },
+    "payment_types": {
+        "description": "A payment type, which says how a supplier or customer payment is made, for example bank transfer or IBAN.",
+        "docs_url": "https://restdocs.e-conomic.com/#get-payment-types",
+        "columns": {
+            "paymentTypeNumber": "Unique identifier of the payment type.",
+            "name": "Name of the payment type.",
+        },
+    },
+    "journal_vouchers": {
+        "description": "A voucher in a journal (daybook) that has not been booked yet. A voucher groups the entries posted together.",
+        "docs_url": "https://restdocs.e-conomic.com/#get-journals-journalnumber-vouchers",
+        "columns": {
+            "journalNumber": "The journal the voucher is in.",
+            "accountingYear": "The accounting year of the voucher, in the format YYYY or YYYY/YYYY.",
+            "voucherNumber": "Identifier of the voucher within its journal and accounting year.",
+            "entries": "The entries on the voucher, grouped by entry type.",
+            "attachment": "Link to the attachment (for example a scanned receipt) on the voucher.",
+        },
+    },
+    "accounting_year_totals": {
+        "description": "The total posted to each account in an accounting year, in the base currency. Gives the trial balance for the year.",
+        "docs_url": "https://restdocs.e-conomic.com/#get-accounting-years-accountingyear-totals",
+        "columns": {
+            "accountingYear": "The accounting year, in the format YYYY or YYYY/YYYY.",
+            "accountNumber": "The account the total is for.",
+            "account": "The account the total is for.",
+            "totalInBaseCurrency": "Total of the entries on the account in the accounting year, in the base currency.",
+            "fromDate": "First date of the accounting year.",
+            "toDate": "Last date of the accounting year.",
+        },
+    },
+    "accounting_period_totals": {
+        "description": "The total posted to each account in an accounting period (usually a month), in the base currency.",
+        "docs_url": "https://restdocs.e-conomic.com/#get-accounting-years-accountingyear-periods-accountingyearperiod-totals",
+        "columns": {
+            "accountingYear": "The accounting year of the period, in the format YYYY or YYYY/YYYY.",
+            "periodNumber": "Identifier of the accounting period. Period numbers continue across accounting years.",
+            "accountNumber": "The account the total is for.",
+            "account": "The account the total is for.",
+            "totalInBaseCurrency": "Total of the entries on the account in the period, in the base currency.",
+            "fromDate": "First date of the period.",
+            "toDate": "Last date of the period.",
+        },
+    },
 }

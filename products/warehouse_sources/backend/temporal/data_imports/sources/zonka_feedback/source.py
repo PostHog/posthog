@@ -72,7 +72,7 @@ class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedba
             name=ExternalDataSourceType.ZONKAFEEDBACK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Zonka Feedback",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Zonka Feedback auth token to pull your survey and feedback data into the PostHog Data warehouse.
 
 An Admin can generate an auth token under **Company Settings → Developers → API** in Zonka Feedback. Select the data center that matches your account's region (shown in the same settings area).
@@ -139,8 +139,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Zonka Feedback's list endpoints expose no server-side
-        # timestamp filter (INCREMENTAL_FIELDS is empty), so there is no incremental cursor to advance.
+        # Only `distribution_logs` has a server-side date filter; every other endpoint is full refresh.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -178,4 +177,7 @@ An Admin can generate an auth token under **Company Settings → Developers → 
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

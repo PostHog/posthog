@@ -1,10 +1,11 @@
+import json
 import threading
 import dataclasses
 from collections import deque
 from collections.abc import Callable, Generator, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from requests import PreparedRequest, Request, Response, Session
 
@@ -47,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     CURSOR_PARAM,
     CURSOR_PATH,
     DATA_SELECTOR,
+    EPOCH_RFC_3339,
     METRONOME_BASE_URL,
     METRONOME_ENDPOINTS,
     USAGE_HISTORY,
@@ -57,9 +59,6 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 
 # Metronome accepts RFC 3339 timestamps and returns them in this shape.
 RFC_3339_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-
-# Lower bound for a first incremental run — earlier than any Metronome account.
-EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
 
 # `POST /v1/usage` documents `ending_before` as at least one day after `starting_on`.
 MIN_USAGE_WINDOW = timedelta(days=1)
@@ -128,8 +127,10 @@ class MetronomeCursorPaginator(JSONResponseCursorPaginator):
     window only rides the request that has no cursor on it.
     """
 
-    def __init__(self, first_page_only_params: tuple[str, ...] = ()) -> None:
-        super().__init__(cursor_path=CURSOR_PATH, cursor_param=CURSOR_PARAM)
+    def __init__(
+        self, first_page_only_params: tuple[str, ...] = (), param_location: Literal["query", "json"] = "query"
+    ) -> None:
+        super().__init__(cursor_path=CURSOR_PATH, cursor_param=CURSOR_PARAM, param_location=param_location)
         self._first_page_only_params = first_page_only_params
 
     def _drop_first_page_only_params(self, request: Request) -> None:
@@ -158,7 +159,7 @@ def _paginator_for(config: MetronomeEndpointConfig) -> BasePaginator:
     if not config.paginated:
         return SinglePagePaginator()
     first_page_only: tuple[str, ...] = (config.incremental_start_param,) if config.incremental_start_param else ()
-    return MetronomeCursorPaginator(first_page_only_params=first_page_only)
+    return MetronomeCursorPaginator(first_page_only_params=first_page_only, param_location=config.page_param_location)
 
 
 def _format_rfc3339(value: Any) -> str:
@@ -245,6 +246,19 @@ def _resolve_window_start(
         usage_history or USAGE_HISTORY[config.name]
     )
     return _format_rfc3339(_align_to_utc_midnight(start))
+
+
+def _query_window(history: timedelta, db_incremental_field_last_value: Any) -> dict[str, str]:
+    """The `starting_on`/`ending_before` query window of a fan-out child that requires one.
+
+    Both bounds sit on UTC midnight for the same reason as a usage window: a daily breakdown's start
+    is part of its primary key, so asking from mid-day would return a partial day as a second row.
+    """
+    now = datetime.now(UTC)
+    ending_before = _format_rfc3339(_usage_window_end(now))
+    start = parse_datetime_value(db_incremental_field_last_value) or now - history
+    starting_on = _clamp_window_start(_format_rfc3339(_align_to_utc_midnight(start)), ending_before)
+    return {"starting_on": starting_on, "ending_before": ending_before}
 
 
 @frozen
@@ -348,12 +362,23 @@ def _rest_client(api_key: str) -> RESTClient:
     )
 
 
+def _sends_page_size(config: MetronomeEndpointConfig) -> bool:
+    return config.paginated and config.accepts_page_size
+
+
 def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
     params: dict[str, Any] = {}
-    if config.paginated and config.accepts_page_size:
+    if _sends_page_size(config) and config.page_param_location == "query":
         params["limit"] = config.page_size
     params.update(config.extra_params)
     return params
+
+
+def _list_body(config: MetronomeEndpointConfig) -> dict[str, Any]:
+    body = dict(config.json_body)
+    if _sends_page_size(config) and config.page_param_location == "json":
+        body["limit"] = config.page_size
+    return body
 
 
 def _retry_after_seconds(response: Response) -> float | None:
@@ -704,35 +729,68 @@ def get_resource(
     return resource
 
 
+def _pricing_group_key(pricing_group_values: Any) -> str:
+    """A stable string for a rate's pricing group, so the group can be part of the primary key.
+
+    `pricing_group_values` is an object, and a rate with none is a different rate from one scoped
+    to a group, so the absent case gets its own value rather than a null.
+    """
+    return json.dumps(pricing_group_values or {}, sort_keys=True, separators=(",", ":"))
+
+
+def _shape_fanout_row(
+    config: MetronomeEndpointConfig, row: dict[str, Any], parent_values: dict[str, Any]
+) -> dict[str, Any]:
+    for name, value in parent_values.items():
+        if row.get(name) is None:
+            row[name] = value
+    if config.keys_pricing_group:
+        row["pricing_group_key"] = _pricing_group_key(row.get("pricing_group_values"))
+    return row
+
+
+def _parent_pages(client: RESTClient, parent: MetronomeEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    if parent.body_fanout is not None:
+        yield from _body_fanout_pages(client, parent)
+        return
+    yield from client.paginate(
+        parent.path,
+        method=parent.method,
+        params=_list_params(parent),
+        # The POST lists expect a JSON document even when they take no filters.
+        json=_list_body(parent) if parent.method == "post" else None,
+        data_selector=DATA_SELECTOR,
+        data_selector_required=True,
+        paginator=_paginator_for(parent),
+    )
+
+
 def _body_fanout_pages(client: RESTClient, config: MetronomeEndpointConfig) -> Iterator[list[dict[str, Any]]]:
-    """Walk the parent list and call the child once per parent row, binding the id into the body."""
+    """Walk the parent list and call the child once per parent row, binding its ids into the body."""
     fanout = config.body_fanout
     if fanout is None:
         raise ValueError(f"'{config.name}' has no body fan-out configured")
 
     parent = METRONOME_ENDPOINTS[fanout.parent_name]
 
-    for parent_page in client.paginate(
-        parent.path,
-        params=_list_params(parent),
-        data_selector=DATA_SELECTOR,
-        data_selector_required=True,
-        paginator=_paginator_for(parent),
-    ):
+    for parent_page in _parent_pages(client, parent):
         for parent_row in parent_page:
-            parent_id = parent_row.get(fanout.resolve_field)
-            if not parent_id:
+            if fanout.skip_parents_with and parent_row.get(fanout.skip_parents_with):
+                continue
+            parent_values = {param: parent_row.get(field) for param, field in fanout.body_params.items()}
+            if not all(parent_values.values()):
                 continue
             for page in client.paginate(
                 config.path,
                 method=config.method,
-                json={**config.json_body, fanout.body_param: parent_id},
+                params=_list_params(config),
+                json={**_list_body(config), **parent_values},
                 data_selector=DATA_SELECTOR,
                 data_selector_required=True,
                 paginator=_paginator_for(config),
             ):
                 if page:
-                    yield page
+                    yield [_shape_fanout_row(config, row, parent_values) for row in page]
 
 
 def _make_source_response(
@@ -779,6 +837,9 @@ def metronome_source(
 
     if endpoint_config.fanout:
         parent_config = METRONOME_ENDPOINTS[endpoint_config.fanout.parent_name]
+        child_params = dict(endpoint_config.extra_params)
+        if endpoint_config.query_window_history is not None:
+            child_params.update(_query_window(endpoint_config.query_window_history, db_incremental_field_last_value))
         # Dependent resources don't support resume in the rest_source framework, so the manager is
         # intentionally not threaded into this path.
         dependent_resource = cast(
@@ -786,7 +847,7 @@ def metronome_source(
             build_dependent_resource(
                 endpoint_configs=METRONOME_ENDPOINTS,
                 child_endpoint=endpoint,
-                fanout=dataclasses.replace(endpoint_config.fanout, child_params=dict(endpoint_config.extra_params)),
+                fanout=dataclasses.replace(endpoint_config.fanout, child_params=child_params),
                 client_config=_rest_api_client_config(api_key),
                 path_format_values={},
                 team_id=team_id,
@@ -794,6 +855,9 @@ def metronome_source(
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
+                # The window rides `child_params`, so there is no cursor param for the framework to
+                # inject. The child still merges on its primary key.
+                incremental_config_factory=lambda _field: None,
                 parent_endpoint_extra={
                     "paginator": _paginator_for(parent_config),
                     "data_selector": DATA_SELECTOR,

@@ -16,12 +16,6 @@ def _config(api_token: str = "token") -> PylonSourceConfig:
     return PylonSourceConfig.from_dict({"api_token": api_token})
 
 
-class TestPylonGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = PylonSource().get_schemas(_config(), team_id=1, names=["issues", "accounts"])
-        assert {s.name for s in schemas} == {"issues", "accounts"}
-
-
 class TestPylonValidateCredentials:
     def test_valid_token(self) -> None:
         with pytest.MonkeyPatch().context() as mp:

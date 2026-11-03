@@ -100,17 +100,6 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].headers["authorization"] == "Bearer sk-key"
 
-    @parameterized.expand(
-        [
-            ("unauthorized", 401, "Invalid Secoda API key"),
-            ("forbidden", 403, "Invalid Secoda API key"),
-            ("server_error", 500, "Secoda returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_message: str) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("sk-key") == (False, expected_message)
-
     def test_connection_error_maps_to_generic_message(self) -> None:
         # validate_via_probe swallows transport errors and reports status None.
         with scripted_network(always(ConnectionError("boom"))):

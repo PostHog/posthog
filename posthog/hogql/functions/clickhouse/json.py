@@ -177,3 +177,10 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "JSON_VALUE": HogQLFunctionMeta("JSON_VALUE", 2, 2, signatures=[((StringType(), StringType()), StringType())]),
 }
+
+# The functions that take the document first and then a key path. On the native events table, a call with a constant
+# first key reads that key's subcolumn instead of the whole rebuilt document (`PropertySwapper._rewrite_json_property_call`).
+# The excluded functions take no key path (`isValidJSON`, `JSONArrayLength`) or a JSONPath string (`JSON_VALUE`).
+JSON_KEY_PATH_FUNCTIONS = frozenset(JSON_FUNCTIONS) - {"isValidJSON", "JSONArrayLength", "JSON_VALUE"}
+# Key-path functions whose last argument is the ClickHouse type to extract, so the key path ends before it.
+JSON_TYPED_PATH_FUNCTIONS = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})

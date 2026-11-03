@@ -34,6 +34,7 @@ interface EventEnvelope {
 }
 
 interface IngestResponse {
+  code?: unknown;
   last_accepted_seq?: unknown;
 }
 
@@ -212,6 +213,7 @@ export class TaskRunEventStreamSender {
 
       try {
         await this.flush();
+        if (this.transportCompleted) return;
         if (complete) {
           await this.writeCompletionLine();
         }
@@ -230,6 +232,7 @@ export class TaskRunEventStreamSender {
         );
       }
 
+      if (this.transportCompleted) return;
       const madeProgress =
         this.bufferedEvents.length < previousLength ||
         this.bufferRevision !== previousRevision;
@@ -708,7 +711,19 @@ export class TaskRunEventStreamSender {
     }
 
     try {
-      return { parsed: JSON.parse(text) as IngestResponse, text };
+      const parsed = JSON.parse(text) as IngestResponse;
+      if (
+        response.status === 403 &&
+        parsed?.code === "stream_generation_mismatch"
+      ) {
+        this.stopped = true;
+        this.transportCompleted = true;
+        this.bufferedEvents = [];
+        if (this.flushTimer) clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+        await this.abortActiveStream();
+      }
+      return { parsed, text };
     } catch {
       return { parsed: null, text };
     }

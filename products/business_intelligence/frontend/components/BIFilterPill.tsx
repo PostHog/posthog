@@ -13,7 +13,7 @@ import { getBIFilterLabel, describeBIFilter } from '../biFilterSummary'
 
 export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
     const { config, activeExpressionEditorId } = useValues(biEditorLogic)
-    const { setActiveExpressionEditorId } = useActions(biEditorLogic)
+    const { setActiveExpressionEditorId, removeFieldFromShelf } = useActions(biEditorLogic)
     const filter = config.filters[index]
     if (!filter) {
         return null
@@ -21,9 +21,12 @@ export function BIFilterPill({ index }: { index: number }): JSX.Element | null {
 
     const editorKey = getBIShelfEditorKey('filters', filter.field.id)
     const visible = activeExpressionEditorId === editorKey
-    const close = (): void => {
+    const close = (removed = false): void => {
         if (activeExpressionEditorId === editorKey) {
             setActiveExpressionEditorId(null)
+            if (!removed && !filter.field.expression.trim() && !filter.customExpression?.trim()) {
+                removeFieldFromShelf('filters', index)
+            }
         }
     }
     const label = getBIFilterLabel(filter)

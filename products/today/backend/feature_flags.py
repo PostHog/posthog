@@ -16,13 +16,21 @@ def is_enabled_for(user: User, team: Team) -> bool:
     return _flag_on(TODAY_RAIL_NAV_FLAG, user, team)
 
 
+def _groups(team: Team) -> dict[str, str]:
+    return {"organization": str(team.organization_id), "project": str(team.id)}
+
+
+def _group_properties(team: Team) -> dict[str, dict[str, str]]:
+    return {"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}}
+
+
 def _flag_on(flag: str, user: User, team: Team) -> bool:
     try:
         return feature_enabled_or_false(
             flag,
             str(user.distinct_id),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.id)}},
+            groups=_groups(team),
+            group_properties=_group_properties(team),
             person_properties={"email": user.email},
             only_evaluate_locally=False,
             # The home checks the flag on every call, so no $feature_flag_called event per call.

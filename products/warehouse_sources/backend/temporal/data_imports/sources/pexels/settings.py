@@ -1,9 +1,17 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField
 
+# Pexels caps `per_page` at 80; request the max to minimise round trips.
+PER_PAGE = 80
 
-@dataclass
+
+@frozen
 class PexelsEndpointConfig:
     name: str
     path: str  # relative to PEXELS_BASE_URL
@@ -15,6 +23,11 @@ class PexelsEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
     description: str | None = None
+    # Set for child endpoints that are fetched once for each row of a parent endpoint.
+    fanout: DependentEndpointConfig | None = None
+    page_size: int = PER_PAGE
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: str | None = None
 
 
 PEXELS_ENDPOINTS: dict[str, PexelsEndpointConfig] = {
@@ -41,6 +54,24 @@ PEXELS_ENDPOINTS: dict[str, PexelsEndpointConfig] = {
         path="/v1/collections",
         data_key="collections",
         description="Collections owned by the authenticated Pexels account.",
+    ),
+    "collection_media": PexelsEndpointConfig(
+        name="collection_media",
+        path="/v1/collections/{collection_id}",
+        data_key="media",
+        # Photo and video ids are separate sequences, and one media item can sit in several
+        # collections, so only the full triple is unique across the table.
+        primary_keys=["collection_id", "type", "id"],
+        description="Photos and videos in each collection owned by the authenticated Pexels account.",
+        fanout=DependentEndpointConfig(
+            parent_name="my_collections",
+            resolve_param="collection_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+            # A collection deleted after the parent listing returns 404; skip it, not the whole sync.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
     "search_photos": PexelsEndpointConfig(
         name="search_photos",

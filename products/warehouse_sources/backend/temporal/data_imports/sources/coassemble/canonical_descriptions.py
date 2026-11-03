@@ -173,4 +173,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "periodEnd": "When the billing period ends (ISO 8601).",
         },
     },
+    "workspace_allowances": {
+        "description": "The workspace's allowance and usage total for the current billing period, one row per usage metric (identified recipients, anonymous recipients, narration, image generations).",
+        "docs_url": "https://developers.coassemble.com/api/usage",
+        "columns": {
+            "metric": "The usage metric the allowance applies to, such as `ir` (identified recipients) or `ar` (anonymous recipients).",
+            "unit": "The unit the metric is counted in.",
+            "limit": "The cap for the metric in the billing period.",
+            "setting": "Where the limit comes from, such as the plan default.",
+            "currentUsage": "How much of the metric the workspace has consumed in the period.",
+            "periodStart": "When the billing period started (ISO 8601).",
+            "periodEnd": "When the billing period ends (ISO 8601).",
+            "resetDate": "When the usage total next resets (ISO 8601).",
+            "cadence": "How often the billing period repeats, such as `annual`.",
+            "whenReached": "What happens when usage reaches the limit, such as `stops`.",
+        },
+    },
 }

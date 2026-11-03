@@ -122,7 +122,7 @@ class GladlySource(ResumableSource[GladlySourceConfig, GladlyResumeConfig]):
 Your organization is the part of your Gladly URL before `.gladly.com`. For `myorg.gladly.com` enter `myorg`, and for `myorg.us-1.gladly.com` enter `myorg.us-1`. The API token must belong to an agent with the API User permission (Settings > API Tokens). Leave the domain on Production unless you are connecting a Gladly sandbox, which is served on `gladly.qa`. Data comes from Gladly's scheduled export jobs, which retain files for 14 days. History older than that requires asking Gladly support to regenerate exports. The voice transcripts table reads the calls and voicemails in those same exports and makes one request per call. The conversations and tasks tables are built from Gladly's Conversation Export and Task Export reports instead, so they are not limited to the 14-day export window. The conversation timestamps, contact timestamps, and work session events tables also come from Gladly's reports and reach back 90 days on their first sync. The teams, inboxes, and answers tables are read in full on every sync. Gladly keeps events for 24 hours only, so the events table needs to sync more often than once a day, for example every 12 hours, to keep a full history.""",
             iconPath="/static/services/gladly.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gladly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

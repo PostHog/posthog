@@ -8,10 +8,22 @@ from products.warehouse_sources.backend.types import IncrementalField
 # gainsight_cs.py revalidates it against the SSRF host policy before connecting.
 QUERY_PATH = "/v1/data/objects/query/{object_name}"
 DESCRIBE_PATH = "/v1/meta/services/objects/{object_name}/describe"
+PICKLIST_PATH = "/v2/cockpit/admin/picklist/lite"
+TASK_LIST_PATH = "/v2/cockpit/task/list/{cta_gsid}"
 
 # The Read API returns at most 5000 records per call and pages with limit/offset carried in the
 # POST body rather than the query string.
 MAX_PAGE_SIZE = 5000
+
+# The Fetch Task List API pages with pn/ps query params and returns at most 1000 tasks per call.
+TASK_PAGE_SIZE = 1000
+
+# CTA_TYPE is documented to return its dependent picklists as well, so a value can arrive twice and
+# rows are deduped on category and gsid.
+PICKLIST_CATEGORIES = ("CTA_TYPE", "CTA_STATUS", "CTA_PRIORITY", "CTA_REASON")
+# Relationship picklists need a relationship type id per request, so only the company and global
+# configuration is synced.
+PICKLIST_ENTITY_TYPE = "COMPANY"
 
 # Gainsight's universal record identifier, present on every standard object.
 GSID = "Gsid"
@@ -93,8 +105,23 @@ GAINSIGHT_CS_OBJECTS: dict[str, GainsightCsObjectConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(GAINSIGHT_CS_OBJECTS.keys())
+CTA_CONFIGURATION = "cta_configuration"
+CTA_TASK = "cta_task"
+# The CTA reference the task rows carry. The Fetch Task List API returns only the CTA name, so the
+# source adds the CTA Gsid it requested under Gainsight's own field name.
+TASK_CTA_ID = "CtaId"
+CTA_OBJECT_NAME = "call_to_action"
+
+# Cockpit tables read through dedicated v2 Cockpit routes instead of the Read API, so they carry no
+# object name and can't be described.
+COCKPIT_PRIMARY_KEYS: dict[str, list[str]] = {
+    CTA_CONFIGURATION: ["picklistCategory", "gsid"],
+    CTA_TASK: [TASK_CTA_ID, GSID],
+}
+
+ENDPOINTS = (*GAINSIGHT_CS_OBJECTS.keys(), *COCKPIT_PRIMARY_KEYS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: list(config.incremental_fields) for name, config in GAINSIGHT_CS_OBJECTS.items()
+    **{name: list(config.incremental_fields) for name, config in GAINSIGHT_CS_OBJECTS.items()},
+    **{name: [] for name in COCKPIT_PRIMARY_KEYS},
 }

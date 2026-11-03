@@ -12,6 +12,7 @@ from ..logic import (
     code_excerpts,
     figure_sources,
     highlights,
+    pulse_pins,
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
@@ -53,3 +54,11 @@ def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contr
 
 def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
     return highlights.get_highlights(team=team, user=user, scopes=scopes)
+
+
+def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.PulsePins:
+    return contracts.PulsePins(pins=pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes))
+
+
+def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
+    return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))

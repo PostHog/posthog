@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mightynetworks import (
@@ -142,6 +143,80 @@ class TestMightyNetworksSourceNonFanout:
         assert result.rows[0]["id"] == 77
         assert result.rows[0]["created_at"] == "2026-01-01T00:00:00Z"
         assert result.rows[0]["updated_at"] == "2026-01-02T00:00:00Z"
+
+
+class TestMightyNetworksSourceFanout:
+    @parameterized.expand(
+        [
+            ("SpaceMembers", "spaces", "members", "space_id", True),
+            ("PlanMembers", "plans", "members", "plan_id", True),
+            ("MemberTags", "members", "tags", "member_id", False),
+            ("MemberBadges", "members", "badges", "member_id", False),
+            ("EventRsvps", "events", "rsvps", "event_id", False),
+        ]
+    )
+    def test_fans_out_per_parent_and_keys_rows_by_parent(
+        self, endpoint: str, parent: str, child: str, parent_key: str, resumable: bool
+    ) -> None:
+        base = "/admin/v1/networks/1234"
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    f"{base}/{parent}": [_response([{"id": 10}, {"id": 20}], total_pages=1)],
+                    f"{base}/{parent}/10/{child}": [
+                        _response([{"id": 1}], current_page=1, total_pages=2),
+                        _response([{"id": 2}], current_page=2, total_pages=2),
+                    ],
+                    f"{base}/{parent}/20/{child}": [_response([{"id": 1}], total_pages=1)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            f"{base}/{parent}",
+            f"{base}/{parent}/10/{child}",
+            f"{base}/{parent}/10/{child}",
+            f"{base}/{parent}/20/{child}",
+        ]
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [(10, 1), (10, 2), (20, 1)]
+        assert all(f"_{parent.capitalize()}_id" not in row for row in result.rows)
+        # A checkpoint over network-wide parents would list every member or event it completed.
+        assert bool(result.saved_states) is resumable
+
+    def test_skips_parent_deleted_before_its_child_fetch(self) -> None:
+        result = _driver().run(
+            "SpaceMembers",
+            route(
+                {
+                    "/admin/v1/networks/1234/spaces": [_response([{"id": 10}, {"id": 20}], total_pages=1)],
+                    "/admin/v1/networks/1234/spaces/10/members": [ScriptedResponse(status=404)],
+                    "/admin/v1/networks/1234/spaces/20/members": [_response([{"id": 1}], total_pages=1)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["space_id"], row["id"]) for row in result.rows] == [(20, 1)]
+
+    def test_resume_skips_parents_already_read(self) -> None:
+        result = _driver().run(
+            "SpaceMembers",
+            route(
+                {
+                    "/admin/v1/networks/1234/spaces": [_response([{"id": 10}, {"id": 20}], total_pages=1)],
+                    "/admin/v1/networks/1234/spaces/20/members": [_response([{"id": 3}], total_pages=1)],
+                }
+            ),
+            resume_state=MightyNetworksResumeConfig(
+                fanout_state={"completed": ["/spaces/10/members"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/admin/v1/networks/1234/spaces", "/admin/v1/networks/1234/spaces/20/members"]
+        assert [(row["space_id"], row["id"]) for row in result.rows] == [(20, 3)]
 
 
 class TestValidateCredentials:

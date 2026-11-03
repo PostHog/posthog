@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
     INFLOWINVENTORY_API_VERSION_2023_04_01,
     INFLOWINVENTORY_API_VERSION_2026_07_10,
     INFLOWINVENTORY_API_VERSION_2026_09_29,
+    INFLOWINVENTORY_API_VERSION_2026_10_06,
     InflowInventoryResumeConfig,
     inflowinventory_source,
     validate_credentials,
@@ -44,8 +45,9 @@ class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowI
         INFLOWINVENTORY_API_VERSION_2023_04_01,
         INFLOWINVENTORY_API_VERSION_2026_07_10,
         INFLOWINVENTORY_API_VERSION_2026_09_29,
+        INFLOWINVENTORY_API_VERSION_2026_10_06,
     )
-    default_version = INFLOWINVENTORY_API_VERSION_2026_09_29
+    default_version = INFLOWINVENTORY_API_VERSION_2026_10_06
     api_docs_url = "https://cloudapi.inflowinventory.com/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -67,7 +69,7 @@ class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowI
             name=ExternalDataSourceType.INFLOWINVENTORY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Inflowinventory",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your inFlow Inventory company ID and API key to pull your inventory and order data into the PostHog Data warehouse.
 
 Find your company ID and create an API key on the **Integrations** page in [inFlow](https://www.inflowinventory.com/). API access requires a paid plan with the API add-on, and the key is only shown once — copy it before leaving the page.

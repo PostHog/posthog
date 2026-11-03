@@ -144,4 +144,45 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the change was made.",
         },
     },
+    "workplace": {
+        "description": "The Doppler workplace the API token belongs to.",
+        "docs_url": "https://docs.doppler.com/reference/workplace-get",
+        "columns": {
+            "id": "Unique identifier for the workplace.",
+            "name": "Name of the workplace.",
+            "billing_email": "Email address that receives billing notices for the workplace.",
+            "security_email": "Email address that receives security notices for the workplace.",
+        },
+    },
+    "group_members": {
+        "description": "Members of each workplace group.",
+        "docs_url": "https://docs.doppler.com/reference/groups-get",
+        "columns": {
+            "group_slug": "Slug of the group the membership belongs to.",
+            "type": "Kind of member, e.g. `workplace_user`.",
+            "slug": "Identifier for the member, unique within its member type.",
+        },
+    },
+    "change_requests": {
+        "description": "Change requests that propose secret changes to one or more configs for review before they are applied.",
+        "docs_url": "https://docs.doppler.com/reference/list-1",
+        "columns": {
+            "id": "Unique identifier for the change request.",
+            "title": "Title of the change request.",
+            "status": "Status of the change request: `open` or `closed`.",
+            "createdAt": "When the change request was created.",
+            "createdBy": "The user or service account that created the change request.",
+            "units": "The change units of the request, each with its target project, environment, and config and its status (`draft`, `open`, `applied`, or `canceled`).",
+            "assigned": "The workplace users and service accounts assigned to review the change request.",
+        },
+    },
+    "secret_names": {
+        "description": "The names of the secrets in each config. Secret values are not synced.",
+        "docs_url": "https://docs.doppler.com/reference/secrets-names",
+        "columns": {
+            "project": "Identifier of the project the config belongs to.",
+            "config": "Name of the config that holds the secret.",
+            "name": "Name of the secret.",
+        },
+    },
 }

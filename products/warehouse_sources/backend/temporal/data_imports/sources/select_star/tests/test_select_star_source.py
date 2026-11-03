@@ -11,7 +11,7 @@ class TestSelectStarSource:
         # A finished source must be visible: no unreleasedSource flag, soft ALPHA label.
         config = self.source.get_source_config
         assert getattr(config, "unreleasedSource", None) in (None, False)
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so public docs may render the table list.

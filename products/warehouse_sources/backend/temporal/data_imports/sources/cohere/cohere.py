@@ -1,6 +1,7 @@
 from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
+    COHERE_API_VERSION_V1,
     COHERE_ENDPOINTS,
     RETIRED_ENDPOINTS,
     CohereEndpointConfig,
@@ -20,14 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
-# Cohere versions its API in the URL path. Every list endpoint this source reads is served at
-# /v1/; Cohere's v2 generation covers the inference surface only (/v2/chat, /v2/embed, /v2/rerank),
+# Cohere serves a single global API host; there are no regional variants.
+COHERE_API_HOST = "https://api.cohere.com"
+
+# Every list endpoint this source reads is served at /v1/, except batches, which exist only on /v2/.
+# Cohere's v2 generation otherwise covers the inference surface (/v2/chat, /v2/embed, /v2/rerank),
 # which this source does not touch. The source-level version label is bound to this constant so a
 # declared version can never drift from the path the requests actually use.
-COHERE_API_VERSION_V1 = "v1"
-
-# Cohere serves a single global API host; there are no regional variants.
-COHERE_BASE_URL = f"https://api.cohere.com/{COHERE_API_VERSION_V1}"
+COHERE_BASE_URL = f"{COHERE_API_HOST}/{COHERE_API_VERSION_V1}"
 
 
 def _headers() -> dict[str, str]:
@@ -67,14 +68,14 @@ def cohere_source(
     config = COHERE_ENDPOINTS[endpoint]
     partitioned = config.partition_key is not None
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.extra_params)
     if config.pagination == CoherePagination.PAGE_TOKEN:
         # The cursor param is injected by the paginator; the static page size is a plain query param.
         params["page_size"] = config.page_size
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": COHERE_BASE_URL,
+            "base_url": f"{COHERE_API_HOST}/{config.api_version}",
             "headers": _headers(),
             "auth": {"type": "bearer", "token": api_key},
             "paginator": _build_paginator(config),

@@ -64,7 +64,7 @@ class TriggerDevSource(ResumableSource[TriggerDevSourceConfig, TriggerDevResumeC
             name=ExternalDataSourceType.TRIGGERDEV,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Trigger.dev",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Trigger.dev secret API key to sync your task run history into the PostHog Data warehouse.
 
 API keys are per environment (dev / staging / prod), so one connection syncs one environment. Copy the secret key for the environment you want from your [Trigger.dev project's API keys page](https://trigger.dev/docs/apikeys).
@@ -124,10 +124,12 @@ API keys are per environment (dev / staging / prod), so one connection syncs one
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             has_incremental = bool(INCREMENTAL_FIELDS.get(endpoint))
+            # A lookback re-reads rows that are already stored, and append would duplicate them.
+            lookback = TRIGGER_DEV_ENDPOINTS[endpoint].incremental_lookback
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=has_incremental,
-                supports_append=has_incremental,
+                supports_append=has_incremental and lookback is None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=TRIGGER_DEV_ENDPOINTS[endpoint].should_sync_default,
             )

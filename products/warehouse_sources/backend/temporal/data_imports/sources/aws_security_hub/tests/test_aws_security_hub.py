@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest.mock import Mock, patch
 
 import requests
@@ -37,10 +38,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 VERSION = "2018-10-26"
 SUBSCRIPTION_A = "arn:aws:securityhub:eu-west-1:111111111111:subscription/example-standard/v/1.0.0"
 SUBSCRIPTION_B = "arn:aws:securityhub:eu-west-1:111111111111:subscription/other-standard/v/2.0.0"
+INSIGHT_A = "arn:aws:securityhub:eu-west-1:111111111111:insight/111111111111/custom/example-a"
+INSIGHT_B = "arn:aws:securityhub:eu-west-1:111111111111:insight/111111111111/custom/example-b"
+PRODUCT = "arn:aws:securityhub:eu-west-1::product/example/product-one"
 
 
 def controls_path(subscription_arn: str) -> str:
     return "/standards/controls/" + subscription_arn.replace(":", "%3A")
+
+
+def insight_results_path(insight_arn: str) -> str:
+    return "/insights/results/" + insight_arn.replace(":", "%3A")
 
 
 def config(region: str = "eu-west-1", token: str | None = "fake-session-token") -> AwsSecurityHubSourceConfig:
@@ -90,6 +98,8 @@ def test_region_is_a_connection_host_field() -> None:
         ("DescribeStandards", "GET", "/standards"),
         ("GetEnabledStandards", "POST", "/standards/get"),
         ("GetInsights", "POST", "/insights/get"),
+        ("GetRemediationsV2", "POST", "/GetRemediationsV2"),
+        ("ListExposuresByRemediationV2", "POST", "/ListExposuresByRemediationV2"),
     ],
 )
 def test_signed_rest_requests(operation: str, method: str, path: str) -> None:
@@ -308,6 +318,19 @@ ONE_SUBSCRIPTION = ScriptedResponse(json={"StandardsSubscriptions": [{"Standards
         ),
         ("standards_controls", [DENIED], "GetEnabledStandards", ["/standards/get"]),
         ("standards_controls", [ScriptedResponse(json={"StandardsSubscriptions": []})], None, ["/standards/get"]),
+        (
+            "insight_results",
+            [ScriptedResponse(json={"Insights": [{"InsightArn": INSIGHT_A}]}), DENIED],
+            "GetInsightResults",
+            ["/insights/get", insight_results_path(INSIGHT_A)],
+        ),
+        (
+            "finding_history",
+            [ScriptedResponse(json={"Findings": [{"Id": "finding-a", "ProductArn": PRODUCT}]}), DENIED],
+            "GetFindingHistory",
+            ["/findings", "/findingHistory/get"],
+        ),
+        ("finding_history", [ScriptedResponse(json={"Findings": []})], None, ["/findings"]),
     ],
 )
 def test_permission_probe_names_missing_permission(
@@ -372,6 +395,39 @@ def test_standards_controls_fan_out_over_enabled_standards() -> None:
     ]
 
 
+def test_remediation_exposures_fan_out_over_remediation_targets() -> None:
+    exposure = {"MetadataUid": "shared-exposure", "Title": "Example exposure", "Impact": "Resolves"}
+    script = route(
+        {
+            "/GetRemediationsV2": [
+                ScriptedResponse(json={"Items": [{"TargetUid": "target-b"}], "NextToken": "p2"}),
+                ScriptedResponse(json={"Items": [{"TargetUid": "target-a"}]}),
+            ],
+            "/ListExposuresByRemediationV2": [
+                ScriptedResponse(json={"TargetUid": "target-a", "Items": [exposure], "NextToken": "e2"}),
+                ScriptedResponse(json={"TargetUid": "target-a", "Items": []}),
+                ScriptedResponse(json={"TargetUid": "target-b", "Items": [exposure]}),
+            ],
+        }
+    )
+    result = driver().run("remediation_exposures", script)
+    assert result.raised is None
+    assert result.response is not None
+    primary_keys = result.response.primary_keys
+    assert primary_keys
+    assert [tuple(row[key] for key in primary_keys) for row in result.rows] == [
+        ("target-a", "shared-exposure"),
+        ("target-b", "shared-exposure"),
+    ]
+    assert [request.json() for request in result.requests] == [
+        {"MaxResults": 100},
+        {"MaxResults": 100, "NextToken": "p2"},
+        {"MaxResults": 100, "TargetUid": "target-a"},
+        {"MaxResults": 100, "TargetUid": "target-a", "NextToken": "e2"},
+        {"MaxResults": 100, "TargetUid": "target-b"},
+    ]
+
+
 @pytest.mark.parametrize("next_token", ["saved", None])
 def test_standards_controls_resume_skips_finished_subscriptions(next_token: str | None) -> None:
     script = route(
@@ -399,7 +455,9 @@ def test_standards_controls_resume_skips_finished_subscriptions(next_token: str 
     assert result.requests[-1].param("NextToken") == next_token
 
 
-@pytest.mark.parametrize("endpoint", ["security_control_definitions", "products", "members"])
+@pytest.mark.parametrize(
+    "endpoint", ["security_control_definitions", "products", "members", "findings_v2", "resources_v2"]
+)
 def test_page_size_stays_within_vendor_limit(endpoint: str) -> None:
     endpoint_config = ENDPOINTS[endpoint]
     result = driver().run(endpoint, [ScriptedResponse(json={endpoint_config.result_key: []})])
@@ -409,7 +467,8 @@ def test_page_size_stays_within_vendor_limit(endpoint: str) -> None:
     input_shape = model.operation_model(endpoint_config.operation).input_shape
     assert input_shape is not None
     limit = input_shape.members["MaxResults"].metadata["max"]
-    assert 0 < int(request.param("MaxResults") or 0) <= limit
+    sent = request.param("MaxResults") or (request.json() if request.body else {}).get("MaxResults")
+    assert 0 < int(sent or 0) <= limit
     if endpoint == "members":
         assert request.param("OnlyAssociated") == "false"
 
@@ -475,3 +534,188 @@ def test_validation_network_error(session: Mock) -> None:
     session.request.side_effect = requests.Timeout()
     assert validate_credentials(config(), VERSION) == (False, "Could not reach AWS Security Hub. Try again.")
     session.close.assert_called_once()
+
+
+def test_insight_results_fan_out_over_insights_without_page_size() -> None:
+    script = route(
+        {
+            "/insights/get": [
+                ScriptedResponse(json={"Insights": [{"InsightArn": INSIGHT_B}, {"InsightArn": INSIGHT_A}]})
+            ],
+            insight_results_path(INSIGHT_A): [
+                ScriptedResponse(
+                    json={
+                        "InsightResults": {
+                            "InsightArn": INSIGHT_A,
+                            "GroupByAttribute": "ResourceId",
+                            "ResultValues": [
+                                {"GroupByAttributeValue": "resource-1", "Count": 3},
+                                {"GroupByAttributeValue": "resource-2", "Count": 1},
+                            ],
+                        }
+                    }
+                )
+            ],
+            insight_results_path(INSIGHT_B): [
+                ScriptedResponse(
+                    json={"InsightResults": {"InsightArn": INSIGHT_B, "GroupByAttribute": "Type", "ResultValues": []}}
+                )
+            ],
+        }
+    )
+    result = driver().run("insight_results", script)
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "insight_arn": INSIGHT_A,
+            "group_by_attribute": "ResourceId",
+            "group_by_attribute_value": "resource-1",
+            "count": 3,
+        },
+        {
+            "insight_arn": INSIGHT_A,
+            "group_by_attribute": "ResourceId",
+            "group_by_attribute_value": "resource-2",
+            "count": 1,
+        },
+    ]
+    result_requests = [request for request in result.requests if request.path.startswith("/insights/results/")]
+    assert [request.path for request in result_requests] == [
+        insight_results_path(INSIGHT_A),
+        insight_results_path(INSIGHT_B),
+    ]
+    assert all(request.method == "GET" and request.query == {} for request in result_requests)
+
+
+def history_record(finding_id: str) -> dict[str, Any]:
+    return {
+        "FindingIdentifier": {"Id": finding_id, "ProductArn": PRODUCT},
+        "UpdateTime": "2025-03-02T00:00:00Z",
+        "FindingCreated": False,
+        "Updates": [{"UpdatedField": "Workflow"}],
+    }
+
+
+@pytest.mark.parametrize(
+    "watermark,resume_state,expected_start,expected_end",
+    [
+        (None, None, None, None),
+        ("2025-03-01T00:00:00Z", None, "2025-03-01T00:00:00Z", "2025-06-01T00:00:00Z"),
+        (
+            "2025-04-01T00:00:00Z",
+            AwsSecurityHubResumeConfig(
+                updated_after="2025-03-01T00:00:00+00:00",
+                parent_token="page-2",
+                parent_id=f"{PRODUCT}\nfinding-b",
+                next_token="history-2",
+                cutoff="2025-04-15T00:00:00+00:00",
+            ),
+            "2025-03-01T00:00:00Z",
+            "2025-04-15T00:00:00Z",
+        ),
+    ],
+)
+def test_finding_history_walks_findings_and_history_pages(
+    watermark: str | None,
+    resume_state: AwsSecurityHubResumeConfig | None,
+    expected_start: str | None,
+    expected_end: str | None,
+) -> None:
+    first_page = ScriptedResponse(
+        json={"Findings": [{"Id": "finding-a", "ProductArn": PRODUCT}], "NextToken": "page-2"}
+    )
+    second_page = ScriptedResponse(
+        json={"Findings": [{"Id": "finding-b", "ProductArn": PRODUCT}, {"Id": "no-product"}]}
+    )
+    finding_b_history = [
+        ScriptedResponse(json={"Records": [], "NextToken": "history-2"}),
+        ScriptedResponse(json={"Records": [history_record("finding-b")]}),
+    ]
+    finding_a_history = [ScriptedResponse(json={"Records": [history_record("finding-a")]})]
+    script = route(
+        {
+            "/findings": [second_page] if resume_state else [first_page, second_page],
+            "/findingHistory/get": finding_b_history[1:] if resume_state else finding_a_history + finding_b_history,
+        }
+    )
+    with time_machine.travel(dt.datetime(2025, 6, 1, tzinfo=dt.UTC), tick=False):
+        result = driver().run(
+            "finding_history",
+            script,
+            resume_state=resume_state,
+            should_use_incremental_field=watermark is not None,
+            db_incremental_field_last_value=watermark,
+        )
+    assert result.raised is None
+    walked = ["finding-b"] if resume_state else ["finding-a", "finding-b"]
+    assert [(row["finding_id"], row["product_arn"]) for row in result.rows] == [
+        (finding, PRODUCT) for finding in walked
+    ]
+    assert result.rows[0]["update_time"] == dt.datetime(2025, 3, 2, tzinfo=dt.UTC)
+    assert "finding_identifier" not in result.rows[0]
+    parent_requests = [request.json() for request in result.requests if request.path == "/findings"]
+    assert [payload.get("NextToken") for payload in parent_requests] == ([] if resume_state else [None]) + ["page-2"]
+    assert all(payload["SortCriteria"] == [{"Field": "CreatedAt", "SortOrder": "asc"}] for payload in parent_requests)
+    history_requests = [request.json() for request in result.requests if request.path == "/findingHistory/get"]
+    expected_history = (
+        [("finding-b", "history-2")]
+        if resume_state
+        else [
+            ("finding-a", None),
+            ("finding-b", None),
+            ("finding-b", "history-2"),
+        ]
+    )
+    assert [(payload["FindingIdentifier"]["Id"], payload.get("NextToken")) for payload in history_requests] == (
+        expected_history
+    )
+    assert {(payload.get("StartTime"), payload.get("EndTime")) for payload in history_requests} == {
+        (expected_start, expected_end)
+    }
+    states = [(state.parent_token, state.parent_id, state.next_token, state.finished) for state in result.saved_states]
+    assert states == (
+        [] if resume_state else [("page-2", None, None, False), ("page-2", f"{PRODUCT}\nfinding-b", "history-2", False)]
+    ) + [(None, None, None, True)]
+    assert result.response is not None and result.response.sort_mode == "desc"
+
+
+@pytest.mark.parametrize("watermark", [None, "2025-05-01T00:00:00Z"])
+def test_findings_v2_filters_on_modified_time_and_lifts_identity(watermark: str | None) -> None:
+    finding = {
+        "finding_info": {
+            "uid": "example-finding",
+            "created_time_dt": "2025-01-01T00:00:00Z",
+            "modified_time_dt": "2025-05-02T00:00:00Z",
+        },
+        "metadata": {"product": {"uid": PRODUCT}},
+        "severity": "High",
+    }
+    with time_machine.travel(dt.datetime(2025, 6, 1, tzinfo=dt.UTC), tick=False):
+        result = driver().run(
+            "findings_v2",
+            [ScriptedResponse(json={"Findings": [finding]})],
+            should_use_incremental_field=watermark is not None,
+            db_incremental_field_last_value=watermark,
+        )
+    assert result.raised is None
+    payload = result.requests[0].json()
+    if watermark:
+        assert payload["Filters"] == {
+            "CompositeFilters": [
+                {
+                    "DateFilters": [
+                        {
+                            "FieldName": "finding_info.modified_time_dt",
+                            "Filter": {"End": "2025-06-01T00:00:00+00:00", "Start": "2025-05-01T00:00:00+00:00"},
+                        }
+                    ]
+                }
+            ]
+        }
+    else:
+        assert "Filters" not in payload
+    assert "SortCriteria" not in payload
+    row = result.rows[0]
+    assert (row["product_uid"], row["finding_uid"]) == (PRODUCT, "example-finding")
+    assert row["modified_time"] == dt.datetime(2025, 5, 2, tzinfo=dt.UTC)
+    assert row["finding_info"] == finding["finding_info"]

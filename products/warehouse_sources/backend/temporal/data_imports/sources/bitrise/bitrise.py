@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 BITRISE_BASE_URL = "https://api.bitrise.io/v0.1"
 # Bitrise list endpoints cap `limit` at 50.
 PAGE_LIMIT = 50
+# The archived builds endpoint takes no paging anchor and returns at most 1000 builds per app.
+ARCHIVED_BUILDS_LIMIT = 1000
 # Safety overlap subtracted from the incremental watermark: builds that were still running (or on
 # hold) at the last sync keep mutating (status, finished_at) after their trigger time, so each run
 # re-pulls a trailing window and merge dedupes the re-fetched rows on the primary key.
@@ -40,11 +42,12 @@ class BitriseResumeConfig:
     # Fan-out bookmark: retained only so pre-migration saved state still parses via
     # `dataclass(**saved)`. New runs never populate it; fan-out resume now lives in `fanout_state`.
     app_slug: str | None = None
-    # `next` paging anchor for the flat apps listing. None means "start at the first page".
+    # `next` paging anchor for the flat apps and activities listings. None means "start at the
+    # first page".
     next: str | None = None
     # Framework fan-out resume snapshot ({"completed": [...], "current": ..., "child_state": ...})
     # for the single-hop parent-app -> child-endpoint dependent resources (builds, pipelines,
-    # workflows, branches).
+    # workflows, branches, archived builds, build requests).
     fanout_state: dict[str, Any] | None = None
 
 
@@ -132,6 +135,18 @@ def _apps_resource() -> EndpointResource:
     }
 
 
+def _activities_resource() -> EndpointResource:
+    return {
+        "name": "activities",
+        "endpoint": {
+            "path": "/me/activities",
+            "params": {"limit": PAGE_LIMIT},
+            "data_selector": "data",
+            "paginator": _cursor_paginator(),
+        },
+    }
+
+
 def _organizations_resource() -> EndpointResource:
     # The organizations listing takes no params and returns every org in one body.
     return {
@@ -155,15 +170,16 @@ def _builds_child_params(after: int | None) -> dict[str, Any]:
     return params
 
 
-def _apps_source(
+def _flat_cursor_source(
     api_token: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BitriseResumeConfig],
+    resource: EndpointResource,
 ) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
-        "resources": [_apps_resource()],
+        "resources": [resource],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -321,6 +337,58 @@ def _app_name_list_source(
     return _single_hop_fanout_source(api_token, team_id, job_id, resumable_source_manager, child_resource)
 
 
+def _single_page_app_child_source(
+    api_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[BitriseResumeConfig],
+    name: str,
+    path: str,
+    extra_params: dict[str, Any],
+) -> Resource:
+    params: dict[str, Any] = {"app_slug": {"type": "resolve", "resource": "apps", "field": "slug"}, **extra_params}
+    child_resource: EndpointResource = {
+        "name": name,
+        "include_from_parent": ["slug"],
+        "endpoint": {
+            "path": path,
+            "params": params,
+            "data_selector": "data",
+            "paginator": SinglePagePaginator(),
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "data_map": rename_parent_fields("apps", {"slug": "app_slug"}),
+    }
+    return _single_hop_fanout_source(api_token, team_id, job_id, resumable_source_manager, child_resource)
+
+
+def _explode_available_stacks(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Explode the `{"<stack id>": {...}}` map into one row per stack, keeping the map key as `id`."""
+    return [{**stack, "id": stack.get("id") or stack_id} for stack_id, stack in row.items() if isinstance(stack, dict)]
+
+
+def _available_stacks_source(
+    api_token: str,
+    team_id: int,
+    job_id: str,
+) -> Resource:
+    resource: EndpointResource = {
+        "name": "available_stacks",
+        "endpoint": {
+            "path": "/available-stacks",
+            # The body is a bare map keyed by stack id, so take it whole and let data_map explode it.
+            "data_selector": "$",
+            "paginator": SinglePagePaginator(),
+        },
+        "data_map": _explode_available_stacks,
+    }
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_token),
+        "resources": [resource],
+    }
+    return rest_api_resource(rest_config, team_id, job_id, None)
+
+
 def _organizations_source(
     api_token: str,
     team_id: int,
@@ -462,7 +530,7 @@ def bitrise_source(
     after = _build_after_param(should_use_incremental_field, db_incremental_field_last_value)
 
     if endpoint == "apps":
-        resource = _apps_source(api_token, team_id, job_id, resumable_source_manager)
+        resource = _flat_cursor_source(api_token, team_id, job_id, resumable_source_manager, _apps_resource())
     elif endpoint == "builds":
         resource = _builds_source(api_token, team_id, job_id, resumable_source_manager, after)
     elif endpoint == "pipelines":
@@ -483,6 +551,30 @@ def bitrise_source(
         resource = _organization_members_source(api_token, team_id, job_id)
     elif endpoint == "artifacts":
         resource = _artifacts_source(api_token, team_id, job_id, after)
+    elif endpoint == "archived_builds":
+        resource = _single_page_app_child_source(
+            api_token,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            name="archived_builds",
+            path="/apps/{app_slug}/archived-builds",
+            extra_params={"limit": ARCHIVED_BUILDS_LIMIT},
+        )
+    elif endpoint == "build_requests":
+        resource = _single_page_app_child_source(
+            api_token,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            name="build_requests",
+            path="/apps/{app_slug}/build-requests",
+            extra_params={},
+        )
+    elif endpoint == "activities":
+        resource = _flat_cursor_source(api_token, team_id, job_id, resumable_source_manager, _activities_resource())
+    elif endpoint == "available_stacks":
+        resource = _available_stacks_source(api_token, team_id, job_id)
     else:
         raise ValueError(f"Unknown Bitrise endpoint: {endpoint}")
 

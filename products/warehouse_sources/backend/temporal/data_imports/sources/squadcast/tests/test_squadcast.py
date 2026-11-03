@@ -419,22 +419,137 @@ class TestPostmortems:
         assert "truncated" in logger.warning.call_args.args[0]
 
 
-class TestEscalationPolicies:
-    def test_reported_total_above_returned_rows_is_logged(self) -> None:
-        body = {"data": [{"id": "ep_1"}], "meta": {"total_count": 10}}
+class TestUnpaginatedTeamEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint,path,body,expect_warning",
+        [
+            (
+                "escalation_policies",
+                "/v3/escalation-policies",
+                {"data": [{"id": "r1"}], "meta": {"total_count": 10}},
+                True,
+            ),
+            (
+                "escalation_policies",
+                "/v3/escalation-policies",
+                {"data": [{"id": "r1"}], "meta": {"total_count": 1}},
+                False,
+            ),
+            ("squads", "/v4/squads", {"data": [{"id": "r1"}], "pageInfo": {"hasNext": True, "hasPrev": False}}, True),
+            ("squads", "/v4/squads", {"data": [{"id": "r1"}], "pageInfo": {"hasNext": False, "hasPrev": False}}, False),
+            ("squads", "/v4/squads", {"data": [{"id": "r1"}]}, False),
+        ],
+    )
+    def test_possible_truncation_is_logged(
+        self, endpoint: str, path: str, body: dict[str, Any], expect_warning: bool
+    ) -> None:
+        def handler(request: RecordedRequest) -> ScriptedResponse:
+            team_param = SQUADCAST_ENDPOINTS[endpoint].team_param
+            assert team_param is not None
+            assert _params(request) == {team_param: "t1"}
+            return _json(body)
+
         logger = MagicMock()
 
         result = _run(
-            "escalation_policies",
-            _standard_handler(
-                teams=[{"id": "t1"}],
-                endpoint_responses={"/v3/escalation-policies": lambda request: _json(body)},
-            ),
+            endpoint,
+            _standard_handler(teams=[{"id": "t1"}], endpoint_responses={path: handler}),
             logger=logger,
         )
 
-        assert result.items == [[{"id": "ep_1", "team_id": "t1"}]]
-        assert logger.warning.called
+        assert result.items == [[{"id": "r1", "team_id": "t1"}]]
+        assert logger.warning.called is expect_warning
+
+
+def _schedules_handler(pages: dict[str | None, dict[str, Any]]) -> Handler:
+    def handler(request: RecordedRequest) -> ScriptedResponse:
+        params = _params(request)
+        assert params["teamID"] == "t1"
+        assert params["pageSize"] == str(PAGE_SIZE)
+        return _json(pages[params.get("cursor")])
+
+    return handler
+
+
+def _constant(response: ScriptedResponse) -> Handler:
+    return lambda request: response
+
+
+class TestScheduleRotations:
+    def _endpoint_responses(
+        self, pages: dict[str | None, dict[str, Any]], rotations: dict[str, ScriptedResponse]
+    ) -> dict[str, Handler]:
+        responses: dict[str, Handler] = {"/v4/schedules": _schedules_handler(pages)}
+        for schedule_id, response in rotations.items():
+            responses[f"/v4/schedules/{schedule_id}/rotations"] = _constant(response)
+        return responses
+
+    def test_walks_schedule_pages_and_stages_current_page_cursor(self) -> None:
+        pages: dict[str | None, dict[str, Any]] = {
+            None: {"data": [{"id": 1}, {"id": 2}], "pageInfo": {"hasNext": True, "nextCursor": "cur_2"}},
+            "cur_2": {"data": [{"id": 3}], "pageInfo": {"hasNext": False}},
+        }
+        rotations = {
+            "1": _json({"data": [{"id": 10, "scheduleID": 1}, {"id": 11, "scheduleID": 1}]}),
+            "2": _json({"data": None}),
+            "3": _json({"data": [{"id": 10, "scheduleID": 3}]}),
+        }
+
+        result = _run(
+            "schedule_rotations",
+            _standard_handler(teams=[{"id": "t1"}], endpoint_responses=self._endpoint_responses(pages, rotations)),
+        )
+
+        assert result.items == [
+            [{"id": 10, "scheduleID": 1, "team_id": "t1"}, {"id": 11, "scheduleID": 1, "team_id": "t1"}],
+            [{"id": 10, "scheduleID": 3, "team_id": "t1"}],
+        ]
+        # The cursor staged before each page's rows points at that page, so a resume re-reads
+        # the page instead of skipping its remaining schedules.
+        assert [(s.team_id, s.cursor) for s in result.saved_states] == [("t1", None), ("t1", "cur_2")]
+        assert result.response is not None
+        assert result.response.primary_keys == ["scheduleID", "id"]
+
+    def test_resumes_from_saved_schedules_cursor(self) -> None:
+        pages: dict[str | None, dict[str, Any]] = {"cur_2": {"data": [{"id": 3}], "pageInfo": {"hasNext": False}}}
+        rotations = {"3": _json({"data": [{"id": 30, "scheduleID": 3}]})}
+
+        result = _run(
+            "schedule_rotations",
+            _standard_handler(teams=[{"id": "t1"}], endpoint_responses=self._endpoint_responses(pages, rotations)),
+            resume_state=SquadcastResumeConfig(team_id="t1", cursor="cur_2"),
+        )
+
+        assert result.items == [[{"id": 30, "scheduleID": 3, "team_id": "t1"}]]
+
+    @pytest.mark.parametrize(
+        "failing_status,expect_raised",
+        [
+            (404, False),
+            (403, False),
+            (400, True),
+        ],
+    )
+    def test_rotation_fetch_error_for_one_schedule(self, failing_status: int, expect_raised: bool) -> None:
+        pages: dict[str | None, dict[str, Any]] = {
+            None: {"data": [{"id": 1}, {"id": 2}], "pageInfo": {"hasNext": False}},
+        }
+        rotations = {
+            "1": _json({"error": {"code": "x", "message": "boom"}}, status_code=failing_status),
+            "2": _json({"data": [{"id": 20}]}),
+        }
+
+        result = _run(
+            "schedule_rotations",
+            _standard_handler(teams=[{"id": "t1"}], endpoint_responses=self._endpoint_responses(pages, rotations)),
+        )
+
+        if expect_raised:
+            assert isinstance(result.raised, requests.HTTPError)
+            assert result.items == []
+        else:
+            assert result.raised is None
+            assert result.items == [[{"id": 20, "scheduleID": 2, "team_id": "t1"}]]
 
 
 class TestSquadcastSourceResponse:
@@ -458,7 +573,7 @@ class TestSquadcastSourceResponse:
         response = _run(endpoint, always(_json({"data": []}))).response
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == [SQUADCAST_ENDPOINTS[endpoint].primary_key]
+        assert response.primary_keys == list(SQUADCAST_ENDPOINTS[endpoint].primary_keys)
         assert callable(response.items)
 
 

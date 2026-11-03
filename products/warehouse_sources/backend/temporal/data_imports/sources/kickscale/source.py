@@ -123,7 +123,7 @@ class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConf
             "(requires a Configurator or Admin role). API keys expire after 1 year.",
             docsUrl="https://posthog.com/docs/cdp/sources/kickscale",
             iconPath="/static/services/kickscale.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["revenue intelligence", "sales enablement", "conversation intelligence"],
             fields=cast(
                 list[FieldType],

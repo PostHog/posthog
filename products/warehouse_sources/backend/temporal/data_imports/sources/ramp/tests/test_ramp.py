@@ -5,13 +5,10 @@ from urllib.parse import parse_qs
 
 import pytest
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
     scripted_network,
 )
@@ -21,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     RampResumeConfig,
     _base_url,
     _format_timestamp,
+    check_endpoint_access,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import TOKEN_SCOPES
@@ -42,8 +40,8 @@ def _token(status_code: int = 200, expires_in: int = 864000) -> ScriptedResponse
     return ScriptedResponse(status=status_code, json=body)
 
 
-def _source(endpoint: str, pages: list[ScriptedResponse], **inputs: Any) -> DriveResult:
-    script = route({"/token": [_token()], f"/developer/v1/{endpoint}": pages})
+def _source(endpoint: str, pages: list[ScriptedResponse], path: str | None = None, **inputs: Any) -> DriveResult:
+    script = route({"/token": [_token()], f"/developer/v1/{path or endpoint}": pages})
     config = RampSourceConfig(environment="production", client_id="cid", client_secret="sec")
     return SourceDriver(RampSource(), config).run(endpoint, script, **inputs)
 
@@ -69,16 +67,23 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    def test_mint_requests_documented_scopes(self):
+    @pytest.mark.parametrize(
+        "schema_name, expected_scope",
+        [
+            (None, TOKEN_SCOPES),
+            ("bills", "bills:read"),
+        ],
+    )
+    def test_mint_requests_documented_scopes(self, schema_name, expected_scope):
         with scripted_network([_token()]) as network:
-            validate_credentials("production", "cid", "sec")
+            validate_credentials("production", "cid", "sec", schema_name)
 
         request = network.requests_log[0]
         # HTTP Basic client auth: credentials ride in the auth header, scopes in the form body.
         assert request.url == TOKEN_URL
         assert parse_qs((request.body or b"").decode()) == {
             "grant_type": ["client_credentials"],
-            "scope": [TOKEN_SCOPES],
+            "scope": [expected_scope],
         }
         assert request.headers["authorization"] == "Basic " + base64.b64encode(b"cid:sec").decode()
 
@@ -89,12 +94,20 @@ class TestValidateCredentials:
         assert is_valid is False
         assert "credentials" in (message or "")
 
-    def test_transient_error_is_not_reported_as_invalid_credentials(self):
-        with scripted_network(always(requests.ConnectionError("connection refused"))):
-            is_valid, message = validate_credentials("production", "cid", "sec")
 
-        assert is_valid is False
-        assert "Could not reach Ramp" in (message or "")
+class TestCheckEndpointAccess:
+    @pytest.mark.parametrize(
+        "token_status, expected_denied",
+        [(200, False), (400, True)],
+    )
+    def test_billing_statements_probe_their_own_scope(self, token_status, expected_denied):
+        with scripted_network([_token(status_code=token_status)]) as network:
+            reason = check_endpoint_access("production", "cid", "sec", "billing_statements")
+
+        assert parse_qs((network.requests_log[0].body or b"").decode())["scope"] == ["billing_statements:read"]
+        assert (reason is not None) == expected_denied
+        if expected_denied:
+            assert "billing_statements:read" in (reason or "")
 
 
 class TestGetRows:
@@ -109,6 +122,21 @@ class TestGetRows:
         data_requests = [request for request in result.requests if request.path.endswith("/transactions")]
         assert data_requests[0].param("from_date") == "2024-01-02T00:00:00Z"
         assert data_requests[0].param("page_size") == str(PAGE_SIZE)
+
+    def test_billing_statements_mint_only_their_own_scope_and_walk_pages(self):
+        result = _source(
+            "billing_statements",
+            [
+                _page([{"id": "s1"}], next_url="https://api.ramp.com/developer/v1/billing/statements?start=s1"),
+                _page([{"id": "s2"}]),
+            ],
+            path="billing/statements",
+        )
+
+        assert result.raised is None
+        token_request = next(request for request in result.requests if request.path.endswith("/token"))
+        assert parse_qs((token_request.body or b"").decode())["scope"] == ["billing_statements:read"]
+        assert [row["id"] for row in result.rows] == ["s1", "s2"]
 
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self):
         result = _source("transactions", [_page([{"id": "t1"}])])
@@ -152,3 +180,27 @@ class TestGetRows:
         assert isinstance(result.raised, ValueError)
         assert not any("evil.example.com" in url for url in result.urls)
         assert result.saved_states == []
+
+    def test_vendor_contacts_fan_out_over_vendors_with_a_vendor_scoped_token(self):
+        script = route(
+            {
+                "/token": [_token()],
+                "/developer/v1/vendors": [
+                    _page([{"id": "v1"}], next_url="https://api.ramp.com/developer/v1/vendors?start=v1"),
+                    _page([{"id": "v2"}]),
+                ],
+                "/vendors/v1/contacts": [_page([{"id": "c1"}])],
+                "/vendors/v2/contacts": [
+                    _page([{"id": "c2"}], next_url="https://api.ramp.com/developer/v1/vendors/v2/contacts?start=c2"),
+                    _page([{"id": "c3"}]),
+                ],
+            }
+        )
+        config = RampSourceConfig(environment="production", client_id="cid", client_secret="sec")
+        result = SourceDriver(RampSource(), config).run("vendor_contacts", script)
+
+        assert result.raised is None
+        assert [(row["vendor_id"], row["id"]) for row in result.rows] == [("v1", "c1"), ("v2", "c2"), ("v2", "c3")]
+        token_request = next(request for request in result.requests if request.path.endswith("/token"))
+        token_body = parse_qs((token_request.body or b"").decode())
+        assert token_body["scope"] == ["vendors:read"]

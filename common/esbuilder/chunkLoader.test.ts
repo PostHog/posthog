@@ -8,37 +8,58 @@ const CHUNKS = {
     PersonScene: ['DDDD4444'],
 }
 
-type FakeScript = { async?: boolean; nonce?: string; src?: string; onload?: () => void; onerror?: () => void }
+type FakeElement = {
+    tag: string
+    async?: boolean
+    nonce?: string
+    src?: string
+    rel?: string
+    href?: string
+    onload?: () => void
+    onerror?: () => void
+}
+
+const CDN_STATIC = 'https://cdn.example.com/static/'
 
 function runLoader(chunkMapFile: string | null): {
     win: Record<string, any>
-    loaded: string[]
-    scripts: FakeScript[]
+    ran: string[]
+    preloaded: () => string[]
+    scripts: () => FakeElement[]
 } {
-    const loaded: string[] = []
-    const scripts: FakeScript[] = []
+    const ran: string[] = []
+    const appended: FakeElement[] = []
     const win: Record<string, any> = {
         JS_URL: 'https://cdn.example.com',
-        ESBUILD_LOAD_SCRIPT: (file: string) => loaded.push(file),
+        ESBUILD_LOAD_SCRIPT: (file: string) => ran.push(file),
     }
     const doc = {
         currentScript: { nonce: 'n0nce' },
-        createElement: (): FakeScript => ({}),
-        head: { appendChild: (s: FakeScript) => scripts.push(s) },
+        createElement: (tag: string): FakeElement => ({ tag }),
+        head: { appendChild: (element: FakeElement) => appended.push(element) },
     }
     // The inline loader runs in the page as a classic script: `window` and `document` are globals.
     new Function('window', 'document', chunkLoaderScript(CHUNKS, chunkMapFile))(win, doc)
-    return { win, loaded, scripts }
+    return {
+        win,
+        ran,
+        preloaded: () =>
+            appended.filter((e) => e.rel === 'modulepreload').map((e) => (e.href ?? '').replace(CDN_STATIC, '')),
+        scripts: () => appended.filter((e) => e.tag === 'script'),
+    }
 }
 
 describe('chunk loader script', () => {
-    it('loads the index chunks synchronously at boot', () => {
-        const { loaded } = runLoader('chunk-map-index-ABCD1234.js')
-        expect(loaded).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js'])
+    // A preload only fetches and parses a chunk. Running every chunk of a scene up front costs more than the
+    // browser running them in import order, most of all when the chunks are already in the cache.
+    it('preloads the index chunks at boot without running them', () => {
+        const { ran, preloaded } = runLoader('chunk-map-index-ABCD1234.js')
+        expect(preloaded()).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js'])
+        expect(ran).toEqual([])
     })
 
     it('fetches the external map with the page nonce and CDN base', () => {
-        const { scripts } = runLoader('chunk-map-index-ABCD1234.js')
+        const scripts = runLoader('chunk-map-index-ABCD1234.js').scripts()
         expect(scripts).toHaveLength(1)
         expect(scripts[0].src).toBe('https://cdn.example.com/static/chunk-map-index-ABCD1234.js')
         expect(scripts[0].async).toBe(true)
@@ -46,32 +67,32 @@ describe('chunk loader script', () => {
     })
 
     it('queues scenes requested before the map arrives and flushes them on load, skipping loaded chunks', () => {
-        const { win, loaded, scripts } = runLoader('chunk-map-index-ABCD1234.js')
+        const { win, preloaded, scripts } = runLoader('chunk-map-index-ABCD1234.js')
         win.ESBUILD_LOAD_CHUNKS('Dashboard')
-        expect(loaded).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js'])
+        expect(preloaded()).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js'])
 
         // The external file merges the full map into the same global, then the queue drains.
         new Function('window', chunkMapFileContents(CHUNKS))(win)
-        scripts[0].onload?.()
+        scripts()[0].onload?.()
 
-        expect(loaded).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js', 'chunk-CCCC3333.js'])
+        expect(preloaded()).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js', 'chunk-CCCC3333.js'])
         win.ESBUILD_LOAD_CHUNKS('PersonScene')
-        expect(loaded).toContain('chunk-DDDD4444.js')
+        expect(preloaded()).toContain('chunk-DDDD4444.js')
     })
 
     it('gives up queueing when the map fails to load, so later requests are plain no-ops', () => {
-        const { win, loaded, scripts } = runLoader('chunk-map-index-ABCD1234.js')
-        scripts[0].onerror?.()
+        const { win, preloaded, scripts } = runLoader('chunk-map-index-ABCD1234.js')
+        scripts()[0].onerror?.()
         win.ESBUILD_LOAD_CHUNKS('Dashboard')
-        expect(loaded).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js'])
+        expect(preloaded()).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js'])
         expect(win.ESBUILD_PENDING_CHUNK_SCENES).toBeNull()
     })
 
     it('inlines the whole map and fetches nothing when no external file is given', () => {
-        const { win, loaded, scripts } = runLoader(null)
+        const { win, preloaded, scripts } = runLoader(null)
         win.ESBUILD_LOAD_CHUNKS('Dashboard')
-        expect(scripts).toHaveLength(0)
-        expect(loaded).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js', 'chunk-CCCC3333.js'])
+        expect(scripts()).toHaveLength(0)
+        expect(preloaded()).toEqual(['chunk-AAAA1111.js', 'chunk-BBBB2222.js', 'chunk-CCCC3333.js'])
     })
 
     it('names the map file by content so a changed map gets a new URL', () => {

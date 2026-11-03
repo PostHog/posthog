@@ -27,6 +27,7 @@ import {
 } from '@/hono/analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
@@ -92,6 +93,36 @@ describe('Hono MCP analytics contexts', () => {
         mockCaptureToolsList.mockClear()
         mockCapture.mockClear()
     })
+
+    it.each([false, true])(
+        'records recruitment diagnostics without exposing them on suppressed calls: %s',
+        async (suppressed) => {
+            const state = makeState({
+                suppressAnalytics: suppressed,
+                interviewRecruitmentDiagnostics: {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                    campaignId: 'synthetic-study',
+                },
+            })
+            await trackToolCall('user-get', 12, false, state)
+            const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+            if (suppressed) {
+                expect(properties).not.toHaveProperty('interview_recruitment_reason')
+                expect(properties).not.toHaveProperty('interview_recruitment_form_supported')
+            } else {
+                expect(properties).toMatchObject({
+                    interview_recruitment_reason: 'url_unsupported',
+                    interview_recruitment_url_supported: false,
+                    interview_recruitment_form_supported: true,
+                    interview_recruitment_campaign_id: 'synthetic-study',
+                })
+                expect(properties).not.toHaveProperty('interview_recruitment_completed_calls')
+            }
+            expect(mockCapture).not.toHaveBeenCalled()
+        }
+    )
 
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
@@ -169,6 +200,14 @@ describe('Hono MCP analytics contexts', () => {
         for (const [event] of mockCapture.mock.calls) {
             expect(event.properties.suppress_analytics).toBe(impersonated)
         }
+    })
+
+    it.each([true, false, undefined])('records the evaluated intent prompt flag: %s', async (flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [MCP_INTENT_PROMPT_FLAG]: flagValue } })
+
+        await trackToolCall('user-get', 12, false, state)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_INTENT_PROMPT_FLAG}`]).toBe(flagValue)
     })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
@@ -501,6 +540,18 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            [
+                'execute-sql wrapped in a connection call',
+                'posthog-connection-call',
+                { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },
+                false,
+            ],
+            [
+                'a connection forward',
+                'posthog-connection-forward',
+                { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
+                false,
+            ],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

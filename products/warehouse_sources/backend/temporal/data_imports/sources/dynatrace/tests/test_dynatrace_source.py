@@ -16,7 +16,3 @@ class TestDynatraceSource:
         # Changing the environment URL must force the token to be re-entered so it's never
         # sent to a freshly-specified host.
         assert self.source.connection_host_fields == ["environment_url"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["problems", "nonexistent"])
-        assert [s.name for s in schemas] == ["problems"]

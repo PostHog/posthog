@@ -147,6 +147,7 @@ def _capture_classified(
                     "picked": verdict.picked.value if verdict else None,
                     "show_probability": verdict.show_probability if verdict else None,
                     "offer_probabilities": dict(verdict.offer_probabilities) if verdict else None,
+                    "scout_recurrence_probability": verdict.scout_recurrence_probability if verdict else None,
                     "offer": verdict.picked.value if verdict and verdict.draft else None,
                     "emitted": emitted,
                 },

@@ -52,7 +52,7 @@ class TransistorSource(ResumableSource[TransistorSourceConfig, TransistorResumeC
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Transistor.fm",
             keywords=["podcast", "transistor fm"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your shows, episodes, private podcast subscribers, and daily download analytics from [Transistor](https://transistor.fm) into the PostHog Data warehouse.
 
 Create an API key in your Transistor account settings, then paste it below. The key has access to every show your Transistor user can see.

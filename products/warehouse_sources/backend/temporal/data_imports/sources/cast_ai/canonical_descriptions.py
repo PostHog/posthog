@@ -87,4 +87,68 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "optimizedSpotOnly": "Estimated cost under a spot-only optimization strategy.",
         },
     },
+    "cluster_savings_reports": {
+        "description": (
+            "Realized savings for a cluster, bucketed by time interval and split into savings "
+            "from downscaling and savings from spot instances."
+        ),
+        "docs_url": "https://docs.cast.ai/docs/cost-reports",
+        "columns": {
+            "cluster_id": "Identifier of the cluster this savings entry belongs to.",
+            "timestamp": "Start of the time bucket this savings entry covers.",
+            "downscalingSavings": "Savings from downscaling the cluster in the time bucket.",
+            "spotSavings": "Savings from running on spot instances in the time bucket.",
+        },
+    },
+    "workload_cost_reports": {
+        "description": (
+            "Compute cost of each workload in a cluster over the sync's report window, with "
+            "daily cost metrics, workload labels, and a cost summary."
+        ),
+        "docs_url": "https://docs.cast.ai/docs/cost-reports",
+        "columns": {
+            "cluster_id": "Identifier of the cluster the workload runs in.",
+            "workloadName": "Name of the workload.",
+            "workloadType": "Type of the workload (e.g. Deployment, StatefulSet).",
+            "namespace": "Kubernetes namespace the workload is in.",
+            "costMetrics": "Daily cost, resource, and pod count metrics of the workload.",
+            "labels": "Labels of the workload, as name/value pairs.",
+            "summary": "Total and average cost of the workload over the report window.",
+        },
+    },
+    "workload_efficiency_reports": {
+        "description": (
+            "Requested, used, and wasted CPU and memory of each workload in a cluster over the "
+            "sync's report window, with the cost impact of the waste."
+        ),
+        "docs_url": "https://docs.cast.ai/docs/cost-reports",
+        "columns": {
+            "cluster_id": "Identifier of the cluster the workload runs in.",
+            "workloadName": "Name of the workload.",
+            "workloadType": "Type of the workload (e.g. Deployment, StatefulSet).",
+            "namespace": "Kubernetes namespace the workload is in.",
+            "requests": "CPU and memory GiB the workload requests.",
+            "usage": "CPU and memory GiB the workload uses.",
+            "waste": "CPU and memory GiB the workload requests but does not use.",
+            "costImpact": "Cost of the wasted resources, by on-demand, spot, and spot-fallback lifecycle.",
+            "totalCostImpact": "Total cost impact of the workload. Sum of cost impacts by lifecycle.",
+        },
+    },
+    "workload_data_transfer_costs": {
+        "description": (
+            "Network data transfer bytes and cost of each workload in a cluster over the sync's "
+            "report window, split by traffic type (internet, inter-region, inter-zone, intra-zone, cloud API)."
+        ),
+        "docs_url": "https://docs.cast.ai/docs/cost-reports",
+        "columns": {
+            "cluster_id": "Identifier of the cluster the workload runs in.",
+            "workloadName": "Name of the workload.",
+            "workloadType": "Type of the workload (e.g. Deployment, StatefulSet).",
+            "namespace": "Kubernetes namespace the workload is in.",
+            "egressMetrics": "Daily egress bytes and cost of the workload, by traffic type.",
+            "ingressMetrics": "Daily ingress bytes and cost of the workload, by traffic type.",
+            "totalCost": "Total data transfer cost of the workload over the report window.",
+            "totalBytes": "Total bytes the workload transferred over the report window.",
+        },
+    },
 }

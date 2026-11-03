@@ -1,7 +1,6 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -198,7 +197,6 @@ export const View: Story = {}
 export const WarehouseTable: Story = {
     args: { id: tableNode.id },
     parameters: {
-        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
         pageUrl: urls.nodeDetail(tableNode.id, 'lineage'),
         msw: {
             mocks: {
@@ -218,7 +216,6 @@ export const WarehouseTable: Story = {
 export const PostHogTable: Story = {
     args: { id: 'events-table-node' },
     parameters: {
-        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
         pageUrl: urls.nodeDetail('events-table-node', 'lineage'),
         msw: {
             mocks: {
@@ -259,6 +256,9 @@ export const NarrowView: Story = {
 }
 
 export const PaginatedColumns: Story = {
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: /^Columns/ }))
+    },
     parameters: {
         msw: {
             mocks: {
@@ -367,4 +367,17 @@ export const SuspendedWithRunHistory: Story = {
 export const NarrowSuspendedWithRunHistory: Story = {
     ...SuspendedWithRunHistory,
     decorators: NarrowView.decorators,
+}
+
+export const DeletedModel: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+                },
+            },
+        },
+    },
 }

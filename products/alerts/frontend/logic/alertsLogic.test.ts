@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -39,6 +41,46 @@ describe('alertsLogic', () => {
         listSpy.mockRestore()
         hogFunctionsListSpy.mockRestore()
         updateSpy?.mockRestore()
+    })
+
+    it('keeps the creator filter and URL in sync', async () => {
+        router.actions.push(
+            urls.alerts(),
+            { tab: 'insights', alert_id: alert.id, created_by: 'creator-from-link' },
+            { section: 'alerts' }
+        )
+        const logic = alertsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(listSpy).toHaveBeenCalledTimes(1)
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.filters.createdBy).toEqual('creator-from-link')
+        expect(listSpy).toHaveBeenLastCalledWith(
+            undefined,
+            expect.objectContaining({ created_by: 'creator-from-link' })
+        )
+
+        await expectLogic(logic, () => logic.actions.setFilters({ createdBy: 'creator-1' })).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({
+            tab: 'insights',
+            alert_id: alert.id,
+            created_by: 'creator-1',
+        })
+        expect(router.values.hashParams).toEqual({ section: 'alerts' })
+        expect(listSpy).toHaveBeenLastCalledWith(undefined, expect.objectContaining({ created_by: 'creator-1' }))
+
+        await expectLogic(logic, () => logic.actions.setFilters({ createdBy: 'All users' })).toFinishAllListeners()
+        expect(router.values.searchParams).toEqual({ tab: 'insights', alert_id: alert.id })
+        expect(listSpy.mock.lastCall?.[1]).not.toHaveProperty('created_by')
+
+        await expectLogic(logic, () => router.actions.push(urls.alerts(), { created_by: 'creator-2' }))
+            .toFinishAllListeners()
+            .toMatchValues({ filters: { search: '', createdBy: 'creator-2' } })
+
+        await expectLogic(logic, () => router.actions.push(urls.alerts()))
+            .toFinishAllListeners()
+            .toMatchValues({ filters: { search: '', createdBy: 'All users' } })
+        logic.unmount()
     })
 
     it('keeps a deleted alert out of a reloaded list', async () => {

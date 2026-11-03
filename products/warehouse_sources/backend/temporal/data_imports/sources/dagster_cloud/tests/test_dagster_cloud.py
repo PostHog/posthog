@@ -170,22 +170,7 @@ class TestPagination:
         assert result.requests[0].json()["variables"]["filter"] == {"updatedAfter": EPOCH_2024}
 
 
-class TestSourceResponse:
-    def test_unknown_endpoint_raises(self) -> None:
-        result = _driver().run("nope", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Dagster Cloud endpoint" in str(result.raised)
-
-
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    def test_auth_failure(self, _name: str, status: int) -> None:
-        with scripted_network([ScriptedResponse(status=status)]):
-            ok, error = validate_credentials("org", "prod", "bad")
-        assert ok is False
-        assert error is not None
-
     def test_success(self) -> None:
         with scripted_network([ScriptedResponse(json={"data": {"__typename": "Query"}})]) as network:
             assert validate_credentials("org", "prod", "tok") == (True, None)

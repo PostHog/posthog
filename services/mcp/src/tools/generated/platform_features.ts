@@ -81,6 +81,7 @@ const advancedActivityLogsList = (): ToolBase<
             query: {
                 activities: params.activities,
                 clients: params.clients,
+                cursor: params.cursor,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
                 follow: params.follow,
@@ -748,8 +749,11 @@ const organizationGet = (): ToolBase<ReturnType<typeof OrganizationGetSchema>, S
             'teams.*.id',
             'teams.*.name',
             'teams.*.project_id',
+            'teams.*.is_demo',
             'projects.*.id',
             'projects.*.name',
+            'available_product_features.*.key',
+            'available_product_features.*.limit',
         ]) as typeof result
         return filtered
     },

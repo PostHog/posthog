@@ -71,6 +71,19 @@ class TokenEndpointAuthMethod(enum.Enum):
     PRIVATE_KEY_JWT = "private_key_jwt"
 
 
+class ProvisioningSigning(enum.Enum):
+    NOT_REQUIRED = "not_required"
+    REQUIRED = "required"
+
+    def request_tag(self, *, signed: bool) -> str:
+        if signed:
+            return "signed"
+        return {
+            ProvisioningSigning.NOT_REQUIRED: "unsigned_exempt",
+            ProvisioningSigning.REQUIRED: "refused",
+        }[self]
+
+
 def is_loopback_host(hostname: str | None) -> bool:
     """Check if hostname is a loopback address (localhost, 127.0.0.0/8, or ::1)."""
     if not hostname:
@@ -341,6 +354,25 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     @property
     def uses_private_key_jwt_auth(self) -> bool:
         return self.token_endpoint_auth_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT
+
+    @property
+    def provisioning_signing(self) -> ProvisioningSigning:
+        provisioning = self.provisioning
+        if not self.is_provisioning_partner or not (
+            provisioning.can_create_accounts or provisioning.pays_for_customers
+        ):
+            return ProvisioningSigning.NOT_REQUIRED
+        return ProvisioningSigning.REQUIRED
+
+    @property
+    def requires_provisioning_signature(self) -> bool:
+        return self.provisioning_signing is ProvisioningSigning.REQUIRED
+
+    @property
+    def cannot_meet_provisioning_signature(self) -> bool:
+        # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
+        # metadata drops its key.
+        return self.requires_provisioning_signature and not self.uses_private_key_jwt_auth
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"

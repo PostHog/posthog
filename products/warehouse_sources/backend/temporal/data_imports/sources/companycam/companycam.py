@@ -1,6 +1,7 @@
 import dataclasses
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -9,12 +10,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     PageNumberPaginator,
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -162,6 +170,54 @@ def get_resource(
     }
 
 
+def _client_config(api_key: str, api_version: str, endpoint: str) -> ClientConfig:
+    return {
+        "base_url": base_url(api_version),
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": _paginator_for(endpoint),
+        # capture=False: project notes, photo/video metadata, and other free-text fields
+        # can carry customer-authored (potentially sensitive) content the name-based HTTP
+        # sample scrubbers aren't guaranteed to catch, same as the other PII-heavy sources.
+        "capture": False,
+    }
+
+
+def _fanout_source(api_key: str, endpoint: str, team_id: int, job_id: str, api_version: str) -> SourceResponse:
+    endpoint_config = COMPANYCAM_ENDPOINTS[endpoint]
+    assert endpoint_config.fanout is not None
+
+    # The client paginator is the child's; the parent may paginate differently (Photos uses a cursor).
+    parent_endpoint_extra: Endpoint = {"paginator": _paginator_for(endpoint_config.fanout.parent_name)}
+
+    # No resume hook: per-parent resume state lists every completed parent path and is rewritten
+    # after each child page, which grows quadratically over large photo or project libraries.
+    resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=COMPANYCAM_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=endpoint_config.fanout,
+            client_config=_client_config(api_key, api_version, endpoint),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=parent_endpoint_extra,
+            page_size_param="per_page",
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=endpoint_config.primary_keys,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        sort_mode="asc",
+    )
+
+
 def companycam_source(
     api_key: str,
     endpoint: str,
@@ -174,16 +230,11 @@ def companycam_source(
 ) -> SourceResponse:
     endpoint_config = COMPANYCAM_ENDPOINTS[endpoint]
 
+    if endpoint_config.fanout is not None:
+        return _fanout_source(api_key, endpoint, team_id, job_id, api_version)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(api_version),
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": _paginator_for(endpoint),
-            # capture=False: project notes, photo/video metadata, and other free-text fields
-            # can carry customer-authored (potentially sensitive) content the name-based HTTP
-            # sample scrubbers aren't guaranteed to catch, same as the other PII-heavy sources.
-            "capture": False,
-        },
+        "client": _client_config(api_key, api_version, endpoint),
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 

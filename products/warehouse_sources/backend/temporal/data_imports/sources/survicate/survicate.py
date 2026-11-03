@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 from requests import Response
@@ -11,6 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     rename_parent_fields,
 )
@@ -55,14 +59,19 @@ class SurvicatePaginator(BaseNextUrlPaginator):
         self._advance_to(self.base_url + next_url)
 
 
-def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
-    client = RESTClient(
-        base_url=f"https://data-api.survicate.com/{api_version}",
+def _client(api_key: str, base_url: str) -> RESTClient:
+    return RESTClient(
+        base_url=base_url,
         auth=APIKeyAuth(api_key=f"Basic {api_key}"),
+        paginator=SurvicatePaginator(base_url),
         allowed_hosts=[],
         allow_redirects=False,
         request_timeout=30,
     )
+
+
+def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
+    client = _client(api_key, f"https://data-api.survicate.com/{api_version}")
     try:
         next(
             client.paginate(
@@ -81,6 +90,66 @@ def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | No
     return True, None
 
 
+def _respondent_uuids(client: RESTClient, manager: ResumableSourceManager[SurvicateResumeConfig]) -> list[str]:
+    uuids: set[str] = set()
+    for surveys in client.paginate(
+        path="surveys", params={"items_per_page": 100}, data_selector="data", data_selector_required=True
+    ):
+        manager.safe_point()
+        for survey in surveys:
+            for responses in client.paginate(
+                path=f"surveys/{survey['id']}/responses",
+                params={"items_per_page": 100},
+                data_selector="data",
+                data_selector_required=True,
+            ):
+                manager.safe_point()
+                for response in responses:
+                    respondent = response.get("respondent")
+                    if isinstance(respondent, dict) and respondent.get("uuid"):
+                        uuids.add(respondent["uuid"])
+    # A sorted list lets a resumed run skip the respondents an earlier attempt finished.
+    return sorted(uuids)
+
+
+def _respondent_attributes(
+    client: RESTClient,
+    manager: ResumableSourceManager[SurvicateResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = manager.load_state() if manager.can_resume() else None
+    resume_uuid = resume.state.get("respondent_uuid") if resume else None
+    resume_next_url = resume.state.get("next_url") if resume else None
+    # A respondent deleted after the response walk no longer has attributes to export.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="respondent_attributes")
+    next_page: dict[str, Any] = {}
+
+    def remember_next_page(state: dict[str, Any] | None, _has_next_page: bool) -> None:
+        next_page["next_url"] = state["next_url"] if state else None
+
+    for uuid in _respondent_uuids(client, manager):
+        initial_state = None
+        if resume_uuid is not None and uuid <= resume_uuid:
+            if uuid < resume_uuid or resume_next_url is None:
+                continue
+            initial_state = {"next_url": resume_next_url}
+        for rows in client.paginate(
+            path=f"respondents/{uuid}/attributes",
+            params={"items_per_page": 100},
+            data_selector="data",
+            data_selector_required=True,
+            hooks=hooks,
+            initial_paginator_state=initial_state,
+            page_state_hook=remember_next_page,
+        ):
+            if not rows:
+                manager.safe_point()
+                continue
+            manager.save_state(
+                SurvicateResumeConfig(state={"respondent_uuid": uuid, "next_url": next_page["next_url"]})
+            )
+            yield [{**row, "respondent_uuid": uuid} for row in rows]
+
+
 def survicate_source(
     config: SurvicateSourceConfig,
     inputs: SourceInputs,
@@ -89,6 +158,14 @@ def survicate_source(
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, inputs.schema_name)
     base_url = f"https://data-api.survicate.com/{api_version}"
+    if inputs.schema_name == "respondent_attributes":
+        client = _client(config.api_key, base_url)
+        return SourceResponse(
+            name=inputs.schema_name,
+            items=lambda: _respondent_attributes(client, manager),
+            primary_keys=PRIMARY_KEYS[inputs.schema_name],
+            on_complete=manager.clear_state,
+        )
     params: dict[str, Any] = {"items_per_page": 100}
     incremental = inputs.schema_name == "responses" and inputs.should_use_incremental_field
     if incremental and inputs.db_incremental_field_last_value is not None:

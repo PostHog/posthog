@@ -81,7 +81,14 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"responses"})
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only={"responses"},
+            # One request per respondent, so syncing it is opt-in.
+            should_sync_default={"respondent_attributes": False},
+        )
 
     def validate_credentials(
         self,
@@ -113,7 +120,7 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
             "Your plan must include the Data Export API.",
             docsUrl="https://developers.survicate.com/data-export/setup/",
             iconPath="/static/services/survicate.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -127,6 +134,7 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="attribute_names",
+                        sync_setting=True,
                         label="Attribute names",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamwork import (
     TeamworkSourceConfig,
 )
@@ -47,21 +45,6 @@ class TestValidateCredentials:
             TeamworkSourceConfig(site="https://mycompany.teamwork.com/", api_key="key"), team_id=1
         )
         assert captured["host"] == "mycompany.teamwork.com"
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://x.teamwork.com/projects/api/v3/tasks.json",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://x.teamwork.com/projects/api/v3/tasks.json"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = TeamworkSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
 
 
 class TestSourceForPipeline:

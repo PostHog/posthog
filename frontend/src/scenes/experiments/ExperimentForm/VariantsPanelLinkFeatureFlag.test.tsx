@@ -135,7 +135,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             )
 
             const link = screen.getByTitle('View feature flag')
-            expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature_flags/1`)
+            expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature-flags/1`)
             expect(link).toHaveAttribute('target', '_blank')
         })
 

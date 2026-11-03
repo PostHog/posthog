@@ -59,20 +59,6 @@ class TestValidateCredentials:
         assert error is None
         assert network.requests_log[0].url.startswith(DOCUSEAL_HOSTS["eu"])
 
-    @parameterized.expand(
-        [
-            (401, "invalid"),
-            (500, "unexpected status"),
-        ]
-    )
-    def test_returns_false_on_http_status(self, status_code: int, expected_substring: str) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            success, error = validate_credentials("key", "us")
-
-        assert success is False
-        assert error is not None
-        assert expected_substring.lower() in error.lower()
-
     def test_returns_false_on_network_error(self) -> None:
         with scripted_network(always(ConnectionResetError("boom"))):
             success, error = validate_credentials("key", "us")

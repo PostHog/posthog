@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
+    IntercomConversationCursor,
     IntercomResumeConfig,
     intercom_source,
     validate_credentials as validate_intercom_credentials,
@@ -34,7 +36,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig], OAuthMixin):
+class IntercomSource(
+    ResumableSource[IntercomSourceConfig, IntercomResumeConfig],
+    CursorSource[IntercomConversationCursor],
+    OAuthMixin,
+):
     codebase_detection = detect(
         env=(
             "^INTERCOM_",
@@ -83,8 +89,8 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.13", "2.15", "2.16")
-    default_version = "2.16"
+    supported_versions = ("2.13", "2.15", "2.16", "2.17")
+    default_version = "2.17"
     api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property
@@ -218,6 +224,14 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
             integration.access_token, schema_name=schema_name, api_version=self.resolve_api_version(api_version)
         )
 
+    def cursor_class(self) -> type[IntercomConversationCursor]:
+        return IntercomConversationCursor
+
+    def merge_cursors(
+        self, current: IntercomConversationCursor, candidate: IntercomConversationCursor
+    ) -> IntercomConversationCursor:
+        return max(current, candidate, key=lambda cursor: cursor.updated_at)
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[IntercomResumeConfig]:
         return ResumableSourceManager[IntercomResumeConfig](inputs, IntercomResumeConfig)
 
@@ -243,5 +257,9 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
+            else None,
+            # Only the HITL events table keeps a source cursor; see `_conversation_hitl_events_generator`.
+            cursor_manager=self.get_cursor_manager(inputs)
+            if inputs.schema_name == "conversation_hitl_events"
             else None,
         )

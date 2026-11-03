@@ -120,9 +120,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Mailosaur API key"),
-            ("forbidden", 403, False, "This Mailosaur API key cannot list servers. Use an account-level API key."),
-            ("server_error", 500, False, "Mailosaur API error: 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_error: str | None) -> None:

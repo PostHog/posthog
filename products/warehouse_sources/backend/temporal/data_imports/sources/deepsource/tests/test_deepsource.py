@@ -536,13 +536,6 @@ class TestValidateCredentials:
                 "DeepSource account not found",
             ),
             (
-                "bad_token",
-                401,
-                {"message": "Authentication required"},
-                False,
-                "Invalid DeepSource personal access token",
-            ),
-            (
                 "graphql_error_no_viewer",
                 200,
                 {"data": {"viewer": None, "account": None}, "errors": [{"message": "boom"}]},

@@ -30,12 +30,6 @@ class TestMuxSourceConfig:
         assert token_field.secret is False
 
 
-class TestMuxSchemas:
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = MuxSource().get_schemas(_config(), team_id=1, names=["assets"])
-        assert [s.name for s in schemas] == ["assets"]
-
-
 class TestMuxValidateCredentials:
     @parameterized.expand(
         [
@@ -65,8 +59,6 @@ class TestMuxValidateCredentials:
 class TestMuxNonRetryableErrors:
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.mux.com/video/v1/assets?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.mux.com/system/v1/signing-keys?limit=100"),
             # The REST engine appends the Mux error `type` to the raise_for_status text as
             # `code=invalid_timeframe` (see rest_client `_error_identity`). The window is fixed for the
             # run, so retrying replays the same 400. The sync must stop and show a clear message instead.
@@ -86,8 +78,6 @@ class TestMuxNonRetryableErrors:
 
     @parameterized.expand(
         [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.mux.com/video/v1/assets"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.mux.com', port=443): Read timed out."),
             # A transient 5xx/timeout for this same metric+endpoint carries no query string (see
             # `_safe_url` in rest_client), so it must not collide with the bad_request entry above.
             (

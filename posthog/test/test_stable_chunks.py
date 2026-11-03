@@ -2,35 +2,30 @@ import json
 import tempfile
 from pathlib import Path
 
-from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser
-from django.contrib.sessions.middleware import SessionMiddleware
-from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+import structlog
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from posthog.models import User
 from posthog.stable_chunks import (
-    STABLE_CHUNKS_COOKIE,
-    STABLE_CHUNKS_FLAG,
     StableChunks,
-    persist_stable_chunks_choice,
+    _resolve_stable_chunks,
     read_stable_chunks_manifest,
-    stable_chunks_choice,
+    stable_chunks_for_request,
 )
-from posthog.utils import get_context_for_template, render_template
+from posthog.utils import get_context_for_template
 
 VALID_MANIFEST = {
     "imports": {"@c/eAAAA": "static/index-S0000000000.js"},
     "preload": {"js": ["static/index-S0000000000.js"], "authenticatedJs": ["static/chunk-S1111111111.js"]},
     "eagerCss": ["static/stylesEagerTailwind-AAAA1111.css", "static/stylesEagerApp-BBBB2222.css"],
 }
-FLAG_ON = {STABLE_CHUNKS_FLAG: True}
-FLAG_OFF = {STABLE_CHUNKS_FLAG: False}
 
 
 class TestStableChunks(SimpleTestCase):
@@ -41,6 +36,7 @@ class TestStableChunks(SimpleTestCase):
             ("empty imports", {**VALID_MANIFEST, "imports": {}}, False),
             ("preload url is not a string", {**VALID_MANIFEST, "preload": {"js": [1], "authenticatedJs": []}}, False),
             ("eager css url is not a string", {**VALID_MANIFEST, "eagerCss": [1]}, False),
+            ("logged-out import is not a string", {**VALID_MANIFEST, "loggedOutImports": [1]}, False),
         ]
     )
     def test_manifest_problems_fall_back_to_the_default_build(self, _name, manifest, expect_stable):
@@ -72,79 +68,89 @@ class TestStableChunks(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("param on beats a cookie off and the flag off", "?stable_chunks=1", "0", FLAG_OFF, True, True),
-            ("param off beats the flag on", "?stable_chunks=0", None, FLAG_ON, True, False),
-            ("fallback beats a cookie on", "?stable_chunks=fallback", "1", None, False, False),
-            ("fallback beats the flag on", "?stable_chunks=fallback", None, FLAG_ON, True, False),
-            ("cookie on beats the flag off", "", "1", FLAG_OFF, True, True),
-            ("cookie off beats the flag on", "", "0", FLAG_ON, True, False),
-            ("flag on", "", None, FLAG_ON, True, True),
-            ("flag off", "", None, FLAG_OFF, True, False),
-            ("flag without a local definition", "", None, {}, True, False),
-            ("flags not evaluated", "", None, None, True, False),
-            ("anonymous with the flag on", "", None, FLAG_ON, False, True),
-            ("anonymous with the flag off", "", None, FLAG_OFF, False, False),
-            ("anonymous without a local definition", "", None, {}, False, False),
+            ("production", False, False, True),
+            ("tests", False, True, True),
+            ("tests with debug on", True, True, True),
+            ("the vite dev server", True, False, False),
         ]
     )
-    def test_choice_precedence(
-        self,
-        _name: str,
-        query: str,
-        cookie: str | None,
-        feature_flags: dict[str, bool] | None,
-        authenticated: bool,
-        expected: bool,
+    def test_only_the_vite_dev_server_skips_the_stable_build(
+        self, _name: str, debug: bool, test: bool, expect_stable: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory) / "frontend" / "dist"
+            dist.mkdir(parents=True)
+            (dist / "stable-chunks-manifest.json").write_text(json.dumps(VALID_MANIFEST))
+            _resolve_stable_chunks.cache_clear()
+            self.addCleanup(_resolve_stable_chunks.cache_clear)
+
+            with override_settings(BASE_DIR=directory, DEBUG=debug, TEST=test):
+                assert (_resolve_stable_chunks() is not None) == expect_stable
+
+    @parameterized.expand(
+        [
+            ("a signed-in page", "", None, True, True),
+            ("a signed-out page", "", None, False, True),
+            ("a page that fell back", "?stable_chunks=fallback", None, True, False),
+            ("an old opt-out param", "?stable_chunks=0", None, True, True),
+            ("an old opt-out cookie", "", "0", False, True),
+        ]
+    )
+    def test_every_page_gets_the_stable_build_unless_it_fell_back(
+        self, _name: str, query: str, cookie: str | None, authenticated: bool, expect_stable: bool
     ) -> None:
         request = RequestFactory().get(f"/{query}")
         request.user = User() if authenticated else AnonymousUser()
         if cookie:
-            request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
-        bootstrapped_flags = feature_flags if authenticated else None
-        locally_evaluated_flags = {} if authenticated else (feature_flags or {})
-        fallback_labels = {"authenticated": str(authenticated).lower()}
-        fallbacks_before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
+            request.COOKIES["ph_stable_chunks"] = cookie
+        stable = StableChunks(
+            imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
+        )
 
-        with patch(
-            "posthoganalytics.feature_enabled",
-            side_effect=lambda key, *_args, **_kwargs: locally_evaluated_flags.get(key),
-        ) as feature_enabled:
-            assert stable_chunks_choice(request, bootstrapped_flags) == expected
-
-        for call in feature_enabled.call_args_list:
-            assert call.kwargs["only_evaluate_locally"] is True
-            assert call.kwargs["send_feature_flag_events"] is False
-        fallbacks_after = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
-        assert fallbacks_after - fallbacks_before == (1 if query == "?stable_chunks=fallback" else 0)
-
-    def test_a_failing_logged_out_flag_check_serves_the_hashed_build(self) -> None:
-        request = RequestFactory().get("/")
-        request.user = AnonymousUser()
-
-        with patch("posthoganalytics.feature_enabled", side_effect=RuntimeError("flag definitions unavailable")):
-            assert stable_chunks_choice(request, None) is False
+        with patch("posthog.stable_chunks._resolve_stable_chunks", return_value=stable):
+            assert (stable_chunks_for_request(request) is not None) == expect_stable
 
     @parameterized.expand(
         [
-            ("param on stores the choice for 30 days", "?stable_chunks=1", "1", 60 * 60 * 24 * 30),
-            ("param off stores the opt-out for 30 days", "?stable_chunks=0", "0", 60 * 60 * 24 * 30),
-            ("fallback leaves the cookie alone", "?stable_chunks=fallback", None, None),
-            ("no param leaves the cookie alone", "", None, None),
+            ("a chunk that failed to load", "?stable_chunks=fallback", "load_failed"),
+            (
+                "a chunk missing from the import map",
+                "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+                "unmapped_specifier",
+            ),
+            ("a value that is not a specifier", "?stable_chunks=fallback&stable_chunks_unmapped=<b>", "load_failed"),
         ]
     )
-    def test_the_choice_is_persisted_on_the_response(self, _name, query, expected_value, expected_max_age):
+    def test_a_fallback_counts_why_it_reloaded(self, _name: str, query: str, reason: str) -> None:
         request = RequestFactory().get(f"/{query}")
-        response = HttpResponse()
+        request.user = AnonymousUser()
+        labels = {"authenticated": "false", "reason": reason}
+        before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) or 0
 
-        persist_stable_chunks_choice(request, response)
+        assert stable_chunks_for_request(request) is None
 
-        cookie = response.cookies.get(STABLE_CHUNKS_COOKIE)
-        assert (cookie.value if cookie else None) == expected_value
-        assert (cookie["max-age"] if cookie else None) == expected_max_age
-        if expected_value:
-            assert cookie is not None
-            # Only the server reads the choice, so scripts on the page never need it.
-            assert cookie["httponly"] is True
+        assert REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) == before + 1
+
+    def test_an_unmapped_specifier_is_logged_without_the_page_path(self) -> None:
+        page_path = "/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token"
+        request = RequestFactory().get(
+            f"{page_path}?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+            HTTP_REFERER=f"https://app.example.com{page_path}",
+        )
+        request.user = AnonymousUser()
+        # The structlog context is thread-local, so an earlier test's `bind()` on this worker would leak into the event.
+        structlog.get_logger().new()
+
+        with capture_logs() as logs:
+            stable_chunks_for_request(request)
+
+        # posthog/settings/logs.py configures structlog with one context dict per thread. Nothing clears it between log calls.
+        # Keys that earlier code bound on this thread appear on this event. A whole-dict comparison then depends on test order.
+        [unmapped] = [log for log in logs if log["event"] == "stable_chunks_unmapped_specifier"]
+        assert unmapped["specifier"] == "@c/Abc123"
+        assert unmapped["log_level"] == "warning"
+        assert "/reset/" not in str(unmapped)
+        assert "fake-reset-token" not in str(unmapped)
 
     def _context_with_stable_chunks(self, stable: StableChunks) -> dict:
         # no-preloaded-app-context and E2E_TESTING skip the request's team/user lookups, which need
@@ -170,6 +176,24 @@ class TestStableChunks(SimpleTestCase):
         assert context["preload_css_url"] == ""
         assert context["stable_preload_css_urls"] == stable.eager_css_urls
 
+    @parameterized.expand(
+        [
+            ("only its part of the map", frozenset({"@c/eAAAA"}), {"@c/eAAAA"}),
+            ("the whole map from a build with no logged-out part", None, {"@c/eAAAA", "@c/eBBBB"}),
+        ]
+    )
+    def test_a_logged_out_page_renders(self, _name, logged_out_specifiers, expected_specifiers):
+        stable = StableChunks(
+            imports={"@c/eAAAA": "static/index-S0000000000.js", "@c/eBBBB": "static/Insight-S1111111111.js"},
+            preload_js_urls=(),
+            authenticated_preload_js_urls=(),
+            logged_out_specifiers=logged_out_specifiers,
+        )
+
+        context = self._context_with_stable_chunks(stable)
+
+        assert set(json.loads(context["stable_chunks_importmap"])["imports"]) == expected_specifiers
+
     def test_no_eager_css_urls_keeps_the_single_preload_link(self):
         stable = StableChunks(
             imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
@@ -178,47 +202,3 @@ class TestStableChunks(SimpleTestCase):
         context = self._context_with_stable_chunks(stable)
 
         assert "stable_preload_css_urls" not in context
-
-
-class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
-    def _user_request(self, query: str) -> HttpRequest:
-        request = RequestFactory().get(f"/{query}")
-        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
-        request.user = self.user
-        return request
-
-    @parameterized.expand([("opting in", "1"), ("opting out", "0")])
-    def test_rendering_a_page_persists_the_choice(self, _name, param):
-        # Any template exercises this: render_template persists the choice for every page it
-        # returns, and the app shell template only exists after a frontend build.
-        request = self._user_request(f"?stable_chunks={param}")
-
-        response = render_template("sso_reauth_complete.html", request)
-
-        assert response.cookies[STABLE_CHUNKS_COOKIE].value == param
-
-    @parameterized.expand(
-        [
-            ("flag on", "", FLAG_ON, True),
-            ("flag off", "", FLAG_OFF, False),
-            ("flag without a local definition", "", {}, False),
-            ("flag evaluation failed", "", None, False),
-            ("fallback with the flag on", "?stable_chunks=fallback", FLAG_ON, False),
-        ]
-    )
-    def test_the_flag_picks_the_build_it_bootstraps(self, _name, query, flags, expect_stable):
-        request = self._user_request(query)
-        stable = StableChunks(
-            imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
-        )
-
-        with (
-            patch("posthoganalytics.get_all_flags", return_value=flags) as get_all_flags,
-            patch("posthog.stable_chunks._resolve_stable_chunks", return_value=stable),
-        ):
-            context = get_context_for_template("index.html", request)
-
-        assert context.get("stable_chunks", False) == expect_stable
-        assert context["posthog_bootstrap"].get("featureFlags") == flags
-        get_all_flags.assert_called_once()
-        assert get_all_flags.call_args.kwargs["only_evaluate_locally"] is True

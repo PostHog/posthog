@@ -20,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads
     AmazonAdsEndpointConfig,
     AmazonAdsReportConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    request_deadline,
+    stop_at_request_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -242,7 +246,7 @@ class AmazonAdsClient:
         # Built per client rather than as a decorator, so a test can swap the wait policy out.
         self._retrying = Retrying(
             retry=retry_if_exception_type((AmazonAdsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-            stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+            stop=stop_after_attempt(MAX_RETRY_ATTEMPTS) | stop_at_request_deadline(),
             wait=wait_exponential_jitter(initial=2, max=120),
             reraise=True,
         )
@@ -307,7 +311,8 @@ class AmazonAdsClient:
         extra_headers: Optional[dict[str, str]] = None,
         http: Optional[requests.Session] = None,
     ) -> requests.Response:
-        return self._retrying(self._send, method, path, profile_id, body, extra_headers, http)
+        with request_deadline():
+            return self._retrying(self._send, method, path, profile_id, body, extra_headers, http)
 
     def list_profiles(self) -> list[dict[str, Any]]:
         body = self.request("GET", "/v2/profiles").json()
@@ -416,9 +421,8 @@ def _report_rows(
                 continue
 
             rows = client.download_report(url)
-            # Amazon does not order the file, and the pipeline advances the `date` cursor from
-            # each batch it writes, so a batch must never carry a date later than the rows
-            # still to come for this profile.
+            # Amazon does not order the file. The sort gives each report an ascending `date`, but
+            # the run has no order: the dates start again for each profile in a window.
             rows.sort(key=lambda row: str(row.get("date") or ""))
             yield from _batched_report_rows(rows, profile_id)
 
@@ -517,5 +521,4 @@ def amazon_ads_source(
         partition_mode="datetime" if is_report else None,
         partition_format="day" if is_report else None,
         partition_keys=["date"] if is_report else None,
-        sort_mode="asc",
     )

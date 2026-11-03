@@ -13,6 +13,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -21,7 +22,6 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
 import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
@@ -542,6 +542,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                             // and read direction so the preview matches what the alert will score.
                             config: formConfig,
                             evaluation_delay_intervals: values.alertForm.evaluation_delay_intervals ?? 0,
+                            // A saved alert's earlier AI checks are part of what the AI detector reads.
+                            alert: values.alertForm.id ?? null,
                         })) as AlertSimulationResult
                     } catch (error) {
                         if (values.simulationRequestId === requestId) {

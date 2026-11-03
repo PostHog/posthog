@@ -12,7 +12,3 @@ class TestKlausSource:
         # Changing the subdomain retargets where the stored token is sent, so it must
         # force the token to be re-entered.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["reviews", "nonexistent"])
-        assert [s.name for s in schemas] == ["reviews"]

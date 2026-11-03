@@ -16,6 +16,10 @@ ANNOTATIONS_LIMIT = 1000
 # response well under MAX_RESPONSE_BYTES even for large dashboards.
 DASHBOARD_VERSIONS_PAGE_SIZE = 50
 
+# Each library element carries its full panel JSON in `model`, so pages stay at Grafana's default
+# `perPage` to keep a response well under MAX_RESPONSE_BYTES.
+LIBRARY_ELEMENTS_PAGE_SIZE = 100
+
 PaginationStyle = Literal["page", "time_window", "continue_token", "none"]
 
 
@@ -39,15 +43,20 @@ class GrafanaEndpointConfig:
     # "none": one request returns the whole collection.
     pagination: PaginationStyle = "none"
     page_size_param: str = "limit"
+    page_size: int = DEFAULT_PAGE_SIZE
     # Number of the first page for "page" pagination; `/api/orgs` counts pages from 0.
     first_page: int = 1
     # Key holding the rows when the response is wrapped (e.g. {"teams": [...], "totalCount": N});
-    # None when the endpoint returns a bare JSON array.
+    # dotted for nested wrappers ("result.elements"). None when the endpoint returns a bare JSON array.
     data_key: str | None = None
     params: dict[str, str] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     fan_out: GrafanaFanOutConfig | None = None
+    # Rows are access-control resource permissions, keyed by the derived `subject` column.
+    resource_permissions: bool = False
+    # Reason reported by the table picker when the endpoint returns 404, e.g. an Enterprise-only API.
+    not_found_reason: str | None = None
 
 
 GRAFANA_ENDPOINTS: dict[str, GrafanaEndpointConfig] = {
@@ -86,6 +95,40 @@ GRAFANA_ENDPOINTS: dict[str, GrafanaEndpointConfig] = {
         path="/api/teams/{parent_id}/members",
         fan_out=GrafanaFanOutConfig(parent="teams", parent_field="id", child_field="teamId"),
         primary_keys=["teamId", "userId"],
+    ),
+    "library_elements": GrafanaEndpointConfig(
+        name="library_elements",
+        path="/api/library-elements",
+        pagination="page",
+        page_size_param="perPage",
+        page_size=LIBRARY_ELEMENTS_PAGE_SIZE,
+        data_key="result.elements",
+        primary_keys=["uid"],
+    ),
+    # Grafana's per-dashboard and per-folder permission endpoints are deprecated in favor of the
+    # access-control resource permission API. Its `id` is 0 when Grafana serves permissions from
+    # unified storage, and `userId` / `teamId` / `builtInRole` are omitted when empty, so rows are
+    # keyed by a derived `subject` instead.
+    "dashboard_permissions": GrafanaEndpointConfig(
+        name="dashboard_permissions",
+        path="/api/access-control/dashboards/{parent_id}",
+        fan_out=GrafanaFanOutConfig(parent="dashboards", parent_field="uid", child_field="dashboardUid"),
+        resource_permissions=True,
+        primary_keys=["dashboardUid", "subject", "isInherited", "permission"],
+    ),
+    "folder_permissions": GrafanaEndpointConfig(
+        name="folder_permissions",
+        path="/api/access-control/folders/{parent_id}",
+        fan_out=GrafanaFanOutConfig(parent="folders", parent_field="uid", child_field="folderUid"),
+        resource_permissions=True,
+        primary_keys=["folderUid", "subject", "isInherited", "permission"],
+    ),
+    # Role-based access control is a Grafana Enterprise and Grafana Cloud feature; OSS returns 404.
+    "roles": GrafanaEndpointConfig(
+        name="roles",
+        path="/api/access-control/roles",
+        primary_keys=["uid"],
+        not_found_reason="Roles are only available on Grafana Enterprise and Grafana Cloud.",
     ),
     "users": GrafanaEndpointConfig(
         name="users",

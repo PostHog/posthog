@@ -8,25 +8,35 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import REPLY_IO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import (
+    REPLY_IO_ENDPOINTS,
+    ReplyIoEndpointConfig,
+)
 
 REPLY_IO_BASE_URL = "https://api.reply.io/v3"
-# List endpoints accept `top` up to 1000 (default 25); the largest page minimises round trips
-# against Reply's 100 requests/minute rate limit.
-PAGE_SIZE = 1000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ReplyIoResumeConfig:
     # Reply paginates with `top`/`skip` offsets. A crashed full-refresh sync resumes from the
     # offset after the last yielded page; merge dedupes any re-pulled rows on `id`.
     skip: int = 0
+    # The per-sequence endpoints save the `build_dependent_resource` checkpoint (which sequences
+    # finished, where the current one stopped) here instead of `skip`.
+    fanout_state: dict[str, Any] | None = None
 
 
 def _headers() -> dict[str, str]:
@@ -88,6 +98,87 @@ class ReplyIoOffsetPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": REPLY_IO_BASE_URL,
+        "headers": _headers(),
+        "auth": {"type": "bearer", "token": api_key},
+    }
+
+
+def _page_endpoint(config: ReplyIoEndpointConfig) -> Endpoint:
+    if config.paginated:
+        paginator: BasePaginator = ReplyIoOffsetPaginator(limit=config.page_size)
+        # Paginated list endpoints wrap rows in {"items": [...], "hasMore": bool}.
+        data_selector: Optional[str] = "items"
+    else:
+        # Small catalog endpoints (custom fields, template folders, sequence steps) return a bare,
+        # unpaginated array.
+        paginator = SinglePagePaginator()
+        data_selector = None
+
+    endpoint: Endpoint = {
+        "paginator": paginator,
+        "data_selector": data_selector,
+        # A 200 whose body isn't the expected list shape (paginated: not a dict with an
+        # `items` list; unpaginated: not a bare array) is treated as transient and
+        # retried, matching the hand-rolled source's defensive payload check.
+        "data_selector_malformed_retryable": True,
+    }
+    if config.method != "GET":
+        endpoint["method"] = config.method
+    if config.json is not None:
+        endpoint["json"] = config.json
+    return endpoint
+
+
+def _fanout_source(
+    api_key: str,
+    config: ReplyIoEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ReplyIoResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent = REPLY_IO_ENDPOINTS[config.fanout.parent_name]
+
+    initial_fanout_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_fanout_state = resume.fanout_state
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(ReplyIoResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs={config.name: config, parent.name: parent},
+        child_endpoint=config.name,
+        fanout=config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # The offset paginator sends `top` itself.
+        page_size_param=None,
+        parent_endpoint_extra=_page_endpoint(parent),
+        child_endpoint_extra=_page_endpoint(config),
+        child_params_extra=config.params,
+        resume_hook=save_fanout_checkpoint,
+        initial_paginator_state=initial_fanout_state,
+    )
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def reply_io_source(
     api_key: str,
     endpoint: str,
@@ -97,36 +188,16 @@ def reply_io_source(
 ) -> SourceResponse:
     config = REPLY_IO_ENDPOINTS[endpoint]
 
-    if config.paginated:
-        paginator: BasePaginator = ReplyIoOffsetPaginator(limit=PAGE_SIZE)
-        # Paginated list endpoints wrap rows in {"items": [...], "hasMore": bool}.
-        data_selector: Optional[str] = "items"
-    else:
-        # Small catalog endpoints (custom fields, template folders) return a bare, unpaginated array.
-        paginator = SinglePagePaginator()
-        data_selector = None
+    if config.fanout is not None:
+        return _fanout_source(api_key, config, team_id, job_id, resumable_source_manager)
+
+    endpoint_config = _page_endpoint(config)
+    endpoint_config["path"] = config.path
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": REPLY_IO_BASE_URL,
-            "headers": _headers(),
-            "auth": {"type": "bearer", "token": api_key},
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "paginator": paginator,
-                    "data_selector": data_selector,
-                    # A 200 whose body isn't the expected list shape (paginated: not a dict with an
-                    # `items` list; unpaginated: not a bare array) is treated as transient and
-                    # retried, matching the hand-rolled source's defensive payload check.
-                    "data_selector_malformed_retryable": True,
-                },
-            }
-        ],
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -160,7 +231,25 @@ def reply_io_source(
     )
 
 
-def check_access(api_key: str, path: str, paginated: bool = False) -> tuple[int, Optional[str]]:
+def _probe_target(config: ReplyIoEndpointConfig) -> ReplyIoEndpointConfig:
+    # A per-sequence endpoint has no path to probe without a sequence ID; its parent listing needs
+    # the same scope.
+    return REPLY_IO_ENDPOINTS[config.fanout.parent_name] if config.fanout is not None else config
+
+
+def _missing_access_message(config: ReplyIoEndpointConfig) -> str:
+    if config.scope is None:
+        return "Reply only lists team users for accounts that belong to an organization"
+    return f"Your Reply API key is missing the `{config.scope}` scope"
+
+
+def check_access(
+    api_key: str,
+    path: str,
+    paginated: bool = False,
+    method: str = "GET",
+    json: Optional[dict[str, Any]] = None,
+) -> tuple[int, Optional[str]]:
     """Probe an endpoint with the smallest possible request.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
@@ -170,9 +259,11 @@ def check_access(api_key: str, path: str, paginated: bool = False) -> tuple[int,
         headers={"Authorization": f"Bearer {api_key}", **_headers()}, redact_values=(api_key,)
     )
     try:
-        response = session.get(
+        response = session.request(
+            method,
             f"{REPLY_IO_BASE_URL}{path}",
             params={"top": 1} if paginated else None,
+            json=json,
             timeout=15,
         )
     except Exception as e:
@@ -187,13 +278,21 @@ def check_access(api_key: str, path: str, paginated: bool = False) -> tuple[int,
     return 200, None
 
 
+def _probe(api_key: str, config: ReplyIoEndpointConfig) -> tuple[int, Optional[str]]:
+    target = _probe_target(config)
+    # Reporting endpoints require a `filters` body; an empty one reads only the last seven days,
+    # which keeps the probe cheap.
+    body: Optional[dict[str, Any]] = {"filters": {}} if target.json is not None else None
+    return check_access(api_key, target.path, paginated=target.paginated, method=target.method, json=body)
+
+
 def validate_credentials(api_key: str, endpoint: Optional[str] = None) -> tuple[bool, str | None]:
     """Validate the API key against `/whoami` (needs no scope), or a specific endpoint's scope."""
     if endpoint is not None:
         config = REPLY_IO_ENDPOINTS[endpoint]
-        status, message = check_access(api_key, config.path, paginated=config.paginated)
+        status, message = _probe(api_key, config)
         if status == 403:
-            return False, f"Your Reply API key is missing the `{config.scope}` scope"
+            return False, _missing_access_message(config)
     else:
         status, message = check_access(api_key, "/whoami")
 
@@ -208,7 +307,7 @@ def check_endpoint_permissions(api_key: str, endpoints: list[str]) -> dict[str, 
     """Per-table scope status for the schema picker. ``None`` = reachable, str = why not.
 
     Endpoints sharing a scope share one probe, so the whole check costs at most one request per
-    distinct scope. Only a real 403 counts as a missing scope — throttles, 5xx, and network blips
+    distinct scope (endpoints with no scope are probed on their own path). Only a real 403 counts as a missing scope — throttles, 5xx, and network blips
     are reported as reachable so a transient error never blocks the picker.
     """
     verdict_by_scope: dict[str, str | None] = {}
@@ -218,10 +317,9 @@ def check_endpoint_permissions(api_key: str, endpoints: list[str]) -> dict[str, 
         if config is None:
             results[name] = None
             continue
-        if config.scope not in verdict_by_scope:
-            status, _ = check_access(api_key, config.path, paginated=config.paginated)
-            verdict_by_scope[config.scope] = (
-                f"Your Reply API key is missing the `{config.scope}` scope" if status == 403 else None
-            )
-        results[name] = verdict_by_scope[config.scope]
+        verdict_key = config.scope or config.path
+        if verdict_key not in verdict_by_scope:
+            status, _ = _probe(api_key, config)
+            verdict_by_scope[verdict_key] = _missing_access_message(config) if status == 403 else None
+        results[name] = verdict_by_scope[verdict_key]
     return results

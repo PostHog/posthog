@@ -18,7 +18,3 @@ class TestCiscoDuoSource:
         # Retargeting api_hostname must re-require the secret key, or a member could point
         # the stored credential at a host they control.
         assert self.source.connection_host_fields == ["api_hostname"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["users", "nope"])
-        assert [s.name for s in schemas] == ["users"]

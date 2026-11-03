@@ -55,6 +55,10 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
         return ExternalDataSourceType.GITLAB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "gitlab"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # `gitlab_host` is where the stored token is sent; retargeting it must re-require the token.
         return ["gitlab_host"]
@@ -65,7 +69,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
             name=ExternalDataSourceType.GITLAB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitLab",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync issues, merge requests, commits, pipelines, and more from a GitLab project.
 
 Create a personal access token in your GitLab **User settings > Access tokens** with the `read_api` scope.

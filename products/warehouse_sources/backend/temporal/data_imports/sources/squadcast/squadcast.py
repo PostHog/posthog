@@ -7,9 +7,12 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.squadcast.settings import (
@@ -151,7 +154,7 @@ class SquadcastClient:
         assert self._access_token is not None
         return self._access_token
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((SquadcastRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=1, max=30),
@@ -343,6 +346,62 @@ def _get_postmortem_rows(
         yield _prepare_rows(rows, config, team_id)
 
 
+def _iter_schedule_rotations(
+    client: SquadcastClient,
+    config: SquadcastEndpointConfig,
+    team_id: str,
+    start_cursor: str | None,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[SquadcastResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    schedules_config = SQUADCAST_ENDPOINTS["schedules"]
+    assert schedules_config.team_param is not None
+    cursor = start_cursor
+    while True:
+        params: dict[str, Any] = {schedules_config.team_param: team_id, "pageSize": PAGE_SIZE}
+        if cursor:
+            params["cursor"] = cursor
+
+        data = client.get(schedules_config.path, params)
+        page_info = data.get("pageInfo", {}) if isinstance(data, dict) else {}
+        next_cursor = page_info.get("nextCursor") if page_info.get("hasNext") else None
+
+        # Stage the cursor of the current schedules page, not the next one: a resume re-reads
+        # this page's rotations, and merge dedupes them on the primary key.
+        resumable_source_manager.save_state(SquadcastResumeConfig(team_id=team_id, cursor=cursor))
+
+        for schedule in _extract_rows(data, schedules_config.envelope):
+            schedule_id = schedule.get("id") if isinstance(schedule, dict) else None
+            if schedule_id is None:
+                continue
+            try:
+                rotations = _extract_rows(client.get(config.path.format(schedule_id=schedule_id)), config.envelope)
+            except requests.HTTPError as exc:
+                # 404: the schedule was deleted after the list request. 403: the role can't read this
+                # schedule. Either way skip only this schedule, so the team's other schedules still sync.
+                if exc.response is not None and exc.response.status_code in (403, 404):
+                    logger.warning(
+                        f"Squadcast: cannot read rotations of schedule {schedule_id} for team {team_id} "
+                        f"(status={exc.response.status_code}), skipping"
+                    )
+                    rotations = []
+                else:
+                    raise
+
+            for rotation in rotations:
+                if isinstance(rotation, dict):
+                    rotation.setdefault("scheduleID", schedule_id)
+
+            if rotations:
+                yield _prepare_rows(rotations, config, team_id)
+            else:
+                resumable_source_manager.safe_point()
+
+        if not next_cursor:
+            break
+        cursor = next_cursor
+
+
 def _iter_team_rows(
     client: SquadcastClient,
     config: SquadcastEndpointConfig,
@@ -362,19 +421,22 @@ def _iter_team_rows(
         )
     elif config.pagination == "postmortems":
         yield from _get_postmortem_rows(client, config, team_id, logger, db_incremental_field_last_value)
+    elif config.pagination == "schedule_rotations":
+        yield from _iter_schedule_rotations(client, config, team_id, start_cursor, logger, resumable_source_manager)
     else:
         assert config.team_param is not None
         data = client.get(config.path, {config.team_param: team_id})
         rows = _extract_rows(data, config.envelope)
 
-        # See settings.py: escalation policies aren't paginated client-side, so check the
-        # reported total for silent truncation.
+        # See settings.py: escalation policies and squads aren't paginated client-side, so check
+        # the reported total or next-page flag for silent truncation.
         if isinstance(data, dict):
             total_count = data.get("meta", {}).get("total_count")
-            if total_count is not None and total_count > len(rows):
+            has_next = bool((data.get("pageInfo") or {}).get("hasNext"))
+            if has_next or (total_count is not None and total_count > len(rows)):
                 logger.warning(
                     f"Squadcast: endpoint '{config.path}' for team {team_id} returned {len(rows)} "
-                    f"of {total_count} rows; results may be truncated"
+                    f"of {total_count if total_count is not None else 'more'} rows; results may be truncated"
                 )
 
         if rows:
@@ -460,7 +522,7 @@ def squadcast_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=[config.primary_key],
+        primary_keys=list(config.primary_keys),
         # Incremental endpoints fan out over teams, so rows are not globally ordered by the
         # incremental field; "desc" makes the pipeline persist the watermark only after the
         # whole job completes instead of checkpointing a possibly-unsafe per-batch maximum.

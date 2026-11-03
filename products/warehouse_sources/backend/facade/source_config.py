@@ -12,9 +12,9 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
-from pydantic.json_schema import WithJsonSchema
+from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import CDCEngine, ExternalDataSourceType
 
 __all__ = [
     "DataWarehouseSourceCategory",
@@ -55,6 +55,37 @@ def _require_type_field(schema: dict[str, Any]) -> None:
 
 _WIRE_MODEL_CONFIG = ConfigDict(extra="forbid", json_schema_extra=_require_type_field)
 
+# Server-side storage metadata. Every top-level field is a connection field unless it opts out
+# here, because a setting stored as a connection field still works, while a credential stored as
+# a setting leaks. The flag stays out of the API payload and the OpenAPI schema, so the generated
+# frontend types do not change.
+SyncSettingFlag = Annotated[
+    SkipJsonSchema[bool],
+    Field(
+        exclude=True,
+        description=(
+            "Marks a top-level field as a sync setting (what or how much to import) instead of a"
+            " connection field (what is needed to authenticate or reach the vendor)."
+        ),
+    ),
+]
+
+
+# Server-side storage metadata, like `SyncSettingFlag`. A selector is an account chosen after the
+# user authenticates (an ad account, a property, a site). Several sources can share one OAuth
+# integration row, so the choice belongs to the source and not to the row. `oauth-account-select`
+# and `credential-account-select` fields are selectors without the flag.
+AccountSelectorFlag = Annotated[
+    SkipJsonSchema[bool],
+    Field(
+        exclude=True,
+        description=(
+            "Marks a top-level field as an account selector: the account, property or site that the"
+            " user chooses after authenticating. It stays with the source, not with the credentials."
+        ),
+    ),
+]
+
 
 class DataWarehouseSourceCategory(StrEnum):
     DATABASES = "Databases"
@@ -75,9 +106,18 @@ class DataWarehouseSourceCategory(StrEnum):
 
 
 class ReleaseStatus(StrEnum):
-    ALPHA = "alpha"
     BETA = "beta"
     GA = "ga"
+    # Deprecated alias of BETA so source PRs written before alpha was dropped still import.
+    # Remove once no open PR uses it.
+    ALPHA = "beta"
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
+        # The alias would otherwise list "beta" twice in the OpenAPI enum.
+        schema = handler.resolve_ref_schema(handler(core_schema))
+        schema["enum"] = list(dict.fromkeys(schema["enum"]))
+        return schema
 
 
 class SourceFieldInputConfigType(StrEnum):
@@ -141,6 +181,7 @@ class SourceFieldOauthAccountSelectConfig(BaseModel):
     name: str
     placeholder: str | None = None
     required: bool | None = None
+    sync_setting: SyncSettingFlag = False
     type: Literal["oauth-account-select"] = "oauth-account-select"
 
 
@@ -195,6 +236,8 @@ class SourceFieldInputConfig(BaseModel):
             " must explicitly classify every field."
         ),
     )
+    account_selector: AccountSelectorFlag = False
+    sync_setting: SyncSettingFlag = False
     # Spelled out as a `Literal` of the enum members because pydantic infers a
     # discriminated union only from `Literal` discriminator fields. The stored value is
     # still a `SourceFieldInputConfigType` member.
@@ -245,6 +288,8 @@ class SourceFieldSelectConfig(BaseModel):
     name: str
     options: list[SourceFieldSelectConfigOption]
     required: bool
+    account_selector: AccountSelectorFlag = False
+    sync_setting: SyncSettingFlag = False
     type: Literal["select"] = "select"
 
 
@@ -255,6 +300,8 @@ class SourceFieldSwitchGroupConfig(BaseModel):
     fields: list["SourceFieldConfig"]
     label: str
     name: str
+    account_selector: AccountSelectorFlag = False
+    sync_setting: SyncSettingFlag = False
     type: Literal["switch-group"] = "switch-group"
 
 
@@ -395,6 +442,13 @@ class SourceConfigResponse(SourceConfig):
         description="Vendor API docs or changelog URL, or null when the vendor publishes none.",
     )
     deprecatedVersions: list[SourceVersionDeprecation]
+    cdcEngine: CDCEngine | None = Field(
+        default=None,
+        description=(
+            "Change data capture engine, which picks the CDC setup form and status panel. Null when"
+            " the source has no CDC."
+        ),
+    )
     tables: list[SourceDocumentedTable] | None = Field(
         default=None,
         description=(

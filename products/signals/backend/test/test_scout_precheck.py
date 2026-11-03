@@ -17,11 +17,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.customer_analytics.backend.facade.testing import create_account
+from products.experiments.backend.facade.testing import create_experiment
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
@@ -96,6 +98,12 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         properties = capture.call_args.kwargs["properties"]
         assert capture.call_args.kwargs["event"] == "scout_precheck_evaluated"
         assert (properties["outcome"], properties["row_count"]) == (outcome, row_count)
+        stored = SignalScoutConfig.all_teams.get(team=self.team, skill_name=SKILL)
+        assert (stored.last_precheck_at, stored.last_precheck_outcome, stored.last_precheck_row_count) == (
+            NOW,
+            outcome,
+            row_count,
+        )
 
     @parameterized.expand(
         [
@@ -256,6 +264,35 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         assert result is not None
         assert (result.outcome, result.query_source) == (outcome, "skill_default")
 
+    def test_apm_default_skips_only_without_spans_in_the_last_day(self) -> None:
+        skill = "signals-scout-apm"
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+
+        def evaluate():
+            with (
+                patch(ROLLOUT_PERCENT, return_value=100),
+                patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+            ):
+                return evaluate_scout_precheck(self.team.pk, skill)
+
+        outcomes = []
+        for hours_ago in (25, 23):
+            timestamp = (NOW - timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S.%f")
+            sync_execute(
+                "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+                "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES "
+                f"(generateUUIDv4(), {self.team.pk}, 't{hours_ago}', 's{hours_ago}', '', 'GET /api', 2, "
+                f"'{timestamp}', '{timestamp}', '{timestamp}', 0, 'web')"
+            )
+            result = evaluate()
+            assert result is not None
+            outcomes.append((result.outcome, result.query_source))
+
+        assert outcomes == [("skip", "skill_default"), ("run", "skill_default")]
+
     @parameterized.expand(
         [
             # Recordings stopped 20 days ago: a capture cliff the scout must still see.
@@ -287,11 +324,28 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         assert result is not None
         assert (result.outcome, result.query_source) == (outcome, "skill_default")
 
-    def test_project_outside_the_rollout_runs_as_before(self) -> None:
-        result, capture = self._evaluate(rollout_percent=0)
+    @parameterized.expand(
+        [
+            ("team_managed", SignalScoutConfig.ManagedBy.TEAM, True, False),
+            ("background_lane_without_require_precheck", SignalScoutConfig.ManagedBy.BACKGROUND, False, False),
+            ("background_lane_with_require_precheck", SignalScoutConfig.ManagedBy.BACKGROUND, True, True),
+        ]
+    )
+    def test_project_outside_the_rollout(self, _name, managed_by, require_precheck, expect_gated) -> None:
+        SignalScoutConfig.all_teams.filter(team=self.team).update(managed_by=managed_by)
+        lanes = [{"skill_name": SURVEYS_SKILL, "require_precheck": require_precheck}]
+        with patch(
+            "products.signals.backend.scout_harness.team_limits._read_flag_payload",
+            return_value={"background_lanes": lanes},
+        ):
+            result, capture = self._evaluate(rollout_percent=0)
 
-        assert result is None
-        capture.assert_not_called()
+        if expect_gated:
+            assert result is not None
+            assert (result.outcome, result.query_source) == ("skip", "skill_default")
+        else:
+            assert result is None
+            capture.assert_not_called()
 
 
 # Non-atomic: ClickHouse reads `system.*` tables over its own Postgres connection, so rows must be committed.
@@ -312,12 +366,14 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def _seed_experiment(self, *, started: bool, days_since_update: int) -> None:
         FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
-        Experiment = apps.get_model("experiments", "Experiment")
         flag = FeatureFlag.objects.create(team=self.team, key=f"exp_flag_{started}_{days_since_update}")
-        experiment = Experiment.objects.create(
-            team=self.team, name="e", feature_flag=flag, start_date=NOW - timedelta(days=60) if started else None
+        create_experiment(
+            team_id=self.team.id,
+            name="e",
+            feature_flag_id=flag.id,
+            start_date=NOW - timedelta(days=60) if started else None,
+            updated_at=NOW - timedelta(days=days_since_update),
         )
-        Experiment.objects.filter(pk=experiment.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
     def _seed_report(self, status: str, *, days_since_update: int) -> None:
         report = SignalReport.objects.create(team=self.team, status=status, title="r")

@@ -1023,6 +1023,7 @@ mod evaluation_metadata_serde_tests {
                 (3, HashSet::new()),
                 (4, HashSet::new()),
             ]),
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&original).expect("serialize");
@@ -1043,6 +1044,7 @@ mod evaluation_metadata_serde_tests {
             dependency_stages: vec![vec![1]],
             flags_with_missing_deps: vec![],
             transitive_deps: HashMap::new(),
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&original).expect("serialize");
@@ -1224,6 +1226,7 @@ mod precomputed_dependency_graph_tests {
                 dependency_stages: vec![vec![3]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::from([2])), (3, HashSet::new())]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1249,6 +1252,7 @@ mod precomputed_dependency_graph_tests {
                 dependency_stages: vec![vec![2], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([(1, HashSet::from([2])), (2, HashSet::new())]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1303,6 +1307,7 @@ mod precomputed_dependency_graph_tests {
                 dependency_stages: vec![vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(2, HashSet::new())]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -1401,6 +1406,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1444,6 +1450,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1473,6 +1480,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1523,6 +1531,7 @@ mod precomputed_dependency_graph_tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -1553,6 +1562,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -1597,6 +1607,7 @@ mod precomputed_dependency_graph_tests {
                     (3, HashSet::new()),
                     (4, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1637,6 +1648,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1657,6 +1669,7 @@ mod precomputed_dependency_graph_tests {
                 dependency_stages: vec![vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new())]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1688,6 +1701,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1723,6 +1737,7 @@ mod precomputed_dependency_graph_tests {
                     (3, HashSet::new()),
                     (4, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -1801,6 +1816,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::from([1])),
                     (999, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };

@@ -1,6 +1,6 @@
 {
     "production_eu": "clickhouse/clickhouse-server:26.6.2",
     "production_us": "clickhouse/clickhouse-server:26.6.2",
-    "local": "clickhouse/clickhouse-server:26.9.13",
+    "local": "ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f",
     "oldest_supported": "clickhouse/clickhouse-server:26.6.2"
 }

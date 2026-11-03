@@ -2,15 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     AggregationAxisFormat,
     defaultAggregationAxisFormatForDisplay,
     INSIGHT_UNIT_OPTIONS,
     INSIGHT_UNIT_OPTIONS_SHORT,
-} from 'scenes/insights/aggregationAxisFormat'
+} from 'lib/insights/aggregationAxisFormat'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

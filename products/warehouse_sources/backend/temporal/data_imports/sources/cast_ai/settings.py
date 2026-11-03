@@ -18,6 +18,10 @@ DEFAULT_LOOKBACK_DAYS = 30
 # is our own choice, not a vendor default.
 COST_REPORT_STEP_SECONDS = 3600
 
+# Workload reports return one row per workload with the per-step metrics nested inside it, so a
+# daily step keeps each row's nested array to ~30 entries over the default window.
+WORKLOAD_REPORT_STEP_SECONDS = 86400
+
 TIMESTAMP_INCREMENTAL: IncrementalField = {
     "label": "timestamp",
     "type": IncrementalFieldType.DateTime,
@@ -33,19 +37,39 @@ CREATED_AT_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class CastAiEndpointConfig:
     name: str
     path: str
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: str | None = None
     partition_key: str | None = None
-    # Unused: every endpoint here is an unpaginated single-response report/list, so callers
-    # always pass page_size_param=None. Kept only to satisfy the shared fan-out helper's protocol.
+    # Unused: no endpoint documents a page size limit, so callers always pass page_size_param=None
+    # and let the server pick. Kept only to satisfy the shared fan-out helper's protocol.
     page_size: int = 0
-    sort_mode: Literal["asc", "desc"] = "asc"
+    # The incremental reports fan out per cluster, so the rows of a run have no single order.
+    sort_mode: Literal["asc", "desc"] | None = None
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
+    # Required report window params, as (start, end).
+    window_params: tuple[str, str] | None = None
+    step_seconds: int | None = None
+    # Workload reports page with `page.cursor` and return the next cursor as `nextCursor`.
+    cursor_paginated: bool = False
+
+
+def _cluster_fanout() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="clusters",
+        resolve_param="clusterId",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "cluster_id"},
+    )
+
+
+# Workload names are only unique within a namespace and workload type in one cluster.
+WORKLOAD_PRIMARY_KEY = ["cluster_id", "namespace", "workloadType", "workloadName"]
 
 
 CASTAI_ENDPOINTS: dict[str, CastAiEndpointConfig] = {
@@ -66,13 +90,9 @@ CASTAI_ENDPOINTS: dict[str, CastAiEndpointConfig] = {
         # The row identifier is only unique within a cluster (one entry per time bucket), and
         # this table aggregates every cluster, so the cluster id is part of the key.
         primary_key=["cluster_id", "timestamp"],
-        fanout=DependentEndpointConfig(
-            parent_name="clusters",
-            resolve_param="clusterId",
-            resolve_field="id",
-            include_from_parent=["id"],
-            parent_field_renames={"id": "cluster_id"},
-        ),
+        fanout=_cluster_fanout(),
+        window_params=("startTime", "endTime"),
+        step_seconds=COST_REPORT_STEP_SECONDS,
     ),
     "cluster_savings_history": CastAiEndpointConfig(
         name="cluster_savings_history",
@@ -81,13 +101,47 @@ CASTAI_ENDPOINTS: dict[str, CastAiEndpointConfig] = {
         default_incremental_field="createdAt",
         partition_key="createdAt",
         primary_key=["cluster_id", "createdAt"],
-        fanout=DependentEndpointConfig(
-            parent_name="clusters",
-            resolve_param="clusterId",
-            resolve_field="id",
-            include_from_parent=["id"],
-            parent_field_renames={"id": "cluster_id"},
-        ),
+        fanout=_cluster_fanout(),
+        window_params=("fromDate", "toDate"),
+    ),
+    "cluster_savings_reports": CastAiEndpointConfig(
+        name="cluster_savings_reports",
+        path="/v1/cost-reports/clusters/{clusterId}/savings",
+        incremental_fields=[TIMESTAMP_INCREMENTAL],
+        default_incremental_field="timestamp",
+        partition_key="timestamp",
+        primary_key=["cluster_id", "timestamp"],
+        fanout=_cluster_fanout(),
+        window_params=("startTime", "endTime"),
+        step_seconds=COST_REPORT_STEP_SECONDS,
+    ),
+    # The workload reports aggregate each workload over the requested window and carry no
+    # row-level timestamp, so they are full refresh over the default lookback window.
+    "workload_cost_reports": CastAiEndpointConfig(
+        name="workload_cost_reports",
+        path="/v1/cost-reports/clusters/{clusterId}/workload-costs",
+        primary_key=WORKLOAD_PRIMARY_KEY,
+        fanout=_cluster_fanout(),
+        window_params=("startTime", "endTime"),
+        step_seconds=WORKLOAD_REPORT_STEP_SECONDS,
+        cursor_paginated=True,
+    ),
+    "workload_efficiency_reports": CastAiEndpointConfig(
+        name="workload_efficiency_reports",
+        path="/v1/cost-reports/clusters/{clusterId}/workload-efficiency",
+        primary_key=WORKLOAD_PRIMARY_KEY,
+        fanout=_cluster_fanout(),
+        window_params=("startTime", "endTime"),
+        cursor_paginated=True,
+    ),
+    "workload_data_transfer_costs": CastAiEndpointConfig(
+        name="workload_data_transfer_costs",
+        path="/v1/cost-reports/clusters/{clusterId}/datatransfer-costs",
+        primary_key=WORKLOAD_PRIMARY_KEY,
+        fanout=_cluster_fanout(),
+        window_params=("startTime", "endTime"),
+        step_seconds=WORKLOAD_REPORT_STEP_SECONDS,
+        cursor_paginated=True,
     ),
 }
 

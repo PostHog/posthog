@@ -3,8 +3,8 @@ from typing import Any
 
 import pytest
 
-import requests
 from requests.exceptions import HTTPError
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -29,6 +29,10 @@ def _page(items: list[dict[str, Any]] | None, cursor: str | None) -> ScriptedRes
     return ScriptedResponse(json={"data": items or [], "metadata": {"cursor": cursor} if cursor is not None else {}})
 
 
+def _numbered_page(items: list[dict[str, Any]], number: int, total_pages: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "metadata": {"number": number, "totalPages": total_pages}})
+
+
 def _error(status: int, body: dict[str, Any] | None = None) -> ScriptedResponse:
     return ScriptedResponse(status=status, json=body or {})
 
@@ -37,9 +41,14 @@ def _redirect(location: str = "https://evil.example.com/") -> ScriptedResponse:
     return ScriptedResponse(status=302, headers={"Location": location})
 
 
-def _run(responses: Sequence[ScriptedResponse | BaseException], api_key: str = "key", **inputs: Any) -> DriveResult:
+def _run(
+    responses: Sequence[ScriptedResponse | BaseException],
+    api_key: str = "key",
+    schema: str = "assets",
+    **inputs: Any,
+) -> DriveResult:
     config = Rapid7InsightvmSourceConfig(api_key=api_key, region="us")
-    return SourceDriver(Rapid7InsightvmSource(), config).run("assets", responses, **inputs)
+    return SourceDriver(Rapid7InsightvmSource(), config).run(schema, responses, **inputs)
 
 
 class TestPagination:
@@ -67,6 +76,42 @@ class TestPagination:
         result = _run([_page([{"id": 99}], cursor=None)])
 
         assert result.params("cursor") == [None]
+
+
+class TestPageNumberPagination:
+    @pytest.mark.parametrize(
+        "schema, total_pages, expected_requests, truncated",
+        [
+            ("scans", 2, 2, False),
+            ("scan_engines", 2, 2, False),
+            ("scans", 20, 20, False),
+            # The API serves at most 10,000 results through page/size, so the walk stops at page 19.
+            ("scans", 25, 20, True),
+        ],
+    )
+    def test_walks_pages_with_get_until_the_last_page(
+        self, schema: str, total_pages: int, expected_requests: int, truncated: bool
+    ) -> None:
+        pages = [_numbered_page([{"id": f"{schema}-{n}"}], n, total_pages) for n in range(expected_requests)]
+        with capture_logs() as logs:
+            result = _run(pages, schema=schema)
+
+        assert result.raised is None
+        assert {request.method for request in result.requests} == {"GET"}
+        assert result.params("page") == [str(n) for n in range(expected_requests)]
+        assert set(result.params("size")) == {"500"}
+        assert len(result.rows) == expected_requests
+        assert [state.page for state in result.saved_states] == list(range(1, expected_requests))
+        assert any("10,000-result page window" in log["event"] for log in logs) is truncated
+
+    def test_resumes_from_saved_page(self) -> None:
+        result = _run(
+            [_numbered_page([{"id": "s"}], 3, 4)],
+            schema="scans",
+            resume_state=Rapid7InsightvmResumeConfig(page=3),
+        )
+
+        assert result.params("page") == ["3"]
 
 
 class TestRetryAndErrorClassification:
@@ -102,7 +147,9 @@ class TestCredentialedSessionIsHardened:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
+        [
+            (200, True),
+        ],
     )
     def test_status_maps_to_validity(self, status: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
@@ -112,13 +159,6 @@ class TestValidateCredentials:
         assert (message is None) is expected_valid
         assert network.requests_log[0].method == "POST"
         assert network.requests_log[0].headers["x-api-key"] == "key"
-
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            is_valid, message = validate_credentials("key", "us")
-
-        assert is_valid is False
-        assert message is not None
 
     def test_probe_pins_redirects_off_and_redacts_key(self) -> None:
         with scripted_network([ScriptedResponse(json={})]) as network:

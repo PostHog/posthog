@@ -22,6 +22,8 @@ interface LogsIngestionInstruments {
     recordsAllowed: Counter
     bytesDropped: Counter
     recordsDropped: Counter
+    internalBytes: Counter
+    internalRecords: Counter
     messagesDropped: Counter
     messagesDlq: Counter
     processingDuration: Histogram
@@ -60,6 +62,14 @@ function getInstruments(): LogsIngestionInstruments {
             }),
             recordsDropped: createCounterWithExemplars(meter, 'logs_ingestion_records_dropped_total', {
                 description: 'Total log records dropped due to quota or rate limiting',
+            }),
+            internalBytes: createCounterWithExemplars(meter, 'logs_ingestion_internal_bytes_total', {
+                description:
+                    'Uncompressed bytes of verified internal logs, which stay out of the received and allowed counters',
+                unit: 'By',
+            }),
+            internalRecords: createCounterWithExemplars(meter, 'logs_ingestion_internal_records_total', {
+                description: 'Records of verified internal logs, which stay out of the received and allowed counters',
             }),
             messagesDropped: createCounterWithExemplars(meter, 'logs_ingestion_message_dropped_count', {
                 description: 'The number of logs ingestion messages dropped',
@@ -104,6 +114,13 @@ export const recordLogsDropped = swallowing((teamId: number, bytes: number, reco
     const attributes = { team_id: teamId.toString() }
     addPositive(bytesDropped, bytes, attributes)
     addPositive(recordsDropped, records, attributes)
+})
+
+export const recordInternalLogs = swallowing((teamId: number, bytes: number, records: number): void => {
+    const { internalBytes, internalRecords } = getInstruments()
+    const attributes = { team_id: teamId.toString() }
+    addPositive(internalBytes, bytes, attributes)
+    addPositive(internalRecords, records, attributes)
 })
 
 export const recordLogMessageDropped = swallowing((reason: string, teamId: string, count: number = 1): void => {

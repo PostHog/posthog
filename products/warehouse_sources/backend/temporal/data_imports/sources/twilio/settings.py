@@ -25,7 +25,7 @@ def _datetime_field(name: str, nullable: bool = False) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class TwilioEndpointConfig:
     name: str
     # For account-scoped endpoints, the suffix after `/2010-04-01/Accounts/{account_sid}/`, e.g.
@@ -57,6 +57,8 @@ class TwilioEndpointConfig:
     sort_mode: SortMode = "asc"
     # Rows per page. `None` sends no `PageSize` at all, leaving Twilio on its default of 50.
     page_size: Optional[int] = DEFAULT_PAGE_SIZE
+    # Response fields dropped from every row before it reaches the warehouse.
+    excluded_fields: tuple[str, ...] = ()
 
 
 TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
@@ -143,6 +145,17 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
         response_key="transcriptions",
         partition_key="date_created",
     ),
+    # The account itself plus every subaccount it owns. The list sits at the Accounts root, so it is not
+    # account-scoped.
+    "accounts": TwilioEndpointConfig(
+        name="accounts",
+        path="/2010-04-01/Accounts.json",
+        response_key="accounts",
+        account_scoped=False,
+        partition_key="date_created",
+        # Twilio returns the live Auth Token of each subaccount in this list. It must not land in the warehouse.
+        excluded_fields=("auth_token",),
+    ),
     # Aggregated usage per category on the account. Records have no `sid`; each category appears once.
     "usage_records": TwilioEndpointConfig(
         name="usage_records",
@@ -184,11 +197,13 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
 
 ENDPOINTS = tuple(TWILIO_ENDPOINTS.keys())
 
-# Twilio grants the Keys resource (/Accounts/{SID}/Keys) only to the Auth Token and to Main API keys.
-# Standard and Restricted API keys get a 401 with error 20003 on it, so the table has to be reported
-# as unreachable for those credentials instead of read as a failed credential check.
+# Twilio grants the Keys resource (/Accounts/{SID}/Keys) and the Accounts list only to the Auth Token
+# and to Main API keys. Standard and Restricted API keys get a 401 with error 20003 on them, so these
+# tables have to be reported as unreachable for those credentials instead of read as a failed
+# credential check.
 # https://www.twilio.com/docs/iam/api-keys
-MAIN_KEY_ONLY_ENDPOINTS = frozenset({"keys"})
+# https://www.twilio.com/docs/iam/api/account
+MAIN_KEY_ONLY_ENDPOINTS = frozenset({"keys", "accounts"})
 
 # `get_endpoint_permissions` only runs on the schema-picker path, so one-shot setup would otherwise
 # enable a table it has no way to check. Defaulting these off covers both paths, since the picker and

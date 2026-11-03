@@ -49,6 +49,14 @@ def _parse_snapshot(body: dict[str, Any], config: RKICovidEndpointConfig) -> Ite
     yield body
 
 
+def _parse_data_snapshot(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return
+    # The per-state figures are synced separately by vaccinations_states.
+    yield {**{k: v for k, v in data.items() if k != "states"}, "meta": body.get("meta")}
+
+
 def _parse_dict_rows(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
     data = body.get("data")
     if not isinstance(data, dict):
@@ -67,6 +75,23 @@ def _parse_keyed_rows(body: dict[str, Any], config: RKICovidEndpointConfig) -> I
             # The dict key (e.g. the age-group band) carries the row identity and is the primary key.
             assert config.key_field is not None
             yield {config.key_field: key, **value}
+
+
+def _parse_keyed_history(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return
+    assert config.key_field is not None
+    for key, value in data.items():
+        if not isinstance(value, dict):
+            continue
+        history = value.get("history")
+        if not isinstance(history, list):
+            continue
+        parent = {k: v for k, v in value.items() if k != "history"}
+        for row in history:
+            if isinstance(row, dict):
+                yield {config.key_field: key, **parent, **row}
 
 
 def _parse_data_list(body: dict[str, Any], config: RKICovidEndpointConfig) -> Iterator[dict[str, Any]]:
@@ -92,8 +117,10 @@ def _parse_data_history(body: dict[str, Any], config: RKICovidEndpointConfig) ->
 
 _PARSERS = {
     "snapshot": _parse_snapshot,
+    "data_snapshot": _parse_data_snapshot,
     "dict_rows": _parse_dict_rows,
     "keyed_rows": _parse_keyed_rows,
+    "keyed_history": _parse_keyed_history,
     "data_list": _parse_data_list,
     "data_history": _parse_data_history,
 }

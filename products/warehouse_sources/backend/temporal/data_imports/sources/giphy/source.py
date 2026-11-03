@@ -52,7 +52,7 @@ class GiphySource(ResumableSource[GiphySourceConfig, GiphyResumeConfig]):
             name=ExternalDataSourceType.GIPHY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Giphy",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your GIPHY API key to pull trending content, search results, and the category taxonomy into the PostHog Data warehouse.
 
 Create an API key in the [GIPHY Developer Dashboard](https://developers.giphy.com/dashboard/). All GIPHY content is full-refresh only — the API has no incremental sync filter.
@@ -73,6 +73,7 @@ The search tables (`gifs_search`, `stickers_search`) only appear once you set a 
                     ),
                     SourceFieldInputConfig(
                         name="search_query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

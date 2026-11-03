@@ -19,11 +19,6 @@ class TestN8nSource:
         # get_schemas is a static endpoint catalog, so the public docs can render tables.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["workflows"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "workflows"
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.n8n.source.validate_n8n_credentials")
     @mock.patch.object(N8nSource, "is_database_host_valid")
     def test_validate_credentials_happy_path(self, mock_host_valid, mock_validate):

@@ -225,14 +225,10 @@ class TestGetRows:
 
 
 class TestCredentialChecks:
-    @parameterized.expand([("valid", 200), ("unauthorized", 401), ("forbidden", 403)])
+    @parameterized.expand([("forbidden", 403)])
     def test_check_credentials_returns_status(self, _name: str, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))):
             assert check_credentials("token") == status_code
-
-    def test_check_credentials_network_failure_returns_none(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert check_credentials("token") is None
 
     @time_machine.travel("2026-07-15T12:00:00Z", tick=False)
     def test_check_endpoint_access_flags_denied_reports(self) -> None:

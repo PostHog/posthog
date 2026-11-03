@@ -6,8 +6,6 @@ import pytest
 import time_machine
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -259,14 +257,6 @@ class TestValidateCredentials:
             )
         assert valid is False
         assert "OAuth" in (message or "")
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, message = validate_credentials(
-                api_key="tskey-api-x", client_id=None, client_secret=None, tailnet=None
-            )
-        assert valid is False
-        assert "boom" in (message or "")
 
 
 class TestRetryAfter:

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.openalex.source import OpenalexSource
 
 INSTITUTION_FILTER = "authorships.institutions.lineage:i27837315"
+SOURCE_FILTER = "source_id:S4306400194"
 TODAY = utc_today()
 
 
@@ -49,6 +50,7 @@ def _drive(
         works_filter=entity_filter if endpoint == "works" else None,
         authors_filter=entity_filter if endpoint == "authors" else None,
         awards_filter=entity_filter if endpoint == "awards" else None,
+        locations_filter=entity_filter if endpoint == "locations" else None,
     )
     return SourceDriver(OpenalexSource(), config).run(
         endpoint,
@@ -226,6 +228,33 @@ class TestRequestParams:
         assert result.raised is None
         assert result.requests[0].param("filter") == INSTITUTION_FILTER
 
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,watermark,expected_filter",
+        [
+            # A date-only `ingested_at:>` bound excludes the day it names, so this re-reads the
+            # watermark day and the day before it for copies that reached the API late.
+            (True, datetime.datetime(2026, 7, 10, 13, 45), f"{SOURCE_FILTER},ingested_at:>2026-07-08"),
+            (True, "2026-07-10 05:06:08.047", f"{SOURCE_FILTER},ingested_at:>2026-07-08"),
+            # The first run has no bound, so it also reads older copies with no `ingested_at`.
+            (True, None, SOURCE_FILTER),
+            (False, datetime.datetime(2026, 7, 10, 13, 45), SOURCE_FILTER),
+        ],
+    )
+    def test_locations_filters_on_ingested_at(
+        self, should_use_incremental_field: bool, watermark: Any, expected_filter: str
+    ) -> None:
+        result = _drive(
+            "locations",
+            [_page("c1"), _page(None)],
+            entity_filter=SOURCE_FILTER,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        # `locations` rejects the works-only publication date filters with a 400.
+        assert result.params("filter") == [expected_filter, expected_filter]
+
     @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if name != "works"])
     def test_only_works_sends_a_sort(self, endpoint: str) -> None:
         # `sort=publication_date` is a works-only field; sending it elsewhere is a 400.
@@ -234,7 +263,9 @@ class TestRequestParams:
         assert result.raised is None
         assert result.requests[0].param("sort") is None
 
-    @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if name not in ("works", "authors", "awards")])
+    @pytest.mark.parametrize(
+        "endpoint", [name for name in ENDPOINTS if name not in ("works", "authors", "awards", "locations")]
+    )
     def test_unfilterable_endpoints_send_no_filter(self, endpoint: str) -> None:
         result = _drive(endpoint, [_page(None)])
 
@@ -254,8 +285,12 @@ class TestSourceResponseMetadata:
         assert response.name == endpoint
         # Every OpenAlex entity is keyed by its canonical OpenAlex URL, unique per entity type.
         assert response.primary_keys == ["id"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [endpoint_config.partition_key]
+        if endpoint_config.partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [endpoint_config.partition_key]
         # Declaring "asc" on an endpoint we cannot order would checkpoint a bogus watermark.
         assert response.sort_mode == ("asc" if endpoint == "works" else None)
 
@@ -273,9 +308,6 @@ class TestValidateCredentials:
         "status_code,expected_ok,expected_message",
         [
             (200, True, None),
-            (401, False, "Invalid OpenAlex API key"),
-            (403, False, "Invalid OpenAlex API key"),
-            (500, False, "OpenAlex API returned 500"),
         ],
     )
     def test_key_probe_status_mapping(

@@ -118,7 +118,7 @@ class ProductiveSource(ResumableSource[ProductiveSourceConfig, ProductiveResumeC
             label="Productive",
             docsUrl="https://posthog.com/docs/cdp/sources/productive",
             iconPath="/static/services/productive.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create a read-only personal access token in Productive's Settings > API integrations. "
             "Only data accessible to the token owner can be imported.",
             fields=cast(

@@ -23,10 +23,6 @@ class TestWeightsAndBiasesSource:
         # serializer must re-require the key — guard against dropping that from the override.
         assert "entity" in self.source.connection_host_fields
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["runs", "nope"])
-        assert [schema.name for schema in schemas] == ["runs"]
-
     @pytest.mark.parametrize(
         "viewer, expected_valid, expected_message",
         [

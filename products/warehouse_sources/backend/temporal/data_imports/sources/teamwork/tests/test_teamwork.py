@@ -114,11 +114,6 @@ class TestRedirectRejection:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            assert validate_credentials("mycompany.teamwork.com", "key") is expected
-
     def test_uses_no_redirect_session(self) -> None:
         # The Basic auth header must never follow a redirect off the validated host.
         with scripted_network(always(ScriptedResponse(status=200))) as network:

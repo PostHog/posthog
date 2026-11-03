@@ -24,6 +24,15 @@ def _entity_columns(**overrides: str) -> dict[str, str]:
     return {**_ENTITY_COLUMNS, **overrides}
 
 
+# Fields shared by relationship rows from the entity and note relationship endpoints.
+_RELATIONSHIP_COLUMNS = {
+    "type": "The relationship type (e.g. parent, child, link, customer).",
+    "target_id": "ID of the entity at the other end of the relationship.",
+    "target_type": "Type of the entity at the other end of the relationship (e.g. feature, company, user).",
+    "fields": "Field values the relationship carries, keyed by field ID.",
+}
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "features": {
         "description": "A feature in Productboard — a unit of product work being planned or built.",
@@ -149,6 +158,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The team's name.",
             "createdAt": "Time at which the team was created.",
             "updatedAt": "Time at which the team was last updated.",
+        },
+    },
+    "entity_configurations": {
+        "description": "The configuration of one Productboard entity type: its fields, including custom fields and statuses, and the relationships it allows.",
+        "docs_url": "https://developer.productboard.com/reference/listentityconfigurations",
+        "columns": {
+            "type": "The entity type this configuration describes (e.g. feature, component, initiative).",
+            "fields": "The fields of the entity type, keyed by field ID (a UUID for custom fields). Each entry gives the field's name, type and allowed values.",
+            "relationships": "The relationships the entity type allows, keyed by relationship type (parent, child, link).",
+            "filters": "The filter parameters the entity list endpoint accepts for this type.",
+        },
+    },
+    "entity_relationships": {
+        "description": "One relationship between a Productboard entity and another entity, such as a feature's parent component or a linked objective.",
+        "docs_url": "https://developer.productboard.com/reference/listentityrelationships",
+        "columns": {
+            "entity_id": "ID of the entity the relationship belongs to.",
+            "entity_type": "Type of the entity the relationship belongs to.",
+            **_RELATIONSHIP_COLUMNS,
+        },
+    },
+    "note_relationships": {
+        "description": "One relationship between a Productboard note and its customer (user or company) or a linked product entity such as a feature.",
+        "docs_url": "https://developer.productboard.com/reference/listnoterelationships",
+        "columns": {
+            "note_id": "ID of the note the relationship belongs to.",
+            **_RELATIONSHIP_COLUMNS,
         },
     },
 }

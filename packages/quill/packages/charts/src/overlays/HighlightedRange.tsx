@@ -23,7 +23,8 @@ export interface HighlightedRangeProps {
  *  (e.g. the rows currently visible in a paired virtualized list) onto the chart. On band
  *  (bar) charts the box covers the full bands of both endpoints; on point (line) charts it
  *  runs from point to point. Composes as a chart child like {@link ReferenceLine}; renders
- *  null when an endpoint doesn't resolve to a positioned label. */
+ *  null when an endpoint doesn't resolve to a positioned label. It draws no label, so name
+ *  the range with a vertical {@link ReferenceLine} whose `value` is the start label. */
 export function HighlightedRange({
     start,
     end,

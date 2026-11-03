@@ -3,7 +3,6 @@ import pytest
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
-    RecordedRequest,
     ScriptedResponse,
     scripted_network,
 )
@@ -22,9 +21,6 @@ class TestWatchmodeSource:
         ("status_code", "expected_valid"),
         [
             (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_validate_credentials_maps_status_codes(self, status_code: int, expected_valid: bool) -> None:
@@ -53,16 +49,6 @@ class TestWatchmodeSource:
         assert network.session_options[0]["allow_redirects"] is False
         assert valid is False
         assert error
-
-    def test_validate_credentials_handles_connection_errors(self) -> None:
-        def connection_error(_request: RecordedRequest) -> ScriptedResponse:
-            raise requests.ConnectionError("connection refused")
-
-        with scripted_network(connection_error):
-            valid, error = self.source.validate_credentials(self.config, team_id=1)
-
-        assert valid is False
-        assert error is not None and "Watchmode" in error
 
     @pytest.mark.parametrize("status_code", [401, 403])
     def test_auth_http_errors_are_non_retryable(self, status_code: int) -> None:

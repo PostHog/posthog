@@ -5,7 +5,10 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
-    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
@@ -13,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
     ENDPOINT_CONFIG,
@@ -27,13 +33,17 @@ REQUEST_TIMEOUT = (10.0, 60.0)
 
 KOMMO_DOMAIN = "kommo.com"
 
+CATALOG_PARENT = "catalogs"
+
 # A single DNS label: Kommo accounts live at https://<subdomain>.kommo.com.
 _SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class KommoResumeConfig:
-    page: int
+    page: int | None = None
+    # Per-catalog progress of a fan-out endpoint, in the framework's dependent-resource shape.
+    fanout_state: dict[str, Any] | None = None
 
 
 def normalize_subdomain(raw: str) -> str | None:
@@ -80,21 +90,44 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "initial_value": 0,
         }
 
-    return {
+    endpoint_config: Endpoint = {
+        "path": endpoint.path,
+        "data_selector": endpoint.data_selector,
+        "params": params,
+        "paginator": _build_paginator(endpoint),
+    }
+    if endpoint.per_catalog:
+        params["catalog_id"] = {"type": "resolve", "resource": CATALOG_PARENT, "field": "id"}
+        # A catalog deleted after the Catalogs listing answers 404; skip it rather than fail the run.
+        endpoint_config["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+
+    resource: EndpointResource = {
         "name": name,
         "table_name": name.lower(),
         "primary_key": endpoint.primary_key,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
         if incremental_param is not None
         else "replace",
-        "endpoint": {
-            "path": endpoint.path,
-            "data_selector": endpoint.data_selector,
-            "params": params,
-            "paginator": _build_paginator(endpoint),
-        },
+        "endpoint": endpoint_config,
         "table_format": "delta",
     }
+    if endpoint.per_catalog:
+        # Catalog custom fields don't name their catalog, and both ids are only unique per catalog
+        # as far as the docs go, so every row carries the catalog it was read from.
+        resource["include_from_parent"] = ["id"]
+        resource["data_map"] = rename_parent_fields(CATALOG_PARENT, {"id": "catalog_id"})
+    return resource
+
+
+def get_resources(name: str, should_use_incremental_field: bool) -> list[EndpointResource | str]:
+    resource = get_resource(name, should_use_incremental_field)
+    if not ENDPOINT_CONFIG[name].per_catalog:
+        return [resource]
+
+    parent = get_resource("Catalogs", should_use_incremental_field=False)
+    parent["name"] = CATALOG_PARENT
+    parent["table_name"] = CATALOG_PARENT
+    return [parent, resource]
 
 
 def kommo_source(
@@ -116,8 +149,9 @@ def kommo_source(
             "allow_redirects": False,
             "request_timeout": REQUEST_TIMEOUT,
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": get_resources(endpoint, should_use_incremental_field),
     }
+    per_catalog = ENDPOINT_CONFIG[endpoint].per_catalog
 
     # A page number is only a safe resume point on a full-refresh run. Incremental runs advance
     # `filter[updated_at][from]` after every batch, so page N of the resumed query is not page N
@@ -130,14 +164,21 @@ def kommo_source(
     if resume_enabled and resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
         if resume_config is not None:
-            initial_paginator_state = {"page": resume_config.page}
+            if per_catalog:
+                initial_paginator_state = resume_config.fanout_state
+            elif resume_config.page is not None:
+                initial_paginator_state = {"page": resume_config.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if not state:
+            return
+        if per_catalog:
+            resumable_source_manager.save_state(KommoResumeConfig(fanout_state=state))
         # Only persist while there's a next page to come back to; the Redis TTL cleans up.
-        if state and state.get("page") is not None:
+        elif state.get("page") is not None:
             resumable_source_manager.save_state(KommoResumeConfig(page=int(state["page"])))
 
-    return rest_api_resource(
+    resources = rest_api_resources(
         config,
         team_id,
         job_id,
@@ -145,6 +186,7 @@ def kommo_source(
         resume_hook=save_checkpoint if resume_enabled else None,
         initial_paginator_state=initial_paginator_state,
     )
+    return next(resource for resource in resources if resource.name == endpoint)
 
 
 def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None]:

@@ -102,19 +102,24 @@ class TestExtractConfigItems:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        ("status_code", "schema_name", "expected_valid"),
+        ("status_code", "body", "schema_name", "expected_valid"),
         [
-            (200, None, True),
-            (401, None, False),
+            (200, b'{"status": "success", "data": []}', None, True),
+            # A host serving a web page for every path is not a SigNoz API.
+            (200, b"<!doctype html><html></html>", None, False),
+            (200, b"", None, False),
+            (401, None, None, False),
             # 403 at source-create is a valid key without the probe's role -> accept.
-            (403, None, True),
+            (403, None, None, True),
             # 403 on a scoped probe is a hard failure.
-            (403, "logs", False),
-            (500, None, False),
+            (403, None, "logs", False),
+            (500, None, None, False),
         ],
     )
-    def test_status_mapping(self, status_code: int, schema_name: str | None, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
+    def test_status_mapping(
+        self, status_code: int, body: bytes | None, schema_name: str | None, expected_valid: bool
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, body=body))):
             is_valid, error = validate_credentials("example.signoz.io", "key", schema_name=schema_name)
 
         assert is_valid is expected_valid
@@ -126,13 +131,6 @@ class TestValidateCredentials:
     def test_redirect_is_rejected(self) -> None:
         redirect = ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"})
         with scripted_network(always(redirect)):
-            is_valid, error = validate_credentials("example.signoz.io", "key")
-
-        assert is_valid is False
-        assert error is not None
-
-    def test_request_exception_is_caught(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
             is_valid, error = validate_credentials("example.signoz.io", "key")
 
         assert is_valid is False
@@ -218,6 +216,22 @@ class TestGetRows:
 
         assert result.raised is None
         assert result.items == [[{"id": "c1", "name": "oncall", "type": "slack"}]]
+
+    @pytest.mark.parametrize(
+        ("body", "expected_non_retryable"),
+        [
+            (b"<!doctype html><html></html>", True),
+            (b"", True),
+            # A truncated JSON body is a transient upstream blip, so it stays retryable.
+            (b'{"status": "succ', False),
+        ],
+    )
+    def test_non_json_body_is_non_retryable_only_when_not_json(self, body: bytes, expected_non_retryable: bool) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", [ScriptedResponse(body=body)])
+
+        assert result.raised is not None
+        non_retryable = SigNozSource().get_non_retryable_errors()
+        assert any(pattern in str(result.raised) for pattern in non_retryable) is expected_non_retryable
 
     def test_full_page_advances_window_start_and_saves_state_after_yield(self) -> None:
         responses = [

@@ -21,10 +21,8 @@ import { WizardInstallOptions } from './WizardInstallOptions'
  * Stories for the "open a PR for me" cloud-run option: the block's own states, rendered on their own
  * rather than through an onboarding scene.
  *
- * In the product the block sits on the legacy install step — the self-driving flow forces the cloud
- * arm off, because its run is interactive and the cloud runner is headless. `Legacy/Install Step`
- * already snapshots the block in that setting, so driving a scene from here would duplicate those
- * snapshots (and, if it drove the self-driving flow, snapshot a step where the block cannot appear).
+ * In the product the block sits on the onboarding install step, and `Install Step` already
+ * snapshots it in that setting, so driving a scene from here would duplicate those snapshots.
  * These stories cover what no scene story does: not-connected, repo picking, queued, and the toggle
  * back to running it yourself.
  *
@@ -88,8 +86,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        // Legacy flow, deliberately: the self-driving install step forces the cloud arm off (its run
-        // is interactive and the cloud runner is headless), so the block only renders here.
         featureFlags: {
             [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test',
         },
@@ -129,9 +125,8 @@ const WAIT_OPTIONS = { timeout: 30000, interval: 200 }
 /**
  * The block on its own, with a given set of integrations and optionally driven into a later state.
  *
- * Deliberately not rendered through an onboarding scene. The block lives on the legacy install step
- * (the self-driving flow forces the cloud arm off — its run is interactive and the cloud runner is
- * headless), and `Legacy/Install Step` already snapshots it in place. Driving a scene from here
+ * Deliberately not rendered through an onboarding scene. The block lives on the onboarding install
+ * step, and `Install Step` already snapshots it in place. Driving a scene from here
  * would duplicate those snapshots rather than capture what this file is about: the block's own
  * states, which no scene story covers.
  */

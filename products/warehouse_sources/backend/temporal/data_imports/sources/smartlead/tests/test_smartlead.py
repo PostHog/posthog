@@ -62,6 +62,26 @@ class TestSmartleadSource:
         assert isinstance(result.raised, ValueError)
         assert "Required a list response body" in str(result.raised)
 
+    def test_all_leads_activities_retries_through_the_endpoint_rate_limit_window(self) -> None:
+        # The endpoint allows 10 requests a minute and its 429 carries no `Retry-After`, so only
+        # the raised attempt budget lets the backoff outlast the 60-second window.
+        rate_limited = ScriptedResponse(status=429, body=b"You have exceeded the 10 requests in 60 sec limit")
+        activity = {"campaign_id": 7, "lead_id": 1, "activities": [{"stats_id": 1, "open_count": 2}]}
+        result = _run(
+            "all_leads_activities",
+            [
+                _json({"data": [{**activity, "email_lead_map_id": i} for i in range(PAGE_SIZE)], "hasMore": True}),
+                *[rate_limited] * 6,
+                _json({"data": [{**activity, "email_lead_map_id": PAGE_SIZE}], "hasMore": False}),
+            ],
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.rows[-1]["activities"] == [{"stats_id": 1, "open_count": 2}]
+        assert set(result.paths) == {"/api/v1/campaigns/all-leads-activities"}
+        assert result.params("offset")[-1] == str(PAGE_SIZE)
+
     def test_resumes_from_saved_offset(self) -> None:
         result = _run(
             "email_accounts",
@@ -110,6 +130,28 @@ class TestSmartleadFanout:
         )
 
         assert result.rows == [{"campaign_name": "Q1", "total_sent": 10, "campaign_id": 11}]
+
+    def test_warmup_stats_fans_out_over_every_page_of_email_accounts(self) -> None:
+        # Unlike the campaign list, the email account parent pages with offset/limit, so a parent
+        # walk that stops after one page would drop every account past the first hundred.
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v1/email-accounts/":
+                offset = int(request.param("offset") or 0)
+                return _json(_accounts(PAGE_SIZE if offset == 0 else 1, start=offset))
+            return _json({"total_sent": 14, "reputation_score": 98, "daily_stats": [{"date": "2026-01-02", "sent": 2}]})
+
+        result = _run("warmup_stats", script)
+
+        parent_requests = [r for r in result.requests if r.path == "/api/v1/email-accounts/"]
+        assert [r.param("offset") for r in parent_requests] == ["0", str(PAGE_SIZE)]
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert result.requests[1].path == "/api/v1/email-accounts/0/warmup-stats"
+        assert result.rows[-1] == {
+            "total_sent": 14,
+            "reputation_score": 98,
+            "daily_stats": [{"date": "2026-01-02", "sent": 2}],
+            "email_account_id": PAGE_SIZE,
+        }
 
     def test_fan_out_resumes_completed_and_current_campaign(self) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:

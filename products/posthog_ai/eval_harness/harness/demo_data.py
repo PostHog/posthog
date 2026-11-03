@@ -11,6 +11,7 @@ from posthog.clickhouse.client import sync_execute
 from products.posthog_ai.eval_harness.data_setup import (
     copy_demo_data_to_new_team,
     create_core_memory,
+    create_empty_eval_project,
     ensure_master_demo_team,
 )
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_skill_isolation_environment
@@ -52,8 +53,13 @@ class SandboxedDemoData:
         self.reasoning_effort = reasoning_effort
         self.sandbox_timeout_seconds = sandbox_timeout_seconds
 
-    def make_context(self, case_label: str, *, disable_bundled_skills: bool = False) -> CustomPromptSandboxContext:
-        _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+    def make_context(
+        self, case_label: str, *, disable_bundled_skills: bool = False, inherit_demo_data: bool = True
+    ) -> CustomPromptSandboxContext:
+        if inherit_demo_data:
+            _, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
+        else:
+            team, user = create_empty_eval_project(self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)
         sandbox_environment_id: str | None = None
         if disable_bundled_skills:

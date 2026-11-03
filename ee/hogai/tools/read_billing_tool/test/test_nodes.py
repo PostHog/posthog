@@ -51,7 +51,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
-            is_deactivated=False,
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
             products=[],
         )
@@ -67,7 +66,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
-            is_deactivated=False,
             billing_period=MaxBillingContextBillingPeriod(
                 current_period_start=str(datetime.date(2023, 1, 1)),
                 current_period_end=str(datetime.date(2023, 1, 31)),
@@ -167,7 +165,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="startup",
             has_active_subscription=True,
-            is_deactivated=False,
             startup_program_label="YC W21",
             billing_period=MaxBillingContextBillingPeriod(
                 current_period_start="2023-01-01",
@@ -285,7 +282,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.FREE,
             billing_plan=None,
             has_active_subscription=False,
-            is_deactivated=False,
             products=[],
             settings=MaxBillingContextSettings(autocapture_on=False, active_destinations=0),
             trial=MaxBillingContextTrial(is_active=True, expires_at="2023-02-01", target="teams"),
@@ -360,7 +356,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.CUSTOM,
             billing_plan="enterprise",
             has_active_subscription=True,
-            is_deactivated=True,  # Deactivated account
             startup_program_label=None,
             startup_program_label_previous="YC W20",  # Previous program but no current
             products=[
@@ -382,9 +377,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
             formatted_string = await self.tool._format_billing_context(billing_context)
 
-            # Check deactivated status
-            self.assertIn("Status: Account is deactivated", formatted_string)
-
             # Check previous startup program
             self.assertIn("Previous startup program: YC W20", formatted_string)
 
@@ -404,7 +396,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="scale",
             has_active_subscription=True,
-            is_deactivated=False,
             startup_program_label="Techstars 2023",
             startup_program_label_previous=None,
             billing_period=MaxBillingContextBillingPeriod(

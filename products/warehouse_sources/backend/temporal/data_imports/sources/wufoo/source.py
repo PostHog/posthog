@@ -82,9 +82,8 @@ class WufooSource(ResumableSource[WufooSourceConfig, WufooResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Wufoo's account-level list endpoints expose no
-        # server-side timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS
-        # is empty, so build_endpoint_schemas marks every endpoint non-incremental / non-append).
+        # Every endpoint is full refresh only (see INCREMENTAL_FIELDS in settings.py), so
+        # build_endpoint_schemas marks every endpoint non-incremental / non-append.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -133,7 +132,7 @@ Your **subdomain** is the account name in your Wufoo URL — e.g. `acme` for `ac
 Your **API key** is on the **API Information** page of any form (log in, open a form in the Form Manager, then click **API Information**). The same key works across every form on the account.""",
             iconPath="/static/services/wufoo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/wufoo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

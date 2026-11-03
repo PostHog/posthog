@@ -65,7 +65,7 @@ class MightyNetworksSource(ResumableSource[MightyNetworksSourceConfig, MightyNet
             category=DataWarehouseSourceCategory.COMMUNICATION,
             keywords=["community", "courses", "membership"],
             label="Mighty Networks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Mighty Networks network ID and API key to pull your members, spaces, posts, events, plans, subscriptions, purchases, tags, and badges into the PostHog Data warehouse.
 
 Generate an API key under **Settings > API Keys** in your Mighty Networks admin dashboard. The Admin API is only available on the Growth and Mighty Pro plans.""",

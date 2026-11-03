@@ -57,7 +57,7 @@ class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, Semanti
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Semantic Scholar (Allen Institute for AI)",
             iconPath="/static/services/semantic_scholar.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Request an API key from the [Semantic Scholar API page]"
                 "(https://www.semanticscholar.org/product/api#api-key-form). "
@@ -77,6 +77,7 @@ class SemanticScholarSource(ResumableSource[SemanticScholarSourceConfig, Semanti
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Paper search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

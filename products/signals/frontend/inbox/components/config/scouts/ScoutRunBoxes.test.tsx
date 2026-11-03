@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 
 import { SignalScoutRunSummary } from '../../../types'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -8,6 +8,7 @@ import { ScoutRunBoxes } from './ScoutRunBoxes'
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: 'signals-scout-general',
         skill_version: 1,
         status: 'completed',
@@ -100,6 +101,45 @@ describe('ScoutRunBoxes', () => {
 
         const strip = container.firstElementChild as HTMLElement
         expect(strip.querySelectorAll('*')).toHaveLength(runs.length * 2)
+    })
+
+    it('shows the hovered run in one tooltip, and closes it on Escape or when the pointer leaves the box', () => {
+        jest.useFakeTimers()
+        try {
+            const { container } = render(
+                <ScoutRunBoxes
+                    runs={[
+                        makeRun({ run_id: 'run-plain', status: 'failed' }),
+                        makeRun({ run_id: 'run-linked', task_url: '/project/2/tasks/run-linked' }),
+                    ]}
+                />
+            )
+            expect(document.querySelector('.Tooltip')).toBeNull()
+
+            fireEvent.mouseOver(container.querySelector('[data-run-id="run-linked"]') as Element)
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+
+            const tooltips = document.querySelectorAll('.Tooltip')
+            expect(tooltips).toHaveLength(1)
+            expect(tooltips[0]).toHaveTextContent('open task run')
+
+            fireEvent.keyDown(document, { key: 'Escape' })
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+            expect(document.querySelector('.Tooltip')).toBeNull()
+
+            fireEvent.mouseOver(container.querySelector('[data-run-id="run-plain"]') as Element)
+            fireEvent.mouseOver(container.firstElementChild as Element)
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+            expect(document.querySelector('.Tooltip')).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('marks nothing while the fleet has too few priced runs to rank', () => {

@@ -1,3 +1,4 @@
+import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
@@ -93,7 +94,7 @@ export function scopeVariantsLabel(scope: ScannerExperimentScope, everyVariant: 
 export function experimentScannerQuery(experiment: Experiment): Pick<RecordingsQuery, 'kind' | 'filter_test_accounts'> {
     return {
         kind: NodeKind.RecordingsQuery,
-        filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
+        filter_test_accounts: resolveFilterTestAccounts(experiment.exposure_criteria),
     }
 }
 
@@ -157,8 +158,8 @@ export function buildExperimentTargeting(context: ExperimentScannerContext): Sca
 }
 
 /**
- * Turns a fresh (or freshly templated) scanner into an experiment scanner for the context: the
- * experiment type, a scoped name, and the experiment's test-account setting. A template's type and
+ * Turns a fresh (or freshly drafted) scanner into an experiment scanner for the context: the
+ * experiment type, a scoped name, and the experiment's test-account setting. Any other type and
  * prompt give way, because only the experiment type compares variants.
  */
 export function prefillScannerForExperiment(

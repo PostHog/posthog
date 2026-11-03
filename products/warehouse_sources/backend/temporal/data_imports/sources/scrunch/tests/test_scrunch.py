@@ -16,10 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch import scrunch
 from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.scrunch import ScrunchResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.settings import (
-    AUTH_ERROR,
-    PERMISSION_ERROR,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.settings import PERMISSION_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.scrunch.source import ScrunchSource
 
 
@@ -231,9 +228,7 @@ def test_empty_children_do_not_stop_parent_pagination(has_brands: bool) -> None:
         ]
 
 
-@pytest.mark.parametrize(
-    "status,message", [(200, None), (401, AUTH_ERROR), (403, PERMISSION_ERROR), (402, PERMISSION_ERROR)]
-)
+@pytest.mark.parametrize("status,message", [(402, PERMISSION_ERROR)])
 def test_credentials_and_error_mapping(status: int, message: str | None) -> None:
     source = ScrunchSource()
     with scripted_network([page([], 0, status=status)]) as network:

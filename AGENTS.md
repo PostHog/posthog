@@ -38,6 +38,7 @@
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
 - When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update an existing doc under `docs/` **whose scope covers that behavior** in the same PR. If none exists, make no docs change and put PR-specific context in the PR description. `project-structure.md` is a high-level directory map; feature behavior, UI controls, command usage, and worktree notes do not belong there.
 - A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
+- When triaging review bot findings, react to each PostHog Review finding comment (`posthog[bot]`) with 👍 if it is valid or 👎 if not, so review metrics can tell acted-on findings from noise.
 
 ### Commit types
 
@@ -66,7 +67,7 @@ Invoke `/writing-pr-descriptions` before writing the body — it carries the sha
 Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
-**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Upload with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Run `hogli pr:upload-image <file>`: with an open PR it attaches the image to the description, otherwise it prints markdown to embed. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -96,6 +97,17 @@ See [Public open source repo guidance](#public-open-source-repo-guidance) for wh
 GitHub's native stacked PRs are enabled here. Use the `gh stack` CLI and `/stacking-prs` rather than hand-managing branch chains.
 Keep stacks shallow and merge the base before extending: restacking force-pushes every branch, and a deep stack pushed at once can exceed GitHub's dispatch cap and fail unrelated runs with it.
 Never `gh stack merge` — it lands the chain through GitHub's API, outside the queue.
+
+### The CI report
+
+Every PR gets a `🤖 CI report` comment.
+Its warn-only sections, such as eager graph budgets, bundle size, complexity and duplication, never fail a check, so a green PR can still carry open warnings.
+
+- **An agent reads the CI report after every push, and before it calls a PR ready.** Run `gh pr view <number> --comments`. A section that is not ✅ is an open finding.
+- **An agent considers each open finding.** It fixes the finding in its own diff, states in the PR body why the finding does not apply, or escalates to a person when it cannot decide. A positive "Δ vs base" counts against the PR even when the base branch already shows the warning.
+- **An agent never silences a finding.** Do not raise a budget, add an ignore, or drop a check. A budget goes up only in a reviewed PR that needs the bytes.
+
+These rules bind agents. A person reads the same report and decides for themselves.
 
 ### Merging PRs
 
@@ -171,7 +183,7 @@ Each rule is tagged with what catches a violation.
 
 - **Keep entrypoints thin.** `[review]` The runtime calls the entrypoint first: a DRF view, a management command `handle()`, a Celery task body, an HTTP handler, a Rust `main()`, a React component. An entrypoint reads the input, connects the dependencies, and formats the output. All other logic goes in a function the entrypoint calls, so a test can call it directly. If the area already has a place for that logic, use it rather than making a new one.
 - **A product under `products/` is scaffolded, not hand-rolled.** `[lint: hogli product:lint --all]` Create one with `hogli product:bootstrap <name>`, because the scaffold emits a product that is isolated from its first commit. See "New products must be isolated" in [products/README.md](products/README.md) for the isolation rules, and [products/architecture.md](products/architecture.md) for facade and contract design.
-- **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/` and `cli/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
+- **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/`, `cli/` and `hog/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
 
 ### Tenancy and scoping
 
@@ -205,6 +217,12 @@ Each rule is tagged with what catches a violation.
 - **Any other third-party API that needs rate-limiting or egress telemetry belongs there too.** `[review]` Add a `<domain>/` incarnation (GitHub is the reference). No semgrep rule covers a new domain, so a raw client for one reaches master unless a reader catches it. `/routing-outbound-api-calls` decides the route and names the reference domain to copy.
 - **Object storage is SeaweedFS — do not add new MinIO dependencies.** `[review]` Both S3-compatible stores are SeaweedFS: `objectstorage` (`:19000`, `OBJECT_STORAGE_*`) for general storage, `seaweedfs` (`:8333`, `SESSION_RECORDING_V2_S3_*`) for session replay v2. MinIO survives only as one-off salvage tooling: `bin/migrate-storage-hobby` starts a temporary container to read an old hobby MinIO volume. Do not add compose services, scripts, tests or docs that stand up a `minio/minio` container. Talk to storage through the existing config and a standard S3 client, never a hardcoded endpoint. Note `objectstorage` registers credentials at runtime and returns `InvalidAccessKeyId` until that finishes, so wait for its readiness sentinel rather than the container start.
 
+- **A new DNS-resolution or outbound-host entry point calls the shared out-of-band domain check.** `[lint: test_oob_denylist_coverage.py]` Every host guard here is IP-based, and an out-of-band interaction domain resolves to an ordinary public IP, so a resolver that skips the check restores the gap in silence. The list and the edit procedure live in `posthog/security/crosslang/`.
+
+### Configuration and secrets
+
+- **A key in `posthog/settings/dynamic_settings.py` exists only because operators must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
+
 ### Django admin
 
 - **A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.** `[review]` List the field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model, including inlines attached to a related admin. Otherwise the default `<select>` loads the entire target table per row on each change-page render. Declare it on a shared base inline so per-parent variants inherit it.
@@ -229,7 +247,7 @@ Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
 
 ### Frontend
 
-- **Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work** — the main app and `products/*/frontend/` alike, since they share components and generated types. `[review]` It covers reusing Lemon/quill components instead of hand-rolling tables, badges and labels, importing generated `*Api` types instead of handwriting them, and when to run typecheck and typegen.
+- **Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work** — the main app and `products/*/frontend/` alike, since they share components and generated types. `[review]` It covers reusing Lemon/quill components instead of hand-rolling tables, badges and labels, importing generated `*Api` types instead of handwriting them, when to run typecheck and typegen, and when to read [frontend/src/platform-ux.md](frontend/src/platform-ux.md) (before you build, edit, simplify or redesign any UI).
 - **TypeScript with explicit return types. Business logic goes in the kea logic file, not a React hook.** `[review]`
 - **Guard every network-triggering button against double submission.** `[review]` Disable it and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight, and reset in both the success and error paths. Applies to `<form onSubmit>`, any `onClick` that calls `api.*`, and any kea `listener` that issues a request. Wire in the in-flight state from a loader `*Loading` selector, a reducer, or local `useState`.
 - **Every surface must hold up narrow.** `[review]` The nav sidebar plus an open side panel leave a 1280px window about 520px of scene. Break on container queries, not `md:`/`lg:`/`xl:`. Wrap or truncate rather than clip, and stack halves that no longer fit. Render at a few widths before calling it done. We do not support mobile — no phone-width layouts, no touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md).
@@ -307,17 +325,20 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 
 - `/writing-dataclasses` — adding or changing a Python dataclass, replacing a tuple or `dict[str, Any]` payload, or passing a dataclass or facade contract through internal layers
 - `/announcing-behavior-changes` — shipping a fix that changes what an existing user sees (a metric moves, a count drops, a range resolves differently), or adding, reviewing, or removing an in-app change notice
+- `/verifying-changes` — choosing how to confirm a change works before reporting it done, or before starting Storybook, the dev stack, or a Playwright run to check your own work
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/profiling-slow-api-endpoints` — an endpoint, list, picker, or scene is slow, a p95 latency number needs explaining, or a Postgres query plan needs checking against production rather than a local database
 - `/placing-product-frontend-code` — adding a frontend file or directory for a product, or deciding between `products/<name>/frontend/` and `frontend/src/scenes/<name>/`
+- `/building-the-toolbar`: any change under `frontend/src/toolbar/`, floating toolbar or extension. Build and check both, and keep them in sync
 - [`products/conversations/skills/organizing-conversations-code/SKILL.md`](products/conversations/skills/organizing-conversations-code/SKILL.md) — adding, moving, renaming, or reviewing files under `products/conversations/`
 - `/integrating-with-posthog-ai` — making a product surface work with PostHog AI: injecting scene context or custom instructions, reacting to the agent's tool calls, or rendering your product's tool cards in a thread
 - `/sending-notifications` — adding notification support
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/authenticating-to-clickhouse` — adding a service, sidecar, or container that connects to ClickHouse, adding a `ClickHouseUser`, or building or changing a ClickHouse pool or client by hand; it must stay token-aware (a native pool carries the credential provider, an HTTP client resolves the token per call) or it silently uses the static password
+- `/writing-clickhouse-queries` — adding or changing a ClickHouse call site (`sync_execute`, `execute_hogql_query`, a `QueryRunner`), including the `Workload` it passes
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags
 - `/writing-skills` — creating or updating skills in `.agents/skills/`

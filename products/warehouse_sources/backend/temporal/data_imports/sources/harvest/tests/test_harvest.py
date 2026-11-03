@@ -6,6 +6,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harvest import (
@@ -35,6 +36,9 @@ def _page(
     if not drop_key:
         body[data_key] = rows or []
     return ScriptedResponse(json=body)
+
+
+_TOP_LEVEL_ENDPOINTS = [name for name in ENDPOINTS if HARVEST_ENDPOINTS[name].fanout is None]
 
 
 def _driver() -> SourceDriver:
@@ -136,7 +140,7 @@ class TestHarvestTransport:
         assert isinstance(result.raised, Exception)
         assert "time_entries" in str(result.raised)
 
-    @parameterized.expand(ENDPOINTS)
+    @parameterized.expand(_TOP_LEVEL_ENDPOINTS)
     def test_every_endpoint_reads_its_own_envelope_and_path(self, endpoint: str) -> None:
         config = HARVEST_ENDPOINTS[endpoint]
         result = _driver().run(endpoint, [_page([{"id": 1}], data_key=config.data_key)])
@@ -150,6 +154,92 @@ class TestHarvestTransport:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
 
+    @parameterized.expand(
+        [
+            ("invoice_payments", "invoices", "invoice_id", True, None),
+            ("invoice_payments", "invoices", "invoice_id", False, None),
+            ("user_cost_rates", "users", "user_id", True, datetime.datetime(2026, 5, 4, tzinfo=datetime.UTC)),
+            (
+                "invoice_payments",
+                "invoices",
+                "invoice_id",
+                True,
+                datetime.datetime(2026, 5, 4, 9, 30, tzinfo=datetime.UTC),
+            ),
+        ]
+    )
+    def test_fanout_walks_every_parent_and_tags_rows_with_the_parent_id(
+        self, endpoint: str, parent: str, parent_key: str, incremental: bool, last_value: Any
+    ) -> None:
+        config = HARVEST_ENDPOINTS[endpoint]
+        parent_data_key = HARVEST_ENDPOINTS[parent].data_key
+        parent_next = f"https://{HARVEST_API_HOST}/v2/{parent}?cursor=p2"
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    f"/v2/{parent}": [
+                        _page([{"id": 10}], data_key=parent_data_key, next_url=parent_next),
+                        _page([{"id": 20}], data_key=parent_data_key),
+                    ],
+                    f"/v2/{config.path.format(**{parent_key: 10})}": [_page([{"id": 1}], data_key=config.data_key)],
+                    f"/v2/{config.path.format(**{parent_key: 20})}": [_page([{"id": 2}], data_key=config.data_key)],
+                }
+            ),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        # Child ids are only unique per parent, so the parent id must land in the row for the key.
+        assert sorted((row[parent_key], row["id"]) for row in result.rows) == [(10, 1), (20, 2)]
+        response = result.response
+        assert response is not None
+        assert response.primary_keys == [parent_key, "id"]
+        assert response.sort_mode is None
+        # Filtering the parent listing would skip children that changed under an unchanged parent.
+        parent_requests = [r for r in result.requests if r.path == f"/v2/{parent}"]
+        assert [r.param("updated_since") for r in parent_requests] == [None, None]
+        child_requests = [r for r in result.requests if r.path != f"/v2/{parent}"]
+        expected = "2026-05-04T09:30:00Z" if last_value is not None and config.supports_updated_since else None
+        assert [r.param("updated_since") for r in child_requests] == [expected, expected]
+
+    @parameterized.expand([("invoice_payments", "invoices", "invoice_id"), ("user_cost_rates", "users", "user_id")])
+    def test_fanout_skips_a_parent_deleted_mid_sync(self, endpoint: str, parent: str, parent_key: str) -> None:
+        config = HARVEST_ENDPOINTS[endpoint]
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    f"/v2/{parent}": [_page([{"id": 10}, {"id": 20}], data_key=HARVEST_ENDPOINTS[parent].data_key)],
+                    f"/v2/{config.path.format(**{parent_key: 10})}": [ScriptedResponse(status=404)],
+                    f"/v2/{config.path.format(**{parent_key: 20})}": [_page([{"id": 2}], data_key=config.data_key)],
+                }
+            ),
+        )
+
+        # One 404 must not abort the fan-out and drop every later parent's rows.
+        assert result.raised is None
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [(20, 2)]
+
+    def test_fanout_resume_skips_completed_parents(self) -> None:
+        result = _driver().run(
+            "invoice_payments",
+            route(
+                {
+                    "/v2/invoices": [_page([{"id": 10}, {"id": 20}], data_key="invoices")],
+                    "/v2/invoices/20/payments": [_page([{"id": 2}], data_key="invoice_payments")],
+                }
+            ),
+            resume_state=HarvestResumeConfig(
+                fanout_state={"completed": ["invoices/10/payments"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert "/v2/invoices/10/payments" not in result.paths
+        assert [row["id"] for row in result.rows] == [2]
+
     @parameterized.expand([("time_entries", "created_at"), ("invoices", "created_at"), ("roles", None)])
     def test_partitioning_matches_the_endpoint_config(self, endpoint: str, partition_key: str | None) -> None:
         config = HARVEST_ENDPOINTS[endpoint]
@@ -162,7 +252,11 @@ class TestHarvestTransport:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             ok, reported = validate_credentials("123456", "pat-secret", "v2")

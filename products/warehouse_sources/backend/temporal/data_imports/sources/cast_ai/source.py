@@ -107,7 +107,7 @@ class CastAiSource(ResumableSource[CastAiSourceConfig, CastAiResumeConfig]):
             caption="Import Kubernetes cost and savings reports from your CAST AI organization.",
             docsUrl="https://posthog.com/docs/cdp/sources/cast-ai",
             iconPath="/static/services/cast_ai.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["kubernetes", "finops", "k8s"],
             fields=cast(
                 list[FieldType],

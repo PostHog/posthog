@@ -109,7 +109,7 @@ class TestOnboarding:
     ):
         # Install-only delivery: always post, even if every step is already done (shown as '✅').
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
         client.conversations_members.return_value = {"members": ["U1"], "response_metadata": {"next_cursor": ""}}
 
@@ -203,7 +203,7 @@ class TestOnboarding:
         self, mock_webclient_class, _resolve, _personal, _team, _responder, _admin
     ):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
         client.conversations_members.return_value = {"members": ["U1"], "response_metadata": {"next_cursor": ""}}
         self.organization.is_ai_data_processing_approved = False
@@ -224,7 +224,7 @@ class TestOnboarding:
         self, mock_webclient_class, _resolve, _personal, _team, _responder, _admin
     ):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
         client.conversations_members.return_value = {"members": ["U1"], "response_metadata": {"next_cursor": ""}}
         self.organization.is_ai_data_processing_approved = False

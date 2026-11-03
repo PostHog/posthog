@@ -27,9 +27,11 @@ import {
     Link,
     LemonDivider,
 } from '@posthog/lemon-ui'
+import { Button, Spinner as QuillSpinner } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -47,8 +49,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { AddKeyModal } from '../settings/AddKeyModal'
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -136,7 +140,55 @@ function PlaygroundHeaderActions(): JSX.Element {
     const { addPromptConfig, resetPlayground } = useActions(llmPlaygroundPromptsLogic)
     const { submitting: playgroundSubmitting } = useValues(llmPlaygroundRunLogic)
     const { submitPrompt, abortRun } = useActions(llmPlaygroundRunLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const firstPromptId = promptConfigs[0]?.id
+
+    if (todayRailNav) {
+        return (
+            <>
+                <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Reset playground to default state"
+                    onClick={resetPlayground}
+                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                    tooltip="Reset playground to default state"
+                    data-attr="llma-playground-reset"
+                >
+                    <IconRevert />
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={() => addPromptConfig(firstPromptId)}
+                    disabledReason={playgroundSubmitting ? 'Generating...' : undefined}
+                    data-attr="llma-playground-add-prompt"
+                >
+                    <IconPlus />
+                    Add prompt
+                </Button>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmPlayground}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <Button
+                        variant={playgroundSubmitting ? 'destructive-outline' : 'primary'}
+                        onClick={() => (playgroundSubmitting ? abortRun() : submitPrompt())}
+                        disabledReason={
+                            playgroundSubmitting
+                                ? undefined
+                                : !hasRunnablePrompts
+                                  ? 'Add messages to at least one prompt'
+                                  : undefined
+                        }
+                        data-attr="llma-playground-run-button"
+                    >
+                        {playgroundSubmitting ? <QuillSpinner /> : <IconPlay />}
+                        <span>{playgroundSubmitting ? 'Stop' : 'Run'}</span>
+                    </Button>
+                </AccessControlAction>
+            </>
+        )
+    }
 
     return (
         <>
@@ -242,6 +294,8 @@ function PlaygroundLayout(): JSX.Element {
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
             <PlaygroundVariablesPanel />
+            {/* One modal for the whole page, because every prompt card has its own model picker. */}
+            <AddKeyModal />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 {sourceSetupLoading ? (
@@ -492,6 +546,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     } = useValues(modelPickerLogic)
     const { loadPlaygroundModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
@@ -518,7 +573,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 }}
                 groups={groups}
                 loading={loading}
-                footerLink={getModelPickerFooterLink(hasByokKeys)}
+                footerActions={getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))}
                 selectedModelName={selectedModel?.name}
                 data-attr={`llma-playground-model-selector-${promptId}`}
             />

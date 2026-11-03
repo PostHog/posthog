@@ -58,7 +58,7 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                               )
                             : (options ?? []).map((value) => ({ key: value, label: value }))
                     }
-                    loading={optionsLoading}
+                    loading={optionsLoading && options === null}
                     status={validationError ? 'danger' : 'default'}
                     onFocus={() => setFocused(true)}
                     onBlur={() => setFocused(false)}

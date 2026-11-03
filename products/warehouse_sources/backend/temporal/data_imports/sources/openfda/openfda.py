@@ -1,8 +1,8 @@
 """openFDA (U.S. Food and Drug Administration) REST API transport.
 
 openFDA (https://api.fda.gov) is the FDA's free public API over drug, device, and food regulatory
-datasets (adverse events, recalls/enforcement reports, drug labeling, 510(k) clearances, the NDC
-directory). Every dataset is its own endpoint with its own schema and date field; responses wrap the
+datasets (adverse events, recalls/enforcement reports, drug labeling, Drugs@FDA applications, drug
+shortages, 510(k) clearances, device classification, the UDI registry, the NDC directory). Every dataset is its own endpoint with its own schema and date field; responses wrap the
 records in `{"meta": ..., "results": [...]}`.
 
 Pagination is a `search_after` cursor exposed via the HTTP `Link: rel="next"` header (the `skip`

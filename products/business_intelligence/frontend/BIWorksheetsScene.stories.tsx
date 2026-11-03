@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,6 +19,29 @@ const meta: Meta = {
         msw: {
             mocks: {
                 get: {
+                    '/api/projects/:team_id/data_catalog/metrics/': {
+                        results: [
+                            {
+                                id: 'metric-example',
+                                name: 'weekly_revenue',
+                                display_name: 'Weekly revenue',
+                                description: 'Revenue from completed purchases.',
+                                definition_kind: 'HogQLQuery',
+                                status: 'approved',
+                                is_drifted: false,
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/data_catalog/certifications/': {
+                        results: [
+                            {
+                                id: 'certification-example',
+                                target_name: 'events',
+                                status: 'certified',
+                                notes: 'Product activity',
+                            },
+                        ],
+                    },
                     '/api/projects/:team_id/insights/': {
                         count: 2,
                         results: [
@@ -24,12 +49,14 @@ const meta: Meta = {
                                 id: 1,
                                 short_id: 'revenue',
                                 name: 'Revenue by country',
+                                created_by: MOCK_DEFAULT_BASIC_USER,
                                 last_modified_at: '2026-01-01T12:00:00Z',
                             },
                             {
                                 id: 2,
                                 short_id: 'activity',
                                 name: 'Weekly activity',
+                                created_by: MOCK_SECOND_BASIC_USER,
                                 last_modified_at: '2026-01-01T10:00:00Z',
                             },
                         ],

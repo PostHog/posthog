@@ -64,13 +64,12 @@ export function LemonTabs<T extends string | number>({
     rightSlot,
     rightSlotClassName,
 }: LemonTabsProps<T>): JSX.Element {
+    /** Tabs with falsy entries filtered out. */
+    const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
         HTMLLIElement
-    >(activeKey, 200)
-
-    /** Tabs with falsy entries filtered out. */
-    const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
+    >(activeKey, 200, realTabs.map((tab) => tab.key).join('|'))
 
     return (
         <div

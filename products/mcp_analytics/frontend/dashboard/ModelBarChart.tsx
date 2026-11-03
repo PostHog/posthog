@@ -48,6 +48,7 @@ export function ModelBarChart({
     filters = {},
     colorOf,
     rowLabels,
+    fillHeight = false,
 }: {
     rows: ModelRow[]
     theme: ChartTheme
@@ -56,6 +57,7 @@ export function ModelBarChart({
     colorOf?: (model: string) => string | undefined
     /** Pass the page's model rows when another chart on the page also shows models. */
     rowLabels?: ReadonlyMap<string, string>
+    fillHeight?: boolean
 }): JSX.Element {
     const logic = modelBreakdownLogic({ filters })
     const { expanded, modelPageLoading } = useValues(logic)
@@ -112,8 +114,8 @@ export function ModelBarChart({
                     />
                 </div>
             </div>
-            <div className="flex flex-col gap-3 p-3">
-                <div>
+            <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+                <div className="flex min-h-0 flex-1 flex-col">
                     <div
                         className="flex flex-wrap justify-between gap-2 text-xs text-secondary tabular-nums"
                         translate="no"
@@ -146,6 +148,7 @@ export function ModelBarChart({
                             totalCalls={totalCalls}
                             theme={theme}
                             tooltip={renderTooltip}
+                            fillHeight={fillHeight}
                             label="Calls by model"
                         />
                     ) : (

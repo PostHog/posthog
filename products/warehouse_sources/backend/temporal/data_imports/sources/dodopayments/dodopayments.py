@@ -117,11 +117,9 @@ def get_resource(
     if should_use_incremental_field and config.start_param and incremental_start_value:
         params[config.start_param] = incremental_start_value
     if config.fanout is not None:
-        params[config.fanout.resolve_param] = {
-            "type": "resolve",
-            "resource": config.fanout.parent_name,
-            "field": config.fanout.resolve_field,
-        }
+        resolve_fields = {config.fanout.resolve_param: config.fanout.resolve_field, **config.extra_resolve_fields}
+        for param, parent_field in resolve_fields.items():
+            params[param] = {"type": "resolve", "resource": config.fanout.parent_name, "field": parent_field}
 
     endpoint_config: Endpoint = {
         "path": config.path,
@@ -225,16 +223,15 @@ def dodopayments_source(
             initial_paginator_state=initial_paginator_state,
         )
     else:
-        # An incremental child's cursor is a parent field copied onto its rows, so the watermark
-        # filters the parent listing, not the child request.
-        rest_config["resources"].insert(
-            0,
-            get_resource(
-                config.fanout.parent_name,
-                should_use_incremental_field and bool(config.incremental_fields),
-                incremental_start_value,
-            ),
-        )
+        # An incremental child without a date filter of its own takes its cursor from a parent
+        # field copied onto its rows, so the watermark filters the parent listing instead.
+        filter_parent = should_use_incremental_field and bool(config.incremental_fields) and config.start_param is None
+        ancestor: Optional[str] = config.fanout.parent_name
+        while ancestor is not None:
+            rest_config["resources"].insert(0, get_resource(ancestor, filter_parent, incremental_start_value))
+            filter_parent = False
+            ancestor_fanout = DODOPAYMENTS_ENDPOINTS[ancestor].fanout
+            ancestor = ancestor_fanout.parent_name if ancestor_fanout is not None else None
         resources = rest_api_resources(
             rest_config,
             team_id,
@@ -266,6 +263,8 @@ def dodopayments_source(
         # cannot claim rows arrive oldest-first. "desc" holds the watermark back until the sync
         # finishes, which is correct whichever order the API actually returns.
         sort_mode="desc",
+        # The framework gives a two-level fan-out no resume hook, so it has no cursor to resume from.
+        supports_resume=config.fanout is None or DODOPAYMENTS_ENDPOINTS[config.fanout.parent_name].fanout is None,
         **partition_kwargs,
     )
 

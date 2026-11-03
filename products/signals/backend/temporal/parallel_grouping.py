@@ -168,6 +168,7 @@ async def _process_signal(
     match_result = await workflow.execute_activity(
         match_signal_to_report_activity,
         MatchSignalToReportInput(
+            signal_id=signal_id,
             team_id=team_id,
             description=signal.description,
             source_product=signal.source_product,
@@ -175,6 +176,10 @@ async def _process_signal(
             queries=queries,
             query_results=augmented_results,
             report_contexts=report_contexts,
+            source_id=signal.source_id,
+            sync_with_source=signal.sync_with_source,
+            source_match_signal_id=signal.source_match_signal_id,
+            source_match_report_id=signal.source_match_report_id,
         ),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=RetryPolicy(maximum_attempts=5),
@@ -183,7 +188,7 @@ async def _process_signal(
     # Step 5.5: PR-specificity verification for existing matches
     updated_title: Optional[str] = None
 
-    if isinstance(match_result, ExistingReportMatch):
+    if isinstance(match_result, ExistingReportMatch) and not match_result.source_synced:
         report_ctx = report_contexts.get(match_result.report_id)
         report_title = report_ctx.title if report_ctx else ""
 
@@ -197,6 +202,7 @@ async def _process_signal(
         specificity_result: VerifyMatchSpecificityOutput = await workflow.execute_activity(
             verify_match_specificity_activity,
             VerifyMatchSpecificityInput(
+                signal_id=signal_id,
                 team_id=team_id,
                 report_id=match_result.report_id,
                 report_title=report_title,
@@ -244,6 +250,7 @@ async def _process_signal(
             match_result=match_result,
             updated_title=updated_title,
             remediation=signal.remediation,
+            sync_with_source=signal.sync_with_source,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -328,7 +335,7 @@ async def _process_parallel_batch(
     coroutines = []
     for idx in batch_indices:
         signal = batch[idx]
-        signal_id = str(uuid.uuid4())
+        signal_id = signal.signal_id or str(uuid.uuid4())
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(
@@ -399,6 +406,7 @@ async def _process_parallel_batch(
                     team_id=signal.team_id,
                     report_id=result.assign_result.report_id,
                     debounce_seconds=result.assign_result.research_debounce_seconds,
+                    signal_id=result.assign_result.triggering_signal_id,
                 ),
                 result.assign_result.run_count,
             )

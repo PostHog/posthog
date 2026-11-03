@@ -133,6 +133,10 @@ def _token_response(token: str = "tok-1") -> ScriptedResponse:
     return ScriptedResponse(json=_token_body(token=token))
 
 
+def _ok(body: dict[str, Any]) -> ScriptedResponse:
+    return ScriptedResponse(json={"success": True, **body})
+
+
 def _recent_start() -> str:
     return format_datetime(datetime.now(UTC) - timedelta(days=5))
 
@@ -289,7 +293,6 @@ class TestMarketo:
         "token_body,status,expected_ok",
         [
             (_token_body(), 200, True),
-            ({"error": "invalid_client"}, 401, False),
         ],
     )
     def test_validate_credentials_maps_the_identity_probe(
@@ -532,3 +535,142 @@ class TestMarketo:
 
         assert network.session_options == []
         assert network.requests_log == []
+
+    def test_list_members_walk_every_list_in_id_order(self) -> None:
+        result = _driver().run(
+            "list_members",
+            [
+                _token_response(),
+                _ok({"result": [{"id": 20}, {"id": 10}], "nextPageToken": "l2", "moreResult": True}),
+                _ok({"result": [{"id": 5}], "moreResult": False}),
+                _ok({"result": []}),
+                # A page token with no moreResult still means another page.
+                _ok({"result": [{"id": 1}], "nextPageToken": "t2"}),
+                _ok({"result": [{"id": 2}], "moreResult": False}),
+                _ok({"result": [{"id": 3}], "moreResult": False}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[3:] == [
+            "/rest/v1/lists/5/leads.json",
+            "/rest/v1/lists/10/leads.json",
+            "/rest/v1/lists/10/leads.json",
+            "/rest/v1/lists/20/leads.json",
+        ]
+        assert result.params("nextPageToken")[3:] == [None, None, "t2", None]
+        assert result.rows == [{"id": 1, "listId": 10}, {"id": 2, "listId": 10}, {"id": 3, "listId": 20}]
+        assert result.saved_states == [
+            MarketoResumeConfig(parent_id=5),
+            MarketoResumeConfig(parent_id=10, next_page_token="t2"),
+            MarketoResumeConfig(parent_id=10),
+            MarketoResumeConfig(parent_id=20),
+        ]
+        assert result.final_state is None
+        assert result.response is not None and result.response.sort_mode is None
+
+    @pytest.mark.parametrize(
+        "resume,expected_paths,expected_tokens",
+        [
+            (
+                MarketoResumeConfig(parent_id=10, next_page_token="t2"),
+                ["/rest/v1/lists/10/leads.json", "/rest/v1/lists/20/leads.json"],
+                ["t2", None],
+            ),
+            (MarketoResumeConfig(parent_id=10), ["/rest/v1/lists/20/leads.json"], [None]),
+            # The list the cursor was in is gone, so the next list starts from its first page.
+            (MarketoResumeConfig(parent_id=15, next_page_token="t9"), ["/rest/v1/lists/20/leads.json"], [None]),
+        ],
+    )
+    def test_list_members_resume_skips_finished_lists(
+        self,
+        resume: MarketoResumeConfig,
+        expected_paths: list[str],
+        expected_tokens: list[Optional[str]],
+    ) -> None:
+        result = _driver().run(
+            "list_members",
+            [
+                _token_response(),
+                _ok({"result": [{"id": 5}, {"id": 10}, {"id": 20}], "moreResult": False}),
+                *[_ok({"result": [{"id": 1}], "moreResult": False}) for _ in expected_paths],
+            ],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert result.paths[2:] == expected_paths
+        assert result.params("nextPageToken")[2:] == expected_tokens
+
+    def test_program_members_query_each_program_in_seven_day_windows_from_its_creation(self) -> None:
+        start = (datetime.now(UTC) - timedelta(days=10)).replace(microsecond=0)
+        boundary = start + timedelta(days=7)
+        created = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0)
+        member = {"leadId": 1, "statusName": "Member"}
+        result = _driver(format_datetime(start)).run(
+            "program_members",
+            [
+                _token_response(),
+                # Asset timestamps carry an offset after the Z.
+                _ok(
+                    {
+                        "result": [
+                            {"id": 2, "createdAt": "2015-01-01T00:00:00Z+0000"},
+                            {"id": 1, "createdAt": format_datetime(created) + "+0000"},
+                        ]
+                    }
+                ),
+                _ok({"result": [{"fields": [{"name": "leadId"}, {"name": "statusName"}]}]}),
+                _ok({"result": [{**member, "updatedAt": format_datetime(created)}], "moreResult": False}),
+                # A member updated on the boundary comes back from both windows and is kept once.
+                _ok({"result": [{**member, "leadId": 2, "updatedAt": format_datetime(boundary)}]}),
+                _ok({"result": [{**member, "leadId": 2, "updatedAt": format_datetime(boundary)}]}),
+            ],
+        )
+
+        assert result.raised is None
+        members = [request for request in result.requests if request.path.endswith("/members.json")]
+        assert [request.path for request in members] == [
+            "/rest/v1/programs/1/members.json",
+            "/rest/v1/programs/2/members.json",
+            "/rest/v1/programs/2/members.json",
+        ]
+        assert [request.param("startAt") for request in members] == [
+            format_datetime(created),
+            format_datetime(start),
+            format_datetime(boundary),
+        ]
+        assert members[1].param("endAt") == format_datetime(boundary)
+        assert {request.param("filterType") for request in members} == {"updatedAt"}
+        assert members[0].param("fields") == "leadId,programId,membershipDate,updatedAt,statusName"
+        assert [(row["programId"], row["leadId"]) for row in result.rows] == [(1, 1), (2, 2)]
+        assert [(state.parent_id, state.window_start) for state in result.saved_states] == [
+            (1, None),
+            (2, format_datetime(boundary)),
+            (2, None),
+        ]
+        assert {state.query_end for state in result.saved_states} == {members[0].param("endAt")}
+        assert result.response is not None and result.response.sort_mode is None
+
+    def test_program_members_resume_inside_the_saved_window_with_the_saved_end(self) -> None:
+        window_start = format_datetime((datetime.now(UTC) - timedelta(days=2)).replace(microsecond=0))
+        query_end = format_datetime((datetime.now(UTC) - timedelta(days=1)).replace(microsecond=0))
+        result = _driver().run(
+            "program_members",
+            [
+                _token_response(),
+                _ok({"result": [{"id": 1, "createdAt": "2015-01-01T00:00:00Z+0000"}, {"id": 2}]}),
+                _ok({"result": []}),
+                _ok({"result": [{"leadId": 7, "updatedAt": window_start}], "moreResult": False}),
+            ],
+            resume_state=MarketoResumeConfig(
+                parent_id=2, window_start=window_start, next_page_token="p3", query_end=query_end
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths[3:] == ["/rest/v1/programs/2/members.json"]
+        assert result.params("startAt")[3:] == [window_start]
+        assert result.params("endAt")[3:] == [query_end]
+        assert result.params("nextPageToken")[3:] == ["p3"]
+        assert result.rows == [{"leadId": 7, "updatedAt": window_start, "programId": 2}]

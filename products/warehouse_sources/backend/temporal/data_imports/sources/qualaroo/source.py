@@ -55,7 +55,7 @@ class QualarooSource(ResumableSource[QualarooSourceConfig, QualarooResumeConfig]
             name=ExternalDataSourceType.QUALAROO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Qualaroo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Qualaroo API key and secret to pull your survey (nudge) data into the PostHog Data warehouse.
 
 You can find your API key and secret under **Settings → API** in [Qualaroo](https://app.qualaroo.com/). They authenticate the REST Reporting API with read access to your nudges.
@@ -107,10 +107,9 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — the nudges list exposes no reliably ordered
-        # server-side timestamp filter, so INCREMENTAL_FIELDS is empty and every schema is
-        # non-incremental / non-append.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Responses are merge only: `start_date` re-reads the watermark second, which append would
+        # store twice.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("responses",))
 
     def validate_credentials(
         self,
@@ -141,5 +140,9 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Qualaroo endpoint is full refresh
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
+            incremental_field=inputs.incremental_field,
         )

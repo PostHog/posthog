@@ -10,7 +10,7 @@ use chrono::DateTime;
 use common_ingestion_warnings::{
     WarningEmitter, CAPTURE_LEGACY_ANALYTICS, CAPTURE_LEGACY_RATE_LIMIT,
 };
-use common_types::{CapturedEvent, RawEvent};
+use common_types::{CapturedEvent, ExtractedDistinctId, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::{counter, histogram};
 use serde_json;
@@ -30,12 +30,18 @@ use crate::{
         legacy::{emit_processing_abort_warning, request_context},
     },
     outputs::OutputRegistry,
-    prometheus::{report_clock_skew, report_dropped_events, report_timestamp_path},
+    prometheus::{
+        report_clock_skew, report_dropped_events, report_over_v1_limit, report_timestamp_path,
+    },
     router,
     utils::uuid_v7_from_datetime,
     v0_request::{
         exceeds_max_ai_event_bytes, DataType, OverflowReason, ProcessedEvent,
         ProcessedEventMetadata, ProcessingContext,
+    },
+    v1::{
+        analytics::constants::{CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_MAX_EVENT_NAME_LENGTH},
+        error::Error as V1Error,
     },
 };
 
@@ -116,6 +122,16 @@ fn create_heatmap_redirect(
     process_single_event(&heatmap_event, historical_cfg, context).map(Some)
 }
 
+/// Count fields this event keeps on legacy capture but that capture v1 rejects, measured in UTF-8 bytes like v1.
+fn report_v1_limit_overruns(event_name: &str, distinct_id: &ExtractedDistinctId) {
+    if event_name.len() > CAPTURE_V1_MAX_EVENT_NAME_LENGTH {
+        report_over_v1_limit(V1Error::EventNameTooLong.tag());
+    }
+    if distinct_id.trimmed_bytes > CAPTURE_V1_DISTINCT_ID_MAX_SIZE {
+        report_over_v1_limit(V1Error::DistinctIdTooLarge.tag());
+    }
+}
+
 /// Process a single analytics event from RawEvent to ProcessedEvent.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
@@ -176,6 +192,7 @@ pub fn process_single_event(
     let extracted_distinct_id = event
         .extract_distinct_id_checked()
         .ok_or(CaptureError::MissingDistinctId)?;
+    report_v1_limit_overruns(&event_name, &extracted_distinct_id);
 
     let mut metadata = ProcessedEventMetadata {
         data_type,
@@ -231,14 +248,9 @@ pub fn process_single_event(
 /// (resolved into `DataType::AiEvents` at classification time), event
 /// restrictions, the AI lane's per-project byte budget, global rate
 /// limiting (per `token:distinct_id`), historical rerouting, and per-key
-/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping
-/// goes through the shared [`stamp_overflow_reason`] helper, which the AI
-/// (`ai_endpoint::ai_handler`) and OTEL (`otel::otel_handler`) paths also
-/// call so every `DataType::AnalyticsMain` event gets identical limiter
-/// semantics regardless of entry point. The kafka sink is a pure mechanism
-/// layer — it reads `ProcessedEventMetadata::data_type`,
-/// `overflow_reason`, `force_overflow`, `redirect_to_dlq`, and
-/// `redirect_to_topic` to decide which topic and key to produce to.
+/// overflow rerouting via [`OverflowLimiter`]. Overflow stamping goes through
+/// [`stamp_overflow_reason`], shared with the AI and OTEL handlers. The sink
+/// maps the stamped metadata to an address through [`crate::pipeline::resolve`].
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
 pub async fn process_events(
@@ -434,10 +446,10 @@ async fn process_events_inner(
     // selects which slice of restrictions applies to each event. A DropEvent
     // tagged only for `analytics` will never silently drop an exception event
     // on the way to the error tracking topic, and vice versa. Snapshots have
-    // no pipeline here and flow through unrestricted. `AiEvents` looks up the `ai` pipeline: a diverted
-    // AI event is governed by ai-scoped restrictions (drop/DLQ/redirect still
-    // win over the lane, redirect_to_topic beats the AI topic in the sink,
-    // force_overflow keeps it on the AI lane) -- mirroring v1.
+    // no pipeline here and flow through unrestricted. `AiEvents` looks up the
+    // `ai` pipeline, so ai-scoped restrictions govern a diverted AI event.
+    // `force_overflow` sends it to the AI overflow lane where the deployment
+    // has one, never to analytics overflow.
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
@@ -489,23 +501,7 @@ async fn process_events_inner(
     drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
     // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow. Import mode
-    // opts out entirely — historical backfills must never be throttled — so the
-    // limiter is skipped even if one were wired.
-    //
-    // DIVERGENCE from v1 (`v1::analytics::process`), intentional and out of scope
-    // to reconcile here — a future routing refactor must not assume parity:
-    //   1. Ordering: legacy runs this GRL step BEFORE burst overflow stamping
-    //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
-    //      stamping. Both set overflow_reason on AnalyticsMain only, so the
-    //      end state matches, but the pass order differs.
-    //   2. Lane assignment is a single `DataType::from_event_name` match in
-    //      legacy versus assign-then-reroute in v1.
-    // Both paths charge the same shared limiter for every non-dropped event,
-    // including events whose person processing is already off, so per-key counts
-    // are identical regardless of which pipeline serves the key.
-    // Import is unaffected by both: the GRL never runs (guard below) and no
-    // overflowable lane is reachable, so behavior is identical across paths.
+    // hot distinct_ids and reroute AnalyticsMain events to overflow.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -534,10 +530,9 @@ async fn process_events_inner(
 
                 if limited {
                     event.metadata.skip_person_processing = true;
-                    // Reroute the hot key to overflow. AnalyticsMain only: historical
-                    // never overflows, the AI lane keeps its dedicated topic (v1
-                    // gates the same way on Destination::AnalyticsMain), and only
-                    // AnalyticsMain acts on overflow_reason.
+                    // Reroute the hot key to overflow on AnalyticsMain only. Historical
+                    // never overflows. An AI hot key loses person processing but stays
+                    // on its lane.
                     if event.metadata.data_type == DataType::AnalyticsMain {
                         event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
                     }
@@ -2419,26 +2414,22 @@ mod tests {
         );
     }
 
-    struct AiValveCase {
+    struct AiLimiterCase {
         ai_limiter_present: bool,
         expected_reason: Option<OverflowReason>,
     }
 
-    /// End-to-end gate for the AI overflow valve: a diverted AI event
-    /// is overflow-stamped only when the AI limiter is wired (setup builds
-    /// it exactly when `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
-    /// configured), and keeps its AI lane either way.
     #[rstest]
-    #[case::limiter_present(AiValveCase {
+    #[case::limiter_present(AiLimiterCase {
         ai_limiter_present: true,
         expected_reason: Some(OverflowReason::ForceLimited),
     })]
-    #[case::limiter_absent(AiValveCase {
+    #[case::limiter_absent(AiLimiterCase {
         ai_limiter_present: false,
         expected_reason: None,
     })]
     #[tokio::test]
-    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiValveCase) {
+    async fn test_ai_events_overflow_stamp_gated_on_limiter_presence(#[case] case: AiLimiterCase) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -3861,6 +3852,88 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Counter value for `capture_events_over_v1_limits_total` at the given `cause`.
+    fn over_v1_limit_count(
+        snapshotter: &metrics_util::debugging::Snapshotter,
+        cause: &str,
+    ) -> Option<u64> {
+        use metrics_util::debugging::DebugValue;
+
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| {
+                if key.key().name() != crate::prometheus::CAPTURE_EVENTS_OVER_V1_LIMITS_TOTAL {
+                    return None;
+                }
+                let matches = key
+                    .key()
+                    .labels()
+                    .any(|l| l.key() == "cause" && l.value() == cause);
+                match value {
+                    DebugValue::Counter(v) if matches => Some(v),
+                    _ => None,
+                }
+            })
+    }
+
+    #[rstest]
+    #[case::short_fields("test_event", "user-1".to_string(), None, None)]
+    #[case::distinct_id_at_limit("test_event", "x".repeat(200), None, None)]
+    #[case::distinct_id_over_limit_and_shortened("test_event", "x".repeat(201), None, Some(1))]
+    #[case::distinct_id_over_limit_in_bytes_only("test_event", "é".repeat(101), None, Some(1))]
+    #[case::distinct_id_fits_after_trimming(
+        "test_event",
+        format!("  {}  ", "x".repeat(199)),
+        None,
+        None
+    )]
+    #[case::event_name_at_limit(&"e".repeat(200), "user-1".to_string(), None, None)]
+    #[case::event_name_over_limit(&"e".repeat(201), "user-1".to_string(), Some(1), None)]
+    #[case::event_name_over_limit_in_bytes_only(&"é".repeat(101), "user-1".to_string(), Some(1), None)]
+    #[case::both_over_limit(&"e".repeat(201), "x".repeat(201), Some(1), Some(1))]
+    fn counts_events_capture_v1_would_reject(
+        #[case] event_name: &str,
+        #[case] distinct_id: String,
+        #[case] expected_name_too_long: Option<u64>,
+        #[case] expected_distinct_id_too_large: Option<u64>,
+    ) {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut event = create_test_event_with_name(
+            event_name,
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        event
+            .properties
+            .insert("distinct_id".to_string(), json!(distinct_id));
+
+        // Legacy capture still accepts the event; the counter only sizes what v1 would drop.
+        process_single_event(
+            &event,
+            router::HistoricalConfig::new(false, 1),
+            &create_test_context(now, None),
+        )
+        .unwrap();
+
+        assert_eq!(
+            over_v1_limit_count(&snapshotter, "event_name_too_long"),
+            expected_name_too_long
+        );
+        assert_eq!(
+            over_v1_limit_count(&snapshotter, "distinct_id_too_large"),
+            expected_distinct_id_too_large
+        );
     }
 
     fn event_with_distinct_id(distinct_id: &str) -> RawEvent {

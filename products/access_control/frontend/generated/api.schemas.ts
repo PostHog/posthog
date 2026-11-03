@@ -95,6 +95,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
  * * `hog_function` - hog_function
+ * * `inbox` - inbox
  * * `ingestion_warning` - ingestion_warning
  * * `insight` - insight
  * * `insight_variable` - insight_variable
@@ -135,6 +136,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
  * * `signal_scout` - signal_scout
+ * * `signal_usage` - signal_usage
  * * `stamphog` - stamphog
  * * `streamlit_app` - streamlit_app
  * * `subscription` - subscription
@@ -215,6 +217,7 @@ export const ScopeObjectEnumApi = {
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
     HogFunction: 'hog_function',
+    Inbox: 'inbox',
     IngestionWarning: 'ingestion_warning',
     Insight: 'insight',
     InsightVariable: 'insight_variable',
@@ -255,6 +258,7 @@ export const ScopeObjectEnumApi = {
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
     SignalScout: 'signal_scout',
+    SignalUsage: 'signal_usage',
     Stamphog: 'stamphog',
     StreamlitApp: 'streamlit_app',
     Subscription: 'subscription',
@@ -358,6 +362,7 @@ export interface ProjectAccessSourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -398,6 +403,7 @@ export interface ProjectAccessSourceApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -521,6 +527,7 @@ export interface AccessControlObjectRuleApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -561,6 +568,7 @@ export interface AccessControlObjectRuleApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -909,6 +917,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -949,6 +958,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -1194,6 +1204,7 @@ export interface ResolvedAccessApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -1234,6 +1245,7 @@ export interface ResolvedAccessApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription

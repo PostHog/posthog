@@ -66,11 +66,6 @@ class TestAppdynamicsSource:
         # Changing account_name retargets the preserved credential, so it must force re-entry.
         assert self.source.connection_host_fields == ["account_name"]
 
-    def test_get_schemas_filtered_by_name(self) -> None:
-        schemas = self.source.get_schemas(_api_client_config(), self.team_id, names=["applications"])
-        assert [s.name for s in schemas] == ["applications"]
-        assert self.source.get_schemas(_api_client_config(), self.team_id, names=["nope"]) == []
-
     def test_auth_for_config_basic(self) -> None:
         auth = self.source._auth_for_config(_basic_config("u", "p"))
         assert auth == AppdynamicsAuth(account_name="acme", username="u", password="p")

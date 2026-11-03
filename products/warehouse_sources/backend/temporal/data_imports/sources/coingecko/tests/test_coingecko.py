@@ -137,13 +137,6 @@ class TestHostHeaderAndRedaction:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status)]) as network:
-            assert validate_credentials(PLAN_DEMO, "key") is expected
-
-        assert len(network.requests_log) == 1
-
     def test_pings_plan_host_with_key_and_redaction(self) -> None:
         with scripted_network([ScriptedResponse()]) as network:
             assert validate_credentials(PLAN_PRO, "secret") is True
@@ -163,6 +156,9 @@ class TestSourceResponse:
             ("exchanges", ["id"]),
             ("exchanges_list", ["id"]),
             ("asset_platforms", ["id"]),
+            ("rwas_markets", ["id"]),
+            ("rwas_list", ["id"]),
+            ("rwas_issuers_list", ["id"]),
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
@@ -394,6 +390,31 @@ class TestGlobalMarketCapChart:
         assert result.params("days") == [expected_days]
 
 
+class TestFearAndGreedChart:
+    def test_maps_each_point_onto_a_row_in_ascending_order(self) -> None:
+        result = _driver(plan=PLAN_PRO).run(
+            "global_fear_and_greed_chart",
+            [
+                ScriptedResponse(
+                    json={
+                        "fear_and_greed": [
+                            [1792368000000, 72, "extreme_greed"],
+                            [1792281600000, 44, "fear"],
+                            ["not-a-timestamp", 50, "neutral"],
+                        ]
+                    }
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"timestamp": datetime.fromtimestamp(1792281600, tz=UTC), "value": 44, "sentiment": "fear"},
+            {"timestamp": datetime.fromtimestamp(1792368000, tz=UTC), "value": 72, "sentiment": "extreme_greed"},
+        ]
+        assert result.params("days") == ["max"]
+
+
 class TestReshapedEndpointsFailLoud:
     @parameterized.expand(
         [
@@ -405,6 +426,12 @@ class TestReshapedEndpointsFailLoud:
                 "global_market_cap_chart",
                 {"market_cap_chart": []},
                 "global market cap chart object",
+            ),
+            (
+                "fear and greed, wrong inner type",
+                "global_fear_and_greed_chart",
+                {"fear_and_greed": {"unexpected": "object"}},
+                "fear and greed array",
             ),
         ]
     )

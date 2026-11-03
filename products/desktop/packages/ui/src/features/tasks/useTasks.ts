@@ -1,3 +1,4 @@
+import { TASK_LIST_MAX_PAGE_SIZE } from "@posthog/api-client/posthog-client";
 import type { TaskSummaryDTO } from "@posthog/api-client/task-normalization";
 import type { Task } from "@posthog/shared/domain-types";
 import { keepPreviousData } from "@tanstack/react-query";
@@ -70,8 +71,6 @@ export function useTasks(
     },
   );
 }
-
-export const TASK_LIST_MAX_PAGE_SIZE = 100;
 
 /**
  * Pinned records read every page on each poll, so the poll waits one interval per page. Any pin

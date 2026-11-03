@@ -1,17 +1,23 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from requests import HTTPError
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    FanoutEndpointLike,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
@@ -29,12 +35,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sevenshift
     COMPANY_ERROR,
     DATE_ONLY_ENDPOINTS,
     ENDPOINTS,
+    LOCATION_ENDPOINT_CONFIGS,
+    LOCATION_ENDPOINTS,
+    LOCATION_FANOUT,
+    LOCATION_PRIMARY_KEYS,
 )
 
 
 @frozen
 class SevenShiftsResumeConfig:
-    cursor: str
+    cursor: str | None = None
+    fanout_state: dict[str, Any] | None = None
 
 
 def company_path(company_id: str) -> str:
@@ -72,6 +83,60 @@ def validate_credentials(config: SevenShiftsSourceConfig, api_version: str) -> t
     return True, None
 
 
+def _client_config(config: SevenShiftsSourceConfig, api_version: str) -> ClientConfig:
+    return {
+        "base_url": BASE_URL,
+        "auth": {"type": "bearer", "token": config.access_token},
+        "headers": {"x-api-version": api_version},
+        "paginator": {
+            "type": "cursor",
+            "cursor_path": "meta.cursor.next",
+            "cursor_param": "cursor",
+            "raise_on_repeated_cursor": True,
+        },
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        "request_timeout": 30,
+    }
+
+
+def _location_source(
+    config: SevenShiftsSourceConfig,
+    endpoint: str,
+    api_version: str,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[SevenShiftsResumeConfig],
+) -> SourceResponse:
+    resume = manager.load_state() if manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state:
+            manager.save_state(SevenShiftsResumeConfig(fanout_state=state))
+
+    data_selector: Endpoint = {"data_selector": "data", "data_selector_required": True}
+    resource = build_dependent_resource(
+        endpoint_configs=cast(Mapping[str, FanoutEndpointLike], LOCATION_ENDPOINT_CONFIGS),
+        child_endpoint=endpoint,
+        fanout=LOCATION_FANOUT,
+        client_config=_client_config(config, api_version),
+        path_format_values={"company": company_path(config.company_id)},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra=data_selector,
+        child_endpoint_extra=data_selector,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume else None,
+    )
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=LOCATION_PRIMARY_KEYS,
+        on_complete=manager.clear_state,
+    )
+
+
 def sevenshifts_source(
     config: SevenShiftsSourceConfig,
     endpoint: str,
@@ -83,6 +148,9 @@ def sevenshifts_source(
     last_value: datetime | str | None,
 ) -> SourceResponse:
     schema_for_resource(dict.fromkeys(ENDPOINTS), endpoint)
+    if endpoint in LOCATION_ENDPOINTS:
+        return _location_source(config, endpoint, api_version, team_id, job_id, manager)
+
     params: dict[str, Any] = {"limit": 100}
     if endpoint == "shifts":
         params["include_deleted"] = "true"
@@ -104,20 +172,7 @@ def sevenshifts_source(
     }
     resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "auth": {"type": "bearer", "token": config.access_token},
-            "headers": {"x-api-version": api_version},
-            "paginator": {
-                "type": "cursor",
-                "cursor_path": "meta.cursor.next",
-                "cursor_param": "cursor",
-                "raise_on_repeated_cursor": True,
-            },
-            "allowed_hosts": [],
-            "allow_redirects": False,
-            "request_timeout": 30,
-        },
+        "client": _client_config(config, api_version),
         "resources": [resource_config],
     }
     resume = manager.load_state() if manager.can_resume() else None
@@ -132,7 +187,7 @@ def sevenshifts_source(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state={"cursor": resume.cursor} if resume else None,
+        initial_paginator_state={"cursor": resume.cursor} if resume and resume.cursor else None,
     )
     return SourceResponse(
         name=endpoint,

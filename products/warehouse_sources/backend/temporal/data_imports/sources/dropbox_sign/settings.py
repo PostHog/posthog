@@ -18,11 +18,14 @@ class DropboxSignEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # When True the endpoint returns a single object with no `list_info` / pagination.
     is_single_object: bool = False
+    # When False the endpoint returns its whole list in one response, with no `list_info` and no
+    # `page` / `page_size` parameters.
+    is_paginated: bool = True
     # When True the path carries a `{team_id}` placeholder resolved from /team/info at sync time.
     requires_team_id: bool = False
     # When True a 404 from this endpoint means the table is empty rather than the sync failed.
-    # Only /team/info qualifies: it 404s when the connected account belongs to no team. A 404 from
-    # a paginated endpoint would truncate the table silently, so those must keep failing.
+    # Only the one-request team endpoints qualify: they 404 when the connected account belongs to no
+    # team. A 404 from a paginated endpoint would truncate the table silently, so those must keep failing.
     empty_on_404: bool = False
     # Stable creation timestamp used for datetime partitioning. Dropbox Sign returns these as Unix
     # timestamps (ints), which the pipeline's datetime partitioner handles natively. None disables
@@ -99,6 +102,32 @@ DROPBOX_SIGN_ENDPOINTS: dict[str, DropboxSignEndpointConfig] = {
         data_key="team_members",
         primary_keys=["account_id"],
         requires_team_id=True,
+    ),
+    "team_sub_teams": DropboxSignEndpointConfig(
+        name="team_sub_teams",
+        path="/team/sub_teams/{team_id}",
+        data_key="sub_teams",
+        primary_keys=["team_id"],
+        requires_team_id=True,
+    ),
+    "team_invites": DropboxSignEndpointConfig(
+        name="team_invites",
+        path="/team/invites",
+        data_key="team_invites",
+        primary_keys=["team_id", "email_address"],
+        is_paginated=False,
+        empty_on_404=True,
+        # Listing a team's invites can need an admin role, so a member's key would fail this table.
+        should_sync_default=False,
+    ),
+    "fax_lines": DropboxSignEndpointConfig(
+        name="fax_lines",
+        path="/fax_line/list",
+        data_key="fax_lines",
+        primary_keys=["number"],
+        partition_key="created_at",
+        # Fax lines belong to the same separate fax product as `faxes`.
+        should_sync_default=False,
     ),
 }
 

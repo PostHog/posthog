@@ -43,7 +43,7 @@ Always give both a light and a dark variable, because a single value is reused f
 Stars come from two writers:
 
 - The frontend (`shortcutFromEntry` in `ProjectTree/utils.tsx`) sets `href`. The customize dialog saves all its changes in one `file_system_shortcut/bulk_update/` call.
-- The backend (`star_custom_products` in `posthog/models/file_system/starred_products.py`) stars new custom products for simple sidebar users. It sets no `href`, because product URLs exist only in the frontend.
+- The backend (`star_products` in `posthog/models/file_system/starred_products.py`) stars the default products when a user gets a project, and the products of a new product intent. It sets no `href`, because product URLs exist only in the frontend.
 
 When shortcuts load, `withProductShortcutHref` in `defaultTree.tsx` fills in a missing `href` by product name.
 The file tree then looks up the product by `href` (`getSidebarProduct` in `defaultTree.tsx`) and uses its current name, tags, icon and color. It wraps custom icons in `ProductIconWrapper`.

@@ -59,7 +59,7 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
             ),
             iconPath="/static/services/statuspage.png",
             docsUrl="https://posthog.com/docs/cdp/sources/statuspage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

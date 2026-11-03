@@ -9,6 +9,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
+    ANTHROPIC_VERSION_2023_06_01,
+    ANTHROPIC_VERSION_2026_10_21,
+    INVALID_ADMIN_KEY_MESSAGE,
+    STANDARD_KEY_MESSAGE,
+    VALIDATION_UNREACHABLE_MESSAGE,
     AnthropicResumeConfig,
     _analytics_windows,
     _claude_code_start_day,
@@ -29,6 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -231,45 +239,24 @@ class TestUsageReportGroupByFallback:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("ok", "sk-ant-admin-test", 200, (True, None)),
+            ("forbidden_scope", "sk-ant-admin-test", 403, (True, None)),
+            ("unauthorized", "sk-ant-admin-test", 401, (False, INVALID_ADMIN_KEY_MESSAGE)),
+            ("standard_key", "sk-ant-api03-test", 401, (False, STANDARD_KEY_MESSAGE)),
+            ("server_error", "sk-ant-admin-test", 503, (False, VALIDATION_UNREACHABLE_MESSAGE)),
+        ]
+    )
+    def test_status_mapping(self, _name: str, api_key: str, status: int, expected: tuple[bool, str | None]) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key.
         with scripted_network([ScriptedResponse(status=status)]) as network:
-            assert validate_credentials("sk-ant-admin-test") is expected
+            assert validate_credentials(api_key, ANTHROPIC_VERSION_2026_10_21) == expected
         assert network.requests_log[0].path == "/v1/organizations/users"
         assert network.requests_log[0].param("limit") == "1"
 
 
 class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.anthropic.com/v1/organizations/users?limit=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.anthropic.com/v1/organizations/cost_report",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = AnthropicSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.anthropic.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.anthropic.com/v1/organizations/users",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = AnthropicSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
     @parameterized.expand(
         [
             (
@@ -383,6 +370,18 @@ class TestClaudeCodeDayFanOut:
         assert len(result.rows) == 1
         assert result.params("page") == ["P2"]
         assert result.params("starting_at") == [today.isoformat()]
+
+    def test_fails_at_once_with_the_delay_when_a_rate_limit_asks_for_an_hour(self) -> None:
+        today = datetime.now(UTC).date()
+        result = _driver().run(
+            "claude_code_analytics",
+            [ScriptedResponse(status=429, headers={"Retry-After": "3600"})],
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert result.raised.retry_after == 3600
+        assert len(result.requests) == 1
 
 
 class TestRetiredEndpoint:
@@ -514,7 +513,7 @@ class TestAnalyticsAccessProbe:
     )
     def test_status_mapping(self, _name: str, status: int, expected: str | None) -> None:
         with scripted_network([ScriptedResponse(status=status, json={})]) as network:
-            assert check_analytics_access("sk-ant-admin-test") == expected
+            assert check_analytics_access("sk-ant-admin-test", ANTHROPIC_VERSION_2026_10_21) == expected
         assert network.requests_log[0].path == f"{ANALYTICS_PATH_PREFIX}users"
 
 
@@ -680,3 +679,177 @@ class TestRbacNonRetryableErrors:
         matched = [message for pattern, message in errors.items() if error_message_matches(observed, [pattern])]
         assert matched, "a group or role denial must be non-retryable"
         assert expected_scope in (matched[0] or "")
+
+
+_V1 = ANTHROPIC_VERSION_2023_06_01
+_V2 = ANTHROPIC_VERSION_2026_10_21
+
+
+class TestApiVersionDispatch:
+    @parameterized.expand(
+        [
+            (
+                "api_keys_legacy",
+                "api_keys",
+                _V1,
+                [_entity_page([{"id": "k1", "workspace_id": "w1"}], has_more=False, last_id="k1")],
+                {"workspace_id": "w1"},
+                [],
+            ),
+            (
+                "api_keys_workspace_scope",
+                "api_keys",
+                _V2,
+                [
+                    _entity_page(
+                        [{"id": "k1", "scope": {"type": "workspace", "workspace_id": "w1"}}],
+                        has_more=False,
+                        last_id="k1",
+                    )
+                ],
+                {"workspace_id": "w1"},
+                ["scope"],
+            ),
+            (
+                "api_keys_organization_scope",
+                "api_keys",
+                _V2,
+                [_entity_page([{"id": "k1", "scope": {"type": "organization"}}], has_more=False, last_id="k1")],
+                {"workspace_id": None},
+                ["scope"],
+            ),
+            (
+                "rbac_groups_legacy",
+                "rbac_groups",
+                _V1,
+                [_token_page([{"id": "g1", "roles": ["r1"]}], has_more=False, next_page=None)],
+                {"roles": ["r1"]},
+                [],
+            ),
+            (
+                "rbac_groups_renamed",
+                "rbac_groups",
+                _V2,
+                [_token_page([{"id": "g1", "role_ids": ["r1"]}], has_more=False, next_page=None)],
+                {"roles": ["r1"]},
+                ["role_ids"],
+            ),
+            (
+                "rbac_group_members_legacy",
+                "rbac_group_members",
+                _V1,
+                [
+                    _token_page([{"id": "g1"}], has_more=False, next_page=None),
+                    _token_page([{"group_id": "g1", "user_id": "u1"}], has_more=False, next_page=None),
+                ],
+                {"group_id": "g1", "user_id": "u1"},
+                [],
+            ),
+            (
+                "rbac_group_members_renamed",
+                "rbac_group_members",
+                _V2,
+                [
+                    _token_page([{"id": "g1"}], has_more=False, next_page=None),
+                    _token_page([{"rbac_group_id": "g1", "user_id": "u1"}], has_more=False, next_page=None),
+                ],
+                {"group_id": "g1", "user_id": "u1"},
+                ["rbac_group_id"],
+            ),
+            (
+                "rbac_roles_legacy",
+                "rbac_roles",
+                _V1,
+                [_token_page([{"id": "r1", "name": "Admins"}], has_more=False, next_page=None)],
+                {"name": "Admins"},
+                [],
+            ),
+            (
+                "rbac_roles_renamed",
+                "rbac_roles",
+                _V2,
+                [_token_page([{"id": "r1", "display_name": "Admins"}], has_more=False, next_page=None)],
+                {"name": "Admins"},
+                ["display_name"],
+            ),
+            (
+                "analytics_user_cost_legacy",
+                "analytics_user_cost",
+                _V1,
+                [_report_page([_user_report_row()], has_more=False, next_page=None)],
+                {"user_email": "dev@example.com"},
+                [],
+            ),
+            (
+                "analytics_user_cost_renamed",
+                "analytics_user_cost",
+                _V2,
+                [
+                    _report_page(
+                        [{**_user_report_row(), "actor": {"user_id": "user_1", "email_address": "dev@example.com"}}],
+                        has_more=False,
+                        next_page=None,
+                    )
+                ],
+                {"user_email": "dev@example.com"},
+                [],
+            ),
+            (
+                "analytics_summaries_legacy",
+                "analytics_summaries",
+                _V1,
+                [ScriptedResponse(json={"summaries": [{"starting_at": "2026-03-04T00:00:00Z"}]})],
+                {"starting_at": "2026-03-04T00:00:00Z"},
+                [],
+            ),
+            (
+                "analytics_summaries_renamed",
+                "analytics_summaries",
+                _V2,
+                [ScriptedResponse(json={"data": [{"starting_at": "2026-03-04T00:00:00Z"}]})],
+                {"starting_at": "2026-03-04T00:00:00Z"},
+                [],
+            ),
+            (
+                "backfilled_unversioned_pin_stays_legacy",
+                "rbac_roles",
+                "v1",
+                [_token_page([{"id": "r1", "name": "Admins"}], has_more=False, next_page=None)],
+                {"name": "Admins"},
+                [],
+            ),
+            (
+                "unpinned_follows_default",
+                "rbac_roles",
+                None,
+                [_token_page([{"id": "r1", "display_name": "Admins"}], has_more=False, next_page=None)],
+                {"name": "Admins"},
+                ["display_name"],
+            ),
+        ]
+    )
+    def test_rows_keep_their_columns_under_each_version(
+        self,
+        _name: str,
+        endpoint: str,
+        api_version: str | None,
+        script: list[ScriptedResponse],
+        expected: dict[str, Any],
+        absent: list[str],
+    ) -> None:
+        incremental: dict[str, Any] = {}
+        incremental_fields = ANTHROPIC_ENDPOINTS[endpoint].incremental_fields
+        if incremental_fields:
+            incremental = {
+                "incremental_field": incremental_fields[0]["field"],
+                "db_incremental_field_last_value": _midnight(datetime.now(UTC).date()),
+            }
+        result = _driver().run(endpoint, script, api_version=api_version, **incremental)
+
+        assert result.raised is None
+        sent_version = {None: _V2, "v1": _V1}.get(api_version, api_version)
+        assert {request.headers["anthropic-version"] for request in result.requests} == {sent_version}
+        assert len(result.rows) == 1
+        row = result.rows[0]
+        assert {key: row.get(key) for key in expected} == expected
+        assert [key for key in absent if key in row] == []

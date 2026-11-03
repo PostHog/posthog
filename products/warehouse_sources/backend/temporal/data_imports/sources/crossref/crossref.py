@@ -70,6 +70,14 @@ def _normalize_work(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _normalize_journal(item: dict[str, Any]) -> dict[str, Any]:
+    item["issn_key"] = ",".join(sorted(item.get("ISSN") or []))
+    return item
+
+
+_NORMALIZERS = {"Works": _normalize_work, "Journals": _normalize_journal}
+
+
 def validate_credentials(mailto: Optional[str]) -> bool:
     params: dict[str, Any] = {"rows": 0}
     if mailto:
@@ -178,8 +186,9 @@ def get_rows(
 
         next_cursor = message.get("next-cursor")
 
+        normalize = _NORMALIZERS.get(endpoint)
         for item in items:
-            batcher.batch(_normalize_work(item) if endpoint == "Works" else item)
+            batcher.batch(normalize(item) if normalize else item)
 
             if batcher.should_yield():
                 yield batcher.get_table()

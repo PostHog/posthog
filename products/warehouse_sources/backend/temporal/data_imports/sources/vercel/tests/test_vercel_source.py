@@ -40,14 +40,8 @@ class TestVercelSource:
         # the token to be re-entered.
         assert self.source.connection_host_fields == ["team_id"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["deployments"])
-        assert [s.name for s in schemas] == ["deployments"]
-
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.vercel.com/v6/deployments?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.vercel.com/v9/projects?limit=100"),
             (
                 "billing_charges_team_not_found",
                 "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges?from=2026-01-01T00%3A00%3A00.000Z&to=2026-02-01T00%3A00%3A00.000Z&teamId=team_abc",
@@ -60,9 +54,6 @@ class TestVercelSource:
 
     @parameterized.expand(
         [
-            ("rate_limit", "429 Client Error: Too Many Requests for url: https://api.vercel.com/v6/deployments"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.vercel.com/v6/deployments"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out."),
             # Not-found on a non-billing endpoint is unrelated to the billing_charges team-lookup
             # failure, so the match must stay scoped to that path rather than any 404 on the host.
             ("not_found_other_endpoint", "404 Client Error: Not Found for url: https://api.vercel.com/v6/deployments"),

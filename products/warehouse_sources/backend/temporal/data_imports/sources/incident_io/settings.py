@@ -60,6 +60,8 @@ class IncidentIoEndpointConfig:
     entry_window: Optional[EntryWindow] = None
     # Top-level response fields never written to the warehouse, e.g. credentials.
     excluded_fields: tuple[str, ...] = ()
+    # Top-level column -> nested object whose `id` it copies, for rows keyed only by an embedded object.
+    nested_id_columns: dict[str, str] = field(default_factory=dict)
 
     @property
     def default_incremental_field(self) -> Optional[str]:
@@ -113,6 +115,16 @@ _STATUS_PAGE_INCIDENTS_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=[],
     parent_params={"page_size": 250},
+)
+
+# Workload rows carry neither the incident's id nor a top-level user id, so the incident id is copied from the parent.
+_INCIDENT_PARTICIPANT_WORKLOADS_FANOUT = DependentEndpointConfig(
+    parent_name="incidents",
+    resolve_param="incident_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "incident_id"},
+    parent_params={"page_size": 250, "sort_by": "created_at_oldest_first"},
 )
 
 # Full refresh re-reads this window on every sync, so shifts older than the lookback drop out of the table.
@@ -301,6 +313,42 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
         primary_keys=["status_page_id", "id"],
         partition_key="published_at",
         fanout=_STATUS_PAGE_INCIDENTS_FANOUT,
+    ),
+    "teams": IncidentIoEndpointConfig(
+        name="teams",
+        path="/v3/teams",
+        data_key="teams",
+        paginated=True,
+        page_size=250,
+    ),
+    # Replaces GET /v2/actions, which incident.io removes on 2026-12-31. Rows are ordered by id,
+    # oldest first, and the list takes `created_at[gte]` / `updated_at[gte]` filters.
+    "actions": IncidentIoEndpointConfig(
+        name="actions",
+        path="/v3/actions",
+        data_key="actions",
+        paginated=True,
+        page_size=250,
+        partition_key="created_at",
+        incremental_fields=[
+            _DATETIME_INCREMENTAL_FIELD_UPDATED_AT,
+            _DATETIME_INCREMENTAL_FIELD_CREATED_AT,
+        ],
+    ),
+    "incident_participant_workloads": IncidentIoEndpointConfig(
+        name="incident_participant_workloads",
+        # `{incident_id}` is bound per parent incident row by the fan-out.
+        path="/v2/incident_participant_workloads?incident_id={incident_id}",
+        data_key="incident_participant_workloads",
+        page_size_param=None,
+        primary_keys=["incident_id", "user_id"],
+        fanout=_INCIDENT_PARTICIPANT_WORKLOADS_FANOUT,
+        nested_id_columns={"user_id": "user"},
+    ),
+    "alert_attributes": IncidentIoEndpointConfig(
+        name="alert_attributes",
+        path="/v2/alert_attributes",
+        data_key="alert_attributes",
     ),
 }
 

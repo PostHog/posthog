@@ -23,6 +23,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.event_sessions import EventsSessionSubTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
@@ -361,7 +362,7 @@ class _TraversalCatalogBuilder:
 
     def _target_property_namespace(self, target: Table) -> str | None:
         namespace: str | None = None
-        if isinstance(target, EventsPersonSubTable):
+        if isinstance(target, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
             namespace = "person"
         elif isinstance(target, EventsSessionSubTable):
             namespace = "session"

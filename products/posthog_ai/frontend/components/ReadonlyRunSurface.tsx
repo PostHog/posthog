@@ -22,7 +22,11 @@ const Lazy = lazyWithRetry(() => import('./ReadonlyRunSurfaceImpl'))
  */
 export function ReadonlyRunSurface(props: ReadonlyRunSurfaceProps): JSX.Element {
     return (
-        <Suspense fallback={<RunLogSkeleton />}>
+        <Suspense
+            fallback={
+                <RunLogSkeleton listClassName={props.threadListClassName} rowClassName={props.threadRowClassName} />
+            }
+        >
             <Lazy {...props} />
         </Suspense>
     )

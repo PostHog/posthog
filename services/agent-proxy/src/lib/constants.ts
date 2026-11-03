@@ -51,6 +51,7 @@ export const HEARTBEAT_THROTTLE_SECONDS = 30
 
 // Redis key prefix (byte-identical to TASK_RUN_STREAM_PREFIX in Python)
 export const STREAM_PREFIX = 'task-run-stream:'
+export const STREAM_INITIAL_GENERATION = 'initial'
 
 // Redis key builder functions (byte-identical to Python get_task_run_stream_*_key)
 

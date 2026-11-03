@@ -2,8 +2,6 @@ import json
 
 import pytest
 
-from requests.exceptions import HTTPError
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
@@ -51,8 +49,10 @@ def test_credentials_map_auth_errors_and_check_the_selected_type(
 
 def test_credentials_do_not_label_a_server_failure_as_invalid_credentials() -> None:
     with scripted_network(always(ScriptedResponse(status=500, json={"error": "Internal Server Error"}))):
-        with pytest.raises(HTTPError):
-            SanitySource().validate_credentials(config(), team_id=1)
+        assert SanitySource().validate_credentials(config(), team_id=1) == (
+            False,
+            "Couldn't reach Sanity to check your credentials. Try again in a few minutes.",
+        )
 
 
 @pytest.mark.parametrize(

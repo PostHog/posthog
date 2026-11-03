@@ -34,7 +34,7 @@ export const replayVisionEmptyState: SceneProductEmptyState = {
         wizard: { slug: 'replay-vision', pinProjectId: true },
         primaryAction: {
             label: 'Create a scanner yourself',
-            to: urls.replayVisionTemplates(),
+            to: urls.replayVisionNewScanner(),
         },
         docsUrl: visionDocsUrl(),
         previewLabel: 'Example scanner results',

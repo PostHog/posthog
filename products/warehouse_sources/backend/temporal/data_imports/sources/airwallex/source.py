@@ -61,7 +61,7 @@ class AirwallexSource(ResumableSource[AirwallexSourceConfig, AirwallexResumeConf
             name=ExternalDataSourceType.AIRWALLEX,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Airwallex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync your Airwallex payments, payouts, balances, and billing data into the PostHog Data warehouse.
 
 Create an API key under **Developer** then **API keys** in the Airwallex web app, and copy the client ID shown alongside it. The key needs read access to the resources you want to sync.""",

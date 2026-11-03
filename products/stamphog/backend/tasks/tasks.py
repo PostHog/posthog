@@ -7,8 +7,10 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 """
 
 import re
+import math
 from collections.abc import Collection
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -50,6 +52,7 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import (
     PullRequest,
     PullRequestAudience,
@@ -105,7 +108,8 @@ _INBOX_OPT_OUT_DISMISS_MESSAGE = (
 )
 
 # Per-PR cooldown for label-triggered re-reviews, so removing/re-adding the trigger label can't spam
-# sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode.
+# sandbox + LLM runs. Set only when a `labeled` event actually queues a run in LABEL mode. The value is
+# the epoch second the cooldown ends, so a rejected relabel can tell the author when to try again.
 STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS = 10 * 60
 STAMPHOG_LABEL_REREVIEW_KEY_PREFIX = "stamphog:label_rereview:"
 
@@ -688,6 +692,76 @@ def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[s
         logger.warning("stamphog_pr_event_bot_label_cleanup_failed", repo=repo, pr_number=pr_number, exc_info=True)
 
 
+def _label_cooldown_message(trigger_label: str, cooldown_ends_at: Any) -> str:
+    # A key armed before the expiry was stored holds True, which says nothing about when it ends.
+    if isinstance(cooldown_ends_at, bool) or not isinstance(cooldown_ends_at, int | float):
+        when = f"in up to {STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS // 60} minutes"
+    else:
+        # Rounded up so relabeling at the stated minute never lands inside the cooldown.
+        ends_at_seconds = math.ceil(cooldown_ends_at / 60) * 60
+        ends_at = datetime.fromtimestamp(ends_at_seconds, tz=UTC)
+        minutes_left = max(1, math.ceil((ends_at_seconds - timezone.now().timestamp()) / 60))
+        when = f"at {ends_at:%H:%M} UTC (in about {minutes_left} minute{'s' if minutes_left != 1 else ''})"
+    return (
+        f"**No review started.** stamphog started a review of this pull request less than "
+        f"{STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS // 60} minutes ago, and a label can request at most one "
+        f"review per {STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS // 60} minutes. "
+        f"The `{trigger_label}` label has been removed. Add it again {when} to request a fresh review."
+    )
+
+
+def _reject_label_in_cooldown(repo_config: StamphogRepoConfig, pr: dict[str, Any], delivery_id: str) -> None:
+    """Take the trigger label back off a PR that was relabeled inside the cooldown, and say why.
+
+    Left alone, the label would sit on the PR as if a review had been requested while nothing runs.
+    The status comment is edited in place, so toggling the label repeatedly can't stack comments.
+
+    This is best effort, like the bot-author cleanup: a GitHub failure is logged and not retried.
+    """
+    pr_number = pr["number"]
+    try:
+        # A delayed delivery of the label add that armed the cooldown must not remove a newer label.
+        incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+        stored_updated_at = (
+            PullRequest.objects.for_team(repo_config.team_id)
+            .using(router.db_for_write(PullRequest))
+            .filter(repo_config=repo_config, pr_number=pr_number)
+            .values_list("payload_updated_at", flat=True)
+            .first()
+        )
+        if incoming_updated_at and stored_updated_at and incoming_updated_at < stored_updated_at:
+            return
+        # A late redelivery of the add that armed the cooldown can outlive the delivery dedup.
+        if (
+            delivery_id
+            and ReviewRun.objects.for_team(repo_config.team_id)
+            .using(router.db_for_write(ReviewRun))
+            .filter(delivery_id=delivery_id)
+            .exists()
+        ):
+            return
+        cooldown_ends_at = cache.get(_label_cooldown_key(repo_config, pr_number))
+        client = StamphogGitHubClient(repo_config.installation_id)
+        client.remove_pr_label(repo_config.repository, pr_number, repo_config.trigger_label)
+        # upsert_sticky_comment reads then creates, so overlapping deliveries could each post a comment.
+        if not cache.add(f"{_label_cooldown_key(repo_config, pr_number)}:notice", True, timeout=60):
+            return
+        client.upsert_sticky_comment(
+            repo_config.repository,
+            pr_number,
+            neutralize_active_markdown(
+                scrub_credentials(_label_cooldown_message(repo_config.trigger_label, cooldown_ends_at))
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "stamphog_pr_event_label_cooldown_notice_failed",
+            repo=repo_config.repository,
+            pr_number=pr_number,
+            exc_info=True,
+        )
+
+
 def _retract_stale_approvals_on_skip(repo_config: StamphogRepoConfig, pr: dict[str, Any], message: str) -> None:
     """Retract a standing stamphog approval when a head-changing event is skipped before the workflow.
 
@@ -1186,6 +1260,8 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
             except Exception as e:
                 logger.exception("stamphog_pr_event_label_skip_dismiss_failed", delivery_id=delivery_id, error=str(e))
                 raise cast(Any, process_pull_request_event).retry(exc=e)
+        if mode_skip_reason == "label_cooldown":
+            _reject_label_in_cooldown(repo_config, pr, delivery_id)
         logger.info("stamphog_pr_event_skipped", repo=repo, pr_number=pr_number, reason=mode_skip_reason)
         if delivery_id:
             _mark_pr_event_processed(delivery_id)
@@ -1357,7 +1433,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # Arm the cooldown only once a label-triggered run actually queued, so a skipped or failed
     # attempt doesn't block the next legitimate label add.
     if action == "labeled" and repo_config.review_mode == ReviewMode.LABEL:
-        cache.set(_label_cooldown_key(repo_config, pr_number), True, timeout=STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS)
+        cache.set(
+            _label_cooldown_key(repo_config, pr_number),
+            timezone.now().timestamp() + STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS,
+            timeout=STAMPHOG_LABEL_REREVIEW_COOLDOWN_SECONDS,
+        )
 
     logger.info(
         "stamphog_pr_event_queued",

@@ -99,6 +99,27 @@
   tools: [query-retention, query-trends, query-funnel]
   answer: Mobile signups retain 18% at week 4 against 31% on desktop. Mobile users rarely finish the onboarding checklist (22% against 58%), and those who do finish retain about as well as desktop users.
 
+- name: upload-bug-cause-found
+  category: diagnostic
+  acceptable: [notebook, none]
+  question: Why did file uploads fail after Monday's deployment?
+  tools: [query-error-tracking-issues-list, query-trends]
+  answer: The deployment removed a required request header from the upload client. Failed uploads rose to 74 before the rollback restored the header. This explains the failures in that release.
+
+- name: export-bug-still-unresolved
+  category: diagnostic
+  acceptable: [notebook, none]
+  question: What caused the export failure in job sample-job-17?
+  tools: [query-error-tracking-issues-list]
+  answer: The job failed while reading an empty attachment. The error happened three times in that job, and no fix has shipped yet. The next step is to reproduce the failure with an empty file.
+
+- name: checkout-recurring-investigation
+  category: recurring_metric
+  acceptable: [scout]
+  question: Keep checking checkout conversion each week and repeat this investigation if it falls again.
+  tools: [query-funnel, query-trends, query-session-recordings-list]
+  answer: Measure the checkout_started to order_completed funnel over the last seven days against the preceding seven days. If conversion falls by more than 20%, compare browser breakdowns and inspect recordings of failed checkouts. Post the cause when a drop occurs and stay silent otherwise.
+
 # Saved insights
 - name: saved-insight-alert
   category: saved_insight

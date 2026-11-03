@@ -7,7 +7,7 @@ from urllib.parse import quote, urlencode
 import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.settings import (
     CODECOV_ENDPOINTS,
@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.se
     CodecovParentConfig,
     CodecovResponseShape,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -171,7 +174,7 @@ def parse_repositories(repositories: str | None) -> list[str]:
     return [name.strip() for name in repositories.split(",") if name.strip()]
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             CodecovRetryableError,

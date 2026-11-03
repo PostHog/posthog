@@ -52,7 +52,7 @@ class EConomicSource(ResumableSource[EConomicSourceConfig, EConomicResumeConfig]
             name=ExternalDataSourceType.ECONOMIC,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="e-conomic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Visma e-conomic API tokens to pull your accounting data into the PostHog Data warehouse.
 
 e-conomic authenticates with two tokens sent as request headers:

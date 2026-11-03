@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns import (
     API_VERSION_2026_07,
+    API_VERSION_2026_10,
     API_VERSION_V1,
     LoopReturnsResumeConfig,
     endpoint_permissions,
@@ -48,12 +50,13 @@ class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResu
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    # Loop versions its API by date in the URL path (`/api/2026-07/...`). `v1` is a legacy alias
-    # for the `2026-07` GA release that Loop is phasing out, so new sources pin the explicit date
-    # version and `v1` is marked deprecated. No calendar sunset date is published for the alias.
-    supported_versions = (API_VERSION_V1, API_VERSION_2026_07)
-    default_version = API_VERSION_2026_07
-    deprecated_versions = (VersionDeprecation(version=API_VERSION_V1, sunset_at=None),)
+    # Loop versions its API by date in the URL path (`/api/2026-10/...`). `v1` is a legacy alias
+    # for the `2026-07` release and Loop removes it when `2026-07` sunsets on 2028-07-15. After the
+    # sunset Loop serves the oldest supported version instead of rejecting the request, so there is
+    # no rejection error to map.
+    supported_versions = (API_VERSION_V1, API_VERSION_2026_07, API_VERSION_2026_10)
+    default_version = API_VERSION_2026_10
+    deprecated_versions = (VersionDeprecation(version=API_VERSION_V1, sunset_at=date(2028, 7, 15)),)
     api_docs_url = "https://docs.loopreturns.com/api-reference/versioning"
 
     @property
@@ -66,7 +69,7 @@ class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResu
             name=ExternalDataSourceType.LOOPRETURNS,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Loop Returns",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             docsUrl="https://posthog.com/docs/cdp/sources/loop-returns",
             caption="""Enter your Loop API key to pull your returns data into the PostHog Data warehouse.
 
@@ -87,6 +90,7 @@ Start date is optional and sets how far back the first sync reaches. Without it,
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -1,8 +1,10 @@
 from collections.abc import Sequence
 
-from products.metrics.backend.facade.api import MAX_SERIES_PER_CLAUSE
 from products.metrics.backend.facade.contracts import MAX_CLAUSES_PER_QUERY, MetricPoint, MetricSeries
-from products.metrics.backend.metric_query_runner import _MAX_BUCKET_COUNT
+from products.metrics.backend.metric_query_runner import (
+    _MAX_BUCKET_COUNT,
+    MAX_RAW_SERIES as MAX_SERIES_PER_CLAUSE,
+)
 
 # The most a builder query can return: every clause at its series cap, on the longest bucket grid.
 # A PromQL or SQL query chooses its own clauses and times, so these limits bound its output too.

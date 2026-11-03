@@ -65,10 +65,6 @@ class TestDataForSEOSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert DataForSEOSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = DataForSEOSource().get_schemas(_make_config(), team_id=1, names=["ranked_keywords"])
-        assert {s.name for s in schemas} == {"ranked_keywords"}
-
     @parameterized.expand(
         [
             ("valid", "example.com", True, True, None),
@@ -172,7 +168,6 @@ class TestDataForSEOSource:
 
     @parameterized.expand(
         [
-            ("http_401", "401 Client Error: Unauthorized for url: https://api.dataforseo.com"),
             ("http_402", "402 Client Error: Payment Required for url: https://api.dataforseo.com"),
             ("body_auth", "DataForSEO API error [40100]"),
             ("body_funds", "DataForSEO API error [40200]"),

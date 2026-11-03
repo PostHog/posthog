@@ -1,14 +1,17 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -167,6 +170,81 @@ def _flatten_result_sets(
     return rows
 
 
+def _flatten_timeseries(data: Any, requested_window: SyncWindow[str], items_key: str) -> list[dict[str, Any]]:
+    """Flatten External Costs `timeseries` windows, each holding a list of line items, into rows."""
+    rows: list[dict[str, Any]] = []
+    timeseries = data.get("timeseries") if isinstance(data, dict) else None
+    if not isinstance(timeseries, list):
+        return rows
+    for entry in timeseries:
+        if not isinstance(entry, dict):
+            continue
+        items = entry.get(items_key)
+        if not isinstance(items, list):
+            continue
+        window = entry.get("window")
+        if not isinstance(window, dict):
+            window = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                {
+                    **item,
+                    "key": item.get("aggregate") or item.get("id"),
+                    "window_start": window.get("start") or requested_window.start,
+                    "window_end": window.get("end") or requested_window.end,
+                }
+            )
+    return rows
+
+
+def _audit_event_key(event: dict[str, Any]) -> str:
+    # Audit events carry no id, so the key is built from what identifies the change.
+    properties = event.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+    parts = [
+        event.get("timestamp"),
+        event.get("eventType"),
+        event.get("resourceType"),
+        properties.get("cluster"),
+        properties.get("namespace"),
+        properties.get("name"),
+    ]
+    return "/".join("" if part is None else str(part) for part in parts)
+
+
+_SNAPSHOT_KEY_BUILDERS: dict[str, Callable[[dict[str, Any]], str]] = {
+    "audit_events": _audit_event_key,
+}
+
+
+def _snapshot_rows(endpoint: str, data: Any) -> list[dict[str, Any]]:
+    # Request sizing documents a bare list, and its topline variant wraps the list
+    # in `Recommendations`, so both shapes are accepted.
+    if isinstance(data, dict):
+        data = data.get("Recommendations", data.get("recommendations"))
+    if not isinstance(data, list):
+        return []
+    rows = [item for item in data if isinstance(item, dict)]
+    key_builder = _SNAPSHOT_KEY_BUILDERS.get(endpoint)
+    if key_builder is not None:
+        rows = [{**row, "key": key_builder(row)} for row in rows]
+    return rows
+
+
+def _unwrap_response(body: Any, allow_bare: bool) -> Any:
+    if isinstance(body, dict) and "code" in body:
+        if body.get("code") != 200:
+            raise ValueError(f"Kubecost API error: {body.get('message')}")
+        return body.get("data")
+    if allow_bare and isinstance(body, list | dict):
+        return body
+    message = body.get("message") if isinstance(body, dict) else body
+    raise ValueError(f"Kubecost API error: {message}")
+
+
 def get_rows(
     host: str,
     api_key: Optional[str],
@@ -184,18 +262,14 @@ def get_rows(
     session = _get_session(api_key)
     url = f"{base_url}{config.path}"
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((KubecostRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
         reraise=True,
     )
-    def call(window: str) -> Any:
-        response = session.get(
-            url,
-            params={**config.params, "window": window, "accumulate": "true"},
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
+    def call(params: dict[str, str]) -> Any:
+        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise KubecostRetryableError(f"Kubecost API error (retryable): status={response.status_code}")
@@ -204,11 +278,13 @@ def get_rows(
             logger.error(f"Kubecost API error: status={response.status_code}, body={response.text[:500]}")
             response.raise_for_status()
 
-        body = response.json()
-        if not isinstance(body, dict) or body.get("code") != 200:
-            message = body.get("message") if isinstance(body, dict) else body
-            raise ValueError(f"Kubecost API error: {message}")
-        return body.get("data")
+        return response.json()
+
+    if config.snapshot_primary_keys is not None:
+        rows = _snapshot_rows(endpoint, _unwrap_response(call(dict(config.params)), allow_bare=True))
+        if rows:
+            yield rows
+        return
 
     # No cursor or pagination: the query window itself is the incremental filter, so we
     # walk contiguous one-day windows oldest-first. Recent days restate as cloud-billing
@@ -230,8 +306,12 @@ def get_rows(
     day = start
     while day <= today:
         window = _day_window(day)
-        data = call(f"{window.start},{window.end}")
-        rows = _flatten_result_sets(data, window, config.result_set_key)
+        body = call({**config.params, "window": f"{window.start},{window.end}", "accumulate": "true"})
+        data = _unwrap_response(body, allow_bare=False)
+        if config.timeseries_items_key is not None:
+            rows = _flatten_timeseries(data, window, config.timeseries_items_key)
+        else:
+            rows = _flatten_result_sets(data, window, config.result_set_key)
         if rows:
             yield rows
 
@@ -251,9 +331,10 @@ def kubecost_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
+    config = KUBECOST_ENDPOINTS[endpoint]
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        return get_rows(
             host=host,
             api_key=api_key,
             endpoint=endpoint,
@@ -261,7 +342,14 @@ def kubecost_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        )
+
+    if config.snapshot_primary_keys is not None:
+        return SourceResponse(name=endpoint, items=items, primary_keys=list(config.snapshot_primary_keys))
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
         # The result-set key is only unique within one window, so the window start is
         # part of the key. `window_start` never changes for a given row, making it a
         # stable partition key too.

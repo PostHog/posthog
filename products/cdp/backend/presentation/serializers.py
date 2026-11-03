@@ -7,4 +7,5 @@ from products.cdp.backend.validation import (
     HogFunctionFiltersSerializer as HogFunctionFiltersSerializer,
     InputsSchemaSerializer as InputsSchemaSerializer,
     InputsSerializer as InputsSerializer,
+    require_viewer_access_to_added_actions as require_viewer_access_to_added_actions,
 )

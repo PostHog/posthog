@@ -55,7 +55,7 @@ class ReplicateSource(ResumableSource[ReplicateSourceConfig, ReplicateResumeConf
             name=ExternalDataSourceType.REPLICATE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Replicate",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["ml", "ai", "models", "inference"],
             caption="""Enter your Replicate API token to automatically pull your Replicate data into the PostHog Data warehouse.
 
@@ -110,6 +110,8 @@ You can create an API token in your [Replicate account settings](https://replica
                 )
             if endpoint == "models":
                 return "The full public Replicate model catalog, not only your own models. Off by default."
+            if endpoint == "model_versions":
+                return "Versions of the models your deployments and trainings use, including fine-tuned destination models."
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

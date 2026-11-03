@@ -71,7 +71,7 @@ class LatticeSource(ResumableSource[LatticeSourceConfig, LatticeResumeConfig]):
 A Lattice admin can generate an API key under Admin > Settings > API Keys (Lattice may require requesting API access first). Pick the region that matches your Lattice data residency.""",
             iconPath="/static/services/lattice.png",
             docsUrl="https://posthog.com/docs/cdp/sources/lattice",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

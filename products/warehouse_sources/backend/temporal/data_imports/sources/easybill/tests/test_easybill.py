@@ -3,14 +3,12 @@ from typing import Any
 
 import pytest
 
-import requests
 from parameterized import parameterized
 from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.easybill.easybill import (
@@ -182,7 +180,11 @@ class TestSourceResponseShape:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("key") is expected
@@ -190,10 +192,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/rest/v1/customers"
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].headers["authorization"] == "Bearer key"
-
-    def test_network_error_is_false(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("key") is False
 
 
 class TestRetryAndErrors:

@@ -60,6 +60,23 @@ So `401`/`403` are permanent auth failures (wired into `get_non_retryable_errors
 - Taxonomy API. Response wrapped in `{"success": true, "data": [...]}`.
 - Resolves the `category` object carried on each event type.
 
+### `group_properties` — `/api/2/taxonomy/group-property`
+
+- Grain: one shared group property definition. Primary key: `group_property`. Sync mode: full refresh.
+- Taxonomy API. Response wrapped in `{"success": true, "data": [...]}`.
+- Called without `group_type`, so Amplitude returns the shared group properties of the tracking plan,
+  where each name is unique. Per-group-type overrides need a group type name, and no Taxonomy endpoint
+  lists group types, so overrides are not synced.
+- Custom group properties carry a `grp:` prefix.
+
+## Not synced
+
+- `GET /api/2/release` — the Releases API documents only `POST` (create a release). There is no list call.
+- `POST /api/2/audit-logs/{ORG_ID}` — a `POST` that needs an organization API key and secret key issued by
+  Amplitude Support, not the project keys this source collects. The response shape is not documented.
+- `GET /api/3/chart/{chart_id}/...` — returns the results of one saved chart. The chart ID comes from the
+  web app URL (no list call exists), and the response shape changes with the chart type.
+
 ## Incremental design (events)
 
 The Export API's only server-side filter is the `start`/`end` window on **server upload time**, so
@@ -72,7 +89,7 @@ the stable `event_time` field.
 ## Incremental design (taxonomy)
 
 No Taxonomy endpoint documents a timestamp filter, a cursor, or any pagination parameter — each "get all"
-call returns the complete array. So all four taxonomy tables are full refresh, and none advertise an
+call returns the complete array. So all five taxonomy tables are full refresh, and none advertise an
 incremental field.
 
 ## Unverified (no credentials to curl)
