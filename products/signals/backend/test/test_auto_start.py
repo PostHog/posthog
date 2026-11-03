@@ -1,5 +1,6 @@
 import re
 import json
+from contextlib import nullcontext
 from datetime import timedelta
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -1455,11 +1457,18 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("enforced", [True, False])
-async def test_admitted_report_can_start_implementation_after_limit_is_reached(enforced):
-    # Implementation finishes an already admitted report/scout pipeline, even when the quota
-    # was crossed during research. Manual reruns still check admission separately.
-    # Committed rows for the same reason as the autostart-switch test above.
+@pytest.mark.parametrize(
+    ("status", "run_count", "enforced", "should_block"),
+    [
+        (SignalReport.Status.READY, 0, True, False),
+        (SignalReport.Status.IN_PROGRESS, 1, True, False),
+        (SignalReport.Status.CANDIDATE, 0, True, True),
+        (SignalReport.Status.CANDIDATE, 0, False, False),
+    ],
+)
+async def test_autostart_requires_admission_or_available_quota(
+    status: str, run_count: int, enforced: bool, should_block: bool
+) -> None:
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
 
@@ -1472,7 +1481,7 @@ async def test_admitted_report_can_start_implementation_after_limit_is_reached(e
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
         report = SignalReport.objects.create(
-            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+            team=team, status=status, run_count=run_count, title="t", summary="s", signal_count=0, total_weight=0.0
         )
         return team, report
 
@@ -1485,16 +1494,17 @@ async def test_admitted_report_can_start_implementation_after_limit_is_reached(e
             description=kwargs["description"],
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
         )
-        run = TaskRun.objects.create(task=task, team_id=team.id)
-        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+        TaskRun.objects.create(task=task, team_id=team.id)
+        return task
 
     with (
-        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch.object(Task, "create_and_run", side_effect=_fake_create_and_run_task),
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
         patch(
             "products.signals.backend.quota.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
+        pytest.raises(QuotaLimitExceeded) if should_block else nullcontext(),
     ):
         await maybe_autostart_implementation_task(
             team_id=team.id,
@@ -1511,8 +1521,7 @@ async def test_admitted_report_can_start_implementation_after_limit_is_reached(e
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    mock_create.assert_called_once()
-    assert mock_create.call_args.kwargs["continue_admitted_pipeline"] is True
+    assert await Task.objects.filter(team_id=team.id).aexists() is not should_block
 
 
 @pytest.mark.asyncio

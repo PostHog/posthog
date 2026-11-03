@@ -932,7 +932,8 @@ def _create_implementation_task_if_absent(
             branch=base_branch,
             signal_report_id=report_id,
             implementation_spend_kind=implementation_spend_kind,
-            continue_admitted_pipeline=True,
+            # Research increments run_count after admission; scouts create READY reports directly.
+            continue_admitted_pipeline=report.run_count > 0 or report.status == SignalReport.Status.READY,
             # Resolved by the caller outside this lock, like `agent_runtime` above, so the
             # create-time free-trial gate makes no flag request while the report row is locked.
             free_trial_enabled=free_trial_enabled,
@@ -1527,8 +1528,6 @@ async def maybe_autostart_implementation_task(
         await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, link_skip)
         return AutostartOutcome(status="blocked", reason=link_skip.detail)
 
-    # Implementation continues the report/scout pipeline admitted before research began.
-    # Manual reruns also pass admission when their summary workflow starts.
     team = await Team.objects.select_related("organization").aget(pk=team_id)
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
