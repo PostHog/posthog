@@ -419,6 +419,10 @@ does not prevent a later notification from reopening the previous conversation.
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
 
+Chat pauses streams while offline. Task and history reads resume when the connection returns. When the connection returns or the app enters the foreground, chat resumes the same run with its saved cursor and transcript. The Reconnect button also restarts streams after the retry limit. Authentication, permission and missing-run errors prevent automatic recovery. Recovery does not resend messages, answers or run creation requests.
+
+A connected device can still fail to reach PostHog. Stream retries and the idle timeout handle these failures. Repeated connected events do not reset the retry limit.
+
 The page opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
 

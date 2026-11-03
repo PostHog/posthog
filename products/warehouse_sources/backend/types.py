@@ -21,7 +21,9 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalSyncBlockedReason as IncrementalSyncBlockedReason,
     ManagedWarehouseSQLMode as ManagedWarehouseSQLMode,
     PartitionSettings as PartitionSettings,
+    SourceKey as SourceKey,
     UploadedFileFormat as UploadedFileFormat,
     WarehouseColumnAnnotationDescriptionSource as WarehouseColumnAnnotationDescriptionSource,
     external_data_source_type_choices as external_data_source_type_choices,
+    source_key as source_key,
 )

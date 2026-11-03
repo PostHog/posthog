@@ -112,7 +112,7 @@ class TestExports(APIBaseTest):
     def test_screenshot_heatmap_export_requires_same_origin_url(
         self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
     ) -> None:
-        with self.settings(SITE_URL=site_url):
+        with self.settings(SITE_URL=site_url), mock_anti_ssrf_dns_lookup():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports/",
                 {

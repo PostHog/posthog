@@ -13,6 +13,7 @@ import { V4ParquetSinkMetrics, V4RowRejection } from './metrics'
 export const INDEX_HEADER = 'ml-index'
 /** The UTC day of the objects the row points at, the `dt=` partition of its file. */
 export const WRITE_DAY_HEADER = 'ml-write-day'
+const MAX_LOGGED_SESSION_ID_LENGTH = 70
 
 export interface V4IndexMessage {
     index: V4Index
@@ -43,13 +44,22 @@ function isWriteDay(value: string | undefined): value is string {
     return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === value
 }
 
-function reject(reason: V4RowRejection, message: Message, invalidColumn?: string): null {
+function rowIdentity(value: unknown): { teamId?: number; sessionId?: string } {
+    const { team_id: teamId, session_id: sessionId } = (value ?? {}) as Record<string, unknown>
+    return {
+        ...(typeof teamId === 'number' && { teamId }),
+        ...(typeof sessionId === 'string' && sessionId.length <= MAX_LOGGED_SESSION_ID_LENGTH && { sessionId }),
+    }
+}
+
+function reject(reason: V4RowRejection, message: Message, invalidColumn?: string, value?: unknown): null {
     // Skip a bad row rather than wedge the partition, as the v3 sink does.
     logger.warn('🪶', 'ai_research_v4_parquet_row_rejected', {
         reason,
         partition: message.partition,
         offset: message.offset,
         ...(invalidColumn && { column: invalidColumn }),
+        ...rowIdentity(value),
     })
     V4ParquetSinkMetrics.incRowsRejected(reason)
     return null
@@ -74,7 +84,7 @@ export function parseIndexMessage(message: Message): V4IndexMessage | null {
     const selected = selectIndexRow(index, value)
     if (!('row' in selected)) {
         V4ParquetSinkMetrics.incInvalidColumn(index, selected.invalidColumn)
-        return reject('invalid_row', message, selected.invalidColumn)
+        return reject('invalid_row', message, selected.invalidColumn, value)
     }
     V4ParquetSinkMetrics.incRowsParsed(index)
     return { index, writeDay, row: selected.row }

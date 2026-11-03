@@ -70,6 +70,9 @@ ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
+REVIEW_TERMS_SHOWN = 3
+# A non-brand campaign is up for review when its cost per conversion reaches this multiple of the non-brand average.
+REVIEW_CPA_MULTIPLE = 3
 
 
 @frozen
@@ -286,7 +289,7 @@ class _Recommender:
                 nonbrand_cpa
                 and search_cost
                 and campaign.cost >= 0.05 * search_cost
-                and (cpa is None or cpa >= 3 * nonbrand_cpa)
+                and (cpa is None or cpa >= REVIEW_CPA_MULTIPLE * nonbrand_cpa)
             ):
                 recommendations.append(self._review(campaign, cpa, nonbrand_cpa))
         return recommendations
@@ -423,7 +426,74 @@ class _Recommender:
             campaign.cost * self.per_month,
             "save",
             "measured",
+            steps=self._review_steps(campaign, nonbrand_cpa),
         )
+
+    def _review_steps(self, campaign: CampaignStats, nonbrand_cpa: float) -> tuple[Step, ...]:
+        spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+        # ADDED means the search is already a keyword and EXCLUDED means it is already a negative.
+        targeted_or_excluded: set[str] = set()
+        excluded: set[str] = set()
+        for row in self.inputs.search_terms:
+            if row.campaign_id != campaign.id or row.term in self.brand_terms:
+                continue
+            spend[row.term][0] += row.cost
+            spend[row.term][1] += row.conversions
+            if row.status not in ("NONE", ""):
+                targeted_or_excluded.add(row.term)
+            if "EXCLUDED" in row.status:
+                excluded.add(row.term)
+        competitors = self._competitor_names()
+        draining = sorted(
+            (
+                term
+                for term, (cost, conversions) in spend.items()
+                if cost >= nonbrand_cpa
+                and not conversions
+                and term not in targeted_or_excluded
+                and not self._mentions(term, competitors)
+            ),
+            key=lambda term: -spend[term][0],
+        )[:REVIEW_TERMS_SHOWN]
+        converting = sorted(
+            (
+                term
+                for term, (cost, conversions) in spend.items()
+                if conversions > 0 and cost / conversions <= nonbrand_cpa and term not in excluded
+            ),
+            key=lambda term: -spend[term][1],
+        )[:REVIEW_TERMS_SHOWN]
+        steps = [self._open_campaign(campaign.name)]
+        if draining:
+            listed = ", ".join(f'"{term}" ({self._money(spend[term][0])})' for term in draining)
+            steps.append(
+                Step(
+                    text=f"Start with the searches that spent the most without converting: {listed}. "
+                    "Open Negative keywords and add them for the campaign in exact match.",
+                    copyValue="\n".join(f"[{term}]" for term in draining),
+                    url=ADS_NEGATIVE_KEYWORDS_URL,
+                    linkText="Negative keywords",
+                )
+            )
+        if converting:
+            listed = ", ".join(
+                f'"{term}" ({self._money(spend[term][0] / spend[term][1])} per conversion)' for term in converting
+            )
+            steps.append(
+                Step(
+                    text=f"Keep the searches that convert at or below the non-brand average: {listed}. "
+                    "Check that their keywords stay active."
+                )
+            )
+        steps.append(
+            Step(
+                text=f"If its non-brand cost per conversion is still more than {REVIEW_CPA_MULTIPLE}x the non-brand "
+                "average after two weeks, pause it in Campaigns.",
+                url=ADS_CAMPAIGNS_URL,
+                linkText="Campaigns",
+            )
+        )
+        return tuple(steps)
 
     # Search term rules
 
