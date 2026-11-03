@@ -59,20 +59,20 @@ describe('commandKSearchLogic', () => {
     })
 
     test.each([
-        ['answered with nothing', false, { from: 'фзш', to: 'api' }],
+        ['answered with nothing', false, { from: 'zzq_xyw', to: 'zzq xyw' }],
         ['answered, but one failed', true, null],
     ])('corrects a search only after every source %s', (_, oneFailed, expected) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: 'test' })
-        logic.actions.inputChanged('фзш', 3, false)
+        logic.actions.inputChanged('zzq_xyw', 7, false)
         const sources = Object.keys(logic.values.remoteQueries)
         expect(sources.length).toBeGreaterThan(1)
 
-        logic.actions.remoteLoaded('фзш', { results: [] })
+        logic.actions.remoteLoaded('zzq_xyw', { results: [] })
         expect(logic.values.searchCorrection).toBeNull()
 
         sources.forEach((source, index) => {
             logic.actions.remoteLoaded(
-                'фзш',
+                'zzq_xyw',
                 { [source]: [] } as RemoteResults,
                 oneFailed && index === sources.length - 1
             )
@@ -80,19 +80,19 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.searchCorrection).toEqual(expected)
     })
 
-    it('searches a keyboard layout correction until the text changes', () => {
-        logic.actions.inputChanged('фзш', 3, false)
-        logic.actions.applyCorrection({ from: 'фзш', to: 'api' })
+    it('searches a correction until the text changes', () => {
+        logic.actions.inputChanged('zzq_xyw', 7, false)
+        logic.actions.applyCorrection({ from: 'zzq_xyw', to: 'zzq xyw' })
 
-        expect(logic.values.localQuery).toEqual('api')
-        expect(logic.values.requestQueries.objects).toEqual('api')
+        expect(logic.values.localQuery).toEqual('zzq xyw')
+        expect(logic.values.requestQueries.objects).toEqual('zzq xyw')
 
-        logic.actions.setChipsAndText([{ key: 'is', value: 'insight', label: 'Insight', negated: false }], 'фзш', 3)
-        expect(logic.values.requestQueries.objects).toEqual('type:insight api')
+        logic.actions.setChipsAndText([{ key: 'is', value: 'insight', label: 'Insight', negated: false }], 'zzq_xyw', 8)
+        expect(logic.values.requestQueries.objects).toEqual('type:insight zzq xyw')
 
-        logic.actions.setChipsAndText([], 'фзшы', 4)
+        logic.actions.setChipsAndText([], 'zzq_xywx', 8)
 
-        expect(logic.values.localQuery).toEqual('фзшы')
+        expect(logic.values.localQuery).toEqual('zzq_xywx')
     })
 
     it('a See all row narrows the search to its type and keeps the words', () => {

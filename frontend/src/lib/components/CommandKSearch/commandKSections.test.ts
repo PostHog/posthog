@@ -340,22 +340,22 @@ describe('buildSections', () => {
             ['notice', 'best-matches'],
         ],
         ['no results', [], []],
-    ])('a keyboard layout correction with %s shows the notice only above results', (_, results, keys) => {
+    ])('a search correction with %s shows the notice only above results', (_, results, keys) => {
         const remote = emptyRemoteSlots()
-        remote.results.cache.api = results
+        remote.results.cache['api keys'] = results
         const sections = buildSections(
             input('search', {
                 remote,
-                remoteQueries: { results: 'api' },
-                localQuery: 'api',
-                searchCorrection: { from: 'фзш', to: 'api' },
+                remoteQueries: { results: 'api keys' },
+                localQuery: 'api keys',
+                searchCorrection: { from: 'api_keys', to: 'api keys' },
             })
         )
 
         expect(sections.map((section) => section.key)).toEqual(keys)
         if (keys.length) {
             expect(sections[0].rows).toEqual([
-                expect.objectContaining({ reason: 'corrected', missing: ['фзш'], shown: ['api'] }),
+                expect.objectContaining({ reason: 'corrected', missing: ['api_keys'], shown: ['api keys'] }),
             ])
         }
     })
