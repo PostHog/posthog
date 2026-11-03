@@ -133,6 +133,7 @@ class AnomalyScoringTickPlan:
     picked_score: int = 0
     picked_train: int = 0
     scored_stale_model: int = 0
+    stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
     active: int = 0
@@ -188,8 +189,10 @@ class AnomalyScoringTickResult:
     # Planned picks of the score pass and of the train pass, started or not.
     picked_score: int = 0
     picked_train: int = 0
-    # Planned score pass picks with a model due for a soft retrain, and the due train candidates left unpicked.
+    # Planned score pass picks with a model due for a soft retrain, the stale models that the score pass could take,
+    # and the due train candidates left unpicked.
     scored_stale_model: int = 0
+    stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
     # Active insights of the eligible teams, and how many of them have each activity reason.
@@ -255,6 +258,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         picked_score=selection.picked_score,
         picked_train=selection.picked_train,
         scored_stale_model=selection.scored_stale_model,
+        stale_candidates=selection.stale_candidates,
         train_backlog_soft=selection.train_backlog_soft,
         train_backlog_hard=selection.train_backlog_hard,
         active=selection.active,
@@ -552,6 +556,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         picked_score=result.picked_score,
         picked_train=result.picked_train,
         scored_stale_model=result.scored_stale_model,
+        stale_candidates=result.stale_candidates,
         train_backlog_soft=result.train_backlog_soft,
         train_backlog_hard=result.train_backlog_hard,
         active=result.active,
@@ -594,6 +599,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "picked_score": result.picked_score,
             "picked_train": result.picked_train,
             "scored_stale_model": result.scored_stale_model,
+            "stale_candidates": result.stale_candidates,
             "train_backlog_soft": result.train_backlog_soft,
             "train_backlog_hard": result.train_backlog_hard,
             "active_insights": result.active,
@@ -703,6 +709,7 @@ class AnomalyScoringTickWorkflow:
             picked_score=plan.picked_score,
             picked_train=plan.picked_train,
             scored_stale_model=plan.scored_stale_model,
+            stale_candidates=plan.stale_candidates,
             train_backlog_soft=plan.train_backlog_soft,
             train_backlog_hard=plan.train_backlog_hard,
             active=plan.active,
