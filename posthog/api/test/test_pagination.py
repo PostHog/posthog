@@ -7,6 +7,8 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.filters import OrderingFilter
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import CursorPagination
 from rest_framework.request import Request
@@ -25,6 +27,11 @@ class _AnnotationIdSerializer(serializers.Serializer):
 
 class _AnnotationView(GenericAPIView):
     serializer_class = _AnnotationIdSerializer
+
+
+class _OrderableAnnotationView(_AnnotationView):
+    filter_backends = [OrderingFilter]
+    ordering_fields = ["date_marker", "created_at", "updated_at", "content", "id"]
 
 
 class _ByDateMarker(FacadeCursorPagination):
@@ -149,3 +156,12 @@ class TestCursorPagination(BaseTest):
     def test_rejects_a_malformed_cursor(self, _name: str, cursor: str) -> None:
         with self.assertRaises(NotFound):
             self._page("queryset", cursor)
+
+    def test_ordering_keeps_one_term_per_field_and_caps_the_field_count(self) -> None:
+        def ordering_for(param: str) -> tuple[str, ...]:
+            request = Request(APIRequestFactory().get("/annotations/", {"ordering": param}))
+            return _ByDateMarkerQueryset().get_ordering(request, Annotation.objects.all(), _OrderableAnnotationView())
+
+        assert ordering_for("date_marker,-date_marker,date_marker") == ("date_marker", "id")
+        with self.assertRaises(ValidationError):
+            ordering_for("date_marker,created_at,updated_at,content,-id")

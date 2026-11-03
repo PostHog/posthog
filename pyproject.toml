@@ -122,7 +122,9 @@ dependencies = [
     "python-docx==1.2.0",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
-    "pytz==2023.3",
+    # clickhouse-driver converts DateTime results with pytz. Keep it on the IANA release that
+    # production ClickHouse ships, or trends day labels shift for zones whose rules differ.
+    "pytz==2026.4",
     "rapidfuzz==3.14.5",
     "redis==5.3.1",
     "requests~=2.33.0",
@@ -287,7 +289,7 @@ dev = [
     "types-paramiko==3.4.0.20240423",
     "types-pymysql==1.1.0.20240524",
     "types-python-dateutil~=2.9.0",
-    "types-pytz==2023.3",
+    "types-pytz==2026.4.0.20260926",
     "types-pyyaml==6.0.1",
     "types-redis==4.6.0.20241004",
     # >= 2.31.0.7 versions of types-requests require urllib>=2, which is incompatible with our dependencies
@@ -582,6 +584,7 @@ exclude = [
     "products/stamphog/packages/**",
     "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
+    "products/warehouse_sources/sources/*/_config.py",
     "rust/deltalite/python/**",
 ]
 
@@ -605,6 +608,27 @@ name = "packages/owners-yaml is a leaf"
 type = "forbidden"
 source_modules = ["owners_yaml"]
 forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
+
+# A vendor directory under products/warehouse_sources/sources/ imports shared code only from its
+# SDK, products.warehouse_sources.sources.sdk. tach checks this for vendor code. `hogli lint:tach`
+# leaves test files out of its dependency pass, so this contract also covers the vendor tests.
+# Only direct imports are checked: the SDK itself imports the product. The vendors share the
+# `products.warehouse_sources.sources` package with the SDK, so imports inside that package are
+# ignored here; tach covers vendor-to-vendor imports in vendor code.
+[[tool.importlinter.contracts]]
+name = "sources vendors import shared code only from the sources SDK"
+type = "forbidden"
+source_modules = ["products.warehouse_sources.sources.*"]
+forbidden_modules = ["posthog", "ee", "common", "products.*"]
+allow_indirect_imports = true
+ignore_imports = [
+    "products.warehouse_sources.sources.** -> products.warehouse_sources.sources.**",
+    "products.warehouse_sources.sources.sdk -> posthog",
+    "products.warehouse_sources.sources.sdk -> products.**",
+    "products.warehouse_sources.sources.sdk.** -> posthog",
+    "products.warehouse_sources.sources.sdk.** -> products.**",
+    "products.warehouse_sources.sources.conftest -> products.**",
+]
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.

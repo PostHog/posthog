@@ -213,6 +213,9 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | N
         used.update(
             {
                 "mcp_sessions": rendered.mcp_pool,
+                "mcp_burst_cap_drops": rendered.mcp_burst_cap_drops,
+                "mcp_sample_cap_drops": rendered.mcp_sample_cap_drops,
+                "mcp_budget_drops": rendered.mcp_budget_drops,
                 "mcp_lines": rendered.n_mcp_lines,
                 "mcp_chars": rendered.mcp_chars,
                 "mcp_records": len(mcp.records),

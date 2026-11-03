@@ -10,7 +10,8 @@ from django.core.exceptions import (
     ValidationError as DjangoValidationError,
 )
 
-from rest_framework.exceptions import NotFound
+from rest_framework import serializers
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination, PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -24,6 +25,71 @@ from posthog.queryset_paging import select_cursor_rows
 if TYPE_CHECKING:
     # DRF's generics module reads DEFAULT_PAGINATION_CLASS while it loads, which can point at this module.
     from rest_framework.generics import GenericAPIView
+
+
+def page_link(request: Request, param: str, value: str | int | None) -> str | None:
+    """Return the request URL with `param` set to `value`, or None when there is no such page.
+
+    Lists that page with their own parameter (`cursor`, `offset`, ...) use this to build the same
+    absolute `next` and `previous` links as DRF's paginators.
+    """
+    if value is None:
+        return None
+    return replace_query_param(request.build_absolute_uri(), param, value)
+
+
+def page_link_with_params(request: Request, params: dict[str, str | int] | None) -> str | None:
+    """Return the request URL with every query param in `params` set, or None when there is no such page.
+
+    Use this for lists whose page position takes more than one param, such as a timestamp and an id.
+    """
+    if params is None:
+        return None
+    url = request.build_absolute_uri()
+    for param, value in params.items():
+        url = replace_query_param(url, param, value)
+    return url
+
+
+def previous_offset(offset: int, limit: int) -> int | None:
+    """Return the offset of the page before the page at `offset`, or None on the first page."""
+    if offset <= 0:
+        return None
+    return max(offset - limit, 0)
+
+
+def offset_page_links(
+    request: Request, *, offset: int, limit: int, next_offset: int | None, drop: str | None = None
+) -> dict[str, str | None]:
+    """Return the `next` and `previous` links of one page of a list that pages with an `offset` param.
+
+    `drop` names a query param that the links leave out.
+    """
+    url = request.build_absolute_uri()
+    if drop is not None:
+        url = remove_query_param(url, drop)
+    previous = previous_offset(offset, limit)
+    return {
+        "next": None if next_offset is None else replace_query_param(url, "offset", next_offset),
+        "previous": None if previous is None else replace_query_param(url, "offset", previous),
+    }
+
+
+class PageLinksSerializer(serializers.Serializer):
+    """Declares the `next` and `previous` links of a page response that the view fills with `page_link`."""
+
+    next = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the next page, or null on the last page.",
+    )
+    previous = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the previous page, or null on the first page and on lists that page forward only.",
+    )
 
 
 class BoundedLimitOffsetPagination(LimitOffsetPagination):
@@ -41,6 +107,17 @@ class BoundedLimitOffsetPagination(LimitOffsetPagination):
             if parameter["name"] == self.limit_query_param:
                 parameter["schema"]["maximum"] = self.max_limit
         return parameters
+
+
+class DefaultLimitOffsetPagination(BoundedLimitOffsetPagination):
+    """The project-wide default paginator: it caps `limit` at `max_limit` but leaves the schema as DRF writes it.
+
+    Clients generated from the schema keep accepting a larger limit. The server answers with at most
+    `max_limit` rows and a `next` link, so a client that follows `next` still reads every row.
+    """
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
 
 
 class BoundedPageNumberPagination(PageNumberPagination):
@@ -201,6 +278,19 @@ class PageCursor:
     drf_offset: int = 0
 
 
+def _first_term_per_field(ordering: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """Keep the first term for each field. A later term on a field that is already sorted cannot change the order."""
+    seen: set[str] = set()
+    kept: list[str] = []
+    for term in ordering:
+        field = term.lstrip("-")
+        if field in seen:
+            continue
+        seen.add(field)
+        kept.append(term)
+    return tuple(kept)
+
+
 class StableCursorPagination(CursorPagination):
     """Cursor pages with a total row order, and a `count` like the limit/offset response.
 
@@ -218,12 +308,16 @@ class StableCursorPagination(CursorPagination):
     include_count: bool = True
     # Breaks ties when the list has no queryset model, as for a facade list. Contracts name the primary key `id`.
     tiebreak_field = "id"
+    max_ordering_fields = 4
     request: Optional[Request] = None
     # The URL of the current page, which every link starts from.
     page_url = ""
 
     def get_ordering(self, request: Request, queryset: Any, view: Any) -> tuple[str, ...]:
-        ordering = super().get_ordering(request, queryset, view)
+        ordering = _first_term_per_field(super().get_ordering(request, queryset, view))
+        # The cursor filter grows with the square of the field count, so a request cannot ask for many fields.
+        if len(ordering) > self.max_ordering_fields:
+            raise ValidationError({"ordering": f"Order by at most {self.max_ordering_fields} fields."})
         model = getattr(queryset, "model", None)
         primary_key = model._meta.pk.name if model is not None else self.tiebreak_field
         if any(term.lstrip("-") in {"pk", primary_key} for term in ordering):
@@ -245,7 +339,7 @@ class StableCursorPagination(CursorPagination):
 
         It hashes the unreversed ordering, so the next and previous cursors of one list share it.
         """
-        return hashlib.sha1(",".join(self.ordering).encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+        return hashlib.sha256(",".join(self.ordering).encode("utf-8")).hexdigest()[:8]
 
     def cursor_link(self, cursor: PageCursor) -> str:
         tokens: dict[str, str] = {}

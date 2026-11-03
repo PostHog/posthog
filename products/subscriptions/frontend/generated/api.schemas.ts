@@ -793,6 +793,7 @@ export interface SubscriptionDeliveryApi {
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -827,6 +828,7 @@ export interface SubscriptionSummaryApi {
 }
 
 export interface PaginatedSubscriptionSummaryListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
