@@ -1,16 +1,15 @@
-//! The keyed hash of the image and URL references in `posthog_replay_anonymizer::v4_image_refs`, the asset of a URL reference, and the URL fingerprints of the block index.
+//! The keyed hash of the image and URL references in `crate::v4_image_refs`, the asset of a URL reference, and the URL fingerprints of the block index.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use hmac::{Hmac, Mac};
-use posthog_replay_anonymizer::v4_image_refs::{
+use crate::v4_image_refs::{
     font_url_declined_marker, font_url_ref, image_url_ref, public_font_ref, url_declined_marker,
     HASH_CHARS,
 };
-use posthog_replay_anonymizer::Decline;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
-use crate::url_policy::CanonicalUrl;
+use crate::url_policy::{CanonicalUrl, Decline};
 
 /// 64 bits of the HMAC: enough to tell the pages of one session apart.
 const FINGERPRINT_BYTES: usize = 8;
