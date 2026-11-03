@@ -34,7 +34,13 @@ const product = (name: string, searchKeywords: string[] = []): SearchItem => ({
 
 const exactWordRank = (created: number): number[] => [-1, 0, 0, 0, -1, 0, 2, 0, -created]
 
-const account = (id: string, name: string): SearchItem => ({ id, name, category: 'accounts', itemType: 'account' })
+const account = (id: string, name: string, identityFields: string[] = []): SearchItem => ({
+    id,
+    name,
+    category: 'accounts',
+    itemType: 'account',
+    identityFields,
+})
 
 const summary = (sections: CommandKSection[]): string[] =>
     sections.map((section) => {
@@ -223,20 +229,79 @@ describe('buildRankedResults', () => {
                 'Persons: ada@b.example.com, ada@c.example.com, ada@d.example.com',
             ],
         },
-    ])('$name', ({ query, results, products, persons = [], accounts = [], expected }) => {
-        expect(
-            summary(
-                buildRankedResults({
-                    query,
-                    highlightWords: query.split(' '),
-                    results,
-                    products,
-                    persons,
-                    accounts,
-                    state: 'ready',
-                    scoped: false,
-                })
-            )
-        ).toEqual(expected)
-    })
+        {
+            name: 'with unified ranking, an account that matches only inside a word ranks below a name match',
+            query: 'stripe',
+            results: [result('1', 'Stripe revenue', 'insight', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
+            products: [],
+            accounts: [account('account-1', 'Pinstripe Example Co')],
+            unifiedRanking: true,
+            expected: ['Results: Stripe revenue, Pinstripe Example Co'],
+        },
+        {
+            name: 'with unified ranking, a domain search puts the account that owns the domain first',
+            query: 'example.org',
+            results: [result('1', 'Example org signups', 'insight', [-2, 0, 0, 0, -2, 0, 1, 0, -1])],
+            products: [],
+            accounts: [account('account-1', 'Acme', ['example.org'])],
+            unifiedRanking: true,
+            expected: ['Results: Acme, Example org signups'],
+        },
+        {
+            name: 'with unified ranking, a hyphenated flag key that starts with the search words ranks first',
+            query: 'checkout flow',
+            results: [
+                result('1', 'Flow of checkout events', 'insight', [-2, 0, 0, 0, -2, 0, 2, 0, -2]),
+                result('2', 'checkout-flow-redesign', 'feature_flag', [-2, 0, 0, 0, -2, 0, 5, 0, -1]),
+            ],
+            products: [],
+            unifiedRanking: true,
+            expected: ['Results: checkout-flow-redesign, Flow of checkout events'],
+        },
+        {
+            name: 'with unified ranking, a product that starts with the search ranks above an exact saved object name',
+            query: 'replay',
+            results: [result('1', 'Replay', 'notebook', [-1, 0, 0, 0, -1, 0, 0, 0, -1])],
+            products: [product('Session replay'), product('Replay vision')],
+            unifiedRanking: true,
+            expected: ['Results: Replay vision, Replay, Session replay'],
+        },
+        {
+            name: 'with unified ranking, a result the person picked for this search before ranks first',
+            query: 'replay',
+            results: [result('1', 'Replay', 'notebook', [-1, 0, 0, 0, -1, 0, 0, 0, -1])],
+            products: [product('Session replay'), product('Replay vision')],
+            unifiedRanking: true,
+            picks: new Map([['product-Session replay', 1]]),
+            expected: ['Results: Session replay, Replay vision, Replay'],
+        },
+        {
+            name: 'with unified ranking, an exact name ranks above an exact search keyword',
+            query: 'metrics',
+            results: [],
+            products: [product('Data catalog', ['metrics']), product('Metrics')],
+            unifiedRanking: true,
+            expected: ['Results: Metrics, Data catalog'],
+        },
+    ])(
+        '$name',
+        ({ query, results, products, persons = [], accounts = [], unifiedRanking = false, picks, expected }) => {
+            expect(
+                summary(
+                    buildRankedResults({
+                        query,
+                        highlightWords: query.split(' '),
+                        results,
+                        products,
+                        persons,
+                        accounts,
+                        state: 'ready',
+                        scoped: false,
+                        unifiedRanking,
+                        picks,
+                    })
+                )
+            ).toEqual(expected)
+        }
+    )
 })

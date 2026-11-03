@@ -3,7 +3,18 @@ import { SearchItem } from 'lib/components/Search/searchItems'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { pluralTypeName } from './commandKFilterOptions'
-import { RankKey, compareRanks, rankLocalItem, searchWords, tokenTypos } from './commandKRanking'
+import {
+    RankCandidate,
+    RankKey,
+    SERVER_CREATED_INDEX,
+    SERVER_FRECENCY_INDEX,
+    compareRanks,
+    isIdentityQuery,
+    rankCandidate,
+    rankLocalItem,
+    searchWords,
+    tokenTypos,
+} from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
 
 const BEST_MATCHES_LIMIT = 3
@@ -83,6 +94,60 @@ function rankAccounts(accounts: SearchItem[], query: string): RankedItem[] {
         const rank =
             nameMatch?.rank[0] === queryMatch.rank[0] && nameMatch.rank[1] === 0 ? nameMatch.rank : queryMatch.rank
         return { item, rank, groupKey: 'accounts' }
+    })
+}
+
+const IDENTITY_GROUPS = ['accounts', 'persons']
+const PRODUCT_TIER_BOOST = 3
+
+const displayName = (item: SearchItem): string => String(item.displayName || item.name)
+
+function candidateFor(item: SearchItem, groupKey: string, query: string, picks: Map<string, number>): RankCandidate {
+    const typePrior = isIdentityQuery(query) ? !IDENTITY_GROUPS.includes(groupKey) : groupKey !== 'products'
+    const common = {
+        name: displayName(item),
+        typePrior: Number(typePrior),
+        identity: item.identityFields,
+        picked: picks.get(item.id),
+    }
+    if (item.category !== 'results') {
+        return {
+            ...common,
+            aliases: item.searchKeywords,
+            context: item.parentName ? [item.parentName] : [],
+            indirect: !!item.parentName,
+            tierBoost: groupKey === 'products' ? PRODUCT_TIER_BOOST : 0,
+            matchesQuery: IDENTITY_GROUPS.includes(groupKey),
+        }
+    }
+    const path = typeof item.record?.path === 'string' ? item.record.path.split('/').slice(0, -1) : []
+    return {
+        ...common,
+        context: [...path, groupKey.replace(/[_/]/g, ' ')],
+        frecency: -(item.rankKey?.[SERVER_FRECENCY_INDEX] ?? 0) / 1000,
+        createdAt: -(item.rankKey?.[SERVER_CREATED_INDEX] ?? 0),
+    }
+}
+
+function rankUnified(
+    items: SearchItem[],
+    query: string,
+    groupKey: (item: SearchItem) => string,
+    picks: Map<string, number>
+): RankedItem[] {
+    return items.flatMap((item) => {
+        const key = groupKey(item)
+        const ranked = rankCandidate(query, candidateFor(item, key, query, picks))
+        if (!ranked) {
+            return item.rankKey ? [{ item, rank: item.rankKey, groupKey: key }] : []
+        }
+        return [
+            {
+                item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                rank: ranked.rank,
+                groupKey: key,
+            },
+        ]
     })
 }
 
@@ -189,6 +254,8 @@ interface RankedResultsInput {
     accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
+    unifiedRanking?: boolean
+    picks?: Map<string, number>
 }
 
 export function buildRankedResults({
@@ -201,14 +268,26 @@ export function buildRankedResults({
     accounts = [],
     state,
     scoped,
+    unifiedRanking = false,
+    picks = new Map(),
 }: RankedResultsInput): CommandKSection[] {
-    const candidates: RankedItem[] = [
-        ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
-        ...rankLocalItems(products, query, 'products'),
-        ...rankLocalItems(persons, query, 'persons'),
-        ...rankLocalItems(settings, query, 'settings'),
-        ...rankAccounts(accounts, query),
-    ].sort((a, b) => compareRanks(a.rank, b.rank))
+    const candidates: RankedItem[] = (
+        unifiedRanking
+            ? [
+                  ...rankUnified(results, query, groupKeyFor, picks),
+                  ...rankUnified(products, query, () => 'products', picks),
+                  ...rankUnified(persons, query, () => 'persons', picks),
+                  ...rankUnified(settings, query, () => 'settings', picks),
+                  ...rankUnified(accounts, query, () => 'accounts', picks),
+              ]
+            : [
+                  ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
+                  ...rankLocalItems(products, query, 'products'),
+                  ...rankLocalItems(persons, query, 'persons'),
+                  ...rankLocalItems(settings, query, 'settings'),
+                  ...rankAccounts(accounts, query),
+              ]
+    ).sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []
     }
