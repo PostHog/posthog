@@ -48,8 +48,6 @@ _CLOCK_SKEW = timedelta(minutes=5)
 MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
-# A person's later events still count toward revenue, up to this many.
-MAX_EVENTS_PER_PERSON = 1_000
 
 _ENGAGEMENT = "(" + ", ".join(f"'{status}'" for status in EMAIL_ENGAGEMENT_STATUSES) + ")"
 
@@ -343,18 +341,11 @@ def transactional_email_results(
         person = person_by_distinct_id.get(distinct_id, f"distinct:{distinct_id}")
         first_send[person] = min(first_send.get(person, sent_at), sent_at)
 
-    conversions = _conversion_events(team, user, event, revenue_property, list(sends), start, end + window)
-    converted_at: dict[str, datetime] = {}
-    revenue = 0.0
-    for person, events in conversions.items():
-        first_sent_at = first_send.get(person)
-        if first_sent_at is None:
-            continue
-        for timestamp, value in events:
-            if not (first_sent_at <= timestamp <= first_sent_at + window):
-                continue
-            converted_at[person] = min(converted_at.get(person, timestamp), timestamp)
-            revenue += value or 0.0
+    conversions = _conversions(
+        team, user, event, revenue_property, list(sends), first_send, window, start, end + window
+    )
+    converted_at = {person: conversion.first_at for person, conversion in conversions.items()}
+    revenue = sum(conversion.revenue for conversion in conversions.values())
 
     hours = [(converted_at[person] - first_send[person]).total_seconds() / 3600 for person in converted_at]
     return TransactionalEmailResults(
@@ -381,18 +372,27 @@ def _persons_for_distinct_ids(team: Team, user: User | None, distinct_ids: list[
     return dict(response.results or [])
 
 
-def _conversion_events(
+@frozen
+class _Conversion:
+    first_at: datetime
+    revenue: float
+
+
+def _conversions(
     team: Team,
     user: User | None,
     event: str,
     revenue_property: str | None,
     distinct_ids: list[str],
+    first_send: dict[str, datetime],
+    window: timedelta,
     start: datetime,
     end: datetime,
-) -> dict[str, list[tuple[datetime, float | None]]]:
-    """The time and revenue of each person's conversion events, grouped per person so the row limit counts people.
+) -> dict[str, _Conversion]:
+    """Each recipient's first conversion within `window` of their first send, and the revenue of those conversions.
 
-    A recipient with no person profile is keyed by distinct ID, the same way `transactional_email_results` keys their send.
+    ClickHouse does the windowing and the sums, so a recipient comes back as one row however many events they did. A
+    recipient with no person profile is keyed by distinct ID, the same way `transactional_email_results` keys their send.
     """
     revenue: ast.Expr = (
         ast.Call(
@@ -402,17 +402,25 @@ def _conversion_events(
         if revenue_property
         else ast.Constant(value=None)
     )
+    recipients = list(first_send)
     response = execute_hogql_query(
         """
-        SELECT
-            if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
-               toString(person_id), concat('distinct:', distinct_id)) AS recipient,
-            groupArray({per_person})(tuple(timestamp, {revenue}))
-        FROM events
-        WHERE event = {event}
-          AND timestamp >= {start} AND timestamp < {end}
-          AND (distinct_id IN {distinct_ids}
-               OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
+        SELECT recipient, min(timestamp), sum(value)
+        FROM (
+            SELECT
+                if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
+                   toString(person_id), concat('distinct:', distinct_id)) AS recipient,
+                timestamp,
+                {revenue} AS value
+            FROM events
+            WHERE event = {event}
+              AND timestamp >= {start} AND timestamp < {end}
+              AND (distinct_id IN {distinct_ids}
+                   OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
+        )
+        WHERE indexOf({recipients}, recipient) > 0
+          AND timestamp >= fromUnixTimestamp64Milli({sent_at_ms}[indexOf({recipients}, recipient)])
+          AND timestamp <= fromUnixTimestamp64Milli({sent_at_ms}[indexOf({recipients}, recipient)] + {window_ms})
         GROUP BY recipient
         LIMIT {limit}
         """,
@@ -424,13 +432,17 @@ def _conversion_events(
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "distinct_ids": ast.Constant(value=distinct_ids),
-            "per_person": ast.Constant(value=MAX_EVENTS_PER_PERSON),
-            "limit": ast.Constant(value=len(distinct_ids)),
+            "recipients": ast.Constant(value=recipients),
+            "sent_at_ms": ast.Constant(
+                value=[int(first_send[recipient].timestamp() * 1000) for recipient in recipients]
+            ),
+            "window_ms": ast.Constant(value=int(window.total_seconds() * 1000)),
+            "limit": ast.Constant(value=len(recipients)),
         },
         query_type="transactional_email_results_conversions",
         workload=Workload.ONLINE,
     )
     return {
-        person_id: [(timestamp.astimezone(UTC), value) for timestamp, value in events]
-        for person_id, events in response.results or []
+        recipient: _Conversion(first_at=first_at.astimezone(UTC), revenue=float(total or 0.0))
+        for recipient, first_at, total in response.results or []
     }

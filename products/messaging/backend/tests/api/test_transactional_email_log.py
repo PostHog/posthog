@@ -244,6 +244,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             timestamp=NOW - timedelta(minutes=300),
             properties={"amount": 30},
         )
+        for minutes_ago, amount in [(200, 5), (-900, 100)]:
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id="converted",
+                timestamp=NOW - timedelta(minutes=minutes_ago),
+                properties={"amount": amount},
+            )
         _create_event(
             team=self.team,
             event="purchase",
@@ -272,7 +280,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"recipients": 4, "converted": 2, "revenue": 50.0, "median_hours_to_convert": 5.0}
+        assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
