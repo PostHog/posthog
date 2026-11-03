@@ -461,6 +461,8 @@ class DuckLakeBackfillCatalog(Protocol):
 
     def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
 
+    def validate_file_count(self, files: Sequence[str]) -> None: ...
+
     def register_files(
         self,
         table: str,

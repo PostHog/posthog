@@ -192,6 +192,13 @@ class TrinoBackfillCatalog:
         kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
         self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
 
+    def validate_file_count(self, files: Sequence[str]) -> None:
+        if len(files) > ADD_FILES_MAX_FILES:
+            raise ValueError(
+                f"The export wrote {len(files)} files, but one add_files call registers at most "
+                f"{ADD_FILES_MAX_FILES}. Lower max_s3_file_fanout."
+            )
+
     def register_files(
         self, table: str, files: Sequence[str], *, import_id: str, replacement: Replacement | None
     ) -> int:
@@ -202,11 +209,7 @@ class TrinoBackfillCatalog:
         """
         if replacement is not None:
             _refuse_shared_table(table, "replace rows in")
-        if len(files) > ADD_FILES_MAX_FILES:
-            raise ValueError(
-                f"The export wrote {len(files)} files, but one add_files call registers at most "
-                f"{ADD_FILES_MAX_FILES}. Lower max_s3_file_fanout."
-            )
+        self.validate_file_count(files)
         options = [
             f"files => ARRAY[{', '.join(escape_trino_string(path) for path in files)}]",
             f"import_id => {escape_trino_string(import_id)}",

@@ -2657,7 +2657,9 @@ def backfill_through_trino(
                 continue
             replacement = item.replacement if config.cleanup_existing_partition_data else None
             if rebuild:
-                # The rebuild waits until the export finished, to keep the window with an empty table short.
+                # The rebuild waits until the export finished, to keep the window with an empty table short. A file
+                # count that add_files refuses fails here, before the rebuild empties the table.
+                catalog.validate_file_count(files)
                 catalog.replace_table(table, column_types)
                 rebuild = False
             if files:

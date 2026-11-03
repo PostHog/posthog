@@ -2627,8 +2627,9 @@ class TestFannedOutLayoutRoundTrip:
 
 
 class _FakeTrinoBackfillCatalog:
-    def __init__(self, layout_mismatch: Literal["ensure", "register"] | None = None) -> None:
+    def __init__(self, layout_mismatch: Literal["ensure", "register"] | None = None, max_files: int = 2_000) -> None:
         self.layout_mismatch = layout_mismatch
+        self.max_files = max_files
         self.rebuilt = False
         self.calls: list[tuple[Any, ...]] = []
         self.tables: list[tuple[str, dict[str, str]]] = []
@@ -2645,6 +2646,10 @@ class _FakeTrinoBackfillCatalog:
     def replace_table(self, table: str, columns: dict[str, str]) -> None:
         self.calls.append(("replace", table))
         self.rebuilt = True
+
+    def validate_file_count(self, files: list[str]) -> None:
+        if len(files) > self.max_files:
+            raise ValueError(f"The export wrote {len(files)} files, more than {self.max_files}")
 
     def register_files(
         self,
@@ -2813,6 +2818,21 @@ class TestBackfillThroughTrino:
             assert [call[0] for call in catalog.calls] == expected_calls
             assert {call[2] for call in catalog.calls if call[0] == "register"} == {DuckLakeTableReplacement()}
             assert len(catalog.registered) == 2
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_refuses_too_many_files_before_it_rebuilds_the_table(self):
+        catalog = _FakeTrinoBackfillCatalog(layout_mismatch="ensure", max_files=1)
+
+        with pytest.raises(ValueError, match="more than 1"):
+            self._run(
+                _run_duckling_persons_backfill,
+                "2",
+                _FakeExportClickHouse(files_per_export=2),
+                DucklingBackfillConfig(),
+                catalog,
+            )
+
+        assert catalog.calls == []
 
     @parameterized.expand(
         [
