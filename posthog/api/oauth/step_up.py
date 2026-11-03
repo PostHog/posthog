@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.scopes import scopes_not_covered
+from posthog.scopes import clamp_scopes_to_ceiling, scopes_not_covered
 
 # What a step-up app gets on its first connection to the MCP resource. The list comes from MCP
 # tool usage: a scope is in when the tools that need it are among the ones most OAuth users call,
@@ -120,6 +120,9 @@ def resolve_step_up_grant(
             narrowed = requested
         return StepUpGrant(scopes=sorted(_union(narrowed, required)), already_granted_scopes=[], earlier_access=None)
 
+    # The ceiling may have shrunk since an older grant. Clamp as `validate_scopes` does, so the
+    # screen never promises a scope the new grant cannot carry.
+    granted = set(clamp_scopes_to_ceiling(granted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True))
     scopes = sorted(_union(granted, requested, required))
     already_granted = [scope for scope in scopes if not scopes_not_covered(granted, [scope])]
     return StepUpGrant(

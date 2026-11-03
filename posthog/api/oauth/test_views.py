@@ -405,7 +405,8 @@ class TestOAuthAPI(APIBaseTest):
             user=self.user,
             token="pha_prior_grant",
             expires=timezone.now() - timedelta(hours=1),
-            scope="openid insight:write",
+            # `llm_gateway:read` sits outside the app's ceiling, as after the ceiling shrank.
+            scope="openid insight:write llm_gateway:read",
             scoped_teams=[self.team.id],
         )
         OAuthRefreshToken.objects.create(
