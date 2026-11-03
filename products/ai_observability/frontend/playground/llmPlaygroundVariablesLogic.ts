@@ -84,7 +84,12 @@ export const llmPlaygroundVariablesLogic = kea<llmPlaygroundVariablesLogicType>(
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): string[] =>
                 extractVariablesFromTexts(
-                    promptConfigs.flatMap((prompt) => [prompt.systemPrompt, ...prompt.messages.map((m) => m.content)])
+                    promptConfigs.flatMap((prompt) => [
+                        prompt.systemPrompt,
+                        ...prompt.messages.map((m) => m.content),
+                        prompt.decisionInput,
+                        ...prompt.decisionQuestions.map((question) => question.instructions),
+                    ])
                 ),
         ],
         unfilledVariables: [

@@ -23,6 +23,7 @@ import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { isOTelPartsMessage, normalizeRole } from '../utils'
+import { type PlaygroundQuestion, createPlaygroundQuestion } from './playgroundDecisions'
 import { isMessageSendable } from './playgroundMessageMapping'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 import { type PlaygroundModelConfig, parsePlaygroundConfig, serializePlaygroundConfig } from './playgroundPromptConfig'
@@ -88,6 +89,8 @@ export interface PromptConfig {
     sourceEvaluationId: string | null
     sourceEvaluationName: string | null
     messages: Message[]
+    decisionInput: string
+    decisionQuestions: PlaygroundQuestion[]
 }
 
 export interface PlaygroundSetupPayload {
@@ -187,6 +190,8 @@ export function createPromptConfig(partial: Partial<PromptConfig> = {}): PromptC
         sourceEvaluationId: partial.sourceEvaluationId ?? null,
         sourceEvaluationName: partial.sourceEvaluationName ?? null,
         messages: partial.messages ?? [],
+        decisionInput: partial.decisionInput ?? '',
+        decisionQuestions: partial.decisionQuestions ?? [createPlaygroundQuestion()],
     }
 }
 
@@ -368,6 +373,20 @@ export interface llmPlaygroundPromptsLogicActions {
     }
     setActivePromptId: (promptId: string | null) => {
         promptId: string | null
+    }
+    setDecisionInput: (
+        decisionInput: string,
+        promptId?: string
+    ) => {
+        decisionInput: string
+        promptId: string | undefined
+    }
+    setDecisionQuestions: (
+        decisionQuestions: PlaygroundQuestion[],
+        promptId?: string
+    ) => {
+        decisionQuestions: PlaygroundQuestion[]
+        promptId: string | undefined
     }
     setEditModal: (
         target: {
@@ -564,6 +583,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setThinking: (thinking: boolean, promptId?: string) => ({ thinking, promptId }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel, promptId?: string) => ({ reasoningLevel, promptId }),
         setTools: (tools: Record<string, unknown>[] | null, promptId?: string) => ({ tools, promptId }),
+        setDecisionInput: (decisionInput: string, promptId?: string) => ({ decisionInput, promptId }),
+        setDecisionQuestions: (decisionQuestions: PlaygroundQuestion[], promptId?: string) => ({
+            decisionQuestions,
+            promptId,
+        }),
         setResponseFormat: (responseFormat: PlaygroundResponseFormat | null, promptId?: string) => ({
             responseFormat,
             promptId,
@@ -683,6 +707,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { tools, promptId }: { tools: Record<string, unknown>[] | null; promptId?: string }
                 ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, tools })),
+                setDecisionInput: (
+                    state: PromptConfig[],
+                    { decisionInput, promptId }: { decisionInput: string; promptId?: string }
+                ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, decisionInput })),
+                setDecisionQuestions: (
+                    state: PromptConfig[],
+                    { decisionQuestions, promptId }: { decisionQuestions: PlaygroundQuestion[]; promptId?: string }
+                ) => updatePromptConfigs(state, promptId, (prompt) => ({ ...prompt, decisionQuestions })),
                 setResponseFormat: (
                     state: PromptConfig[],
                     { responseFormat, promptId }: { responseFormat: PlaygroundResponseFormat | null; promptId?: string }
