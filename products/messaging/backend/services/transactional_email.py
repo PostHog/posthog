@@ -41,6 +41,7 @@ from products.messaging.backend.facade.contracts import (
     SendingSuspended,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
 )
@@ -167,6 +168,9 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 }
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
+
+# Each new key gets its own hidden workflow, so a key per recipient would grow them without bound.
+TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -402,6 +406,13 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
         if _workflow_exists(team_id, known.hog_flow_id):
             return known.hog_flow_id
         known.delete()
+    # Two first sends of new keys can both pass this count, so a project can end a few keys over the limit.
+    if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
+        raise TooManyKeys(
+            f"This project has reached its limit of {TRANSACTIONAL_EMAIL_KEY_LIMIT} template keys, so it can't "
+            "send under a new one. Use one template_key for each type of email, such as `password-reset`, and "
+            "reuse it for every recipient."
+        )
     try:
         with transaction.atomic():
             hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)

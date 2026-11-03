@@ -102,6 +102,10 @@ class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
 
+class TooManyKeys(TransactionalEmailError):
+    code = "too_many_keys"
+
+
 @frozen
 class CodeEmail:
     key: str

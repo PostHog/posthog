@@ -650,7 +650,8 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
-        "verified, the recipient can't be used, or the Idempotency-Key is invalid"
+        "verified, the recipient can't be used, the Idempotency-Key is invalid, or the project has reached its "
+        "limit of template keys and the `template_key` is new"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
