@@ -97,6 +97,8 @@ class GroupedWarehouseRecordFetcher:
     def __call__(self, team: Team, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
         if config.scope_field is not None:
             raise ValueError("The grouped warehouse fetcher does not support scope_field")
+        if config.admission_fields:
+            raise ValueError("The grouped warehouse fetcher does not support admission_fields")
         table_name: str = context["table_name"]
         extra: dict[str, Any] = context.get("extra", {})
         window_sql = grouped_window_clause(config, self._window_days)

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import enum
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from products.signals.backend.contracts import ADMISSION_RULE_FIELDS
 from products.warehouse_sources.backend.facade.sources import github_split_schema_name
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -96,6 +97,9 @@ class SignalSourceTableConfig(BaseModel):
     # `scope_config_key` names the list of allowed ids on `SignalSourceConfig.config`.
     scope_field: str | None = None
     scope_config_key: str | None = None
+    # HogQL expression for each field a team's admission rules may name. The keys must match the
+    # source's allowlist in `contracts.ADMISSION_RULE_FIELDS`, which the API validates against.
+    admission_fields: Mapping[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_prompt_placeholders(self) -> SignalSourceTableConfig:
@@ -109,6 +113,15 @@ class SignalSourceTableConfig(BaseModel):
     def _validate_scope_pair(self) -> SignalSourceTableConfig:
         if (self.scope_field is None) != (self.scope_config_key is None):
             raise ValueError("scope_field and scope_config_key must both be set or both be None")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_admission_fields(self) -> SignalSourceTableConfig:
+        if not self.admission_fields:
+            return self
+        allowed = ADMISSION_RULE_FIELDS.get((self.source_product, self.source_type), {})
+        if set(self.admission_fields) != set(allowed):
+            raise ValueError("admission_fields must map exactly the fields in contracts.ADMISSION_RULE_FIELDS")
         return self
 
     @model_validator(mode="after")

@@ -7,7 +7,7 @@ import enum
 from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.fields import FieldInfo
 
 from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
@@ -44,6 +44,120 @@ def scope_ids_problem(value: object) -> str | None:
         return f"must have at most {SCOPE_IDS_MAX_COUNT} entries"
     if any(len(scope_id.strip()) > SCOPE_ID_MAX_LENGTH for scope_id in value):
         return f"entries must be at most {SCOPE_ID_MAX_LENGTH} characters"
+    return None
+
+
+# ── Admission rules ─────────────────────────────────────────────────────────────
+# Deterministic per-team filters that drop records in the warehouse query, before any model call.
+# The rule tree lives on `SignalSourceConfig.config` under this key. Each source lists the fields a
+# rule may name here; the source's emission config maps each field to a HogQL expression.
+
+ADMISSION_RULES_KEY = "admission_rules"
+
+
+class AdmissionFieldKind(enum.StrEnum):
+    STRING_LIST = "string_list"
+    STRING = "string"
+    NUMBER = "number"
+
+
+ADMISSION_RULE_FIELDS: Mapping[tuple[str, str], Mapping[str, AdmissionFieldKind]] = {
+    (SignalSourceProduct.LINEAR, SignalSourceType.ISSUE): {
+        "labels": AdmissionFieldKind.STRING_LIST,
+        "priority": AdmissionFieldKind.NUMBER,
+        "state_name": AdmissionFieldKind.STRING,
+        "state_type": AdmissionFieldKind.STRING,
+    },
+}
+
+ADMISSION_LIST_OPERATORS = frozenset({"any", "all", "none"})
+ADMISSION_SCALAR_OPERATORS = frozenset({"eq", "neq", "in", "not_in"})
+# The caps keep a row written outside the API from bloating the emission query.
+ADMISSION_RULES_MAX_COUNT = 20
+ADMISSION_GROUP_MAX_DEPTH = 3
+ADMISSION_VALUES_MAX_COUNT = 50
+ADMISSION_VALUE_MAX_LENGTH = 255
+
+AdmissionScalar = Annotated[str, Field(min_length=1, max_length=ADMISSION_VALUE_MAX_LENGTH)] | int
+
+
+class AdmissionRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    field: str
+    operator: Literal["any", "all", "none", "eq", "neq", "in", "not_in"]
+    value: (
+        AdmissionScalar | Annotated[list[AdmissionScalar], Field(min_length=1, max_length=ADMISSION_VALUES_MAX_COUNT)]
+    )
+
+
+class AdmissionRuleGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    operator: Literal["AND", "OR"]
+    rules: list["AdmissionRule | AdmissionRuleGroup"]
+
+
+def parse_admission_rules(
+    value: object, fields: Mapping[str, AdmissionFieldKind]
+) -> tuple[AdmissionRuleGroup | None, str | None]:
+    """The parsed rule tree and None, or None and why `value` is not a valid tree for a source
+    with `fields`. The API rejects an invalid tree with this message; the fetcher fails closed."""
+    try:
+        group = AdmissionRuleGroup.model_validate(value)
+    except ValidationError:
+        return None, (
+            "must be a group of {operator: AND or OR, rules} where each rule is a group "
+            f"or {{field, operator, value}} with string values of at most {ADMISSION_VALUE_MAX_LENGTH} "
+            f"characters or integers, and lists of 1 to {ADMISSION_VALUES_MAX_COUNT} values"
+        )
+    problem = _admission_group_problem(group, fields, depth=1)
+    if problem is not None:
+        return None, problem
+    if _count_admission_rules(group) > ADMISSION_RULES_MAX_COUNT:
+        return None, f"must have at most {ADMISSION_RULES_MAX_COUNT} rules"
+    return group, None
+
+
+def _count_admission_rules(group: AdmissionRuleGroup) -> int:
+    return sum(_count_admission_rules(r) if isinstance(r, AdmissionRuleGroup) else 1 for r in group.rules)
+
+
+def _admission_group_problem(
+    group: AdmissionRuleGroup, fields: Mapping[str, AdmissionFieldKind], depth: int
+) -> str | None:
+    if depth > ADMISSION_GROUP_MAX_DEPTH:
+        return f"groups must nest at most {ADMISSION_GROUP_MAX_DEPTH} levels deep"
+    for rule in group.rules:
+        if isinstance(rule, AdmissionRuleGroup):
+            problem = _admission_group_problem(rule, fields, depth + 1)
+        else:
+            problem = _admission_rule_problem(rule, fields)
+        if problem is not None:
+            return problem
+    return None
+
+
+def _admission_rule_problem(rule: AdmissionRule, fields: Mapping[str, AdmissionFieldKind]) -> str | None:
+    kind = fields.get(rule.field)
+    if kind is None:
+        return f"field {rule.field!r} is not supported for this source"
+    values = rule.value if isinstance(rule.value, list) else [rule.value]
+    expected_type = int if kind == AdmissionFieldKind.NUMBER else str
+    if not all(isinstance(v, expected_type) for v in values):
+        return f"field {rule.field!r} takes {'number' if expected_type is int else 'string'} values"
+    if kind == AdmissionFieldKind.STRING_LIST:
+        if rule.operator not in ADMISSION_LIST_OPERATORS:
+            return f"field {rule.field!r} takes the operators any, all and none"
+        if not isinstance(rule.value, list):
+            return f"operator {rule.operator!r} takes a list of values"
+        return None
+    if rule.operator not in ADMISSION_SCALAR_OPERATORS:
+        return f"field {rule.field!r} takes the operators eq, neq, in and not_in"
+    if rule.operator in ("in", "not_in") and not isinstance(rule.value, list):
+        return f"operator {rule.operator!r} takes a list of values"
+    if rule.operator in ("eq", "neq") and isinstance(rule.value, list):
+        return f"operator {rule.operator!r} takes a single value"
     return None
 
 
