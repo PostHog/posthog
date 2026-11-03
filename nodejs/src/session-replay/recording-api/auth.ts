@@ -51,7 +51,10 @@ function pathTeamId(req: Request): number {
  */
 export function assertRecordingApiAuthConfigured(opts: { isProd: boolean; jwtSecret: string }): void {
     if (opts.isProd && !hasJwtKeys(opts.jwtSecret || '')) {
-        throw new Error('recording-api has no auth configured in production: set RECORDING_API_JWT_SECRET')
+        throw new Error(
+            'recording-api has no auth configured in production: set RECORDING_API_JWT_SECRET ' +
+                '(hobby installs: run bin/upgrade-hobby)'
+        )
     }
 }
 
