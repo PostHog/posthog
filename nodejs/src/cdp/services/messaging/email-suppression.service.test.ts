@@ -358,6 +358,68 @@ describe('EmailSuppressionService', () => {
         })
     })
 
+    describe('known-invalid list', () => {
+        const newService = (mode: 'off' | 'shadow' | 'enforce'): EmailSuppressionService =>
+            new EmailSuppressionService(hub.postgres, {
+                ...emailSuppressionConfigFromEnv(),
+                knownInvalidMode: mode,
+                knownInvalidTtlDays: 180,
+            })
+
+        // The list is instance-global and outlives each test's team, so every test uses its own address.
+        const bounceForTeam = async (svc: EmailSuppressionService, teamId: number, email: string): Promise<void> => {
+            await svc.recordHardBounces(teamId, [email], 'smtp; 550 5.1.1 user unknown')
+            await svc.recordKnownInvalid(teamId, [email])
+        }
+
+        it.each([
+            ['off', false, undefined],
+            ['shadow', false, undefined],
+            ['enforce', true, 'KNOWN_INVALID'],
+        ] as const)('in %s mode, another team bouncing the address blocks it: %s', async (mode, blocked, source) => {
+            const email = `gone-${mode}-${team.id}@example.com`
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+            await bounceForTeam(newService(mode), otherTeamId, email)
+
+            const svc = newService(mode)
+            expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(blocked)
+            expect((await readRow(email))?.source).toBe(source)
+        })
+
+        it.each([
+            ['the team removed the address', 'removed'],
+            ['a later delivery cleared the entry', 'delivered'],
+        ] as const)('in enforce mode, does not block when %s', async (_label, step) => {
+            const email = `back-${step}-${team.id}@example.com`
+            const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+            await bounceForTeam(newService('enforce'), otherTeamId, email)
+
+            if (step === 'removed') {
+                // The row that Django's remove_suppression leaves behind.
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagesuppression
+                        (id, team_id, identifier, source, reason, transient_bounce_count,
+                         suppressed, suppressed_at, deleted, created_at, updated_at, known_invalid_allowed_at)
+                     VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', NULL, 0,
+                         false, NULL, true, NOW(), NOW(), NOW())`,
+                    [team.id, email],
+                    'test-insert-removed-suppression'
+                )
+            } else {
+                // Bounces stamp last_bounced_at with NOW(), so a delivery has to be newer than that.
+                await newService('enforce').recordDeliveries(
+                    otherTeamId,
+                    [email],
+                    new Date(Date.now() + 60_000).toISOString()
+                )
+            }
+
+            expect(await newService('enforce').isSuppressed(team.id, email)).toBe(false)
+            expect((await readRow(email))?.source ?? null).toBe(step === 'removed' ? 'BOUNCE' : null)
+        })
+    })
+
     describe('cache invalidation', () => {
         it("a write for one team does not evict another team's cached entries", async () => {
             // Guards against a regression from markForRefresh(touchedKeys) back to clear() — clear()

@@ -121,6 +121,28 @@ const SesBounceEventSchema = SesCommonEventBase.extend({
     }),
 })
 
+// SMTP status codes that say the mailbox does not exist: 5.1.1 (unknown user) and 5.1.10 (null MX).
+const ADDRESS_DOES_NOT_EXIST_STATUS = /\b5\.1\.(1|10)\b/
+
+/**
+ * The recipients of a permanent bounce that the bounce proves do not exist. SES files a sender-side
+ * rejection, such as a blocked domain or a failed DMARC check, under Permanent/General too, so a General
+ * bounce counts only with an unknown-user status. Everything else stays on the sending team's own list.
+ */
+export function knownInvalidRecipients(bounce: z.infer<typeof SesBounceEventSchema>['bounce']): string[] {
+    if (bounce.bounceType !== 'Permanent') {
+        return []
+    }
+    return bounce.bouncedRecipients
+        .filter(
+            (r) =>
+                bounce.bounceSubType === 'NoEmail' ||
+                (bounce.bounceSubType === 'General' &&
+                    ADDRESS_DOES_NOT_EXIST_STATUS.test(`${r.status ?? ''} ${r.diagnosticCode ?? ''}`))
+        )
+        .map((r) => r.emailAddress)
+}
+
 const SesComplaintEventSchema = SesCommonEventBase.extend({
     eventType: z.literal('Complaint'),
     complaint: z.object({
@@ -664,6 +686,9 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            // The bounced addresses that the bounce proves do not exist. These go on the cross-team
+            // known-invalid list. Absent when there are none.
+            knownInvalidAddresses?: string[]
         }[]
         // Spam complaints — recorded in the suppression list so future sends to the address are
         // blocked. A complaint is the recipient asking us to stop, and provider complaint-rate
@@ -774,6 +799,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            knownInvalidAddresses?: string[]
         }[] = []
         const complainedRecipients: {
             teamId?: string
@@ -958,7 +984,13 @@ export class SesWebhookHandler {
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                hardBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                const knownInvalidAddresses = knownInvalidRecipients(rec.bounce)
+                hardBounceRecipients.push({
+                    teamId,
+                    emailAddresses: emails,
+                    diagnostic,
+                    ...(knownInvalidAddresses.length > 0 ? { knownInvalidAddresses } : {}),
+                })
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures

@@ -36,7 +36,7 @@ import { PersonsManagerService } from './services/managers/persons-manager.servi
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
-import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailSuppressionService, parseKnownInvalidMode } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -174,6 +174,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+        | 'EMAIL_SUPPRESSION_KNOWN_INVALID_MODE'
+        | 'EMAIL_SUPPRESSION_KNOWN_INVALID_TTL_DAYS'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
@@ -450,6 +452,8 @@ export function createCdpCoreServices(
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+        knownInvalidMode: parseKnownInvalidMode(config.EMAIL_SUPPRESSION_KNOWN_INVALID_MODE),
+        knownInvalidTtlDays: config.EMAIL_SUPPRESSION_KNOWN_INVALID_TTL_DAYS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)

@@ -180,6 +180,15 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
+    // Cross-team known-invalid list. A hard bounce that proves an address does not exist blocks the
+    // address for every team, except a team that removed it from its own suppression list.
+    //   "off"     - the list is not written or read.
+    //   "shadow"  - the list is written, and a send it would block is only counted.
+    //   "enforce" - the list blocks sends, and adds the address to the team's own list.
+    EMAIL_SUPPRESSION_KNOWN_INVALID_MODE: string
+    // Days a known-invalid entry keeps blocking sends after its last bounce.
+    EMAIL_SUPPRESSION_KNOWN_INVALID_TTL_DAYS: number
+
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
     // Django side, picks an hourly and a daily cap from these tables. See
     // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
@@ -422,6 +431,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+        EMAIL_SUPPRESSION_KNOWN_INVALID_MODE: 'off',
+        EMAIL_SUPPRESSION_KNOWN_INVALID_TTL_DAYS: 180,
 
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.

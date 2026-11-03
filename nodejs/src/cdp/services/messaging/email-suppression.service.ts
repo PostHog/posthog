@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
@@ -7,7 +8,7 @@ import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `known_invalid_recorded` = an address added to the cross-team known-invalid list; `known_invalid_cleared` = an address removed from that list after a delivery; `known_invalid_hit` = a send skipped because of that list; `known_invalid_shadow_hit` = a send that list would skip in shadow mode.',
     labelNames: ['result'],
 })
 
@@ -17,9 +18,24 @@ const normalizeIdentifier = (email: string): string => email.trim().toLowerCase(
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
 
+// The known-invalid list stores a hash, so a raw address never leaves the team that emailed it.
+// Django's admin computes the same hash to search the list.
+const hashIdentifier = (identifier: string): string => createHash('sha256').update(identifier).digest('hex')
+
+export type KnownInvalidMode = 'off' | 'shadow' | 'enforce'
+
+export function parseKnownInvalidMode(value: string | undefined): KnownInvalidMode {
+    const mode = (value ?? '').trim().toLowerCase()
+    return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
+}
+
 export type EmailSuppressionConfig = {
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
+    // How the cross-team known-invalid list acts. See EMAIL_SUPPRESSION_KNOWN_INVALID_MODE.
+    knownInvalidMode?: KnownInvalidMode
+    // Days a known-invalid entry keeps blocking sends after its last bounce.
+    knownInvalidTtlDays?: number
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -38,10 +54,12 @@ export type SuppressionCheckOptions = {
     transactional?: boolean
 }
 
-// An active suppression. It blocks transactional email only when the address hard-bounced.
-type SuppressionEntry = { blocksTransactional: boolean }
+// An active suppression. It blocks transactional email only when the address hard-bounced. `knownInvalid`
+// marks an entry that only the cross-team known-invalid list holds: in shadow mode it is counted, not enforced.
+type SuppressionEntry = { blocksTransactional: boolean; knownInvalid?: 'shadow' | 'enforce' }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
+const KNOWN_INVALID_REASON = "This address doesn't exist. Emails to it bounced before."
 
 // Reasons that mark a dead address on rows written before `hard_bounced_at` existed: our own hard-bounce
 // rows, and the two Customer.io lists the importer maps to BOUNCE. Both writers now set the column, so
@@ -78,6 +96,8 @@ const LEGACY_HARD_BOUNCE_REASONS = [
  */
 export class EmailSuppressionService {
     private readonly threshold: number
+    private readonly knownInvalidMode: KnownInvalidMode
+    private readonly knownInvalidTtlDays: number
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -86,6 +106,8 @@ export class EmailSuppressionService {
         config: EmailSuppressionConfig
     ) {
         this.threshold = config.transientBounceThreshold
+        this.knownInvalidMode = config.knownInvalidMode ?? 'off'
+        this.knownInvalidTtlDays = config.knownInvalidTtlDays ?? 180
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -108,9 +130,13 @@ export class EmailSuppressionService {
         }
         try {
             const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+            if (entry !== false && entry.knownInvalid === 'shadow') {
+                cdpEmailSuppressionTotal.inc({ result: 'known_invalid_shadow_hit' })
+                return false
+            }
             const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
             if (suppressed) {
-                cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
+                cdpEmailSuppressionTotal.inc({ result: entry.knownInvalid ? 'known_invalid_hit' : 'suppressed_hit' })
             }
             return suppressed
         } catch (error) {
@@ -273,6 +299,38 @@ export class EmailSuppressionService {
     }
 
     /**
+     * Add addresses to the cross-team known-invalid list. Call this only for a hard bounce that proves
+     * the address does not exist. A bounce caused by the sender, such as a blocked domain, must stay on
+     * the team's own list, or one team's sending problem would block the address for every team.
+     */
+    public async recordKnownInvalid(teamId: number, emails: string[]): Promise<void> {
+        if (this.knownInvalidMode === 'off') {
+            return
+        }
+        const hashes = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean))).map(hashIdentifier)
+        if (hashes.length === 0) {
+            return
+        }
+
+        // Params: teamId, then one hash per row.
+        const valueClauses = hashes.map((_, i) => `($${i + 2}, NOW(), NOW(), $1)`)
+        const query = `
+            INSERT INTO posthog_knowninvalidemailaddress
+                (identifier_hash, first_bounced_at, last_bounced_at, last_bounced_team_id)
+            VALUES ${valueClauses.join(', ')}
+            ON CONFLICT (identifier_hash) DO UPDATE SET
+                last_bounced_at = NOW(),
+                last_bounced_team_id = EXCLUDED.last_bounced_team_id
+        `
+        try {
+            await this.postgres.query(PostgresUse.COMMON_WRITE, query, [teamId, ...hashes], 'recordKnownInvalid')
+            cdpEmailSuppressionTotal.inc({ result: 'known_invalid_recorded' }, hashes.length)
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record known-invalid addresses', { teamId, error })
+        }
+    }
+
+    /**
      * Record one or more spam complaints. Suppresses each address immediately — no threshold —
      * because a complaint is the recipient asking us to stop, and provider complaint-rate
      * thresholds are far tighter than bounce thresholds. Manual entries are never touched; any
@@ -387,6 +445,28 @@ export class EmailSuppressionService {
         } catch (error) {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
         }
+
+        if (this.knownInvalidMode === 'off') {
+            return
+        }
+        // A delivery proves the address exists again, for example after a mailbox provider reused it.
+        // The same timestamp guard applies: a late delivery for an older send must not clear a fresh bounce.
+        try {
+            const result = await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `DELETE FROM posthog_knowninvalidemailaddress
+                 WHERE identifier_hash = ANY($1)
+                   AND $2::timestamptz IS NOT NULL
+                   AND last_bounced_at < $2::timestamptz`,
+                [identifiers.map(hashIdentifier), deliveryTimestamp ?? null],
+                'clearKnownInvalid'
+            )
+            if (result.rowCount) {
+                cdpEmailSuppressionTotal.inc({ result: 'known_invalid_cleared' }, result.rowCount)
+            }
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to clear known-invalid addresses on delivery', { teamId, error })
+        }
     }
 
     private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
@@ -413,29 +493,136 @@ export class EmailSuppressionService {
         }
 
         const entries = new Map<string, SuppressionEntry>()
+        // Keys the team's own list neither suppresses nor allows. Only these can hit the known-invalid list.
+        const unlisted: { key: string; teamId: number; identifier: string }[] = []
         for (const [teamId, identifiers] of byTeam) {
             // The reason check covers rows that hard-bounced before `hard_bounced_at` existed.
-            const result = await this.postgres.query<{ identifier: string; blocks_transactional: boolean }>(
+            const result = await this.postgres.query<{
+                identifier: string
+                active: boolean
+                known_invalid_allowed: boolean
+                blocks_transactional: boolean
+            }>(
                 PostgresUse.COMMON_READ,
                 `SELECT identifier,
+                        (suppressed AND NOT deleted) AS active,
+                        known_invalid_allowed_at IS NOT NULL AS known_invalid_allowed,
                         -- A soft-bounce row carries no reason until it crosses the threshold, and
                         -- NULL = ANY(...) is NULL, so COALESCE keeps the column a real boolean.
-                        COALESCE(hard_bounced_at IS NOT NULL OR (source = 'BOUNCE' AND reason = ANY($3)), false)
-                            AS blocks_transactional
+                        COALESCE(
+                            hard_bounced_at IS NOT NULL
+                                OR source = 'KNOWN_INVALID'
+                                OR (source = 'BOUNCE' AND reason = ANY($3)),
+                            false
+                        ) AS blocks_transactional
                  FROM posthog_messagesuppression
                  WHERE team_id = $1
                    AND identifier = ANY($2)
-                   AND suppressed = true
-                   AND deleted = false`,
+                   AND ((suppressed = true AND deleted = false) OR known_invalid_allowed_at IS NOT NULL)`,
                 [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS],
                 'loadSuppressed'
             )
+            const listed = new Set<string>()
             for (const row of result.rows) {
-                entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
+                listed.add(row.identifier)
+                if (row.active) {
+                    entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
+                }
             }
+            for (const identifier of identifiers) {
+                if (!listed.has(identifier)) {
+                    unlisted.push({ key: toKey(teamId, identifier), teamId, identifier })
+                }
+            }
+        }
+
+        if (this.knownInvalidMode !== 'off' && unlisted.length > 0) {
+            await this.applyKnownInvalid(unlisted, entries)
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
         return Object.fromEntries(parsed.map((p) => [p.key, entries.get(p.key) ?? false]))
+    }
+
+    private async applyKnownInvalid(
+        unlisted: { key: string; teamId: number; identifier: string }[],
+        entries: Map<string, SuppressionEntry>
+    ): Promise<void> {
+        let invalidHashes: Set<string>
+        try {
+            const result = await this.postgres.query<{ identifier_hash: string }>(
+                PostgresUse.COMMON_READ,
+                `SELECT identifier_hash
+                 FROM posthog_knowninvalidemailaddress
+                 WHERE identifier_hash = ANY($1)
+                   AND last_bounced_at > NOW() - make_interval(days => $2)`,
+                [Array.from(new Set(unlisted.map((u) => hashIdentifier(u.identifier)))), this.knownInvalidTtlDays],
+                'loadKnownInvalid'
+            )
+            invalidHashes = new Set(result.rows.map((row) => row.identifier_hash))
+        } catch (error) {
+            // Fail open, like the rest of the pre-send check, but keep the team's own list.
+            logger.error('[EmailSuppression] Failed to check known-invalid addresses', { error })
+            return
+        }
+
+        const hitsByTeam = new Map<number, string[]>()
+        for (const { key, teamId, identifier } of unlisted) {
+            if (!invalidHashes.has(hashIdentifier(identifier))) {
+                continue
+            }
+            if (this.knownInvalidMode === 'shadow') {
+                entries.set(key, { blocksTransactional: false, knownInvalid: 'shadow' })
+                continue
+            }
+            // The address does not exist, so transactional email can't reach it either.
+            entries.set(key, { blocksTransactional: true, knownInvalid: 'enforce' })
+            hitsByTeam.set(teamId, [...(hitsByTeam.get(teamId) ?? []), identifier])
+        }
+
+        for (const [teamId, identifiers] of hitsByTeam) {
+            await this.addKnownInvalidRows(teamId, identifiers)
+        }
+    }
+
+    /**
+     * Add a KNOWN_INVALID row to the team's own list for each address the known-invalid list blocked.
+     * The team then sees the address on its suppression list, and can remove it there. Other teams'
+     * entries are never listed, so a team only sees addresses it tried to email.
+     */
+    private async addKnownInvalidRows(teamId: number, identifiers: string[]): Promise<void> {
+        // Params: teamId, reason, then one identifier per row.
+        const valueClauses = identifiers.map(
+            (_, i) =>
+                `(gen_random_uuid(), $1, $${i + 3}, 'KNOWN_INVALID', $2, 0, NULL, NULL, true, NOW(), false, NOW(), NOW())`
+        )
+        // The WHERE clause re-checks what the read saw, because a user can remove the address or a
+        // bounce can suppress it between the read and this write.
+        const query = `
+            INSERT INTO posthog_messagesuppression
+                (id, team_id, identifier, source, reason, transient_bounce_count, last_bounce_at,
+                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at)
+            VALUES ${valueClauses.join(', ')}
+            ON CONFLICT (team_id, identifier) DO UPDATE SET
+                source = 'KNOWN_INVALID',
+                reason = EXCLUDED.reason,
+                suppressed = true,
+                suppressed_at = NOW(),
+                deleted = false,
+                updated_at = NOW()
+            WHERE posthog_messagesuppression.known_invalid_allowed_at IS NULL
+              AND posthog_messagesuppression.source <> 'MANUAL'
+              AND NOT (posthog_messagesuppression.suppressed AND NOT posthog_messagesuppression.deleted)
+        `
+        try {
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                query,
+                [teamId, KNOWN_INVALID_REASON, ...identifiers],
+                'addKnownInvalidRows'
+            )
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to add known-invalid rows', { teamId, error })
+        }
     }
 }
