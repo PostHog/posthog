@@ -1,11 +1,8 @@
-import contextvars
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta, tzinfo
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Union
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -30,6 +27,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
@@ -280,19 +278,12 @@ def get_earliest_timestamp_from_series(
         else:
             nodes.append(node)
 
-    if len(nodes) == 1 or settings.IN_UNIT_TESTING:
-        timestamps = [_get_earliest_timestamp_from_node(team, node, user) for node in nodes]
-
-    else:
-        with ThreadPoolExecutor(max_workers=min(len(nodes), 4)) as executor:
-            # ThreadPoolExecutor does not inherit contextvars (query tags) by default; copy the
-            # current context into each worker so tagged sync_execute calls don't fail untagged.
-            futures = [
-                executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node, user)
-                for node in nodes
-            ]
-            timestamps = [cast(datetime, future.result()) for future in futures]
-
+    timestamps = map_in_caller_context(
+        lambda node: _get_earliest_timestamp_from_node(team, node, user),
+        nodes,
+        max_workers=4,
+        thread_name_prefix="earliest_timestamp",
+    )
     return min(timestamps)
 
 

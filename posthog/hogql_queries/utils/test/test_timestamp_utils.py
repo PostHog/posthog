@@ -541,30 +541,6 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
             self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), after_change)
 
-    @override_settings(IN_UNIT_TESTING=False)
-    @patch("posthog.hogql_queries.utils.timestamp_utils._get_earliest_timestamp_from_node")
-    def test_multi_node_propagates_query_tags_to_threads(self, mock_node):
-        # Multiple nodes resolve their earliest timestamp via ThreadPoolExecutor, which does not
-        # inherit contextvars. Without copying the context, the worker threads' sync_execute calls
-        # run untagged and raise UntaggedQueryError in dev (DEBUG and not TEST).
-        captured: dict[str, object] = {}
-
-        def capture(team, node, user=None):
-            captured[node.table_name] = get_query_tags().product
-            return datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
-
-        mock_node.side_effect = capture
-        nodes = [
-            DataWarehouseNode(id="a", table_name="a", id_field="id", distinct_id_field="id", timestamp_field="ts"),
-            DataWarehouseNode(id="b", table_name="b", id_field="id", distinct_id_field="id", timestamp_field="ts"),
-        ]
-
-        with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY):
-            get_earliest_timestamp_from_series(self.team, nodes)
-
-        self.assertEqual(captured["a"], Product.MARKETING_ANALYTICS)
-        self.assertEqual(captured["b"], Product.MARKETING_ANALYTICS)
-
     def test_cached_raw_value_is_coerced_on_read(self):
         # Entries cached before the coercion fix shipped hold a raw str/date for up to the
         # TTL window. A cache hit must still pass through _coerce_to_datetime instead of
