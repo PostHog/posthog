@@ -1989,6 +1989,33 @@ describe('EmailService', () => {
                 )
             })
 
+            it.each([
+                { case: 'an empty list', list: (): string => '', fixedScanner: false },
+                { case: 'a list with this team', list: (): string => `${team.id}`, fixedScanner: true },
+                { case: 'a list with another team', list: (): string => `${team.id + 1}`, fixedScanner: false },
+                { case: 'every team', list: (): string => '*', fixedScanner: true },
+            ])('picks the UTM link scanner from $case', async ({ list, fixedScanner }) => {
+                service['sesConfig'].utmLinkScannerTeams = list()
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: '<body><a href=https://example.com/pricing>Click me</a></body>',
+                })
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: false,
+                    utm_tags_enabled: true,
+                    hog_flow_name: 'Spring sale',
+                    hog_flow_action_name: 'Welcome',
+                }
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
+                    fixedScanner
+                        ? '<body><a href="https://example.com/pricing?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome">Click me</a></body>'
+                        : '<body><a href=https://example.com/pricing>Click me</a></body>'
+                )
+            })
+
             it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()

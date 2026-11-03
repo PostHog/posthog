@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsUnreadable,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
+    comparable_connection_fields,
     same_connection_fields,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -371,7 +372,10 @@ def _count_compare(
         result = "missing_row"
     elif isinstance(stored, CredentialsUnreadable):
         result = "unreadable"
-    elif not same_connection_fields(connection, stored):
+    elif not same_connection_fields(
+        comparable_connection_fields(str(source.source_type), connection),
+        comparable_connection_fields(str(source.source_type), stored),
+    ):
         result = "field_mismatch"
     else:
         result = "match"

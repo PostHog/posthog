@@ -38,7 +38,6 @@ import {
     V4_IMAGE_FETCH_DELAY_TOPICS,
     V4_IMAGE_FETCH_LANE,
     assertOwnImageFetchGroup,
-    v4HostLimits,
 } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/lane'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/origin-request-scheduler'
 import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/pool-window-batch-handler'
@@ -124,16 +123,12 @@ export function buildFrontierPublisher(
     })
 }
 
-/** The lane's per registrable domain limits: the configured share of the configured limits. */
 export function imageFetchHostLimits(config: AiResearchV4ServerConfig): HostLimits {
-    return v4HostLimits(
-        {
-            requestsPerSecond: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
-            burst: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
-            maxConcurrent: config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
-        },
-        config.AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE
-    )
+    return {
+        requestsPerSecond: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
+        burst: config.AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
+        maxConcurrent: config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+    }
 }
 
 export function buildFetchRunner(

@@ -475,7 +475,7 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 - A remote image URL becomes `imageurl:v4:{team_id}:{YYYY-MM}:{hash}` in the block and in its fetch job, where the month is the UTC month of the write. The block and the job always carry the same reference, so a reader opens the fetched image directly.
 - A URL that the URL policy refuses becomes `imageurl:v4:declined:{reason}` in the block, for example `declined:credential`, `declined:non_public_host` or `declined:tracking_beacon`. The original URL cannot be recovered. The recorder counts rewrites and refusals in `ai_research_v4_recorder_image_url_rewrites_total`.
 - Each `src` URL of an `@font-face` rule becomes a font reference in the same way, as [Web fonts](#web-fonts) describes. `ai_research_v4_recorder_image_url_rewrites_total` counts both, by `kind`: `image`, `font` or `bundled_font`.
-- The `v4_image_refs` module of the `posthog-replay-anonymizer` crate defines each reference and marker shape, for images and for fonts. The recorder writes them with it. A reader that must tell them apart from page text uses its `parse` function, which accepts only the exact strings the recorder writes.
+- The `v4_image_refs` module of the `replay-core-v4` crate defines each reference and marker shape, for images and for fonts. The recorder writes them with it. A reader that must tell them apart from page text uses its `parse` function, which accepts only the exact strings the recorder writes.
 - The rewrite covers every remote URL that the recorder reads from an image slot: image sources, `srcset`, SVG image links, video posters, `<picture>` sources and CSS `url(...)` in style attributes, style sheets and style rules, in custom properties too, because a page passes a custom property to an image property through `var()`. It also covers `src`, `srcset`, `href` and `poster` in an attribute change on a node the recorder does not know, for example after a restart. `srcset` keeps its descriptors and CSS keeps its `url(...)` syntax. A URL is also replaced where a selector holds it with CSSOM's escapes, by the reference with the same escapes, so a class such as `bg-[url(https://cdn.example.com/a.png)]` and its rule `.bg-\[url\(https\:\/\/cdn\.example\.com\/a\.png\)\]` still match within a block. A reader that replaces references by text must replace the escaped form as well. It is not limited by the 512 URLs per message that get fetch jobs.
 - A srcset in an image slot keeps one candidate: the one that Chromium shows at a device pixel ratio of 1, which is the ratio the screenshotter renders at. Of `x` descriptors, that is the smallest density at or above 1x, or the largest density when all are below 1x. A `w` descriptor gives a density only against the layout width, which the recorder does not know, so of `w` descriptors the recorder keeps the v3 choice: the largest at or below 1024w, or the smallest when all are wider. The first candidate wins a tie. Only that candidate gets a fetch job, because the renderer has no network access and shows only fetched images. A srcset that mixes `w` and `x` descriptors, or that v3 would read as malformed, keeps no candidate.
 - The kept candidate stays only when it can show offline: a URL that the URL policy accepts, or an inline image that the image scan keeps. Otherwise the srcset is empty, and no other candidate takes its place, because no other candidate has a fetch job. A candidate that leaves becomes no `declined` marker.
@@ -736,7 +736,7 @@ Some limits apply:
 The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block.
 It collects URLs from image sources, the kept candidate of each `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does. Unlike v3, it also collects CSS custom properties and relative CSS URLs, and fetches one `image-set()` candidate of a stored type.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
-The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
+The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups and its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings. It shares no code or table with v3.
 It applies the recorder's URL policy through `@posthog/ai-research-v4-native`, an addon over `replay_core_v4::url_policy`, so it canonicalizes a URL, groups it by registrable domain and refuses private hosts exactly as the recorder does.
 It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane. It parses the image URL reference, seals the frame and computes the response URL HMAC with `replay_core_v4::fetched_image` through the same addon.
 It stores PNG, JPEG, GIF, WebP and SVG as fetched. It does not rasterize an SVG; redaction downstream of the dataset handles SVG text.
@@ -766,6 +766,29 @@ Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_
 - `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
 
 `replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.
+
+#### Limits per domain and frontier backlog
+
+The fetcher sends at most `AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN` requests at once to one registrable domain.
+The default is 7. An explicit robots.txt crawl delay and the back-off after a failure can lower the rate for a domain. `Retry-After` can also lower it.
+
+The topic key sends each registrable domain to one partition and one pod, so more pods do not drain one domain faster.
+A pass ends after `AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS`. A URL that the pass does not reach goes back to the frontier as `pass_deadline`. A URL whose domain is in back-off goes to a delay topic as `not_ready`.
+A URL finishes as `url_too_old` when it reaches `AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS`.
+
+When one frontier partition holds most of the lag, find the cause before you change capacity:
+
+1. Read `ai_research_v4_image_fetch_partition_urls_total` for the partition. A high `store_deduped` rate means that the recorder sends jobs that the fetcher drops. Check that the recorder has `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` and read `ai_research_v4_recorder_image_fetch_history_total`.
+2. Read the TopHog metrics by `registrable_domain`, which the staff query path in `/querying-tophog` shows:
+   - `ai_research_v4_image_fetch_filtered_urls_by_registrable_domain` with `stage=received` shows the demand. `pass=first` counts what the recorder sent, and `pass=republished` counts what the fetcher sent back to itself. The other stages count unique URLs after duplicates in a batch merge, so they do not separate the two passes.
+   - `ai_research_v4_image_fetch_attempts_by_registrable_domain` shows each outcome.
+   - `ai_research_v4_image_fetch_block_events_by_registrable_domain` and `ai_research_v4_image_fetch_blocked_ms_by_registrable_domain` show which limit holds the domain.
+3. Act on the limit that holds the domain:
+   - For `transient_backoff`, `retry_after` or `breaker_open`, the site fails or asks for less traffic. Do not raise the limit. The URLs wait, and those that stay blocked finish as `url_too_old`.
+   - For `pass_deadline` with `domain_concurrency`, the domain has more URLs than its limit can serve in a pass. Raise the limit per domain only for a host that can take the traffic.
+   - For `configuration_unreachable`, the fetcher cannot read robots.txt or tdmrep for the origin. It waits for one hour and tries again.
+
+`IngestionSessionReplayMlConsumerNotDraining` and `IngestionSessionReplayMlConsumerStalled` read the lag of the whole topic. The `AiResearchV4ImageFetch*` alerts in the charts repository cover late completions, rejected input and long batches. The v4 image fetch dashboard in Grafana shows the same signals.
 
 ### Web fonts
 
