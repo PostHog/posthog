@@ -6495,6 +6495,9 @@ def _resolve_cloud_pr_authorship_mode(
             )
         return None, None
 
+    if task.github_access_limit == GithubAccess.NONE:
+        return PrAuthorshipMode.BOT, None
+
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
 
