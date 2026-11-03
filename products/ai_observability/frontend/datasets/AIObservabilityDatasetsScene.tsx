@@ -88,6 +88,7 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
         {
             title: 'Status',
             key: 'status',
+            width: 112,
             render: function renderStatus(_, dataset) {
                 return (
                     <div className="flex flex-wrap items-center gap-1">

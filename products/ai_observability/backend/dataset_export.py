@@ -76,6 +76,16 @@ def _iter_versions_in_batches(
         last_item_id = last_version.dataset_item_id
 
 
+def _read_export_revision(dataset: Dataset, revision: int) -> DatasetRevision:
+    try:
+        selected_revision = DatasetUsage.read_revision(dataset, revision)
+    except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+        raise DatasetExportError("The selected dataset revision is no longer available.") from error
+    if selected_revision is None:
+        raise DatasetExportError("The selected dataset revision is no longer available.")
+    return selected_revision
+
+
 def export_dataset_jsonl(asset: ExportedAsset) -> None:
     context = asset.export_context or {}
     try:
@@ -104,12 +114,7 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
         raise RetryableExportError("Couldn't verify whether dataset exports are available. Try again.")
     if not feature_flag_value:
         raise DatasetExportError("Dataset exports are not available for this project.")
-    try:
-        selected_revision = DatasetUsage.read_revision(dataset, revision)
-    except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
-        raise DatasetExportError("The selected dataset revision is no longer available.") from error
-    if selected_revision is None:
-        raise DatasetExportError("The selected dataset revision is no longer available.")
+    selected_revision = _read_export_revision(dataset, revision)
 
     versions = (
         dataset_item_versions_at_revision(
