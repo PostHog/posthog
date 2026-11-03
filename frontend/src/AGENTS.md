@@ -2,6 +2,8 @@
 
 Applies to any change under `frontend/src`. This is a **discovery + cadence** guide: the rules below exist because agents tend to generate before they look. The root `AGENTS.md` and the quill package guides remain authoritative, except that [`design.md`](./design.md) wins over a quill package guide for UI behind `today-rail-nav` — this file does not repeat them, it points at them.
 
+Before you build or edit any UI, or when a task asks to simplify or redesign one, read [`platform-ux.md`](./platform-ux.md). It decides what a surface shows and when (progressive disclosure first), on LemonUI and quill alike. Only the platform UX team changes the nav rail.
+
 ## Rule 1 — Reuse before you create
 
 **Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output. Reuse is also how the product stays on-brand: Lemon/quill components carry PostHog's tokens, density, and interaction patterns, so a scene built from them looks like PostHog without anyone having to think about it.
@@ -115,6 +117,23 @@ Scope it to the changing part and keep the static labels around it translatable.
 Nearly all of these render numbers, dates, or durations, so nothing of value goes untranslated.
 `queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
 A whole subtree of machine data (an event feed, an ID column) opts out at its container instead — `scenes/activity/live/LiveEventsFeed` marks every row `translate="no"` and leaves the headers translatable.
+
+## Rule 8 — A file statically imports only its own layer or a lower one
+
+The layers, lowest first, are `kernel`, `shell`, `query`, `features`.
+`kernel` holds shared primitives, for example `lib/utils`, `lib/lemon-ui`, `lib/api`, `queries/schema/`, and generated types.
+`shell` holds the rest of `lib/`, `layout/`, `models/`, and the top-level files of `frontend/src/` and `scenes/`.
+`query` holds the rest of `queries/`.
+`features` holds every scene folder and product.
+[`frontend/bin/layers.mjs`](../bin/layers.mjs) is the source of truth for the mapping. Read it when you are not sure of the layer of a path.
+`hogli lint:frontend-layers` fails on a new upward import. Fix it in one of these ways:
+
+1. Move the imported code down to the layer of the importer, or lower.
+2. Load it with a dynamic import: `lazyWithRetry()` or `retryImport(() => import(...))`.
+3. Register it in a registry that the higher layer fills.
+
+After you remove an upward import, run `hogli lint:frontend-layers --prune-baseline`.
+Never run `--update-baseline` to hide a new upward import.
 
 ## Typecheck & typegen cadence (don't over-run these)
 

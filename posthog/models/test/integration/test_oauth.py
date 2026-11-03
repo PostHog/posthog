@@ -39,6 +39,8 @@ from posthog.models.integration import (
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
+from posthog.models.integration.oauth import posthog_slack_scope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -58,6 +60,26 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
+@pytest.mark.parametrize(
+    "debug, cloud_deployment, requests_in_review",
+    [
+        (False, "US", False),
+        (False, "EU", False),
+        (False, None, False),
+        (False, "DEV", True),
+        (True, None, True),
+    ],
+)
+def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
+    debug: bool, cloud_deployment: str | None, requests_in_review: bool
+) -> None:
+    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
+        requested = set(posthog_slack_scope().split(","))
+
+    assert {scope.value for scope in SlackIntegrationScope} <= requested
+    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+
+
 class TestOauthIntegrationModel(BaseTest):
     mock_settings = {
         "SALESFORCE_CONSUMER_KEY": "salesforce-client-id",
@@ -68,6 +90,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
         "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID": "google-search-console-client-id",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET": "google-search-console-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
@@ -76,6 +100,10 @@ class TestOauthIntegrationModel(BaseTest):
         "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
         "HELPSCOUT_APP_CLIENT_ID": "helpscout-client-id",
         "HELPSCOUT_APP_CLIENT_SECRET": "helpscout-client-secret",
+        "STRIPE_APP_CLIENT_ID": "stripe-client-id",
+        "STRIPE_APP_SECRET_KEY": "stripe-secret-key",
+        "INSTAGRAM_APP_CLIENT_ID": "instagram-client-id",
+        "INSTAGRAM_APP_CLIENT_SECRET": "instagram-client-secret",
     }
 
     def create_integration(
@@ -107,6 +135,13 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_google_search_console_authorize_url_offers_the_account_chooser(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-search-console", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert params["access_type"] == "offline"
+            assert set(params["prompt"].split(" ")) == {"consent", "select_account"}
 
     def test_authorize_url_carries_initiating_team_id_in_state(self):
         with self.settings(**self.mock_settings):
@@ -260,6 +295,7 @@ class TestOauthIntegrationModel(BaseTest):
         [
             (
                 "json_error_body",
+                "salesforce",
                 400,
                 {
                     "error": "invalid_grant",
@@ -272,15 +308,61 @@ class TestOauthIntegrationModel(BaseTest):
             ),
             (
                 "json_error_body_other_code",
+                "salesforce",
                 400,
-                {"error": "invalid_client", "error_description": "Client authentication failed."},
+                {"error": "invalid_request", "error_description": "Missing redirect_uri."},
                 None,
-                '{"error":"invalid_client","error_description":"Client authentication failed."}',
-                ["invalid_client", "Client authentication failed"],
+                '{"error":"invalid_request","error_description":"Missing redirect_uri."}',
+                ["invalid_request", "Missing redirect_uri"],
                 [],
             ),
             (
+                "client_credentials_rejected",
+                "salesforce",
+                401,
+                {"error": "invalid_client", "error_description": "Client authentication failed."},
+                None,
+                '{"error":"invalid_client","error_description":"Client authentication failed."}',
+                ["Contact support"],
+                ["invalid_client", "Start the connection again"],
+            ),
+            (
+                "meta_client_secret_rejected",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating client secret.",
+                        "type": "OAuthException",
+                        "code": 1,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Error validating client secret.","type":"OAuthException","code":1,"fbtrace_id":"fake-trace-id"}}',
+                ["Contact support"],
+                ["OAuthException", "fake-trace-id"],
+            ),
+            (
+                "meta_nested_error_object",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Invalid verification code format.",
+                        "type": "OAuthException",
+                        "code": 100,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Invalid verification code format.","type":"OAuthException","code":100,"fbtrace_id":"fake-trace-id"}}',
+                ["Invalid verification code format"],
+                ["OAuthException", "fake-trace-id", "Contact support"],
+            ),
+            (
                 "non_json_error_body",
+                "salesforce",
                 502,
                 None,
                 ValueError("not json"),
@@ -288,12 +370,36 @@ class TestOauthIntegrationModel(BaseTest):
                 ["salesforce"],
                 [],
             ),
+            (
+                "stripe_expired_code",
+                "stripe",
+                400,
+                {"error": "invalid_grant", "error_description": "Authorization code expired: ac_fake_code"},
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code expired: ac_fake_code"}',
+                ["Start the connection again"],
+                ["ac_fake_code", "Restricted API key"],
+            ),
+            (
+                "stripe_test_mode_code_with_live_key",
+                "stripe",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Passed in livemode API key but authorization code only supports returning test keys",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Passed in livemode API key but authorization code only supports returning test keys"}',
+                ["test mode", "Restricted API key"],
+                ["Start the connection again", "livemode API key"],
+            ),
         ]
     )
     @patch("posthog.models.integration.oauth.requests.post")
     def test_oauth_token_exchange_failure_raises_validation_error(
         self,
         _name,
+        kind,
         status_code,
         json_return,
         json_side_effect,
@@ -316,7 +422,7 @@ class TestOauthIntegrationModel(BaseTest):
 
             with pytest.raises(ValidationError) as e:
                 OauthIntegration.integration_from_oauth_response(
-                    "salesforce",
+                    kind,
                     self.team.id,
                     self.user,
                     {"code": "code", "state": "next=/projects/test"},

@@ -367,6 +367,10 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "partition_mode": "datetime",
         "partition_format": "week",
         "partition_keys": ["created_time"],
+        # An adset's targeting spec can be large enough that Meta refuses even the smallest page.
+        # Its budget fields can also be refused outright for an adset under Campaign Budget
+        # Optimization, whose budget lives on the campaign instead (error_subcode 1885649).
+        "refusable_fields": ("targeting", "promoted_object", "budget_remaining", "daily_budget", "lifetime_budget"),
     },
     MetaAdsResource.AdsetStats: {
         "primary_keys": ["adset_id", "account_id", "date_start"],

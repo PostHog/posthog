@@ -31,8 +31,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     ExternalWebhookInfo,
     SourceSchema,
     WebhookSource,
+    known_source_key,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from . import base
 
@@ -331,7 +331,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -441,7 +441,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -537,7 +537,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):
@@ -626,7 +626,7 @@ class ExternalDataSourceWebhookSetupMixin(base.ExternalDataSourceViewSetBase):
     def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        source_type = ExternalDataSourceType(instance.source_type)
+        source_type = known_source_key(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
 
         if not isinstance(source, WebhookSource):

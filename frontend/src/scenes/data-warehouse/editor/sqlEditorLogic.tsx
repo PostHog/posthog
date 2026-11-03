@@ -50,7 +50,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
     databaseTableListLogic,
@@ -92,7 +91,6 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryIncremental,
-    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     InsightModel,
 } from '~/types'
@@ -420,6 +418,11 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+// Raw Trino views run only on hosted Trino, so they have no lineage node and cannot be materialized.
+export function isRawTrinoView(view: DataWarehouseSavedQuery): boolean {
+    return view.query?.executionTarget === 'managed_trino' && !!view.query?.sendRawQuery
+}
+
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
     return {
         kind: NodeKind.DataVisualizationNode,
@@ -597,6 +600,35 @@ export function activeTabMatchesUrlTarget(
 // this `path` and createTab creates the model at it — they must agree, so both derive it here.
 export function tabModelPath(tabId: string): string {
     return `tab-${tabId}`
+}
+
+/** The update has landed when this runs, so a refused placement shows a toast instead of throwing, and the caller still syncs its state. */
+async function placeSavedInsightOnDashboard(
+    savedInsight: InsightModel,
+    dashboardId: number | null
+): Promise<{ insight: InsightModel; placed: boolean }> {
+    if (!dashboardId) {
+        return { insight: savedInsight, placed: false }
+    }
+    try {
+        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
+        return {
+            insight: {
+                ...savedInsight,
+                dashboard_tiles: [
+                    ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                    tile,
+                ],
+            },
+            placed: true,
+        }
+    } catch (e) {
+        const detail = e instanceof ApiError ? e.detail : null
+        lemonToast.error(
+            `Insight saved, but it couldn't be added to the dashboard. ${detail ?? 'Add it from the insight page instead.'}`
+        )
+        return { insight: savedInsight, placed: false }
+    }
 }
 
 // Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
@@ -2526,18 +2558,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     current: candidates.queries[candidates.initialIndex],
                 }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
-
-                // Checked once as the dialog opens rather than on every keystroke: it only depends
-                // on the SQL being saved, which cannot change while the dialog is up. A failure
-                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
-                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
-                try {
-                    incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
-                        query: selectedRef.current ?? values.queryInput ?? '',
-                    })
-                } catch {
-                    incrementalCheck = null
-                }
+                const isRawTrinoSave =
+                    values.sourceQuery.source.executionTarget === 'managed_trino' &&
+                    !!values.sourceQuery.source.sendRawQuery
 
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
@@ -2580,9 +2603,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: values.activeTab?.name || '',
                         folderId: null,
                         isTest: false,
-                        materializeAfterSave,
+                        materializeAfterSave: isRawTrinoSave ? false : materializeAfterSave,
                         incrementalEnabled: false,
-                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalKey: null,
                         incrementalUniqueKey: [],
                         incrementalLookbackSeconds: 0,
                     },
@@ -2668,13 +2691,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                     checked={value}
                                                     onChange={onChange}
                                                     data-attr="sql-editor-input-save-view-materialize"
+                                                    disabledReason={
+                                                        isRawTrinoSave
+                                                            ? 'Views that run raw Trino SQL cannot be materialized yet.'
+                                                            : undefined
+                                                    }
                                                     label="Materialize this view"
                                                 />
                                                 <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
                                                     <span className="text-muted cursor-pointer">&#9432;</span>
                                                 </Tooltip>
                                             </div>
-                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
+                                            <IncrementalConfigFields queries={candidates.queries} />
                                         </>
                                     )}
                                 </LemonField>
@@ -2931,12 +2959,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 const dashboardId = values.dashboardId
-                const insight = await insightsApi.create({
-                    name,
-                    query: sourceQueryToSave,
-                    saved: true,
-                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
-                })
+                const insight = await insightsApi.create(
+                    { name, query: sourceQueryToSave, saved: true },
+                    dashboardId ? [dashboardId] : []
+                )
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'create', dashboardId !== null)
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -3185,13 +3211,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: currentVisualizationQuery,
                 }
 
-                // When saving from a dashboard flow, attach the tile server-side without
-                // dropping the insight's existing dashboard links.
                 const dashboardId = values.dashboardId
-                if (dashboardId) {
-                    const existingDashboardIds = liveDashboardIds(values.editingInsight.dashboard_tiles)
-                    insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
-                }
 
                 let savedInsight: InsightModel
                 try {
@@ -3205,6 +3225,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                     throw e
                 }
+                const placement = await placeSavedInsightOnDashboard(savedInsight, dashboardId)
+                savedInsight = placement.insight
                 actions.setInsightLoading(false)
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
 
@@ -3227,7 +3249,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                if (dashboardId) {
+                if (dashboardId && placement.placed) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,
@@ -3587,7 +3609,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         editingView: (editingView) => {
-            if (editingView) {
+            if (editingView && !isRawTrinoView(editingView)) {
                 actions.loadUpstream(editingView.id)
             }
         },

@@ -63,6 +63,26 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.recordingDeletedBy).toBe(null)
         })
 
+        it('marks the recording deleted when the sources listing returns 410, and a later block load keeps it so', async () => {
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [
+                        410,
+                        { error: 'recording_deleted', deleted_at: 1700000000, deleted_by: 'admin@example.com' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesFailure'])
+                .toMatchValues({ isRecordingDeleted: true, recordingDeletedBy: 'admin@example.com' })
+
+            logic.actions.loadSnapshotsForSourceSuccess({ sources: [BLOB_SOURCE] })
+            expect(logic.values.isRecordingDeleted).toBe(true)
+        })
+
         it('recordingDeletedAt is null when deleted_at is not provided', () => {
             const error = new RecordingDeletedError(null, null)
             logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
@@ -82,6 +102,16 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
                 logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+
+        it('gives up on the first 429, because retrying within seconds cannot outlast the per-user quota', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Too many requests', new ApiError('Throttled', 429))
+            })
+                .toDispatchActions(['snapshotSourceLoadExhausted'])
+                .toMatchValues({ snapshotLoadErrorKind: 'snapshotRateLimited' })
             consoleError.mockRestore()
         })
 

@@ -63,6 +63,8 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
 # before the range, so the trace does not show as having no root.
 ROOT_SPAN_LOOKBACK = dt.timedelta(minutes=15)
 
+TRACE_DURATION_NANO_SQL = "dateDiff('microsecond', min(timestamp), max(end_time)) * 1000"
+
 # Hard cap on number of rows returned per period by the span aggregation runners. Keeps
 # payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
 # graph collapses long tails anyway so the lower-ranked rows aren't visible.
@@ -300,6 +302,28 @@ def parse_span_events(raw_events: list[str]) -> list[dict]:
     return [event for _, event in parsed]
 
 
+_EXISTENCE_OPERATORS = frozenset({PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET})
+
+
+def with_attribute_set_guards(filters: list[SpanPropertyFilter]) -> list[SpanPropertyFilter]:
+    """Return the attribute filters plus an is_set filter for each key that they compare.
+
+    An attribute Map reads a missing key as its default value ('' or 0). Without the guard, a negated
+    filter such as `not_icontains` matches every span that does not have the attribute. The trace list
+    then selects a whole trace through one such span, so the trace shows even when its root span has a
+    value that the filter excludes. The guard uses the same suffixed key as the filter, so it checks
+    the Map that the comparison reads.
+    """
+    guards: dict[str, SpanPropertyFilter] = {}
+    for prop in filters:
+        # property_to_expr reads a filter without a value as "match all", so a guard would be its only effect.
+        if prop.value is None or prop.value == []:
+            continue
+        if prop.operator not in _EXISTENCE_OPERATORS and prop.key not in guards:
+            guards[prop.key] = SpanPropertyFilter(key=prop.key, type=prop.type, operator=PropertyOperator.IS_SET)
+    return [*filters, *guards.values()]
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -384,10 +408,10 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
-            exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
+            exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
 
         if self.resource_attribute_filters:
-            for f in self.resource_attribute_filters:
+            for f in with_attribute_set_guards(self.resource_attribute_filters):
                 exprs.append(property_to_expr(f, team=self.team))
 
         if self.query.traceId:
@@ -646,9 +670,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # per-trace value — `LIMIT 1 BY trace_id` can't paginate cleanly because a multi-span trace
         # straddling the boundary would be re-selected via its other spans. Time sorts order by each
         # trace's start time (`min(timestamp)`) and keyset on it; duration sorts order by trace
-        # duration (`max(duration_nano)`) and offset-paginate (the time index can't prune a duration
-        # order, so keyset would pay its cost for none of its benefit).
-        sort_key_sql = "max(duration_nano)" if by_duration else "min(timestamp)"
+        # duration (first span start to last span end) and offset-paginate (the time index can't prune
+        # a duration order, so keyset would pay its cost for none of its benefit).
+        sort_key_sql = TRACE_DURATION_NANO_SQL if by_duration else "min(timestamp)"
 
         # rootSpans is gated on `is True` (not truthiness), so None leaves the prefetch-driven
         # waterfall untouched. The list endpoint defaults it to True, and the span list sends False
@@ -735,7 +759,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
         # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
         # diverge from the set the subquery picked — e.g. under root_only the subquery orders traces
-        # by `max(duration_nano)` over root spans, so a window over *all* spans would rank a trace by
+        # by the duration of their root spans, so a window over *all* spans would rank a trace by
         # a long child the subquery never considered, corrupting the order and offset page boundaries.
         # Scope the key windows to match the subquery (cursor/time bounds are deliberately excluded —
         # the key is a property of the whole trace, not of the current page).
@@ -795,7 +819,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
                 {resource_attributes},
-                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration,
+                dateDiff(
+                    'microsecond',
+                    min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id),
+                    max(if({where_for_start}, end_time, NULL)) OVER (PARTITION BY trace_id)
+                ) * 1000 as trace_duration,
                 {events}
             FROM posthog.trace_spans
             WHERE {filters} AND {trace_filter} LIMIT {limit}
@@ -1397,6 +1425,8 @@ def run_aggregation_query(
     limit: int | None = None,
     offset: int = 0,
     include_impact: bool = False,
+    group_by_endpoint: bool = False,
+    include_health: bool = False,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
@@ -1412,6 +1442,8 @@ def run_aggregation_query(
         filterGroup=filter_group,
         serviceNames=service_names,
         includeImpact=include_impact,
+        groupByEndpoint=group_by_endpoint,
+        includeHealth=include_health,
     )
     runner = TraceSpansAggregationQueryRunner(
         query,

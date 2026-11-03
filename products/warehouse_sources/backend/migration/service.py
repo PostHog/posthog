@@ -49,14 +49,16 @@ def create_migration(*, team_id: int, user_id: int, provider: str, api_key: str,
 
 
 def refresh_migration(*, team_id: int, migration_id: UUID) -> WarehouseMigration | None:
-    migration = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).first()
+    migrations = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id)
+    # Conditional, so two refreshes cannot both start a crawl and the second terminate the first.
+    claimed = migrations.exclude(
+        status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING)
+    ).update(status=WarehouseMigration.Status.PENDING, latest_error="", updated_at=timezone.now())
+    migration = migrations.first()
     if migration is None:
         return None
-    if migration.status in (WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING):
+    if not claimed:
         raise WarehouseMigrationBusyError()
-    migration.status = WarehouseMigration.Status.PENDING
-    migration.latest_error = ""
-    migration.save(update_fields=["status", "latest_error", "updated_at"])
     _start_crawl(migration)
     return migration
 
