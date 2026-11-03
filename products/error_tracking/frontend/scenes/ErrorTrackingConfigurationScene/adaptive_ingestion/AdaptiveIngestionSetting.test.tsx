@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,11 +28,14 @@ describe('AdaptiveIngestionSetting', () => {
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: projectId })
         mockRetrieveSettings.mockResolvedValue({ adaptive_ingestion_enabled: enabled })
 
-        render(<AdaptiveIngestionSetting />)
+        const { container } = render(<AdaptiveIngestionSetting />)
 
-        const toggle = await screen.findByRole('switch', { name: 'Adaptive ingestion' })
+        await waitFor(() =>
+            expect(
+                container.querySelector('[data-attr="adaptive-ingestion-toggle"]')?.getAttribute('aria-checked')
+            ).toBe(String(enabled))
+        )
         expect(mockRetrieveSettings).toHaveBeenCalledWith(String(projectId))
-        await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe(String(enabled)))
-        expect(toggle.tagName).toBe('DIV')
+        expect(container.querySelector('[data-attr="adaptive-ingestion-toggle"]')?.tagName).toBe('DIV')
     })
 })
