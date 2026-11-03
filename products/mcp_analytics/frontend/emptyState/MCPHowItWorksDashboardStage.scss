@@ -38,7 +38,8 @@
         letter-spacing: -0.02em;
     }
 
-    &__spark {
+    // Nested under the root so it outranks the root's `svg { flex: none }` for icons, which would size the chart by its aspect ratio.
+    & &__spark {
         flex: 1;
         width: 100%;
         min-height: 0;
