@@ -21,6 +21,7 @@ dependencies = [
     "celery==5.6.3",
     "celery-redbeat==2.3.3",
     "certifi==2026.10.19",
+    "clickhouse-cityhash==1.0.2.6",
     "clickhouse-connect==0.10.0",
     "clickhouse-driver==0.2.10",
     "clickhouse-pool==0.5.3",
