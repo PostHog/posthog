@@ -129,11 +129,8 @@ export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHog
 }
 
 export const resolveEmailCaptureChoice = (
-    invocation: Pick<CyclotronJobInvocationHogFunction, 'hogFunction'>
-): boolean | undefined => {
-    const choice = invocation.hogFunction?.metadata?.capture_engagement
-    return typeof choice === 'boolean' ? choice : undefined
-}
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state'>
+): boolean | undefined => invocation.state?.send?.tracking.captureEngagement
 
 export const resolveEmailTrackingDistinctId = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>

@@ -1,6 +1,8 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+
 export const AcceptedSendSchema = z
     .object({
         content: z
@@ -29,6 +31,19 @@ export const AcceptedSendSchema = z
     .readonly()
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
+
+export const acceptedSendEmailFields = (
+    send: AcceptedSend | undefined
+): Partial<CyclotronInvocationQueueParametersEmailType> => ({
+    ...(send?.content && {
+        subject: send.content.subject,
+        html: send.content.html ?? '',
+        text: send.content.text ?? '',
+        preheader: '',
+    }),
+    ...(send?.from && { from: { ...send.from } }),
+    ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
+})
 
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({

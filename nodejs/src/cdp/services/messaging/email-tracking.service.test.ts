@@ -215,7 +215,10 @@ describe('EmailTrackingService', () => {
                     '<body><a href="https://example.com">x</a></body>',
                     {
                         ...invocationWithDistinctId,
-                        hogFunction: { metadata: { capture_engagement: captureEngagement } },
+                        state: {
+                            ...invocationWithDistinctId.state,
+                            send: captureEngagement === undefined ? undefined : { tracking: { captureEngagement } },
+                        },
                     },
                     signer
                 )
@@ -713,9 +716,11 @@ describe('EmailTrackingService', () => {
                     const invocation = createExampleInvocation({
                         id: hogFlow.id,
                         team_id: team.id,
-                        metadata: { capture_engagement: captureEngagement },
                     })
                     invocation.state.globals.event.distinct_id = 'user-1'
+                    if (captureEngagement !== undefined) {
+                        invocation.state.send = { tracking: { captureEngagement } }
+                    }
                     invocation.queueParameters = {
                         type: 'email',
                         to: { email: 'user@example.com', name: 'User' },
