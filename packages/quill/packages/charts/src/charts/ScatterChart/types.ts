@@ -59,6 +59,8 @@ export interface ScatterChartConfig<Meta = unknown> {
     xAxis?: ScatterAxisConfig
     yAxis?: ScatterAxisConfig
     pointRadius?: number
+    /** Draws a selection halo without changing point geometry or hit targets. */
+    isPointHighlighted?: (point: ScatterPoint<Meta>) => boolean
     /** Under 1 so a dense cloud reads as denser rather than painting over itself. Markers keep an
      *  opaque outline either way. */
     fillOpacity?: number
@@ -71,7 +73,7 @@ export interface ScatterChartConfig<Meta = unknown> {
     showBestFit?: boolean
     legend?: ChartLegendConfig
     tooltip?: ScatterTooltipConfig<Meta>
-    /** Applied over the computed margins. Should be referentially stable (a module-level constant). */
+    /** Applied over the computed margins. */
     margins?: Partial<ChartMargins>
 }
 

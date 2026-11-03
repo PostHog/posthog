@@ -28,6 +28,12 @@ jobs:
         if: >-
             github.repository == 'PostHog/posthog' &&
             (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        # One Renovate process for every manager keeps its event loop so busy that large
+        # npm downloads overrun the 60s request timeout, and that error aborts the whole lookup.
+        strategy:
+            matrix:
+                # Keep in sync with enabledManagers in .github/renovate.json5.
+                manager: [npm, github-actions, cargo, pep621, gomod, custom.regex]
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -42,14 +48,16 @@ jobs:
                   GITHUB_COM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RENOVATE_REPORT_TYPE: file
                   RENOVATE_REPORT_PATH: ${{ runner.temp }}/renovate-report.json
+                  RENOVATE_FORCE: '{"enabledManagers": ["${{ matrix.manager }}"]}'
                   LOG_LEVEL: warn
                   npm_config_ignore_scripts: 'true'
               run: npx --yes renovate@44.139.0 --platform=local --dry-run=lookup
 
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: renovate-report
+                  name: renovate-report-${{ matrix.manager }}
                   path: ${{ runner.temp }}/renovate-report.json
+                  if-no-files-found: error
                   retention-days: 7
 
     post:
@@ -72,12 +80,12 @@ jobs:
 
             - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: renovate-report
-                  path: ${{ runner.temp }}
+                  pattern: renovate-report-*
+                  path: ${{ runner.temp }}/renovate-reports
 
             - name: Post the digest
               env:
-                  RENOVATE_REPORT_PATH: ${{ runner.temp }}/renovate-report.json
+                  RENOVATE_REPORTS_DIR: ${{ runner.temp }}/renovate-reports
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   SLACK_CHANNEL: ${{ inputs.channel }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

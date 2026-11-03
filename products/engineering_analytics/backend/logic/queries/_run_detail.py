@@ -13,7 +13,8 @@ from products.engineering_analytics.backend.facade.contracts import CIEngine, Re
 RUN_DETAIL_COLUMNS = """
         id, workflow_name, head_sha, head_branch, status, conclusion,
         run_started_at, updated_at, duration_seconds, run_attempt, pr_number, commit_pr_number,
-        repo_owner, repo_name, is_merge_queue, ci_engine, native_run_id, native_workflow_run_id
+        repo_owner, repo_name, is_merge_queue, ci_engine, native_run_id, native_workflow_run_id,
+        workflow_id, event
 """
 
 
@@ -37,6 +38,8 @@ def to_run_detail(row: tuple[Any, ...]) -> WorkflowRunDetail:
         ci_engine,
         native_run_id,
         native_workflow_run_id,
+        workflow_id,
+        event,
     ) = row
     return WorkflowRunDetail(
         repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
@@ -58,4 +61,6 @@ def to_run_detail(row: tuple[Any, ...]) -> WorkflowRunDetail:
         ci_engine=CIEngine(ci_engine),
         native_run_id=native_run_id,
         native_workflow_run_id=native_workflow_run_id,
+        workflow_id=int(workflow_id) if workflow_id is not None else None,
+        event=event or None,
     )

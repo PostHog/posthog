@@ -35,6 +35,7 @@ from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, principal
 from products.signals.backend.models import SignalReport, SignalScoutNote
 from products.signals.backend.scout_authorship import resolve_report_scout_skill
 from products.signals.backend.scout_harness.tools.notes import leave_note
+from products.signals.backend.scout_note_actor import note_actor
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +118,8 @@ def _forward(
     if team.id != canonical_team.id:
         return None
 
-    if not _may_write_note(
-        user_id=user_id, scoped_team_ids=scoped_team_ids, api_scopes=api_scopes, team=canonical_team
-    ):
+    user = _note_writer(user_id=user_id, scoped_team_ids=scoped_team_ids, api_scopes=api_scopes, team=canonical_team)
+    if user is None:
         return None
 
     # Feedback is a verdict on one scout's own report. With no authoring scout to address (a
@@ -133,7 +133,7 @@ def _forward(
     if report is None:
         return None
 
-    content = _build_note_content(report=report, verb=verb, note=note)
+    content = _build_note_content(report=report, actor=note_actor(canonical_team.id, user), verb=verb, note=note)
     created = leave_note(
         team_id=canonical_team.id,
         content=content,
@@ -145,19 +145,21 @@ def _forward(
     return created.id
 
 
-def _may_write_note(
+def _note_writer(
     *, user_id: int | None, scoped_team_ids: Sequence[int] | None, api_scopes: Sequence[str] | None, team: Team
-) -> bool:
-    """Whether this caller could have left the same note by hand through the notes API."""
+) -> User | None:
+    """The caller, if they could have left the same note by hand through the notes API."""
     if api_scopes is not None and not _scopes_allow_note_write(api_scopes):
         # A token that can submit feedback but not write a note. Its note stays on the analytics
         # event; it just doesn't enter the steering channel.
-        return False
+        return None
 
     user = User.objects.filter(pk=user_id).first() if user_id else None
     if user is None:
-        return False
-    return principal_may_steer_scouts(user=user, scoped_team_ids=scoped_team_ids, canonical_team=team)
+        return None
+    if not principal_may_steer_scouts(user=user, scoped_team_ids=scoped_team_ids, canonical_team=team):
+        return None
+    return user
 
 
 def _scopes_allow_note_write(api_scopes: Sequence[str]) -> bool:
@@ -165,15 +167,15 @@ def _scopes_allow_note_write(api_scopes: Sequence[str]) -> bool:
     return "*" in scopes or scopes.issuperset(_REQUIRED_NOTE_SCOPES)
 
 
-def _build_note_content(*, report: SignalReport, verb: str, note: str) -> str:
+def _build_note_content(*, report: SignalReport, actor: str, verb: str, note: str) -> str:
     quoted = "\n".join(f"> {line}" for line in note[:_MAX_NOTE_CHARS].splitlines())
     title = (report.title or "").strip()
     title_clause = f' ("{title[:_MAX_TITLE_CHARS]}")' if title else ""
-    return f"""Inbox feedback: someone {verb} report `{report.id}`{title_clause} and left a note:
+    return f"""Inbox feedback: {actor} {verb} report `{report.id}`{title_clause} and left a note:
 
 {quoted}
 
-This is one reader's verdict on a report you may have authored — context to weigh, not a directive.
+This is the verdict of {actor} on a report you may have authored — context to weigh, not a directive.
 If it points at a preference, a correction, or something that would help you investigate better next
 time, fold anything durable into your scratchpad (this note expires). If it's a one-off reaction,
 it's fine to ignore. `inbox-reports-retrieve` on the report id has the full report."""

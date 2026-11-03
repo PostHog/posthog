@@ -1,13 +1,18 @@
+import datetime as dt
+
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from django.test.utils import override_settings
 
 from posthog.credentials import AWSKeyPair
+from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     _get_s3_credentials,
     _get_s3_endpoint_url,
+    _write_batch_export_record_batches_to_internal_stage,
     get_base_s3_staging_folder,
     get_s3_staging_folder,
 )
@@ -18,6 +23,51 @@ OBJECT_STORAGE_REGION = "us-east-2"
 OBJECT_STORAGE_ACCESS_KEY_ID = "object-storage-key"
 OBJECT_STORAGE_SECRET_ACCESS_KEY = "object-storage-secret"
 EXPECTED_STAGE_FOLDER = "batch-exports/batch-export/2026-01-01-2026-01-02/attempt_1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "team_ids,compression,expected_settings",
+    [
+        ([], "zstd", {}),
+        (["2"], "zstd", {}),
+        (["2", "1"], "zstd", {"output_format_arrow_compression_method": "zstd"}),
+        (["1"], "lz4_frame", {"output_format_arrow_compression_method": "lz4_frame"}),
+        (["1"], "none", {"output_format_arrow_compression_method": "none"}),
+    ],
+)
+async def test_staging_arrow_compression_is_scoped_to_allowed_teams(
+    team_ids: list[str], compression: str, expected_settings: dict[str, str]
+) -> None:
+    interval_end = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    interval_start = interval_end - dt.timedelta(hours=1)
+    client = AsyncMock(spec=ClickHouseClient)
+    client.is_alive.return_value = True
+    client.execute_query_with_summary.return_value = {"written_rows": "1"}
+
+    with (
+        override_settings(
+            BATCH_EXPORT_ARROW_COMPRESSION_METHOD=compression,
+            BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS=team_ids,
+        ),
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as get_client,
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client") as get_s3_client,
+    ):
+        get_client.return_value.__aenter__.return_value = client
+        get_s3_client.return_value.__aenter__.return_value.list_objects_v2.return_value = {}
+        written_rows = await _write_batch_export_record_batches_to_internal_stage(
+            query_or_model="SELECT 1",
+            full_range=(interval_start, interval_end),
+            query_parameters={},
+            team_id=1,
+            batch_export_id="00000000-0000-4000-8000-000000000001",
+            data_interval_start=interval_start.isoformat(),
+            data_interval_end=interval_end.isoformat(),
+            s3_staging_folder_url="s3://bucket/folder",
+        )
+
+    assert written_rows == 1
+    assert client.execute_query_with_summary.call_args.kwargs["settings"] == expected_settings
 
 
 def _get_test_s3_staging_folder_url() -> str:

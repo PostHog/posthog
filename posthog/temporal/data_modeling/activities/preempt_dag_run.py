@@ -1,5 +1,7 @@
 import dataclasses
 
+from django.utils import timezone
+
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -10,7 +12,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 
 LOGGER = get_logger(__name__)
 
@@ -18,11 +20,13 @@ PREEMPTED_ERROR = "Preempted: a new DAG run started before this job completed"
 ABANDONED_ERROR = "Abandoned: the materialization workflow is no longer running"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PreemptDAGRunInputs:
     team_id: int
     dag_id: str
     node_ids: list[str] | None = None
+    # Defaulted so inputs serialized before this field existed still decode.
+    engine: str = DataModelingJobEngine.CLICKHOUSE
 
 
 def _node_id_from_workflow_id(workflow_id: str, dag_id: str) -> str | None:
@@ -30,23 +34,25 @@ def _node_id_from_workflow_id(workflow_id: str, dag_id: str) -> str | None:
     prefix = f"materialize-view-{dag_id}-"
     if not workflow_id.startswith(prefix):
         return None
-    # The remainder is `{node_id}-{timestamp}`. Node ids are UUIDs, so take the first five
+    # The remainder is `{node_id}-{suffix}`. Node ids are UUIDs, so take the first five
     # dash-separated groups rather than assuming a fixed overall length.
     groups = workflow_id[len(prefix) :].split("-")
     return "-".join(groups[:5]) if len(groups) >= 5 else None
 
 
 @database_sync_to_async_pool
-def _get_running_jobs_for_dag(team_id: int, dag_id: str) -> list[DataModelingJob]:
-    """Every RUNNING job belonging to this DAG, whether or not this run owns its node.
+def _get_running_jobs_for_dag(team_id: int, dag_id: str, engine: str) -> list[DataModelingJob]:
+    """Every RUNNING job of one engine in this DAG, whether or not this run owns its node.
 
-    Child workflow IDs follow the pattern `materialize-view-{dag_id}-{node_id}-{timestamp}`,
-    so we can match jobs by their workflow_id prefix.
+    Child workflow IDs follow the pattern `materialize-view-{dag_id}-{node_id}-{suffix}`,
+    so we can match jobs by their workflow_id prefix. The ClickHouse and Trino runs of a DAG
+    materialize the same nodes at the same time, so each run only touches its own engine's jobs.
     """
     return list(
         DataModelingJob.objects.filter(
             team_id=team_id,
             status=DataModelingJobStatus.RUNNING,
+            engine=engine,
             workflow_id__startswith=f"materialize-view-{dag_id}-",
         )
     )
@@ -94,7 +100,8 @@ async def _abandoned_jobs(temporal: Client, candidates: list[DataModelingJob]) -
         if not job.workflow_id:
             continue
         try:
-            description = await temporal.get_workflow_handle(job.workflow_id).describe()
+            # Trino builds reuse one workflow id, so describe this row's run rather than the latest one.
+            description = await temporal.get_workflow_handle(job.workflow_id, run_id=job.workflow_run_id).describe()
         except RPCError as e:
             # NOT_FOUND is the only error that proves absence. Timeouts, unavailability and
             # permission errors say nothing about the workflow, and marking a live job Failed is
@@ -116,6 +123,7 @@ def _mark_jobs_failed(job_ids: list[str], error: str) -> int:
         status=DataModelingJobStatus.FAILED,
         rows_materialized=0,
         error=error,
+        last_run_at=timezone.now(),
     )
 
 
@@ -130,15 +138,20 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     cadence tiers would take down the whole run that still owns its siblings.
     A parent starts each of its nodes once, so there is no child to re-spawn behind us.
 
-    Rows outside that node set are only reaped, and only once Temporal confirms their workflow
-    is no longer running: they are marked, never cancelled, because there is nothing left to
+    A Trino run preempts nothing, because cancelling a Trino build does not stop its write.
+
+    Rows outside that node set (every row, on Trino) are only reaped, and only once Temporal
+    confirms their workflow is no longer running: they are marked, never cancelled, because there is nothing left to
     cancel and cancelling on another tier's behalf is exactly what this activity must not do.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id)
+    running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id, inputs.engine)
     partitioned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
+    if inputs.engine == DataModelingJobEngine.MANAGED_WAREHOUSE:
+        # The Trino client cannot kill a running statement. The fixed Trino child id stops a second build instead.
+        partitioned = PartitionedJobs(owned=[], others=partitioned.owned + partitioned.others)
     if not partitioned.owned and not partitioned.others:
         await logger.adebug("No previous DAG run to preempt")
         return

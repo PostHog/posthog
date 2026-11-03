@@ -9,10 +9,14 @@ import pyarrow as pa
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from snowflake.connector.errors import DatabaseError, HttpError, OperationalError
+from snowflake.connector.errors import DatabaseError, HttpError, OperationalError, ProgrammingError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -23,8 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    _SNOWFLAKE_LOGIN_TIMEOUT_SECONDS,
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
     _SNOWFLAKE_QUERY_TIMEOUT_SECONDS,
+    _SNOWFLAKE_ROW_COUNT_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     SnowflakeResumeState,
     _batch_checkpoint,
@@ -174,7 +180,7 @@ class TestBuildQuery:
     def test_incremental_uses_operator_and_orders(self):
         sql, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, "2025-01-01")
         assert 'WHERE "created_at"' in sql
-        assert 'ORDER BY "created_at" ASC' in sql
+        assert sql.endswith(' ORDER BY "created_at" ASC')
         assert params == ("DB.PUBLIC.t", "2025-01-01")
 
     def test_incremental_seeds_initial_value_when_missing(self):
@@ -421,6 +427,7 @@ class TestConnect:
             mock_connect.return_value.__enter__.return_value = MagicMock()
             with impl.connect(_make_config()):
                 pass
+            assert mock_connect.call_args.kwargs["login_timeout"] == _SNOWFLAKE_LOGIN_TIMEOUT_SECONDS
             network_timeout = mock_connect.call_args.kwargs["network_timeout"]
             # A finite, positive bound is the invariant. `0` reads as infinite to the connector, so
             # guard that explicitly — equality alone can't catch the constant regressing to `0`.
@@ -666,14 +673,35 @@ class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
         cursor.fetchone.return_value = (321,)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 321
-        # The COUNT(*) probe scans the same table, so it carries the same long per-query timeout —
-        # otherwise a large table trips the connector timebomb and the probe spuriously logs a 604.
-        assert cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_QUERY_TIMEOUT_SECONDS
+        # The count runs before the first row on each attempt, so it must not get the long limit
+        # of the read.
+        assert cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_ROW_COUNT_TIMEOUT_SECONDS
 
-    def test_returns_zero_on_exception(self, impl, cursor, logger):
+    @pytest.mark.parametrize(
+        "error, expect_capture",
+        [
+            (RuntimeError("boom"), True),
+            # The connector's error when the count reaches its `timeout`.
+            (
+                ProgrammingError(
+                    msg="SQL execution was cancelled by the client due to a timeout. "
+                    "Error message received from the server: SQL execution canceled",
+                    errno=604,
+                    sqlstate="57014",
+                ),
+                False,
+            ),
+        ],
+        ids=["unexpected_error", "count_past_its_limit"],
+    )
+    def test_returns_zero_on_exception(self, impl, cursor, logger, error, expect_capture):
         # Sync must never bail because the COUNT(*) probe failed
-        cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 0
+        cursor.execute.side_effect = error
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 0
+        assert mock_capture.called is expect_capture
 
 
 # ---------------------------------------------------------------------------
@@ -749,6 +777,13 @@ class TestBuildPipeline:
         assert pk_param == ("DB.analytics.users",)
         stream_param = streaming_cursor.execute.call_args.args[1]
         assert stream_param == ("DB.analytics.users",)
+
+
+_INCREMENTAL_INPUTS: dict[str, Any] = {
+    "should_use_incremental_field": True,
+    "incremental_field": "created_at",
+    "incremental_field_type": IncrementalFieldType.DateTime,
+}
 
 
 class TestResumableStreaming:
@@ -859,6 +894,35 @@ class TestResumableStreaming:
         manager.save_state.assert_not_called()
         assert response.supports_resume is False
 
+    @pytest.mark.parametrize(
+        "primary_key_rows,input_overrides,expected_supports_resume,expected_ascending",
+        [
+            pytest.param([("ID",)], _INCREMENTAL_INPUTS, True, True, id="incremental_with_primary_key"),
+            pytest.param([], _INCREMENTAL_INPUTS, False, True, id="incremental_without_primary_key"),
+            pytest.param([("ID",)], {"verified_primary_keys": ["ID"]}, True, False, id="full_refresh_by_verified_key"),
+            pytest.param([("ID",)], {}, False, False, id="full_refresh_without_order"),
+        ],
+    )
+    def test_claims_ascending_order_only_for_an_incremental_run(
+        self,
+        impl: SnowflakeImplementation,
+        primary_key_rows: list[tuple[str]],
+        input_overrides: dict[str, Any],
+        expected_supports_resume: bool,
+        expected_ascending: bool,
+    ) -> None:
+        metadata_cursor = self._metadata_cursor()
+        metadata_cursor.__iter__.return_value = iter(primary_key_rows)
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        connection = self._connection(metadata_cursor, self._streaming_cursor([]))
+        with patch("snowflake.connector.connect", return_value=connection):
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(**input_overrides), resumable_source_manager=manager
+            )
+        assert response.supports_resume is expected_supports_resume
+        assert response.sort_mode == ("asc" if expected_ascending else None)
+
 
 def test_snowflake_source_is_resumable():
     # Resumable registration is what routes the import through the resumable retry policy and
@@ -954,6 +1018,33 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"No-active-warehouse error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg,expected_quota",
+        [
+            (
+                "090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+                "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            (
+                "Warehouse 'EXAMPLE_WH' cannot be resumed because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            ("090001 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed.", False),
+        ],
+    )
+    def test_resource_monitor_quota_keeps_the_schema_enabled(self, source, error_msg, expected_quota):
+        assert error_message_matches(error_msg, source.get_retryable_errors()) is expected_quota
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors())
+        exhausted = [
+            message
+            for key, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(error_msg, [key])
+        ]
+        assert bool(exhausted) is expected_quota
+        if expected_quota:
+            assert "tries again on its own" in exhausted[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1210,6 +1301,8 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Client-side query-timeout cancellation should be classified retryable: {error_msg}"
+        # The read query reaches the same error at its own limit, and that must not stop the sync.
+        assert not error_message_matches(error_msg, {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
 
 class TestSnowflakeValidateCredentials:
@@ -1255,6 +1348,19 @@ class TestSnowflakeValidateCredentials:
         assert ok is False
         assert message is not None and "passphrase" in message
         mock_capture.assert_not_called()
+
+    def test_resource_monitor_quota_names_the_quota_not_a_network_blip(self, source):
+        error = ProgrammingError(
+            msg="090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+            "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+            errno=90073,
+        )
+        with patch.object(source, "get_schemas", side_effect=error):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "resource monitor" in message
+        assert "brief" not in message
 
     def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
         # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a

@@ -41,9 +41,9 @@ high volume, `exploring-llm-clusters`.
 | `posthog:generate-app-url`      | Build a region- and project-qualified deep link to a trace or list       |
 
 Detailed queries for each strategy below are in
-[references/finding-traces.md](references/finding-traces.md). The full `$ai_*` event schema (and the
-`events` vs `ai_events` split for heavy content like `$ai_input`/`$ai_output_choices`) lives in
-`exploring-llm-traces/references/events-and-properties.md`.
+[references/finding-traces.md](references/finding-traces.md). That file also explains the `events` vs
+`ai_events` split: heavy content like `$ai_input` / `$ai_output_choices` is not on `events`. For the
+full `$ai_*` event schema, load the `exploring-llm-traces` skill.
 
 ## Work with the user
 
@@ -118,7 +118,8 @@ example trace deep links** on your own — don't wait to be asked, and don't mak
 You read these traces, but you can misread one — a trace that looks like a hallucination may be correct in
 context, and some of what you flag will be you misunderstanding the trace, not a real failure. So don't
 present the list as settled fact. Give the user a couple of linked examples per mode, ask them to open the
-links, then ask **which mode they want to focus on** next.
+links, then ask **which mode they want to focus on** next. Once they pick one, offer to catch it on new traffic
+with an online evaluation (`creating-online-evaluations`).
 
 (A list assembled from error messages or metric counts you never read is the loud subset, not this — go
 back to Step 3.)

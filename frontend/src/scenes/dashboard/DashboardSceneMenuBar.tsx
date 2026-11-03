@@ -11,6 +11,7 @@ import {
     IconPalette,
     IconPulse,
     IconScreen,
+    IconShare,
     IconTrash,
 } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -19,6 +20,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -50,6 +52,8 @@ import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterF
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
+import { DashboardAddTileSubMenu } from './DashboardAddTileSubMenu'
+import { DashboardCustomizeSubMenu } from './DashboardCustomizeSubMenu'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
@@ -105,6 +109,10 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
 
     const canShowDelete = canEditDashboard
     // Creating an export requires editor access to the export resource.
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Export,
         AccessControlLevel.Editor
@@ -162,6 +170,24 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             <SceneMenuBarSeparator />
                         </>
                     )}
+                    {canEditDashboard && tiles.length > 0 && (
+                        <>
+                            <DashboardAddTileSubMenu />
+                            <DashboardCustomizeSubMenu />
+                        </>
+                    )}
+                    {(tiles.length > 0 || dashboard.is_shared) && (
+                        <SceneMenuBarItem
+                            disabled={!!sharingDisabledReason}
+                            tooltip={sharingDisabledReason ?? undefined}
+                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                            data-attr={`${RESOURCE_TYPE}-menubar-share`}
+                        >
+                            <IconShare />
+                            {dashboard.is_shared ? 'Sharing settings' : 'Share or embed'}
+                        </SceneMenuBarItem>
+                    )}
+                    {(tiles.length > 0 || dashboard.is_shared) && <SceneMenuBarSeparator />}
                     <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                     {canCopyToProject && (
                         <SceneMenuBarItem
@@ -307,6 +333,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             Save as dashboard template
                         </SceneMenuBarItem>
                     )}
+                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                     {/* Toggle group — separated from regular Edit actions */}
                     <SceneMenuBarSeparator />
                     <SceneMenuBarCheckboxItem

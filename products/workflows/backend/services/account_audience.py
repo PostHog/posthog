@@ -27,7 +27,7 @@ from products.workflows.backend.facade.contracts import (
 ACCOUNT_BATCH_SIZE = 500
 
 # Mirrors ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST in
-# products/customer_analytics/frontend/components/Accounts/accountsCustomPropertyFilters.ts.
+# products/customer_analytics/frontend/components/Accounts/accountsPropertyFilters.ts.
 SUPPORTED_CUSTOM_PROPERTY_OPERATORS = frozenset(
     {
         "exact",

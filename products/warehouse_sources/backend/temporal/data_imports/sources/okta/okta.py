@@ -1,8 +1,8 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
@@ -13,26 +13,50 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
     HeaderLinkPaginator,
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    ResponseAction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import (
     OKTA_ENDPOINTS,
+    POLICY_TYPES,
     OktaEndpointConfig,
 )
 
 HOST_NOT_ALLOWED_ERROR = "Okta domain is not allowed"
+
+# An org answers 400 for a policy type it does not support, and E0000015 for a type behind a
+# feature it has not enabled. Only `type` is sent, so neither can mean a malformed request.
+UNSUPPORTED_POLICY_TYPE_ACTIONS: list[ResponseAction] = [
+    {"status_code": 400, "action": "ignore"},
+    {"json_field": "errorCode", "json_values": ["E0000015"], "action": "ignore"},
+]
 
 
 class OktaHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OktaResumeConfig:
-    next_url: str
+    next_url: Optional[str] = None
+    # Fan-out tables checkpoint the shape `build_dependent_resource` emits: which parents finished
+    # and the child page of the parent in progress.
+    fanout_state: Optional[dict[str, Any]] = None
+    # Policy tables: the next policy type to read. Every earlier type is already written.
+    policy_type: Optional[str] = None
 
 
 def normalize_domain(domain: str) -> str:
@@ -79,7 +103,7 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": config.page_size}
+    params: dict[str, Any] = {"limit": config.page_size} if config.send_limit else {}
 
     if config.name == "logs":
         # The System Log defaults to the last 7 days when `since` is omitted, so on the
@@ -102,6 +126,41 @@ def _build_initial_params(
     return params
 
 
+def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    paths = [name.split(".") for name in fields]
+
+    def drop(row: dict[str, Any]) -> dict[str, Any]:
+        for *parents, leaf in paths:
+            target: Any = row
+            for parent in parents:
+                target = target.get(parent) if isinstance(target, dict) else None
+            if isinstance(target, dict):
+                target.pop(leaf, None)
+        return row
+
+    return drop
+
+
+def _lift_fields(fields: dict[str, tuple[str, ...]]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def lift(row: dict[str, Any]) -> dict[str, Any]:
+        for column, path in fields.items():
+            value: Any = row
+            for key in path:
+                value = value.get(key) if isinstance(value, dict) else None
+            row[column] = value
+        return row
+
+    return lift
+
+
+def _map_rows(resource: Iterable[Any], config: OktaEndpointConfig) -> Iterable[Any]:
+    if config.excluded_fields:
+        resource = cast(Resource, resource).add_map(_drop_fields(config.excluded_fields))
+    if config.lifted_fields:
+        resource = cast(Resource, resource).add_map(_lift_fields(config.lifted_fields))
+    return resource
+
+
 def _is_same_host(url: str, domain: str) -> bool:
     """Whether ``url`` points at the configured Okta org host.
 
@@ -113,6 +172,12 @@ def _is_same_host(url: str, domain: str) -> bool:
         return (urlparse(url).hostname or "").lower() == normalize_domain(domain).lower()
     except Exception:
         return False
+
+
+def _stop_off_org_host(paginator: BaseNextUrlPaginator, domain: str) -> None:
+    if paginator._has_next_page and paginator._next_url is not None and not _is_same_host(paginator._next_url, domain):
+        paginator._has_next_page = False
+        paginator._next_url = None
 
 
 class OktaLinkPaginator(HeaderLinkPaginator):
@@ -134,9 +199,37 @@ class OktaLinkPaginator(HeaderLinkPaginator):
             self._has_next_page = False
             return
         super().update_state(response, data)
-        if self._has_next_page and self._next_url is not None and not _is_same_host(self._next_url, self._domain):
+        _stop_off_org_host(self, self._domain)
+
+
+class OktaBodyLinkPaginator(JSONResponsePaginator):
+    """Follows the ``_links.next.href`` body link of the custom-role endpoints, pinned to the org host."""
+
+    def __init__(self, domain: str) -> None:
+        super().__init__(next_url_path="_links.next.href")
+        self._domain = domain
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
             self._has_next_page = False
-            self._next_url = None
+            return
+        super().update_state(response, data)
+        _stop_off_org_host(self, self._domain)
+
+
+def _iter_policy_types(
+    build_resource: Callable[[str], Iterable[Any]],
+    resumable_source_manager: ResumableSourceManager[OktaResumeConfig],
+    resume: Optional[OktaResumeConfig],
+) -> Iterator[Any]:
+    start = POLICY_TYPES.index(resume.policy_type) if resume and resume.policy_type in POLICY_TYPES else 0
+    for index in range(start, len(POLICY_TYPES)):
+        policy_type = POLICY_TYPES[index]
+        if index > start:
+            # Every row of the earlier types is yielded, so a hand-off here resumes at this type.
+            resumable_source_manager.save_state(OktaResumeConfig(policy_type=policy_type))
+            resumable_source_manager.safe_point()
+        yield from build_resource(policy_type)
 
 
 def validate_credentials(
@@ -208,54 +301,118 @@ def okta_source(
 ) -> SourceResponse:
     config = OKTA_ENDPOINTS[endpoint]
 
-    params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(domain),
-            # Auth (the SSWS token) is supplied via the framework auth config so its value is
-            # redacted from logs and raised error messages; only non-secret headers go here.
-            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
-            "auth": {"type": "api_key", "api_key": f"SSWS {api_key}", "name": "Authorization", "location": "header"},
-            "paginator": OktaLinkPaginator(domain),
-            # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
-            "allow_redirects": False,
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": _base_url(domain),
+        # Auth (the SSWS token) is supplied via the framework auth config so its value is
+        # redacted from logs and raised error messages; only non-secret headers go here.
+        "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+        "auth": {"type": "api_key", "api_key": f"SSWS {api_key}", "name": "Authorization", "location": "header"},
+        "paginator": OktaLinkPaginator(domain),
+        # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
+        "allow_redirects": False,
     }
 
-    # A poisoned resume URL (off the org host) must be ignored, falling back to the initial org
-    # URL rather than being followed (SSRF).
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and _is_same_host(resume.next_url, domain):
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    resource: Iterable[Any]
+    if config.fanout is not None:
+        fanout = config.fanout
+        # The saved fan-out state carries child next-page URLs, so pin every request to the org
+        # host rather than trusting a stored URL (SSRF).
+        client_config["allowed_hosts"] = []
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(OktaResumeConfig(fanout_state=state))
+
+        child_endpoint_extra: Optional[Endpoint] = None if config.paginated else {"paginator": "single_page"}
+
+        def build_fanout(policy_type: Optional[str] = None) -> Iterable[Any]:
+            child_fanout = fanout
+            parent_endpoint_extra: Optional[Endpoint] = None
+            if policy_type is not None:
+                child_fanout = dataclasses.replace(fanout, parent_params={**fanout.parent_params, "type": policy_type})
+                parent_endpoint_extra = {"response_actions": UNSUPPORTED_POLICY_TYPE_ACTIONS}
+            return _map_rows(
+                build_dependent_resource(
+                    endpoint_configs=OKTA_ENDPOINTS,
+                    child_endpoint=endpoint,
+                    fanout=child_fanout,
+                    client_config=client_config,
+                    path_format_values={},
+                    team_id=team_id,
+                    job_id=job_id,
+                    db_incremental_field_last_value=None,
+                    parent_endpoint_extra=parent_endpoint_extra,
+                    child_endpoint_extra=child_endpoint_extra,
+                    page_size_param="limit" if config.paginated and config.send_limit else None,
+                    resume_hook=save_fanout_checkpoint if config.resumable else None,
+                    initial_paginator_state=resume.fanout_state if resume and config.resumable else None,
+                ),
+                config,
+            )
+
+        if config.per_policy_type:
+            resource = _iter_policy_types(build_fanout, resumable_source_manager, resume)
+        else:
+            resource = build_fanout()
+    elif config.per_policy_type:
+        params = _build_initial_params(config, False, None, None)
+
+        def build_policies(policy_type: str) -> Iterable[Any]:
+            policy_config: RESTAPIConfig = {
+                "client": client_config,
+                "resources": [
+                    {
+                        "name": endpoint,
+                        "endpoint": {
+                            "path": config.path,
+                            "params": {**params, "type": policy_type},
+                            "response_actions": UNSUPPORTED_POLICY_TYPE_ACTIONS,
+                        },
+                    }
+                ],
+            }
+            return _map_rows(rest_api_resource(policy_config, team_id, job_id, None), config)
+
+        resource = _iter_policy_types(build_policies, resumable_source_manager, resume)
+    else:
+        params = _build_initial_params(
+            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+
+        endpoint_config: Endpoint = {"path": config.path, "params": params}
+        if config.data_selector:
+            endpoint_config["data_selector"] = config.data_selector
+        if config.next_link_in_body:
+            endpoint_config["paginator"] = OktaBodyLinkPaginator(domain)
+
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+        }
+
+        # A poisoned resume URL (off the org host) must be ignored, falling back to the initial org
+        # URL rather than being followed (SSRF).
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resume is not None and resume.next_url and _is_same_host(resume.next_url, domain):
             initial_paginator_state = {"next_url": resume.next_url}
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
-        # the next page (merge dedupes) rather than skipping data.
-        if state and state.get("next_url"):
-            resumable_source_manager.save_state(OktaResumeConfig(next_url=state["next_url"]))
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+            # the next page (merge dedupes) rather than skipping data.
+            if state and state.get("next_url"):
+                resumable_source_manager.save_state(OktaResumeConfig(next_url=state["next_url"]))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        resource = _map_rows(resource, config)
 
     def items() -> Iterator[list[Any]]:
         # Re-check at run time (not just at source-create) in case the domain was edited or now
@@ -268,7 +425,7 @@ def okta_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         # Okta returns the System Log ascending (we request sortOrder=ASCENDING). The filter
         # endpoints don't guarantee an order, but each sync re-applies `filter=lastUpdated gt
         # <watermark>` and paginates every page, so completeness doesn't depend on ordering.

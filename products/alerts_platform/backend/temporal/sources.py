@@ -45,16 +45,42 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.LOGS: SourceBinding(
         workflow="logs-alert-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(seconds=75),
+        evaluation_timeout=dt.timedelta(seconds=120),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
     SourceKind.INSIGHT: SourceBinding(
         workflow="insight-alert-platform-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(minutes=15),
-        # A key holds at least one check and the pool admits this many, so more keys than this
-        # only start workflows that find the pool full.
-        discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+        evaluation_timeout=dt.timedelta(minutes=20),
+        # Not the pool size. A check frees its slot in seconds, so the pool turns over many times a
+        # tick, and a limit equal to its size caps checks per minute far below what it can run.
+        discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK,
+    ),
+    SourceKind.BILLING: SourceBinding(
+        workflow="billing-alert-platform-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(minutes=2),
+        discovery_limit=settings.ALERTS_PLATFORM_BILLING_KEYS_PER_TICK,
+    ),
+    # One workflow serves both warehouse kinds. Its checks read Postgres rows, so they finish in seconds.
+    SourceKind.WAREHOUSE_SOURCE: SourceBinding(
+        workflow="warehouse-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=60),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
+    SourceKind.WAREHOUSE_DESTINATION: SourceBinding(
+        workflow="warehouse-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=60),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
+    # One PromQL instant query per check through Snuffle. A batch stops starting queries at its budget.
+    SourceKind.METRICS: SourceBinding(
+        workflow="metrics-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=120),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
 }
 

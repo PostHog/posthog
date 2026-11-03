@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef, useState } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconChat, IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -30,8 +31,8 @@ export function ReportDiscussionComposer({
     report: SignalReport
     reportUrl: string
 }): JSX.Element {
-    const { isDiscussing, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { discussReport } = useActions(inboxTaskKickoffLogic)
+    const { isDiscussing, isCreatingPr, aiConsentDisabledReason, lastReportRun } = useValues(inboxTaskKickoffLogic)
+    const { discussReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const [draft, setDraft] = useState('')
     const [activeSuggestionGroup, setActiveSuggestionGroup] = useState<SuggestionGroup | null>(null)
@@ -84,6 +85,15 @@ export function ReportDiscussionComposer({
 
     const selectSuggestion = (suggestion: SuggestionItem): void => {
         submit(suggestion.content, 'suggested')
+    }
+
+    const lastRun = lastReportRun?.reportId === report.id ? lastReportRun : null
+    const resumeLastRun = (): void => {
+        if (!lastRun) {
+            return
+        }
+        captureInboxReportAction({ report, actionType: 'resume_discussion', surface: 'detail_pane' })
+        openReportTask(report, lastRun.taskId, lastRun.runId)
     }
 
     return (
@@ -139,6 +149,17 @@ export function ReportDiscussionComposer({
                         />
                     )}
                 </Suggestions.Root>
+                {lastRun && (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconChat />}
+                        onClick={resumeLastRun}
+                        data-attr="inbox-report-ask-ai-resume"
+                    >
+                        Go back to your last conversation
+                    </LemonButton>
+                )}
             </div>
         </div>
     )

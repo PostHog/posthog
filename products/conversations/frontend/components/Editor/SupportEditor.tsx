@@ -19,7 +19,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 
 import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
 
@@ -41,9 +41,13 @@ import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
+import { MacroSuggestionExtension } from '../Macros/MacroSuggestionExtension'
 
 const lowlight = createLowlight(common)
 lowlight.register('plaintext', () => ({ contains: [] }))
@@ -157,8 +161,15 @@ export type SupportEditorProps = {
     onUploadingChange?: (uploading: boolean) => void
     disabled?: boolean
     minRows?: number
+    /** Past this, the text scrolls so the toolbar and send bar stay on screen. */
+    maxRows?: number
     className?: string
     autoFocus?: boolean
+    /** Rendered inside the editor's frame, above the text */
+    header?: React.ReactNode
+    /** Slash commands that insert team macros. Off for customer-facing composers. */
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -477,8 +488,12 @@ export function SupportEditor({
     onUploadingChange,
     disabled = false,
     minRows,
+    maxRows = 12,
     className,
     autoFocus = false,
+    header,
+    enableMacros = false,
+    onInsertMacro,
 }: SupportEditorProps): JSX.Element {
     const [isDragging, setIsDragging] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
@@ -501,12 +516,24 @@ export function SupportEditor({
         linkShortcutCallbackRef.current()
     }, [])
 
+    // Extension options are fixed when the editor is created, so the shortcut reads the latest callback from a ref
+    const cmdEnterCallbackRef = useRef(onPressCmdEnter)
+    cmdEnterCallbackRef.current = onPressCmdEnter
+    const handlePressCmdEnter = useCallback(() => {
+        cmdEnterCallbackRef.current?.()
+    }, [])
+    const onInsertMacroRef = useRef(onInsertMacro)
+    onInsertMacroRef.current = onInsertMacro
+
     const editor = useRichContentEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
+            CommandEnterExtension.configure({ onPressCmdEnter: handlePressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
+            ...(enableMacros
+                ? [MacroSuggestionExtension.configure({ getOnInsert: () => onInsertMacroRef.current })]
+                : []),
         ],
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -615,11 +642,17 @@ export function SupportEditor({
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
+            {header}
             <EditorContent
                 editor={editor}
-                className="SupportEditor__content p-2"
+                className={cn('SupportEditor__content p-2', maxRows && 'SupportEditor__content--scroll')}
                 autoFocus={autoFocus}
-                style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
+                style={
+                    {
+                        ...(minRows ? { minHeight: `${minRows * 1.5}em` } : {}),
+                        ...(maxRows ? { '--support-editor-max-height': `${maxRows * 1.5}em` } : {}),
+                    } as CSSProperties
+                }
             />
             <div className="flex justify-between p-0.5">
                 <div className="flex items-center">

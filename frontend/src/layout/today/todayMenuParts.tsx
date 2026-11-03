@@ -45,6 +45,14 @@ export interface TodayMenuSubProps {
     children: ReactNode
 }
 
+/** Read-only details, such as a task's facts. A menu shows them in place, a phone sheet on a page of their own. */
+export interface TodayMenuSectionProps {
+    label: ReactNode
+    title: string
+    dataAttr: string
+    children: ReactNode
+}
+
 /**
  * What a row's action list draws with. Each kind of row writes its actions once against these parts,
  * like PostHog Desktop, so its hover card and its menus can't drift apart.
@@ -54,6 +62,7 @@ export interface TodayMenuParts {
     Separator: () => JSX.Element | null
     Shortcut: (props: { children: ReactNode }) => JSX.Element
     Sub: (props: TodayMenuSubProps) => JSX.Element
+    Section: (props: TodayMenuSectionProps) => JSX.Element | null
 }
 
 const SUB_CONTENT_CLASS = 'w-64 [&>div]:max-h-[min(20rem,var(--available-height))]'
@@ -79,6 +88,7 @@ export const DROPDOWN_PARTS: TodayMenuParts = {
             <DropdownMenuSubContent className={SUB_CONTENT_CLASS}>{children}</DropdownMenuSubContent>
         </DropdownMenuSub>
     ),
+    Section: ({ children }) => <>{children}</>,
 }
 
 export const CONTEXT_PARTS: TodayMenuParts = {
@@ -101,6 +111,7 @@ export const CONTEXT_PARTS: TodayMenuParts = {
             <ContextMenuSubContent className={SUB_CONTENT_CLASS}>{children}</ContextMenuSubContent>
         </ContextMenuSub>
     ),
+    Section: ({ children }) => <>{children}</>,
 }
 
 function SheetItem({ children, dataAttr, onClick, to, disabled, variant }: TodayMenuItemProps): JSX.Element {
@@ -133,14 +144,18 @@ export const SHEET_PARTS: TodayMenuParts = {
             {children}
         </TodaySheetSub>
     ),
+    Section: ({ label, title, dataAttr, children }) => (
+        <TodaySheetSub label={label} title={title} dataAttr={dataAttr}>
+            <div className="px-4 py-3">{children}</div>
+        </TodaySheetSub>
+    ),
 }
 
 /**
  * The parts for a hover card's action list. The card is not a menu, so its rows are plain buttons.
- * `onAction` closes the card after a choice. `onSubmenuOpenChange` reports "File to…", whose menu opens
- * outside the card, so the card stays open while the pointer is in it. Desktop drops the separators here.
+ * `onAction` closes the card after a choice. Desktop drops the separators here.
  */
-export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
+export function cardMenuParts(onAction: () => void): TodayMenuParts {
     return {
         Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
             <Button
@@ -163,7 +178,6 @@ export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: 
         Sub: ({ label, dataAttr, children }) => (
             <DropdownMenu
                 onOpenChange={(open, details) => {
-                    onSubmenuOpenChange(open)
                     if (!open && details.reason === 'item-press') {
                         onAction()
                     }
@@ -183,5 +197,7 @@ export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: 
                 </DropdownMenuContent>
             </DropdownMenu>
         ),
+        // A hover card stays short, so details stay in the menus.
+        Section: () => null,
     }
 }

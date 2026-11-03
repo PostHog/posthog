@@ -6,7 +6,7 @@ import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { addProductIntent } from 'lib/utils/product-intents'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -26,7 +26,7 @@ interface MinimalExperimentSummaryContext {
 }
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
-    const { experiment, orderedPrimaryMetricsWithResults } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
     // Simplified context - backend will fetch full data using experiment_id
     const maxToolContext = useMemo(
@@ -38,10 +38,10 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     )
 
     const shouldShowMaxSummaryTool = useMemo(() => {
-        const hasResults = orderedPrimaryMetricsWithResults.length > 0
+        const hasPrimaryMetrics = getSectionMetricUuids(experiment, false).length > 0
         const hasStarted = isLaunched(experiment)
-        return hasResults && hasStarted
-    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date, experiment]) //eslint-disable-line react-hooks/exhaustive-deps
+        return hasPrimaryMetrics && hasStarted
+    }, [experiment])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',

@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -71,6 +72,13 @@ def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, tab
     )
 
 
+def _run_create_job_activity(activity_environment, inputs: CreateExternalDataJobModelActivityInputs):
+    # The default test activity info has a one second start-to-close timeout counted from import time,
+    # which the activity's deadline check would see as already passed.
+    activity_environment.info = dataclasses.replace(activity_environment.info, start_to_close_timeout=None)
+    return activity_environment.run(create_external_data_job_model_activity, inputs)
+
+
 @sync_to_async
 def _create_external_data_job(
     external_data_source_id: uuid.UUID,
@@ -113,7 +121,7 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
         team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
 
     runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
@@ -140,7 +148,7 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
 
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
 
     runs = ExternalDataJob.objects.filter(id=result.job_id)
     assert runs.exists()
@@ -184,7 +192,7 @@ def test_create_external_job_activity_emit_signals_respects_ai_consent(
     inputs = CreateExternalDataJobModelActivityInputs(
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
     assert result.emit_signals_enabled is expected
 
 
@@ -213,7 +221,7 @@ def test_create_external_job_activity_enrichment_gates_on_consent(activity_envir
     inputs = CreateExternalDataJobModelActivityInputs(
         team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
     )
-    result = activity_environment.run(create_external_data_job_model_activity, inputs)
+    result = _run_create_job_activity(activity_environment, inputs)
     assert result.enrichment_needed is expected
 
 
@@ -385,6 +393,56 @@ async def test_update_external_job_activity_resolves_job_by_workflow_run_id_when
 
     assert this_run_job.status == ExternalDataJob.Status.COMPLETED
     assert other_run_job.status == ExternalDataJob.Status.RUNNING
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_leaves_other_jobs_when_run_created_no_job(
+    activity_environment, team, **kwargs
+):
+    # When create-job times out before it inserts a row, the run has no job. An orphan RUNNING job
+    # from an earlier run must not be failed with this run's error.
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+        status=ExternalDataSchema.Status.RUNNING,
+    )
+    orphan_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=str(uuid.uuid4()),
+        workflow_run_id=str(uuid.uuid4()),
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=None,
+        status=ExternalDataJob.Status.FAILED,
+        latest_error="The activity timed out before it created the job",
+        internal_error="The activity timed out before it created the job",
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+    )
+
+    await activity_environment.run(update_external_data_job_model, inputs)
+    await sync_to_async(orphan_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert orphan_job.status == ExternalDataJob.Status.RUNNING
+    assert orphan_job.latest_error is None
+    assert schema.status == ExternalDataSchema.Status.FAILED
 
 
 @pytest.mark.django_db(transaction=True)

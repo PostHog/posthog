@@ -8,18 +8,22 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+import httpx
 from asgiref.sync import async_to_sync, sync_to_async
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.llm import gateway_client
 from posthog.llm.gateway_client import (
     AIGatewayConfig,
+    AIGatewayHostError,
     GatewayNotConfiguredError,
     Product,
     build_ai_gateway_anthropic_client,
+    build_ai_gateway_openai_client,
     build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
+    build_gemini_client,
     build_openai_client,
     get_anthropic_gateway_client,
     get_async_anthropic_gateway_client,
@@ -72,7 +76,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = "shared-key"
 
-        client = get_llm_client(product="custom_image_scans", team_id=1, api_key="server-minted-token")
+        client = get_llm_client(product="django", team_id=1, api_key="server-minted-token")
 
         assert client.api_key == "server-minted-token"
 
@@ -562,6 +566,119 @@ class TestBuildAIGatewayAnthropicClient:
             with pytest.raises(ValueError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"):
                 build_ai_gateway_anthropic_client(ai_product="aio_stamphog")
         mock_get_anthropic.assert_not_called()
+
+
+class TestBuildAIGatewayOpenAIClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.OpenAI")
+    def test_uses_the_callers_credential_instead_of_the_shared_key(self, mock_openai, mock_httpx):
+        result = build_ai_gateway_openai_client(
+            api_key="pha_user_token",
+            ai_product="custom_image_scans",
+            properties={"team_id": "42"},
+            distinct_id="team-42",
+        )
+
+        kwargs = mock_openai.call_args.kwargs
+        assert kwargs["api_key"] == "pha_user_token"
+        assert kwargs["base_url"] == AI_GATEWAY_URL
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Product"] == "custom_image_scans"
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert json.loads(headers["X-PostHog-Properties"]) == {"ai_product": "custom_image_scans", "team_id": "42"}
+        assert result is mock_openai.return_value
+
+    @pytest.mark.parametrize(
+        ("url", "api_key", "message"),
+        [
+            ("", "pha_user_token", "AI_GATEWAY_URL is not set"),
+            ("https://ai-gateway.example", "pha_user_token", "AI_GATEWAY_URL must end with /v1"),
+            (AI_GATEWAY_URL, "", "api_key is required"),
+        ],
+    )
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_raises_instead_of_using_the_python_gateway(self, mock_get_llm_client, url, api_key, message):
+        with override_settings(AI_GATEWAY_URL=url):
+            with pytest.raises(GatewayNotConfiguredError, match=message):
+                build_ai_gateway_openai_client(api_key=api_key, ai_product="custom_image_scans")
+        mock_get_llm_client.assert_not_called()
+
+
+class TestBuildGeminiClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.genai.Client")
+    def test_gateway_mode_omits_privacy_header_unless_asked(self, mock_genai):
+        build_gemini_client(ai_product="replay_vision")
+
+        assert "X-PostHog-Privacy-Mode" not in mock_genai.call_args.kwargs["http_options"].headers
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    def test_real_client_sends_the_key_and_headers_to_the_native_route(self):
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}}]})
+
+        client = build_gemini_client(ai_product="replay_vision", privacy_mode=True)
+        assert client is not None
+        sync_client, async_client = client._api_client._httpx_client, client._api_client._async_httpx_client
+        assert sync_client is not None and sync_client.trust_env is False
+        assert async_client is not None and async_client.trust_env is False
+        client._api_client._httpx_client = httpx.Client(transport=httpx.MockTransport(handler))
+
+        client.models.generate_content(model="models/gemini-test", contents="hi")
+
+        assert str(seen[0].url) == "https://ai-gateway.example/v1beta/models/gemini-test:generateContent"
+        assert seen[0].headers["x-goog-api-key"] == AI_GATEWAY_KEY
+        assert seen[0].headers["x-posthog-product"] == "replay_vision"
+        assert seen[0].headers["x-posthog-privacy-mode"] == "true"
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://generativelanguage.googleapis.com/upload/v1beta/files",
+            "http://ai-gateway.example/v1beta/files",
+            "http://ai-gateway.example:443/v1beta/files",
+            "https://ai-gateway.example:8443/v1beta/files",
+        ],
+    )
+    def test_both_transports_refuse_any_origin_but_the_gateway(self, url):
+        seen: list[httpx.Request] = []
+        client = build_gemini_client(ai_product="replay_vision")
+        assert client is not None
+        sync_client = client._api_client._httpx_client
+        async_client = client._api_client._async_httpx_client
+        assert sync_client is not None and async_client is not None
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200)
+
+        sync_client._transport = httpx.MockTransport(handler)
+        async_client._transport = httpx.MockTransport(handler)
+
+        with pytest.raises(AIGatewayHostError):
+            sync_client.post(url)
+        with pytest.raises(AIGatewayHostError):
+            asyncio.run(async_client.post(url))
+        sync_client.get("https://ai-gateway.example/v1beta/files/abc")
+        asyncio.run(async_client.get("https://ai-gateway.example/v1beta/files/abc"))
+
+        assert [str(r.url) for r in seen] == ["https://ai-gateway.example/v1beta/files/abc"] * 2
+
+    @pytest.mark.parametrize(
+        ("url", "api_key"),
+        [("", ""), (AI_GATEWAY_URL, ""), ("", AI_GATEWAY_KEY), ("https://ai-gateway.example", AI_GATEWAY_KEY)],
+    )
+    @patch("posthog.llm.gateway_client.genai.Client")
+    def test_unset_or_misconfigured_returns_none_so_the_caller_stays_direct(self, mock_genai, url, api_key):
+        with override_settings(AI_GATEWAY_URL=url, AI_GATEWAY_API_KEY=api_key):
+            assert build_gemini_client(ai_product="replay_vision") is None
+        mock_genai.assert_not_called()
 
 
 class TestPrivateScoutGateway:

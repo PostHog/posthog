@@ -35,7 +35,7 @@ _SANDBOX_EXEC_TIMEOUT_SECONDS = WIZARD_RUN_TIMEOUT_SECONDS + 120
 # The wizard's console output is written OUTSIDE the cloned repo working tree so it can never be
 # committed to the user's PR by mistake. The downstream agent reads it from this fixed path to
 # understand what the wizard did (and why it failed).
-WIZARD_OUTPUT_DIR = "/tmp/wizard-cloud-run"
+WIZARD_OUTPUT_DIR = "/tmp/workspace/.posthog/wizard-cloud-run"
 WIZARD_OUTPUT_LOG_PATH = f"{WIZARD_OUTPUT_DIR}/wizard-output.log"
 
 # The wizard's own verbose log — agent-level detail beyond stdout (e.g. which URL a failed API call
@@ -116,7 +116,7 @@ def run_wizard(input: RunWizardInput) -> None:
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         command = _build_wizard_command(repo_path, ctx.team_id)
 
-        result = sandbox.execute(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
+        result = sandbox.execute_in_task_filesystem(command, timeout_seconds=_SANDBOX_EXEC_TIMEOUT_SECONDS)
 
         # Persist the wizard's output outside the repo tree so the agent can consult what happened
         # without any chance of committing it. Written before the exit-code check so a failed run
@@ -129,7 +129,9 @@ def run_wizard(input: RunWizardInput) -> None:
             # failed local run stays debuggable from the run's console log (it never reaches object
             # storage otherwise). `|| true` keeps a missing file — wizard exited before writing one —
             # from erroring the activity.
-            verbose = sandbox.execute(f"cat {shlex.quote(WIZARD_VERBOSE_LOG_PATH)} 2>/dev/null || true")
+            verbose = sandbox.execute_in_task_filesystem(
+                f"cat {shlex.quote(WIZARD_VERBOSE_LOG_PATH)} 2>/dev/null || true"
+            )
             if verbose.stdout.strip():
                 emit_agent_log(
                     ctx.run_id, "debug", f"wizard verbose log ({WIZARD_VERBOSE_LOG_PATH}):\n{verbose.stdout}"

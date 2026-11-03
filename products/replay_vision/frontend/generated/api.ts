@@ -16,14 +16,21 @@ import type {
     BackfillWindowApi,
     BulkObserveRequestApi,
     BulkObserveResponseApi,
+    ClusterApi,
+    ClusterListApi,
+    CreateObservationRequestApi,
     CreateTaskFromObservationResponseApi,
     DraftScannerRequestApi,
     DraftScannerResponseApi,
     EstimateRequestApi,
     EstimateResponseApi,
     ExperimentVariantsReadoutApi,
+    HighlightFeedImpressionsApi,
+    HighlightFeedResponseApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
+    ObservationFeedDismissalApi,
+    ObservationRequestApi,
     ObservationSearchResponseApi,
     ObservationSignalReportApi,
     ObservationStatsApi,
@@ -43,16 +50,16 @@ import type {
     ReplayScannerBackfillApi,
     RetryResponseApi,
     ScannerCreatorsResponseApi,
+    ScannerDashboardResponseApi,
     ScannerImpactApi,
     ScannerScoutCreateApi,
     ScannerScoutCreateResponseApi,
+    ScannerScoutTemplateApi,
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     ScoutReportApi,
     SearchSuggestionsQueryApi,
     SearchSuggestionsResponseApi,
-    SuggestTagsRequestApi,
-    SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
     VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
@@ -60,6 +67,8 @@ import type {
     VisionAlertDestinationResponseApi,
     VisionAlertsEventsListParams,
     VisionAlertsListParams,
+    VisionGroupsListParams,
+    VisionGroupsRetrieveParams,
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionObservationsSearchRetrieveParams,
@@ -67,6 +76,7 @@ import type {
     VisionObservationsThumbnailRetrieveParams,
     VisionQuotaApi,
     VisionScannersBackfillsListParams,
+    VisionScannersHighlightFeedRetrieveParams,
     VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
@@ -74,9 +84,9 @@ import type {
     VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsThumbnailRetrieveParams,
-    VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
-    WatchFeedResponseApi,
+    VisionThemesListParams,
+    VisionThemesRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -293,6 +303,67 @@ export const visionAlertsResetCreate = async (
     })
 }
 
+export const getVisionGroupsListUrl = (projectId: string, params?: VisionGroupsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/groups/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/groups/`
+}
+
+/**
+ * Groups of near-duplicate issue observations, each one scanner's sessions that tell the same story, such as one bug many people hit. Narrower than themes. Use it to find the issues that reach the most people.
+ */
+export const visionGroupsList = async (
+    projectId: string,
+    params?: VisionGroupsListParams,
+    options?: RequestInit
+): Promise<ClusterListApi> => {
+    return apiMutator<ClusterListApi>(getVisionGroupsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionGroupsRetrieveUrl = (projectId: string, id: string, params?: VisionGroupsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/groups/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/groups/${id}/`
+}
+
+/**
+ * One group's counts and examples over the window.
+ */
+export const visionGroupsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionGroupsRetrieveParams,
+    options?: RequestInit
+): Promise<ClusterApi> => {
+    return apiMutator<ClusterApi>(getVisionGroupsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -374,6 +445,45 @@ export const visionObservationsCreateTaskCreate = async (
     return apiMutator<CreateTaskFromObservationResponseApi>(getVisionObservationsCreateTaskCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsFeedDismissalCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
+ */
+export const visionObservationsFeedDismissalCreate = async (
+    projectId: string,
+    id: string,
+    observationFeedDismissalApi?: ObservationFeedDismissalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsFeedDismissalCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observationFeedDismissalApi),
+    })
+}
+
+export const getVisionObservationsFeedDismissalDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.
+ */
+export const visionObservationsFeedDismissalDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionObservationsFeedDismissalDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -559,8 +669,8 @@ export const getVisionObservationsSearchSuggestionsRetrieveUrl = (
 }
 
 /**
- * Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
- * scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect.
+ * Example searches for the Search tab's empty state: the labels of the largest active themes the
+ * embedding consumer named from recent issue observations. Reads only, with no side effect.
  */
 export const visionObservationsSearchSuggestionsRetrieve = async (
     projectId: string,
@@ -581,8 +691,8 @@ export const getVisionObservationsSearchViewedCreateUrl = (projectId: string) =>
 }
 
 /**
- * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
- * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+ * It embeds text, so it is a POST rather than part of the read.
  */
 export const visionObservationsSearchViewedCreate = async (
     projectId: string,
@@ -620,6 +730,44 @@ export const environmentVisionQuotaSpendSeriesRetrieve = async (
     options?: RequestInit
 ): Promise<VisionSpendSeriesApi> => {
     return apiMutator<VisionSpendSeriesApi>(getEnvironmentVisionQuotaSpendSeriesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/requests/`
+}
+
+/**
+ * Scan sessions with a saved scanner or an inline question. Poll the returned request for results.
+ */
+export const visionRequestsCreate = async (
+    projectId: string,
+    createObservationRequestApi: CreateObservationRequestApi,
+    options?: RequestInit
+): Promise<ObservationRequestApi> => {
+    return apiMutator<ObservationRequestApi>(getVisionRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createObservationRequestApi),
+    })
+}
+
+export const getVisionRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/requests/${id}/`
+}
+
+/**
+ * Start scans for named sessions from code, and read their results back through one request id.
+ */
+export const visionRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ObservationRequestApi> => {
+    return apiMutator<ObservationRequestApi>(getVisionRequestsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -768,6 +916,28 @@ export const visionScannersBulkObserveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkObserveRequestApi),
+    })
+}
+
+export const getVisionScannersCreateDashboardCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${id}/create_dashboard/`
+}
+
+/**
+ * Create a dashboard that charts this scanner's observations, and link it to the scanner.
+ *
+ * The tiles depend on the scanner type: who the scanner matched, which accounts they belong to,
+ * type-specific breakdowns, and the latest matching recordings. Calling it again returns the
+ * existing dashboard rather than a second one.
+ */
+export const visionScannersCreateDashboardCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScannerDashboardResponseApi> => {
+    return apiMutator<ScannerDashboardResponseApi>(getVisionScannersCreateDashboardCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -1115,6 +1285,55 @@ export const visionScannersObservationsCreateTaskCreate = async (
     )
 }
 
+export const getVisionScannersObservationsFeedDismissalCreateUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
+ */
+export const visionScannersObservationsFeedDismissalCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    observationFeedDismissalApi?: ObservationFeedDismissalApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsFeedDismissalCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(observationFeedDismissalApi),
+    })
+}
+
+export const getVisionScannersObservationsFeedDismissalDestroyUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/feed_dismissal/`
+}
+
+/**
+ * Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.
+ */
+export const visionScannersObservationsFeedDismissalDestroy = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersObservationsFeedDismissalDestroyUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getVisionScannersObservationsLabelCreateUrl = (projectId: string, scannerId: string, id: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/label/`
 }
@@ -1370,6 +1589,24 @@ export const visionScannersScoutsCreate = async (
     })
 }
 
+export const getVisionScannersScoutsTemplatesListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scouts/templates/`
+}
+
+/**
+ * The scout templates this scanner offers, rendered for it, in the order the picker shows them.
+ */
+export const visionScannersScoutsTemplatesList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ScannerScoutTemplateApi[]> => {
+    return apiMutator<ScannerScoutTemplateApi[]>(getVisionScannersScoutsTemplatesListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersVariantsListUrl = (projectId: string, scannerId: string) => {
     return `/api/projects/${projectId}/vision/scanners/${scannerId}/variants/`
 }
@@ -1410,7 +1647,7 @@ export const getVisionScannersDraftCreateUrl = (projectId: string) => {
 }
 
 /**
- * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ * Draft a full scanner configuration from a natural-language goal and a monthly credit budget.
  */
 export const visionScannersDraftCreate = async (
     projectId: string,
@@ -1442,6 +1679,59 @@ export const visionScannersEstimateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersHighlightFeedRetrieveUrl = (
+    projectId: string,
+    params?: VisionScannersHighlightFeedRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/highlight_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/highlight_feed/`
+}
+
+/**
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
+ */
+export const visionScannersHighlightFeedRetrieve = async (
+    projectId: string,
+    params?: VisionScannersHighlightFeedRetrieveParams,
+    options?: RequestInit
+): Promise<HighlightFeedResponseApi> => {
+    return apiMutator<HighlightFeedResponseApi>(getVisionScannersHighlightFeedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersHighlightFeedImpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/highlight_feed_impressions/`
+}
+
+/**
+ * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
+ */
+export const visionScannersHighlightFeedImpressionsCreate = async (
+    projectId: string,
+    highlightFeedImpressionsApi: HighlightFeedImpressionsApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionScannersHighlightFeedImpressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(highlightFeedImpressionsApi),
     })
 }
 
@@ -1489,30 +1779,7 @@ export const visionScannersStatsRetrieve = async (
     })
 }
 
-export const getVisionScannersSuggestTagsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/suggest_tags/`
-}
-
-/**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
- */
-export const visionScannersSuggestTagsCreate = async (
-    projectId: string,
-    suggestTagsRequestApi: SuggestTagsRequestApi,
-    options?: RequestInit
-): Promise<SuggestTagsResponseApi> => {
-    return apiMutator<SuggestTagsResponseApi>(getVisionScannersSuggestTagsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(suggestTagsRequestApi),
-    })
-}
-
-export const getVisionScannersWatchFeedRetrieveUrl = (
-    projectId: string,
-    params?: VisionScannersWatchFeedRetrieveParams
-) => {
+export const getVisionThemesListUrl = (projectId: string, params?: VisionThemesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1524,19 +1791,50 @@ export const getVisionScannersWatchFeedRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
+        ? `/api/projects/${projectId}/vision/themes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/themes/`
 }
 
 /**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ * Recurring kinds of issue in replay observations, each a broad cluster of one scanner's issue observations with a short model-written name. Use it to see what comes up often and what is growing.
  */
-export const visionScannersWatchFeedRetrieve = async (
+export const visionThemesList = async (
     projectId: string,
-    params?: VisionScannersWatchFeedRetrieveParams,
+    params?: VisionThemesListParams,
     options?: RequestInit
-): Promise<WatchFeedResponseApi> => {
-    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
+): Promise<ClusterListApi> => {
+    return apiMutator<ClusterListApi>(getVisionThemesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionThemesRetrieveUrl = (projectId: string, id: string, params?: VisionThemesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/themes/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/themes/${id}/`
+}
+
+/**
+ * One search theme's counts and examples over the window.
+ */
+export const visionThemesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionThemesRetrieveParams,
+    options?: RequestInit
+): Promise<ClusterApi> => {
+    return apiMutator<ClusterApi>(getVisionThemesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

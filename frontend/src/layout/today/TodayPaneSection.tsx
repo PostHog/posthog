@@ -1,6 +1,6 @@
 import { ReactNode, RefCallback } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronRight } from '@posthog/icons'
 import { MenuLabel, cn } from '@posthog/quill'
 
 import { TodayPaneSectionResizeHandle } from './TodayPaneSectionResizeHandle'
@@ -8,8 +8,12 @@ import { TodaySectionResizer } from './useTodaySectionLayout'
 
 export interface TodayPaneSectionProps {
     label: string
+    /** Shows before the label, for a section whose source matters, such as the PostHog mark. */
+    icon?: JSX.Element | null
     open: boolean
     count: number
+    /** Whether the row count shows next to a collapsed label. */
+    showCount?: boolean
     onToggle: () => void
     actions?: JSX.Element | null
     /** Replaces the label while set, for example with a search field. */
@@ -26,8 +30,10 @@ export interface TodayPaneSectionProps {
 
 export function TodayPaneSection({
     label,
+    icon,
     open,
     count,
+    showCount = true,
     onToggle,
     actions,
     heading,
@@ -40,7 +46,6 @@ export function TodayPaneSection({
     contentRef,
     children,
 }: TodayPaneSectionProps): JSX.Element {
-    const Caret = open ? IconChevronDown : IconChevronRight
     return (
         <section aria-label={label} className="flex shrink-0 flex-col">
             <div className={cn('relative flex h-7 shrink-0 items-center gap-1', divider && 'border-t border-border')}>
@@ -53,9 +58,17 @@ export function TodayPaneSection({
                         onClick={onToggle}
                         className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-sm py-1 text-left text-foreground/70 hover:text-foreground"
                     >
+                        {icon && (
+                            <span
+                                className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5"
+                                aria-hidden
+                            >
+                                {icon}
+                            </span>
+                        )}
                         <span>{label}</span>
-                        <Caret className="size-3 shrink-0 opacity-60" />
-                        {!open && count > 0 && (
+                        <IconChevronRight className={cn('size-3 shrink-0 opacity-60', open && 'rotate-90')} />
+                        {!open && showCount && count > 0 && (
                             <span className="ml-0.5 font-normal text-muted-foreground tabular-nums">{count}</span>
                         )}
                     </MenuLabel>

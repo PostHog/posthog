@@ -40,6 +40,8 @@ interface UseChartMarginsOptions {
     xTickLabelRotation?: number
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
+    /** Percent layouts plot every series on a [0, 1] domain, so tick sizing ignores the raw values. */
+    isPercent?: boolean
     /** Per-side overrides applied on top of the computed margins. */
     override?: Partial<ChartMargins>
     /** Override the value-range source for value-axis tick sizing. Defaults to `series`. Use
@@ -82,6 +84,13 @@ export function applyMarginOverride(
         }
     }
     return result
+}
+
+/** Rebuilds a margin override from its four sides, so an inline `margins` object with the same values
+ *  keeps one identity and does not re-run the memos that read it. */
+export function useStableMargins(margins: Partial<ChartMargins> | undefined): Partial<ChartMargins> {
+    const { top, right, bottom, left } = margins ?? {}
+    return useMemo(() => ({ top, right, bottom, left }), [top, right, bottom, left])
 }
 
 interface CategoryLabelWidths {
@@ -148,7 +157,8 @@ export function useChartMargins({
     xTickLabelRotation = 0,
     yTickFormatter,
     axisOrientation = 'vertical',
-    override,
+    isPercent = false,
+    override: rawOverride,
     valueRangeSeries,
     maxCategoryLabelWidth = 0,
     yAxisFormatters,
@@ -156,8 +166,12 @@ export function useChartMargins({
     yAxisTitles,
     yAxisHidden,
 }: UseChartMarginsOptions): ChartMargins {
+    const override = useStableMargins(rawOverride)
     const isHorizontal = axisOrientation === 'horizontal'
-    const valueSeries = valueRangeSeries ?? series
+    const valueSeries = useMemo(
+        () => (isPercent ? series.map((s) => ({ ...s, data: [0, 1] })) : (valueRangeSeries ?? series)),
+        [isPercent, series, valueRangeSeries]
+    )
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
     const tickLabelRotation = isHorizontal ? 0 : normalizeTickLabelRotation(xTickLabelRotation)
     const categoryWidths = useMemo(
@@ -316,12 +330,7 @@ export function useChartMargins({
         const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
         const right = Math.max(rightFloor, rightLabelReserve, xLabelEdgeReserves.right + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
-        return override ? applyMarginOverride(computed, override) : computed
-        // Depend on the individual sides, not `override` by identity — callers are expected to build
-        // the override object inline and conditionally (`{ top: reserveOrUndefined }`), which is a
-        // fresh identity every render, and keying off it here would reintroduce the referential churn
-        // this hook's memoization is meant to contain.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return applyMarginOverride(computed, override)
     }, [
         hideXAxis,
         hideYAxis,
@@ -332,9 +341,6 @@ export function useChartMargins({
         xLabelExtraBottom,
         normalizedXAxisLabel,
         titleReserve,
-        override?.top,
-        override?.right,
-        override?.bottom,
-        override?.left,
+        override,
     ])
 }

@@ -14,6 +14,8 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
+    RepositoryContextUnavailable,
+    SandboxRunFailed,
     TruncatedAgentOutputError,
     TurnPollResult,
     TurnPollTimeout,
@@ -21,13 +23,17 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     extract_json_from_text,
     poll_for_agent_task as poll_for_turn,
 )
-from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import (
+    MultiTurnSession,
+    turn_failure_error_type,
+)
 from products.tasks.backend.logic.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
 from products.tasks.backend.logic.services.local_skills import (
     ENV_DISABLE_BUNDLED_SKILLS,
     ENV_LOCAL_SKILLS_HOST_PATH,
     LocalSkillsCache,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentStartupFailed
 from products.tasks.backend.models import SandboxEnvironment
 
 
@@ -49,11 +55,14 @@ __all__ = [
     "MCP_EXEC_SKILLS_FEATURE_FLAG",
     "ENV_LOCAL_SKILLS_HOST_PATH",
     "AgentTurnFailed",
+    "AgentStartupFailed",
+    "RepositoryContextUnavailable",
     "CustomPromptSandboxContext",
     "EmptyAgentTurnError",
     "LocalSkillsCache",
     "MultiTurnSession",
     "OutputFn",
+    "SandboxRunFailed",
     "TruncatedAgentOutputError",
     "TurnPollResult",
     "TurnPollTimeout",
@@ -62,4 +71,5 @@ __all__ = [
     "extract_json_from_text",
     "poll_for_turn",
     "resolve_sandbox_context_for_local_dev",
+    "turn_failure_error_type",
 ]

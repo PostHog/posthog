@@ -5,7 +5,7 @@ import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
-import { resolveEventSource } from '@/lib/event-source'
+import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -22,6 +22,8 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { MCP_INTENT_PROMPT_FLAG } from './intent-prompt'
+import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 
@@ -75,6 +77,8 @@ function buildBaseProperties(
         // Which kind of caller minted this token — scout, research run, implementation run, or
         // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
         $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
+        // Server-derived from introspection, so a refused call can be traced to the run it came from.
+        ...(state.sandboxTaskId ? { sandbox_task_id: state.sandboxTaskId } : {}),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,
@@ -168,7 +172,7 @@ export async function trackToolCall(
         return
     }
     try {
-        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const analyticsContext = state.analyticsContext ?? (await state.reqCtx.safelyGetAnalyticsContext(state.context))
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
@@ -181,6 +185,10 @@ export async function trackToolCall(
         // gateway call would land uncategorized and drop out of category-sliced views.
         const gatewayServer = gatewayServerSlug(toolName)
         const toolCategory = getToolCategory(toolName) ?? (gatewayServer ? THIRD_PARTY_TOOL_CATEGORY : undefined)
+        if (!isError && !gatewayServer && toolName.startsWith('inbox-') && properties.source === EVENT_SOURCE.MCP) {
+            // The Inbox banner flag targets this permanent adoption property.
+            properties.$set_once = { has_used_inbox_mcp: true }
+        }
         // The description the agent saw when it picked this tool, clipped. Powers the
         // tool-detail Descriptions table and description-vs-intent fit in MCP
         // analytics. Callers pass servedDescription when the advertised text differs
@@ -214,6 +222,9 @@ export async function trackToolCall(
             properties: {
                 ...properties,
                 tool_name: toolName,
+                ...(state.interviewRecruitmentDiagnostics && !state.isImpersonated && !state.suppressAnalytics
+                    ? interviewRecruitmentProperties(state.interviewRecruitmentDiagnostics)
+                    : {}),
                 ...(!analyticsMeta?.llmModel && analyticsMeta?.llmModelMissingReason
                     ? { $mcp_llm_model_missing_reason: analyticsMeta.llmModelMissingReason }
                     : {}),
@@ -223,6 +234,7 @@ export async function trackToolCall(
                 // breakdown rather than a string split over `tool_name` in HogQL.
                 ...(gatewayServer ? { mcp_gateway_server: gatewayServer } : {}),
                 ...extraProperties,
+                [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,
             },
@@ -319,6 +331,15 @@ function isMetadataQuery(query: string): boolean {
 // way. `$mcp_tool_call` still records that the call happened.
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
+// Their output is another project's data, possibly from another region: a wrapped
+// execute-sql result or any API response. The execute-sql exemption below checks only
+// the outer tool name, so without this check the wrapped query's rows land in
+// `$ai_output_state`.
+const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'posthog-connection-call',
+    'posthog-connection-forward',
+])
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
@@ -333,6 +354,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+        return false
+    }
+    if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

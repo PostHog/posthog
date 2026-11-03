@@ -6,8 +6,9 @@ import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor } from '../../c
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { applyMarginOverride, DEFAULT_MARGINS } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, DEFAULT_MARGINS, useStableMargins } from '../../core/hooks/useChartMargins'
 import { sanitizeFixedDomain } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -52,7 +53,8 @@ const NO_CATEGORY_X_LABELS = (): null => null
 
 export interface ScatterChartProps<Meta = unknown> {
     series: ScatterSeries<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ScatterChartConfig<Meta>
     tooltip?: (ctx: ScatterTooltipContext<Meta>) => React.ReactNode
     onPointClick?: (point: ScatterPointDatum<Meta>) => void
@@ -75,7 +77,7 @@ export function ScatterChart<Meta = unknown>({ onError, ...rest }: ScatterChartP
 
 function ScatterChartInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -84,6 +86,7 @@ function ScatterChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: Omit<ScatterChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis = EMPTY_AXIS_CONFIG,
         yAxis = EMPTY_AXIS_CONFIG,
@@ -94,8 +97,10 @@ function ScatterChartInner<Meta = unknown>({
         showTickMarks = true,
         showCrosshair = true,
         showBestFit = false,
-        margins,
+        isPointHighlighted,
+        margins: marginsOverride,
     } = config ?? {}
+    const margins = useStableMargins(marginsOverride)
     // Destructured to primitives, so an inline `config` literal can't re-run the scale build.
     const { scaleType: xScaleType, domain: xDomain, startAtZero: xStartAtZero, tickFormatter: xTickFormatter } = xAxis
     const { scaleType: yScaleType, domain: yDomain, startAtZero: yStartAtZero, tickFormatter: yTickFormatter } = yAxis
@@ -163,6 +168,13 @@ function ScatterChartInner<Meta = unknown>({
             }
 
             drawScatterMarkers(ctx, layout.positions, fillOpacity)
+            if (isPointHighlighted) {
+                for (const position of layout.positions) {
+                    if (isPointHighlighted(points[position.index])) {
+                        drawScatterHoverMarker(ctx, position, drawTheme.backgroundColor ?? '#ffffff', 1)
+                    }
+                }
+            }
 
             // Over the markers: in a dense cloud, which is where a fit line earns its place, drawing
             // it underneath would bury it.
@@ -174,11 +186,11 @@ function ScatterChartInner<Meta = unknown>({
                 drawAxes(drawCtx, { axisColor: axisLineColor })
             }
         },
-        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit]
+        [showGrid, showAxisLines, showTickMarks, fillOpacity, showBestFit, isPointHighlighted, points]
     )
 
     const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {
-        const position = readScatterLayout(scales)?.positions.find((p) => p.index === hoverIndex)
+        const position = readScatterLayout(scales)?.positionByIndex[hoverIndex]
         if (!position) {
             return false
         }
@@ -292,7 +304,7 @@ function ScatterChartInner<Meta = unknown>({
         const computed: Partial<ChartMargins> = {
             right: Math.max(DEFAULT_MARGINS.right, xLabelEdgeReserve(points, xDomain, xTickFormatter)),
         }
-        return margins ? applyMarginOverride(computed, margins) : computed
+        return applyMarginOverride(computed, margins)
     }, [xAxis.hide, margins, points, xDomain, xTickFormatter])
 
     const baseConfig = useMemo<ChartConfig>(

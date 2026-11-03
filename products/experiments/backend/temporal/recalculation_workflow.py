@@ -3,28 +3,94 @@ from datetime import timedelta
 
 import temporalio.workflow
 from temporalio.common import Priority, RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    RetryState,
+    TimeoutError as TemporalTimeoutError,
+)
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.schema import PrecomputationMode
+
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
+        METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS,
+        METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS,
+        METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS,
+        METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS,
+        METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS,
         METRICS_RECALCULATION_WORKFLOW_NAME,
         RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS,
+        RECALCULATION_PROGRESS_MAX_ATTEMPTS,
         RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
         RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
         RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
+        ExperimentMetricToRecalculate,
+        MetricOutOfTimeFailure,
         RecalculationProgressUpdate,
     )
     from products.experiments.backend.temporal.recalculation_activities import (
         calculate_experiment_metric_for_recalculation,
         discover_experiment_metrics,
+        record_metric_out_of_time_failure,
         update_recalculation_progress,
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
+
+
+@frozen
+class _CalcDispatch:
+    """Where one metric's calc activity runs, the precompute mode it passes, and its total time budget."""
+
+    task_queue: str | None
+    precomputation_mode: PrecomputationMode | None
+    schedule_to_close_timeout: timedelta | None
+
+
+def _calc_schedule_to_close_timeout(task_queue: str | None) -> timedelta | None:
+    # The activity and precompute queues have a fixed slot count, so a calc there waits for a slot instead of
+    # failing when the queue is full. Only a calc on the workflow's own queue keeps the total budget.
+    return None if task_queue else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
+
+
+def _calc_dispatch(metric: ExperimentMetricToRecalculate, activity_task_queue: str | None) -> _CalcDispatch:
+    # Only a run on the activity queue flag uses the route that discovery set.
+    if activity_task_queue and metric.task_queue:
+        return _CalcDispatch(
+            task_queue=metric.task_queue,
+            precomputation_mode=metric.precomputation_mode,
+            schedule_to_close_timeout=_calc_schedule_to_close_timeout(metric.task_queue),
+        )
+    return _CalcDispatch(
+        task_queue=activity_task_queue,
+        precomputation_mode=None,
+        schedule_to_close_timeout=_calc_schedule_to_close_timeout(activity_task_queue),
+    )
+
+
+def _calc_args(
+    metric: ExperimentMetricToRecalculate, recalculation_id: str, query_to: str, dispatch: _CalcDispatch
+) -> list[object]:
+    args: list[object] = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
+    # An AUTO calc keeps the five arguments, so a worker that predates the mode argument still runs it.
+    if dispatch.precomputation_mode is not None:
+        args.append(dispatch.precomputation_mode)
+    return args
+
+
+def _ended_by_temporal(error: ActivityError) -> bool:
+    """True when Temporal ended the metric's retries from the outside, so no attempt persisted its outcome.
+
+    A timeout cause is an attempt killed by start_to_close, heartbeat_timeout or schedule_to_close. A TIMEOUT retry
+    state is an attempt that raised a retryable error when the schedule_to_close budget had no room for another.
+    """
+    return error.retry_state == RetryState.TIMEOUT or isinstance(error.cause, TemporalTimeoutError)
 
 
 @temporalio.workflow.defn(name=METRICS_RECALCULATION_WORKFLOW_NAME)
@@ -76,7 +142,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     mark_started=True,
                 ),
                 start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RetryPolicy(maximum_attempts=RECALCULATION_PROGRESS_MAX_ATTEMPTS),
             )
             try:
                 await temporalio.workflow.execute_activity(
@@ -87,7 +153,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         mark_completed=True,
                     ),
                     start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    retry_policy=RetryPolicy(maximum_attempts=RECALCULATION_PROGRESS_MAX_ATTEMPTS),
                 )
             except Exception:
                 # A zero-metric run genuinely completed; record that via the backstop rather than letting run()'s
@@ -115,7 +181,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 mark_started=True,
             ),
             start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            retry_policy=RetryPolicy(maximum_attempts=RECALCULATION_PROGRESS_MAX_ATTEMPTS),
         )
         # The activity returns Optional[str] in general, but with mark_started=True it always returns the ISO
         # query_to string. Narrow with a real check (not assert, which is stripped under python -O) so calc
@@ -134,27 +200,40 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             maximum_interval=timedelta(seconds=RECALCULATION_RETRY_MAX_INTERVAL_SECONDS),
             maximum_attempts=MAX_METRIC_ATTEMPTS,
         )
+        # Pre-patch histories scheduled every calculation on the workflow's queue, even when an old worker
+        # received a run with the field set, so they must replay with None.
+        activity_task_queue = (
+            inputs.activity_task_queue
+            if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
+            else None
+        )
+        dispatches = [_calc_dispatch(metric, activity_task_queue) for metric in metrics]
         results = await asyncio.gather(
             *[
                 temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[
-                        metric.experiment_id,
-                        metric.metric_uuid,
-                        recalculation_id,
-                        query_to,
-                        metric.metric_type,
-                    ],
+                    args=_calc_args(metric, recalculation_id, query_to, dispatch),
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=dispatch.schedule_to_close_timeout,
+                    heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
+                    task_queue=dispatch.task_queue,
                     # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),
                 )
-                for metric in metrics
+                for metric, dispatch in zip(metrics, dispatches)
             ],
             return_exceptions=True,
         )
+
+        out_of_time = [
+            metric
+            for metric, result in zip(metrics, results)
+            if isinstance(result, ActivityError) and _ended_by_temporal(result)
+        ]
+        if out_of_time and temporalio.workflow.patched("recalc-persist-out-of-time-metrics-2026-10"):
+            await self._record_out_of_time_failures(recalculation_id, out_of_time)
 
         succeeded = sum(1 for result in results if not isinstance(result, BaseException) and result.success)
         failed = len(results) - succeeded
@@ -171,7 +250,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     failed_metrics=failed,
                 ),
                 start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RetryPolicy(maximum_attempts=RECALCULATION_PROGRESS_MAX_ATTEMPTS),
             )
         except Exception:
             # The finalize write exhausted its retries. Record the real status/counts via the backstop so the
@@ -192,6 +271,31 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         increment_workflow_finished(final_status)
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
 
+    async def _record_out_of_time_failures(
+        self, recalculation_id: str, metrics: list[ExperimentMetricToRecalculate]
+    ) -> None:
+        # Best effort: a backstop failure must not stop the finish step, which still counts these metrics failed.
+        await asyncio.gather(
+            *[
+                temporalio.workflow.execute_activity(
+                    record_metric_out_of_time_failure,
+                    MetricOutOfTimeFailure(
+                        recalculation_id=recalculation_id,
+                        experiment_id=metric.experiment_id,
+                        metric_uuid=metric.metric_uuid,
+                        role=metric.role,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=timedelta(
+                        seconds=METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS
+                    ),
+                    retry_policy=RetryPolicy(maximum_attempts=METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS),
+                )
+                for metric in metrics
+            ],
+            return_exceptions=True,
+        )
+
     async def _best_effort_mark_terminal(
         self, recalculation_id: str, *, status: str, succeeded: int | None = None, failed: int | None = None
     ) -> bool:
@@ -209,7 +313,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     failed_metrics=failed,
                 ),
                 start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                retry_policy=RetryPolicy(maximum_attempts=RECALCULATION_PROGRESS_MAX_ATTEMPTS),
             )
             return True
         except Exception:

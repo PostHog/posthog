@@ -12,7 +12,7 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 
 export function SearchPerformanceDetail(): JSX.Element {
-    const { selectedRow, detailQuery, detailSourceNotices, compareFilter, hasSearchConsole } =
+    const { wrapText, selectedRow, detailQuery, detailSourceNotices, compareFilter, hasSearchConsole } =
         useValues(searchPerformanceLogic)
     const { selectRow } = useActions(searchPerformanceLogic)
     const organic = selectedRow?.platform === 'GoogleSearchConsole'
@@ -82,19 +82,20 @@ export function SearchPerformanceDetail(): JSX.Element {
                                 ' Ad keywords can match different searches; these organic results are for the same text.'}
                         </p>
                     </div>
-                    {detailSourceNotices.map(({ sourceId, message }) => (
+                    {detailSourceNotices.map(({ sourceId, name, message }) => (
                         <LemonBanner
                             key={sourceId}
                             type="info"
-                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
+                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(`managed-${sourceId}`) }}
                         >
-                            {message}
+                            {`${name}: ${message}`}
                         </LemonBanner>
                     ))}
                     {detailQuery?.sources.length ? (
                         <SearchPerformanceTable
                             query={detailQuery}
                             metrics="traffic"
+                            wrapText={wrapText}
                             queryKey="marketing-search-detail"
                         />
                     ) : !hasSearchConsole ? (
@@ -108,7 +109,9 @@ export function SearchPerformanceDetail(): JSX.Element {
                             to={urls.dataWarehouseSourceNew(
                                 'GoogleSearchConsole',
                                 `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
-                                'Marketing analytics'
+                                'Marketing analytics',
+                                undefined,
+                                'marketing_analytics_search_detail'
                             )}
                         >
                             Connect Google Search Console

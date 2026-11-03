@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -43,7 +44,10 @@ describe('liveWebAnalyticsMetricsLogic', () => {
             ],
         })
         jest.spyOn(api, 'query').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined)
         ;(posthog as any).setPersonProperties = jest.fn()
+        unmountFeatureFlagLogic = featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
         logic = liveWebAnalyticsMetricsLogic()
         logic.mount()
     })
@@ -51,15 +55,185 @@ describe('liveWebAnalyticsMetricsLogic', () => {
     afterEach(() => {
         logic.unmount()
         unmountFeatureFlagLogic?.()
+        unmountFeatureFlagLogic = undefined
         jest.restoreAllMocks()
+        jest.useRealTimers()
     })
 
     const enableBotAnalysis = (): void => {
-        unmountFeatureFlagLogic = featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
             [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
         })
     }
+
+    it.each(
+        [
+            { statuses: [502], attempts: 3 },
+            { statuses: [503], attempts: 1 },
+            { statuses: [504], attempts: 1 },
+            { statuses: [502, 502, 504], attempts: 3 },
+            { statuses: [502, 504], attempts: 2 },
+        ].flatMap((testCase) =>
+            ['live_device_breakdown', 'live_bots'].map((failedQuery) => ({ ...testCase, failedQuery }))
+        )
+    )(
+        'bounds $failedQuery submissions for $statuses failures to $attempts attempts',
+        async ({ statuses, attempts, failedQuery }) => {
+            enableBotAnalysis()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+            jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            let queryAttempts = 0
+            ;(api.query as jest.Mock).mockClear().mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+                if (query.tags?.name === failedQuery) {
+                    throw new ApiError('', statuses[queryAttempts++ % statuses.length])
+                }
+                return { results: [] }
+            })
+            logic.actions.loadInitialData(true)
+
+            await jest.advanceTimersByTimeAsync(10_000)
+
+            const names = getLiveQueryNames()
+            expect(names).toContain('live_bots')
+            expect(names.filter((name) => name === failedQuery)).toHaveLength(attempts)
+            expect(logic.values.isLoading).toBe(false)
+        }
+    )
+
+    it.each(
+        ['live_device_breakdown', 'live_bots'].flatMap((failedQuery) =>
+            [true, false].map((hogql) => ({ failedQuery, hogql }))
+        )
+    )(
+        'respects $failedQuery capacity hints during retries and scheduled refreshes (HogQL=$hogql)',
+        async ({ failedQuery, hogql }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS, ...(hogql ? [FEATURE_FLAGS.LIVESTREAM_HOGQL] : [])],
+                {
+                    [FEATURE_FLAGS.LIVESTREAM_HOGQL]: hogql,
+                    [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+                }
+            )
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+            jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+            ;(api.query as jest.Mock).mockClear().mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+                if (query.tags?.name === failedQuery) {
+                    throw new ApiError('', 503, new Headers({ 'Retry-After': '45' }))
+                }
+                return { results: [] }
+            })
+            logic.actions.loadInitialData(true)
+
+            await jest.advanceTimersByTimeAsync(0)
+            expect(getLiveQueryNames().filter((name) => name === failedQuery)).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(44_999)
+            expect(getLiveQueryNames().filter((name) => name === failedQuery)).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(1)
+            expect(getLiveQueryNames().filter((name) => name === failedQuery)).toHaveLength(2)
+        }
+    )
+
+    it.each([
+        { status: 504, recovers: true },
+        { status: 400, recovers: false },
+    ])('reloads historical SSE data only after transient failures (status=$status)', async ({ status, recovers }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+        let deviceAttempts = 0
+        ;(api.query as jest.Mock).mockClear().mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+            if (query.tags?.name === 'live_device_breakdown') {
+                if (++deviceAttempts === 1) {
+                    throw new ApiError('', status)
+                }
+                return { results: [[new Date().toISOString(), { Desktop: ['visitor-1'] }]] }
+            }
+            return { results: [] }
+        })
+        logic.actions.loadInitialData(true)
+
+        await jest.advanceTimersByTimeAsync(29_999)
+        expect(deviceAttempts).toBe(1)
+        expect(logic.values.deviceBreakdown).toEqual([])
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(logic.values.deviceBreakdown).toEqual(recovers ? [{ device: 'Desktop', count: 1, percentage: 100 }] : [])
+        await jest.advanceTimersByTimeAsync(60_000)
+        expect(deviceAttempts).toBe(recovers ? 2 : 1)
+    })
+
+    it.each([true, false])('backs off repeated live failures and resets after recovery (HogQL=%s)', async (hogql) => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LIVESTREAM_HOGQL]: hogql })
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+        let failing = true
+        let deviceAttempts = 0
+        ;(api.query as jest.Mock).mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+            if (query.tags?.name === 'live_device_breakdown') {
+                deviceAttempts++
+                if (failing) {
+                    throw new ApiError('', 504)
+                }
+            }
+            return { results: [] }
+        })
+        logic.actions.loadInitialData(true)
+        await jest.advanceTimersByTimeAsync(0)
+
+        for (const delay of [30_000, 60_000, 120_000, 240_000, 300_000, 300_000]) {
+            const attempts = deviceAttempts
+            await jest.advanceTimersByTimeAsync(delay - 1)
+            expect(deviceAttempts).toBe(attempts)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(deviceAttempts).toBe(attempts + 1)
+        }
+
+        failing = false
+        await jest.advanceTimersByTimeAsync(300_000)
+        failing = true
+        logic.actions.loadInitialData(true)
+        await jest.advanceTimersByTimeAsync(0)
+        const attempts = deviceAttempts
+        await jest.advanceTimersByTimeAsync(29_999)
+        expect(deviceAttempts).toBe(attempts)
+        await jest.advanceTimersByTimeAsync(1)
+        expect(deviceAttempts).toBe(attempts + 1)
+    })
+
+    it.each(['reload', 'unmount'])('cancels pending SSE recovery on %s', async (action) => {
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+        jest.spyOn(lemonToast, 'warning').mockReturnValue('toast-id')
+        let deviceAttempts = 0
+        ;(api.query as jest.Mock).mockClear().mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+            if (query.tags?.name === 'live_device_breakdown' && ++deviceAttempts === 1) {
+                throw new ApiError('', 504)
+            }
+            return { results: [] }
+        })
+        logic.actions.loadInitialData(true)
+        await jest.advanceTimersByTimeAsync(15_000)
+        expect(deviceAttempts).toBe(1)
+
+        if (action === 'reload') {
+            logic.actions.loadInitialData(true)
+        } else {
+            logic.unmount()
+        }
+        await jest.advanceTimersByTimeAsync(60_000)
+
+        expect(deviceAttempts).toBe(action === 'reload' ? 2 : 1)
+    })
 
     it('collapses streamed pageviews that clean to the same path into one row', () => {
         logic.actions.addEvents(

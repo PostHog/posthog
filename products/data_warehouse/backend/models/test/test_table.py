@@ -629,6 +629,47 @@ class TestTable(BaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            ("history_table", {"history_table": True}, {"id", "_ph_deleted", "valid_from", "valid_to"}),
+            (
+                "consolidated_table_whose_source_has_validity_columns",
+                {},
+                {
+                    "id",
+                    "_ph_deleted",
+                    "valid_from",
+                    "valid_to",
+                    "_ph_cdc_op",
+                    "_ph_cdc_seq",
+                    "_ph_cdc_timestamp",
+                    "_ph_deleted_at",
+                },
+            ),
+        ]
+    )
+    def test_history_table_hides_capture_bookkeeping_columns(
+        self, _name: str, options: dict, expected_visible: set[str]
+    ):
+        capture_columns = ["_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted", "_ph_deleted_at"]
+        table = DataWarehouseTable.objects.create(
+            name="orders",
+            url_pattern="https://bucket.s3.amazonaws.com/orders",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            options=options,
+            columns={
+                name: {"clickhouse": "String", "hogql": "StringDatabaseField"}
+                for name in ["id", *capture_columns, "valid_from", "valid_to"]
+            },
+        )
+
+        fields = table.hogql_definition().fields
+        assert {name for name, field in fields.items() if not field.hidden} == expected_visible
+        assert {column["name"] for column in table.get_user_facing_columns()} == expected_visible
+        # A hidden column must still resolve, so a query saved before it was hidden keeps running.
+        assert set(capture_columns) <= set(fields)
+
     def test_hogql_definition_new_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
@@ -931,7 +972,7 @@ class TestTable(BaseTest):
             (
                 "Cannot extract table structure from CSV format file, because there are no files with "
                 "provided path in S3 or all files are empty",
-                "doesn't exist in the bucket",
+                "No files match your Files URL pattern",
             ),
             ("Cannot extract table structure: the file is empty", "contains no data"),
         ]
@@ -982,7 +1023,7 @@ class TestTable(BaseTest):
         with patch("products.warehouse_sources.backend.models.table.sync_execute", side_effect=side_effect):
             assert table.detect_csv_double_quotes_setting() is expected
 
-    def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
+    def test_validate_csv_double_quotes_hides_the_raw_error_for_a_non_parse_failure(self):
         from clickhouse_driver.errors import ServerException
 
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -997,10 +1038,18 @@ class TestTable(BaseTest):
 
         with patch(
             "products.warehouse_sources.backend.models.table.sync_execute",
-            side_effect=ServerException("Access Denied", code=499),
+            side_effect=ServerException(
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'exports/test.csv')",
+                code=499,
+            ),
         ):
-            with pytest.raises(ServerException):
+            with pytest.raises(Exception) as exc_info:
                 table._validate_csv_double_quotes_setting()
+
+        assert not isinstance(exc_info.value, ServerException)
+        assert "s3:GetObject" in str(exc_info.value)
+        assert "exports/test.csv" not in str(exc_info.value)
 
     @parameterized.expand(
         [
@@ -1214,7 +1263,13 @@ class TestTable(BaseTest):
                 "empty_csv",
                 "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty",
                 499,
-                "The provided file doesn't exist in the bucket",
+                "No files match your Files URL pattern",
+            ),
+            (
+                "empty_csv_with_names",
+                "Cannot extract table structure from CSVWithNames format file, because there are no files with provided path in S3 or all files are empty",
+                499,
+                "No files match your Files URL pattern",
             ),
             (
                 "corrupted_parquet_thrift",

@@ -1,13 +1,35 @@
+import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib'
 import { Frame, HTTPRequest, Page } from 'puppeteer'
 
+import { fetchAttribution } from '~/common/utils/fetch-attribution'
 import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-proxy'
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { RequestInterceptor } from '~/session-replay/recording-rasterizer/capture/request-interceptor'
 
 const mockFetch = jest.fn()
 jest.mock('~/common/utils/request', () => ({
-    fetch: (...args: any[]) => mockFetch(...args),
+    fetchStreamed: (...args: any[]) => mockFetch(...args),
 }))
+
+function streamedResponse({
+    status = 200,
+    headers = { 'content-type': 'text/css' },
+    body = '',
+    overLimit = false,
+}: {
+    status?: number
+    headers?: Record<string, string>
+    body?: string | Buffer
+    overLimit?: boolean
+} = {}): object {
+    return {
+        status,
+        headers,
+        headerLines: Object.entries(headers).map(([name, value]) => ({ name, value })),
+        read: jest.fn().mockResolvedValue({ bytes: Buffer.from(body), overLimit }),
+        discard: jest.fn(),
+    }
+}
 
 type PageEventHandler = (req: HTTPRequest) => void
 
@@ -62,6 +84,17 @@ function mockRequest(type: string, frame: Frame = subFrame, url = 'https://examp
     } as unknown as HTTPRequest
 }
 
+function respondedWith(req: HTTPRequest): Promise<unknown> {
+    return new Promise((resolve) =>
+        (req.respond as jest.Mock).mockImplementation((response) => {
+            resolve(response)
+            return Promise.resolve()
+        })
+    )
+}
+
+const teamId = 42
+
 const mockLog = {
     info: jest.fn(),
     warn: jest.fn(),
@@ -86,7 +119,7 @@ async function createInterceptor(
     const mp = page ? { page, emitRequestFinished: () => {}, emitRequestFailed: () => {} } : mockPage()
     const bp = blockProxy || mockBlockProxy()
     const cp = mockCapturePage(mp.page)
-    const interceptor = new RequestInterceptor(cp, bp, mockLog, enablePlayerCsp)
+    const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog, enablePlayerCsp)
     await interceptor.install()
     return { interceptor, page: mp as ReturnType<typeof mockPage>, blockProxy: bp }
 }
@@ -162,7 +195,7 @@ describe('RequestInterceptor', () => {
         ])('serves a 500 with no CSP when $name', async ({ html }) => {
             const mp = mockPage()
             const cp = { page: mp.page, playerUrl, playerHtml: html } as unknown as CapturePage
-            const interceptor = new RequestInterceptor(cp, mockBlockProxy(), mockLog, true)
+            const interceptor = new RequestInterceptor(cp, mockBlockProxy(), teamId, mockLog, true)
             await interceptor.install()
             const handler = getRequestHandler(mp.page)
             const req = mockRequest('document', mainFrame, playerUrl)
@@ -200,10 +233,10 @@ describe('RequestInterceptor', () => {
         })
 
         it('proxies sub-frame stylesheet requests through Node.js', async () => {
-            mockFetch.mockResolvedValue({
-                status: 200,
-                headers: { 'content-type': 'text/css' },
-                text: jest.fn().mockResolvedValue('body { color: red }'),
+            let attribution: Record<string, unknown> | undefined
+            mockFetch.mockImplementation(() => {
+                attribution = fetchAttribution.getStore()
+                return Promise.resolve(streamedResponse({ body: 'body { color: red }' }))
             })
 
             const { page } = await createInterceptor()
@@ -221,8 +254,9 @@ describe('RequestInterceptor', () => {
                 status: 200,
                 contentType: 'text/css',
                 headers: { 'access-control-allow-origin': '*' },
-                body: 'body { color: red }',
+                body: Buffer.from('body { color: red }'),
             })
+            expect(attribution).toEqual({ teamId })
         })
 
         it('aborts sub-frame media requests immediately', async () => {
@@ -267,11 +301,7 @@ describe('RequestInterceptor', () => {
 
     describe('stylesheet proxy', () => {
         it('strips hop-by-hop headers from the proxied request', async () => {
-            mockFetch.mockResolvedValue({
-                status: 200,
-                headers: { 'content-type': 'text/css' },
-                text: jest.fn().mockResolvedValue(''),
-            })
+            mockFetch.mockResolvedValue(streamedResponse())
 
             const { page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
@@ -288,11 +318,7 @@ describe('RequestInterceptor', () => {
         })
 
         it('defaults content-type to text/css when upstream omits it', async () => {
-            mockFetch.mockResolvedValue({
-                status: 200,
-                headers: {},
-                text: jest.fn().mockResolvedValue('h1 {}'),
-            })
+            mockFetch.mockResolvedValue(streamedResponse({ headers: {}, body: 'h1 {}' }))
 
             const { page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
@@ -302,6 +328,70 @@ describe('RequestInterceptor', () => {
             await new Promise(process.nextTick)
 
             expect(req.respond).toHaveBeenCalledWith(expect.objectContaining({ contentType: 'text/css' }))
+        })
+
+        it.each([
+            { encoding: 'gzip', encode: gzipSync },
+            { encoding: 'deflate', encode: deflateSync },
+            { encoding: 'br', encode: brotliCompressSync },
+            { encoding: 'gzip, br', encode: (css: string) => brotliCompressSync(gzipSync(css)) },
+        ])('decodes a $encoding body before Chromium parses it', async ({ encoding, encode }) => {
+            const css = 'body { background: rebeccapurple }'
+            mockFetch.mockResolvedValue(
+                streamedResponse({
+                    headers: { 'content-type': 'text/css', 'content-encoding': encoding },
+                    body: encode(css),
+                })
+            )
+
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('stylesheet')
+
+            handler(req)
+
+            expect(await respondedWith(req)).toEqual({
+                status: 200,
+                contentType: 'text/css',
+                headers: { 'access-control-allow-origin': '*' },
+                body: Buffer.from(css),
+            })
+        })
+
+        it.each([
+            { name: 'the body is over the size limit', response: { overLimit: true } },
+            {
+                name: 'the body decompresses past the size limit',
+                response: {
+                    headers: { 'content-encoding': 'gzip' },
+                    body: gzipSync(Buffer.alloc(10 * 1024 * 1024 + 1)),
+                },
+            },
+            {
+                name: 'the content encoding is not supported',
+                response: { headers: { 'content-encoding': 'compress' }, body: 'x' },
+            },
+            {
+                name: 'the body has more content encodings than allowed',
+                response: {
+                    headers: { 'content-encoding': 'gzip, gzip, gzip' },
+                    body: gzipSync(gzipSync(gzipSync('h1 {}'))),
+                },
+            },
+        ])('responds with empty CSS when $name', async ({ response }) => {
+            mockFetch.mockResolvedValue(streamedResponse(response))
+
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('stylesheet')
+
+            handler(req)
+
+            expect(await respondedWith(req)).toEqual({ status: 200, contentType: 'text/css', body: '' })
+            expect(mockLog.warn).toHaveBeenCalledWith(
+                expect.objectContaining({ url: 'https://example.com/style.css' }),
+                'stylesheet proxy failed, responding empty'
+            )
         })
 
         it('responds with empty CSS on fetch failure', async () => {
@@ -331,7 +421,7 @@ describe('RequestInterceptor', () => {
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)
@@ -354,16 +444,13 @@ describe('RequestInterceptor', () => {
 
         it('waits for tracked stylesheet requests to complete', async () => {
             mockFetch.mockImplementation(
-                () =>
-                    new Promise((resolve) =>
-                        setTimeout(() => resolve({ status: 200, headers: {}, text: () => Promise.resolve('') }), 50)
-                    )
+                () => new Promise((resolve) => setTimeout(() => resolve(streamedResponse({ headers: {} })), 50))
             )
 
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)
@@ -384,16 +471,12 @@ describe('RequestInterceptor', () => {
         })
 
         it('resolves when the last of multiple stylesheet requests finishes', async () => {
-            mockFetch.mockResolvedValue({
-                status: 200,
-                headers: {},
-                text: jest.fn().mockResolvedValue(''),
-            })
+            mockFetch.mockResolvedValue(streamedResponse({ headers: {} }))
 
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)
@@ -418,16 +501,12 @@ describe('RequestInterceptor', () => {
         })
 
         it('resolves when a tracked request fails', async () => {
-            mockFetch.mockResolvedValue({
-                status: 200,
-                headers: {},
-                text: jest.fn().mockResolvedValue(''),
-            })
+            mockFetch.mockResolvedValue(streamedResponse({ headers: {} }))
 
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)

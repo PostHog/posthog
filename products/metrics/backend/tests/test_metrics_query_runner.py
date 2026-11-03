@@ -1,5 +1,7 @@
 import datetime as dt
-from typing import cast
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -13,6 +15,8 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     GoalLine,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
     MetricsDisplaySettings,
     MetricsQuery,
     MetricsQueryClause,
@@ -22,6 +26,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -39,7 +44,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _runner(self, query: MetricsQuery) -> MetricsQueryRunner:
         return MetricsQueryRunner(query=query, team=self.team)
 
-    def test_translates_schema_node_to_facade_request(self) -> None:
+    @parameterized.expand([("fixed", "minute"), ("dashboard_variable", "$window")])
+    def test_translates_schema_node_to_facade_request(self, _name: str, interval: str) -> None:
         query = MetricsQuery(
             clauses=[
                 MetricsQueryClause(
@@ -53,11 +59,21 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
-            interval="minute",
+            interval=interval,
             formula=None,
         )
 
-        request = self._runner(query)._to_request()
+        runner = self._runner(query)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ]
+            )
+        )
+        request = runner._to_request()
 
         clause = request.clauses[0]
         assert clause.metric_name == "http_requests_total"
@@ -70,7 +86,50 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
-    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
+    def test_sql_tiles_check_the_budget_and_load_all_options_before_taking_a_concurrency_slot(self) -> None:
+        events: list[str] = []
+
+        @contextmanager
+        def slot(*args: Any, **kwargs: Any) -> Iterator[None]:
+            events.append("slot")
+            yield
+
+        def fill(*args: Any, variables: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+            events.append("options")
+            return variables
+
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(clauses=[], language="sql", sql="SELECT now() AS time, 1 AS value WHERE 'a' IN $job"),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job",
+                        source="sql",
+                        query="SELECT 'a'",
+                        includeAll=True,
+                        current=MetricsDashboardVariableSelection(values=[], all=True),
+                    )
+                ]
+            )
+        )
+        with (
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.get_query_tag_value", return_value=True),
+            patch.object(
+                MetricsQueryRunner, "_enforce_api_queries_budget", side_effect=lambda: events.append("budget")
+            ),
+            patch("posthog.hogql_queries.query_runner.app_org_concurrency_slot", side_effect=slot),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.fill_all_values", side_effect=fill),
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.substitute_sql") as substitute,
+            patch("products.metrics.backend.hogql_queries.metrics_query_runner.run_metrics_sql", return_value=[]),
+        ):
+            substitute.return_value.unresolved = ()
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert events.index("budget") < events.index("options") < events.index("slot")
+
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -147,23 +206,32 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 assert expected_message in response.json()["detail"]
             build_runner.assert_not_called()
 
-    def test_insight_saves_with_metrics_query(self) -> None:
+    @parameterized.expand([("web", {}), ("mcp", {"X-PostHog-Client": "mcp"})])
+    def test_insight_saves_with_metrics_query(self, _name: str, client_headers: dict[str, str]) -> None:
+        query = {
+            "kind": "MetricsQuery",
+            "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+            "dateRange": {"date_from": "-24h"},
+        }
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/",
-            {
-                "name": "queue depth",
-                "saved": True,
-                "query": {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
-                    "dateRange": {"date_from": "-24h"},
-                },
-            },
+            {"name": "queue depth", "saved": True, "query": query},
             format="json",
+            headers=client_headers,
         )
 
         assert response.status_code == 201, response.json()
         assert response.json()["query"]["kind"] == "MetricsQuery"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
+            {"query": query},
+            format="json",
+            headers=client_headers,
+        )
+
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["query"] == response.json()["query"]
 
     def test_validate_query_runner_access_granted(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
@@ -242,7 +310,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
 
-    def test_dashboard_metric_filters_apply_to_every_clause(self) -> None:
+    def test_saved_dashboard_metric_filters_do_not_apply(self) -> None:
         own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
         query = MetricsQuery(
             clauses=[
@@ -255,8 +323,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
 
-        assert runner.query.clauses[0].filters == [own_filter, dashboard_filter]
-        assert runner.query.clauses[1].filters == [dashboard_filter]
+        assert runner.query.clauses[0].filters == [own_filter]
+        assert runner.query.clauses[1].filters is None
 
     def test_dashboard_property_filters_do_not_apply(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])

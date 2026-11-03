@@ -19,6 +19,10 @@ PROVIDER: Final = "discord"
 
 MAX_CONTENT_CHARS: Final = 2000
 
+# The footer is taken off the top of the budget, so it is bounded to leave the details most of it.
+MAX_FOOTER_CONTEXT_CHARS: Final = 300
+MAX_FOOTER_LINK_URL_CHARS: Final = 500
+
 # Stops a URL in a query error from unfurling into a preview of a page the alert never chose.
 SUPPRESS_EMBEDS: Final = 1 << 2
 
@@ -32,16 +36,36 @@ def escape_markdown(text: str) -> str:
 
 
 def content_for(message: AlertMessage) -> str:
-    headline = f"**{escape_markdown(message.headline)}**"
+    footer = _footer(message)
+    return _body(message, MAX_CONTENT_CHARS - len(footer)) + footer
+
+
+def _footer(message: AlertMessage) -> str:
+    # The alert link is always short. A data link long enough to crowd out the details is left out.
+    links = [
+        f"[{escape_markdown(link.label)}](<{link.url}>)"
+        for link in message.links
+        if len(link.url) <= MAX_FOOTER_LINK_URL_CHARS
+    ]
+    footer = "\n\n"
+    if message.context:
+        # `-# ` is Discord's small print. Context names things a user chose, so it is escaped.
+        context = clip_text(" | ".join(message.context), MAX_FOOTER_CONTEXT_CHARS)
+        footer += f"-# {escape_markdown(context)}\n"
+    return footer + " · ".join(links)
+
+
+def _body(message: AlertMessage, limit: int) -> str:
+    headline = f"**{escape_markdown(message.title)}**"
     lines = [f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details]
     if not lines:
         return headline
-    content = f"{headline}\n\n" + "\n".join(lines)
-    if len(content) <= MAX_CONTENT_CHARS:
-        return content
+    body = f"{headline}\n\n" + "\n".join(lines)
+    if len(body) <= limit:
+        return body
     # An error message can carry a whole query, so it is a detail that overflows. Each detail gets
     # an equal share, so clipping the error cannot drop the failure count after it.
-    share = (MAX_CONTENT_CHARS - len(headline) - 2 - (len(lines) - 1)) // len(lines)
+    share = (limit - len(headline) - 2 - (len(lines) - 1)) // len(lines)
     return f"{headline}\n\n" + "\n".join(clip_text(line, share) for line in lines)
 
 

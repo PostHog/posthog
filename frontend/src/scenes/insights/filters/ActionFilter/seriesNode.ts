@@ -1,5 +1,6 @@
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -9,7 +10,6 @@ import {
     GroupNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { EntityType, EntityTypes } from '~/types'
 
 /**
@@ -99,22 +99,6 @@ export function seriesNodeEntityType(node: SeriesNode | null | undefined): Entit
     return node ? ENTITY_TYPE_BY_SERIES_NODE_KIND[node.kind] : undefined
 }
 
-export function seriesNodeKindForEntityType(
-    type: EntityType | null | undefined,
-    warehouseKind: WarehouseSeriesNodeKind
-): SeriesNode['kind'] {
-    switch (type) {
-        case EntityTypes.ACTIONS:
-            return NodeKind.ActionsNode
-        case EntityTypes.DATA_WAREHOUSE:
-            return warehouseKind
-        case EntityTypes.GROUPS:
-            return NodeKind.GroupNode
-        default:
-            return NodeKind.EventsNode
-    }
-}
-
 /**
  * An action id reaches the editor as a string from the taxonomic picker, while the schema types
  * `ActionsNode.id` as an integer. Coerce once, here, so no consumer has to repair it later.
@@ -127,7 +111,10 @@ export function withLatestVersion<T extends SeriesNode>(node: T): T {
     return setLatestVersionsOnQuery(node)
 }
 
-export function createDefaultEventsNode(defaults?: Partial<EventsNode>): EventsNode {
+export function createDefaultSeriesNode(defaults?: Partial<SeriesNode>): SeriesNode {
+    if (defaults?.kind && defaults.kind !== NodeKind.EventsNode) {
+        return withLatestVersion({ ...defaults } as SeriesNode)
+    }
     return withLatestVersion({
         kind: NodeKind.EventsNode,
         event: getDefaultEventName(),

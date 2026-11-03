@@ -10,6 +10,7 @@ import { PartitionOwnership } from '~/ingestion/pipelines/sessionreplay/staged-b
 
 import { MlKeyBatchController } from './keys/batch-controller'
 import { MlKeyBatch, MlSessionKeys } from './keys/key-store'
+import { MlSessionIdentity } from './keys/schema'
 import { MlMirrorMetrics } from './metrics'
 
 export interface MlDeferrableInput {
@@ -37,6 +38,7 @@ type DeferredAction = (
 export class MlBatchHandle {
     public keys?: MlKeyBatch
     private deferred: DeferredAction[] = []
+    private deferredSessions: MlSessionIdentity[] = []
     private readonly publish = pLimit(8)
 
     constructor(private readonly keyManager?: MlKeyBatchController) {}
@@ -46,6 +48,7 @@ export class MlBatchHandle {
         action: (input: T & SessionBatchContext) => Promise<PipelineResult<unknown>>,
         recordsMessage = false
     ): Promise<PipelineResult<T>> {
+        this.deferredSessions.push({ teamId: input.team.teamId, sessionId: input.headers.session_id })
         this.deferred.push(async (recorder, sideEffects, isAssigned) => {
             if (!isAssigned(input.message.partition)) {
                 return null
@@ -75,7 +78,8 @@ export class MlBatchHandle {
         isAssigned: PartitionOwnership = () => true
     ): Promise<Message[]> {
         if (this.keys && this.keyManager) {
-            await this.keyManager.commit(this.keys)
+            // Only messages that survived the batch deferred anything, so a session every message of was dropped stores no key.
+            await this.keyManager.commit(this.keys, this.deferredSessions)
         }
         const startedAt = performance.now()
         const sideEffects: SideEffectSink = async (promises) => {
@@ -92,6 +96,7 @@ export class MlBatchHandle {
         }
         const actions = this.deferred
         this.deferred = []
+        this.deferredSessions = []
         if (!actions.length) {
             return []
         }

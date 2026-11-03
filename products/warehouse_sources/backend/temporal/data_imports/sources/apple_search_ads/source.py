@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -26,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     validate_credentials as validate_apple_search_ads_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.oauth import (
+    MISSING_TOKEN_MESSAGE,
+    TOKEN_REFRESH_FAILED_MESSAGE,
     apple_ads_access_token,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
@@ -73,6 +76,8 @@ class AppleSearchAdsSource(
     CredentialAccountsMixin[AppleSearchAdsSourceConfig],
     OAuthMixin,
 ):
+    codebase_detection = detect(env=("^(APPLE_SEARCH_ADS|APPLESEARCHADS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (APPLE_SEARCH_ADS_API_VERSION_V5, APPLE_ADS_API_VERSION_V1)
@@ -88,6 +93,10 @@ class AppleSearchAdsSource(
         return ExternalDataSourceType.APPLESEARCHADS
 
     @property
+    def credential_kind(self) -> str | None:
+        return "apple-ads"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The stored private key is sent against whichever ad account (Platform API) or
         # organization (v5) is configured, so changing either retargets the saved credential at a
@@ -96,9 +105,16 @@ class AppleSearchAdsSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Raised from the OAuth path (`apple_ads_access_token`) when the stored grant's
+            # refresh token is itself expired or revoked — retrying mints no new token, the
+            # customer has to reconnect.
+            TOKEN_REFRESH_FAILED_MESSAGE: TOKEN_REFRESH_FAILED_MESSAGE,
+            MISSING_TOKEN_MESSAGE: MISSING_TOKEN_MESSAGE,
             "400 Client Error: Bad Request for url: https://appleid.apple.com/auth/oauth2/token": "Apple rejected the signed client secret. Check your client ID, team ID, key ID and private key.",
             "401 Client Error: Unauthorized for url: https://appleid.apple.com/auth/oauth2/token": "Apple rejected the signed client secret. Check your client ID, team ID, key ID and private key.",
             "401 Client Error: Unauthorized for url: https://api.ads.apple.com": "Apple rejected the access token. Your API client may have been removed. Create a new one in Apple Ads and reconnect this source.",
+            # Apple occasionally returns an empty HTTP reason phrase for the same 401 condition.
+            "401 Client Error:  for url: https://api.ads.apple.com": "Apple rejected the access token. Your API client may have been removed. Create a new one in Apple Ads and reconnect this source.",
             "403 Client Error: Forbidden for url: https://api.ads.apple.com": "Apple denied access to this ad account. Check that the API user has the API Account Read Only role for the ad account ID you entered.",
             "404 Client Error: Not Found for url: https://api.ads.apple.com": "Apple could not find this ad account. Check the ad account ID, which you can read from `adAccount.id` in Apple's Get User ACL endpoint.",
             "400 Client Error: Bad Request for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
@@ -152,7 +168,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
             permissionsCaption="""Assign the **API Account Read Only** role to the Apple Ads user who sets up the connection, under **Account settings > User management**. Apple attaches API roles to users, not to clients, so this applies to both authentication types. That role grants read access to the campaign data these tables are built from. Pick it rather than the campaign group **API Read Only**, which covers a single campaign group. The **API Account Manager** role also works if you already use it.""",
             iconPath="/static/services/apple_search_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apple-search-ads",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             # "Apple Search Ads" is the former product name, kept so the catalog still finds
             # this source under what Apple used to call it.
             keywords=["apple search ads", "asa", "app store ads", "search ads", "apple maps ads"],
@@ -252,6 +268,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Report start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

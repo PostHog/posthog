@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { timesTypical } from '../lib/format'
 import { rowNavigationProps } from '../lib/rowNavigation'
@@ -18,12 +17,12 @@ import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEA
 const FIXED_WINDOW = TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current.toLowerCase()
 
 /** The team's detail page, carrying the current scope so it opens scoped the same. */
-function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
-    return withCurrentScope(urls.engineeringAnalyticsTeam(ownerTeam), sourceId)
+function detailUrlOf(ownerTeam: string, repo: string | null, sourceId: string | null): string {
+    return withCurrentScope(urls.engineeringAnalyticsTeam(ownerTeam, repo), sourceId)
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
-    const { teams, teamsFailed, teamsLoading, teamsNotConnected, sourceId } = useValues(teamsLogic)
+    const { teams, teamsFailed, teamsLoading, teamsNotConnected, sourceId, scopeRepo } = useValues(teamsLogic)
     const { loadTeams } = useActions(teamsLogic)
     const { friction } = useValues(authorFrictionLogic)
     const medianFriction = new Map((friction?.teams ?? []).map((team) => [team.github_team, team.median_score]))
@@ -60,7 +59,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 row.ownerTeam === UNOWNED_TEAM ? (
                     <div className="flex items-center gap-2">
                         <Link
-                            to={detailUrlOf(row.ownerTeam, sourceId)}
+                            to={detailUrlOf(row.ownerTeam, scopeRepo, sourceId)}
                             className="font-semibold"
                             data-attr="eng-analytics-team-link"
                         >
@@ -74,7 +73,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     </div>
                 ) : (
                     <Link
-                        to={detailUrlOf(row.ownerTeam, sourceId)}
+                        to={detailUrlOf(row.ownerTeam, scopeRepo, sourceId)}
                         className="font-mono text-xs font-semibold"
                         data-attr="eng-analytics-team-link"
                     >
@@ -118,7 +117,6 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <Section id="team-ci-health" title="Owned tests by team">
                 {teamsFailed ? (
                     <CIAnalyticsLoadError onRetry={loadTeams} loading={teamsLoading} />
@@ -131,7 +129,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                             dataSource={teams?.rows ?? []}
                             rowKey={(row) => row.ownerTeam}
                             rowClassName="cursor-pointer"
-                            onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, sourceId))}
+                            onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, scopeRepo, sourceId))}
                             loading={teamsLoading}
                             pagination={{ pageSize: 20 }}
                             useURLForSorting={false}

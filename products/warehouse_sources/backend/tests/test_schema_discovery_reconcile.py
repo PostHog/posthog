@@ -8,7 +8,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_PINNED_METADATA_KEY,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
+    SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY,
     ExternalDataSchema,
     auto_enable_new_schemas,
     schema_name_matches_auto_sync_patterns,
@@ -236,6 +238,61 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert enabled_unsynced.should_sync is False
         assert enabled_unsynced.status == ExternalDataSchema.Status.COMPLETED
         mock_pause.assert_called_once_with(str(enabled_unsynced.id))
+
+    @parameterized.expand(
+        [
+            ("pinned_enabled_keeps_syncing", True, True, False),
+            ("pinned_off_with_table_stays", True, False, False),
+            ("unpinned_enabled_is_disabled", False, True, True),
+            ("non_boolean_value_is_not_pinned", "yes", True, True),
+        ]
+    )
+    def test_discovery_leaves_pinned_schemas_alone(
+        self, _name: str, pinned: object, should_sync: bool, expect_disabled: bool
+    ) -> None:
+        source = self._make_source()
+        schema = self._make_synced_schema(source, "orders_raw")
+        metadata = {"kind": "files", "scope": "glob", "pattern": "orders/*.csv", SCHEMA_PINNED_METADATA_KEY: pinned}
+        schema.should_sync = should_sync
+        schema.sync_type_config = {"schema_metadata": metadata}
+        schema.save()
+
+        with patch(_PAUSE_FN) as mock_pause, self.captureOnCommitCallbacks(execute=True):
+            sync_result = sync_old_schemas_with_new_schemas(
+                {"orders": None},
+                source_id=str(source.pk),
+                team_id=self.team.pk,
+            )
+
+        schema.refresh_from_db()
+        assert schema.deleted is False
+        assert sync_result.deleted == []
+        assert schema.should_sync is (should_sync and not expect_disabled)
+        assert mock_pause.called is expect_disabled
+
+    def test_discovery_does_not_revive_a_deleted_migration_schema(self) -> None:
+        source = self._make_source()
+        ref = {"table_id": str(uuid.uuid4()), "url_pattern": "https://b.s3.amazonaws.com/o/*.csv", "format": "CSV"}
+        tombstone = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="orders",
+            should_sync=False,
+            deleted=True,
+            sync_type_config={
+                "schema_metadata": {SCHEMA_PINNED_METADATA_KEY: True, SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY: ref}
+            },
+        )
+
+        sync_old_schemas_with_new_schemas({"orders": None}, source_id=str(source.pk), team_id=self.team.pk)
+
+        tombstone.refresh_from_db()
+        assert tombstone.deleted is True
+        revived = ExternalDataSchema.objects.get(
+            team_id=self.team.pk, source_id=source.pk, name="orders", deleted=False
+        )
+        assert revived.pk != tombstone.pk
+        assert SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY not in (revived.sync_type_config or {}).get("schema_metadata", {})
 
     def test_failed_pause_leaves_the_table_on_and_still_pauses_the_others(self) -> None:
         # A row written off while its schedule still runs keeps billing, and the next discovery run

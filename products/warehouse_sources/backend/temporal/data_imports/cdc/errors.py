@@ -25,9 +25,11 @@ MAX_FRIENDLY_MESSAGE_LENGTH = 500
 class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
+    CERTIFICATE_REJECTED = "certificate_rejected"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
+    POOLER_TENANT_NOT_FOUND = "pooler_tenant_not_found"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -72,14 +74,13 @@ class CDCReservedColumnError(Exception):
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
 
-    For the engine position column it is raised when capture writes the buffer — buffer files
-    derive their name, ordering, and retry cleanup from it, and a same-named source column means
-    the batcher could not append it. Writing anyway would order and clean up by customer data,
-    which can silently delete unconsumed buffer files.
+    Names are compared the way the load writes them, after snake_case normalization, so
+    `_PH_CDC_SEQ` collides with `_ph_cdc_seq`. Capture raises it before it writes the buffer: buffer
+    files derive their name, ordering, and retry cleanup from the engine position, and ordering or
+    cleaning up by customer data can silently delete unconsumed buffer files.
 
-    For the history table's validity columns it is raised on every path, from the SCD2 stamp
-    itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
-    names the column instead of a qualified field in a schema error.
+    The SCD2 stamp raises it too, because Delta refuses the duplicate name at write time anyway, and
+    failing before the writer names the column instead of a qualified field in a schema error.
     """
 
 
@@ -94,6 +95,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.SSL_REQUIRED: (
         "Could not establish a required encrypted (SSL) connection to the source database. Check "
         "that the database accepts SSL connections, then re-enable change data capture.",
+        False,
+    ),
+    CDCErrorCategory.CERTIFICATE_REJECTED: (
+        "The TLS certificate check failed. Either the source database's certificate did not pass "
+        "verification, or the database rejected the client certificate. Check the TLS settings of the "
+        "source, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.CONNECTION_FAILED: (
@@ -113,6 +120,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "Your database provider blocked the connection because your account or project exceeded a "
         "usage quota. Upgrade your provider's plan or wait for the quota to reset, then re-enable "
         "change data capture.",
+        False,
+    ),
+    CDCErrorCategory.POOLER_TENANT_NOT_FOUND: (
+        "Your connection pooler couldn't find your database project or user. Check that the project "
+        "is active and the pooler username is correct, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (
@@ -138,7 +150,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (
-        "The replication slot is currently in use by another connection. PostHog will retry shortly.",
+        "Another connection held your replication slot, so this run couldn't read changes. If this keeps "
+        "happening, check that no other tool or PostHog source reads from that slot.",
         True,
     ),
     CDCErrorCategory.PERMISSION_DENIED: (
@@ -160,8 +173,10 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
-        "A source table has a column named _ph_cdc_seq, which PostHog uses for change data capture. "
-        "Rename the column on your database, or choose another sync method for that table.",
+        "A source table has a column that loads under a name PostHog writes for change data capture, "
+        "such as _ph_cdc_seq or _ph_valid_from, or valid_from on an older history table that ends in _cdc. "
+        "Rename the column on your database, leave it out of the synced columns, or choose another sync "
+        "method for that table.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (

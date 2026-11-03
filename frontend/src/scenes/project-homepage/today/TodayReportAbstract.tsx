@@ -15,18 +15,10 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
         impactText,
         impactMarks,
         shownKeyClauses,
-        leadStatesNumber,
     } = useValues(todayReportLogic({ reportId: report.id }))
 
     if (numbers.length === 0 && !impactText) {
-        if (leadStatesNumber) {
-            return null
-        }
-        return (
-            <Text size="sm" variant="muted" render={<p />} data-attr="today-report-abstract">
-                The report doesn’t say how big this is yet.
-            </Text>
-        )
+        return null
     }
 
     if (numbers.length === 0) {

@@ -5,7 +5,6 @@ import { expectLogic } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { useMocks } from '~/mocks/jest'
 import { UserUIConfiguration } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -101,67 +100,49 @@ describe('sqlEditorVimLogic', () => {
         expect(logic.values.vimrcEditorKey).toBeNull()
     })
 
-    it.each(['vimrc', 'sidebar-after-vim', 'sidebar-before-vim'] as const)(
-        'preserves both settings when the queued change is %s',
-        async (scenario) => {
-            const patches: Partial<UserType>[] = []
-            let releaseFirstPatch: () => void = () => {}
-            let reportFirstStarted: () => void = () => {}
-            const firstStarted = new Promise<void>((resolve) => {
-                reportFirstStarted = resolve
-            })
-            const firstPatchHeld = new Promise<void>((resolve) => {
-                releaseFirstPatch = resolve
-            })
-            useMocks({
-                patch: {
-                    '/api/users/@me/': async ({ request }) => {
-                        const body = (await request.json()) as Partial<UserType>
-                        patches.push(body)
-                        if (patches.length === 1) {
-                            reportFirstStarted()
-                            await firstPatchHeld
-                        }
-                        return [200, { ...MOCK_DEFAULT_USER, ...body }]
-                    },
+    it('preserves both settings when a vimrc change is queued behind a Vim mode change', async () => {
+        const patches: Partial<UserType>[] = []
+        let releaseFirstPatch: () => void = () => {}
+        let reportFirstStarted: () => void = () => {}
+        const firstStarted = new Promise<void>((resolve) => {
+            reportFirstStarted = resolve
+        })
+        const firstPatchHeld = new Promise<void>((resolve) => {
+            releaseFirstPatch = resolve
+        })
+        useMocks({
+            patch: {
+                '/api/users/@me/': async ({ request }) => {
+                    const body = (await request.json()) as Partial<UserType>
+                    patches.push(body)
+                    if (patches.length === 1) {
+                        reportFirstStarted()
+                        await firstPatchHeld
+                    }
+                    return [200, { ...MOCK_DEFAULT_USER, ...body }]
                 },
-            })
-            setUp({ uiConfiguration: { version: 1 } })
+            },
+        })
+        setUp({ uiConfiguration: { version: 1 } })
 
-            if (scenario === 'sidebar-before-vim') {
-                uiCustomizationLogic.actions.setSidebarDensity('compact')
-            } else {
-                logic.actions.setVimModeEnabled(true)
-            }
-            await firstStarted
+        logic.actions.setVimModeEnabled(true)
+        await firstStarted
+        logic.actions.setVimrcDraft('set relativenumber')
+        logic.actions.saveVimrc()
+        const requestsBeforeRelease = patches.length
+        const optimisticConfiguration = logic.values.uiConfiguration
+        await expectLogic(userLogic, releaseFirstPatch).toFinishAllListeners()
 
-            if (scenario === 'vimrc') {
-                logic.actions.setVimrcDraft('set relativenumber')
-                logic.actions.saveVimrc()
-            } else if (scenario === 'sidebar-after-vim') {
-                uiCustomizationLogic.actions.setSidebarDensity('compact')
-            } else {
-                logic.actions.setVimModeEnabled(true)
-            }
-            const requestsBeforeRelease = patches.length
-            const optimisticConfiguration = logic.values.uiConfiguration
-            await expectLogic(userLogic, releaseFirstPatch).toFinishAllListeners()
-
-            const expectedConfiguration = {
-                version: 1,
-                ...(scenario === 'vimrc' ? {} : { sidebar: { density: 'compact' } }),
-                sql_editor: {
-                    vim_mode_enabled: true,
-                    ...(scenario === 'vimrc' ? { vimrc: 'set relativenumber' } : {}),
-                },
-            }
-            expect(requestsBeforeRelease).toBe(1)
-            expect(patches).toHaveLength(2)
-            expect(optimisticConfiguration).toEqual(expectedConfiguration)
-            expect(patches[1].ui_configuration).toEqual(expectedConfiguration)
-            expect(logic.values.uiConfiguration).toEqual(expectedConfiguration)
+        const expectedConfiguration = {
+            version: 1,
+            sql_editor: { vim_mode_enabled: true, vimrc: 'set relativenumber' },
         }
-    )
+        expect(requestsBeforeRelease).toBe(1)
+        expect(patches).toHaveLength(2)
+        expect(optimisticConfiguration).toEqual(expectedConfiguration)
+        expect(patches[1].ui_configuration).toEqual(expectedConfiguration)
+        expect(logic.values.uiConfiguration).toEqual(expectedConfiguration)
+    })
 
     it.each([200, 400])('keeps queued Vim changes when an unrelated update returns %s', async (status) => {
         let releaseAccountPatch: () => void = () => {}

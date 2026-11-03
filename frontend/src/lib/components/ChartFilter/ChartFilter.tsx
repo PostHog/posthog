@@ -2,18 +2,17 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { ChartDisplayIcon } from 'lib/components/ChartFilter/ChartDisplayIcon'
+import type { ChartDisplayOption } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { getChartDisplayOptions } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
-
-import { ChartDisplayIcon } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon'
-import type { ChartDisplayOption } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
-import { getChartDisplayOptions } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
@@ -60,8 +59,6 @@ export function ChartFilter({
         breakdowns: breakdownFilter?.breakdowns,
         boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
         hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
-        hasProportionBarChart: !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART],
-        currentDisplay: display ?? undefined,
         isComparing: !!compareFilter?.compare,
     }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
 

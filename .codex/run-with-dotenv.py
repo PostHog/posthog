@@ -91,7 +91,7 @@ def main() -> NoReturn:
         raise SystemExit(f"error: .env cannot override protected variables: {', '.join(blocked_names)}")
 
     environment = os.environ.copy()
-    environment.update({name: value for name, value in values.items() if value is not None})
+    environment.update({name: value for name, value in values.items() if value is not None and name not in environment})
     # argv is the caller's own command line, which with-flox execs directly when no .env is present.
     # The .env is the untrusted input, and the blocked-name checks above keep it out of the exec.
     # nosemgrep: python.lang.security.audit.dangerous-os-exec-tainted-env-args.dangerous-os-exec-tainted-env-args

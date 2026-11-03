@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.enums import LabeledStrEnum
@@ -16,6 +19,7 @@ from products.alerts_platform.backend.comparison.platform_history import (
 )
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
+from products.alerts_platform.backend.logic.platform_lifecycle import CONFIGURATION_ROW_ALERT_ID
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -50,6 +54,7 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
     ) -> PlatformAlertEventRow:
         return PlatformAlertEventRow(
             team_id=self.team.id,
+            source_kind="logs",
             configuration_id=configuration.id,
             alert_id=overrides.pop("alert_id", uuid4()),
             grouping_key="",
@@ -120,6 +125,17 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
         assert len(checks) == 2
         assert len({check.evaluation_key for check in checks}) == 2
 
+    def test_failed_checks_of_two_configurations_in_one_slot_both_read(self) -> None:
+        first, second = (self._configuration(legacy_configuration_id=uuid4()) for _ in range(2))
+        key = _key("2026-09-30T11:59:00+00:00")
+        for configuration in (first, second):
+            self._record(configuration, evaluation_key=key, alert_id=CONFIGURATION_ROW_ALERT_ID)
+
+        checks = self._read()
+
+        assert {check.configuration_id for check in checks} == {first.id, second.id}
+        assert len({check.ref for check in checks}) == 2
+
     def test_a_source_the_configuration_model_does_not_accept_is_an_error(self) -> None:
         # Without this an unregistered source reads as one that made no checks, and whoever runs
         # the first insight comparison concludes the parallel run is quiet.
@@ -140,9 +156,17 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert teams_with_configurations(SourceKind.LOGS) == [self.team.id]
 
-    def test_another_source_is_not_in_a_logs_comparison(self) -> None:
+    @parameterized.expand(
+        [
+            ("another_source", {"source_kind": "insight"}),
+            ("a_grouped_configuration", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+        ]
+    )
+    def test_a_check_with_no_comparable_verdict_is_not_in_a_logs_comparison(
+        self, _name: str, overrides: dict[str, Any]
+    ) -> None:
         self._record(
-            self._configuration(source_kind="insight", legacy_configuration_id=uuid4()),
+            self._configuration(legacy_configuration_id=uuid4(), **overrides),
             evaluation_key="run:2026-09-30T11:59:00+00:00",
         )
 

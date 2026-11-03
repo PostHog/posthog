@@ -24,7 +24,6 @@ import requests
 import tenacity
 from urllib3.util.retry import Retry
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     NO_REQUEST_TIMEOUT,
     make_tracked_session,
@@ -44,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tests.cont
     STALL_BUDGET,
     TIMEOUT,
     Scenario,
+    ScenarioResponder,
     SourceStatus,
     StartExtraction,
     check_extraction,
@@ -64,9 +64,7 @@ NO_ADAPTER_RETRY = Retry(total=0)
 # A stub is a source directory with a `source.py` and no extraction code: its class still has the
 # base `source_for_pipeline`. The contract does not apply to it until the extraction code ships.
 IMPLEMENTED_SOURCES = {
-    str(source_type.value): source
-    for source_type, source in SourceRegistry.get_all_sources().items()
-    if not is_stub(source)
+    str(source_type): source for source_type, source in SourceRegistry.get_all_sources().items() if not is_stub(source)
 }
 
 
@@ -238,7 +236,7 @@ def test_retry_waits_reach_the_fake_clock_after_a_test_replaced_them(monkeypatch
     # verdict of a source must not depend on whether such a test ran earlier in the same process.
     controller = cast(Any, _retried_call).retry
     monkeypatch.setattr(controller, "sleep", lambda *_: None)
-    with fake_environment(Scenario(mode="stall")):
+    with fake_environment(ScenarioResponder(Scenario(mode="stall"))):
         assert controller.sleep is time.sleep
     assert controller.sleep is not time.sleep
 

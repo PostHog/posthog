@@ -2,16 +2,17 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, sele
 
 import type { DataColorTheme } from 'lib/colors'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
+import { isPathsQuery } from '~/queries/schema/node-guards'
 import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import type {
     DataNode,
@@ -29,9 +30,9 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isPathsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { pathNodeKeys } from './pathsChartTransforms'
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
 
@@ -171,22 +172,10 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
         paths: [
             (s) => [s.results],
-            (results: PathsLink[]): Paths => {
-                const nodes: Record<string, PathsNode> = {}
-                for (const path of results) {
-                    if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source }
-                    }
-                    if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target }
-                    }
-                }
-
-                return {
-                    nodes: Object.values(nodes),
-                    links: results,
-                }
-            },
+            (results: PathsLink[]): Paths => ({
+                nodes: pathNodeKeys(results).map((name): PathsNode => ({ name })),
+                links: results,
+            }),
         ],
         taxonomicGroupTypes: [
             (s) => [s.pathsFilter],

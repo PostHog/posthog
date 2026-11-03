@@ -4,21 +4,22 @@ from typing import Any, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.auth import InternalAPIUser
 from posthog.redis import get_client
 
 from products.signals.backend.facade.api import (
+    MAX_RUN_NOTE_CHARS,
     ScoutRunRejectionKind,
     WorkflowScoutRunRejected,
     start_workflow_scout_run,
 )
 from products.workflows.backend.facade.api import workflow_exists
 from products.workflows.backend.facade.service_jwt import WORKFLOW_SCOUT_RUN_PURPOSE
+from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 logger = structlog.get_logger(__name__)
 
@@ -47,19 +48,8 @@ _REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
 }
 
 
-class WorkflowScoutRunsJWTAuthentication(ScopedServiceJWTAuthentication):
+class WorkflowScoutRunsJWTAuthentication(WorkflowStepJWTAuthentication):
     purpose = WORKFLOW_SCOUT_RUN_PURPOSE
-
-    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
-        user, _ = super()._authenticate_claims(request, claims)
-        # The workflow is identified by the verified token, never by the request body, so a
-        # token minted for one workflow can't spend another workflow's scout runs.
-        try:
-            hog_flow_id = uuid.UUID(str(claims.get("hog_flow_id")))
-        except ValueError:
-            raise AuthenticationFailed("Service token is missing its workflow claim.")
-        return user, hog_flow_id
 
 
 class WorkflowScoutRunCreateSerializer(serializers.Serializer):
@@ -70,6 +60,17 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
         max_length=128,
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the run it dispatched, without spending another.",
+    )
+    note = serializers.CharField(
+        max_length=MAX_RUN_NOTE_CHARS,
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        help_text=(
+            "Optional note for this run alone, rendered by the step from its triggering event, for example "
+            "'PR #123'. The scout handles what the note names before anything else, and reads it as untrusted "
+            "input. Blank means no note."
+        ),
     )
 
 
@@ -87,8 +88,10 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
     service JWT minted by the plugin server, never by a user credential, with its own signing key
     and audience.
 
-    A run is a pure kick: nothing from the triggering event reaches the scout, so it explores
-    exactly as it does on its schedule. It never stamps the scout's last_run_at and never feeds
+    The only content from the triggering event that reaches the scout is the step's optional
+    `note`, which the scout reads as untrusted input naming the subject it handles first. Without
+    one, the scout is told a workflow started it and otherwise runs as it does on its schedule. A
+    run never stamps the scout's last_run_at and never feeds
     its failure-streak breaker — a workflow trigger is additive to the schedule, not a
     substitute for it."""
 
@@ -132,6 +135,7 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"].strip()
         idempotency_key = serializer.validated_data.get("idempotency_key")
+        note = serializer.validated_data.get("note") or None
         cache_key = _idempotency_cache_key(hog_flow_id, idempotency_key) if idempotency_key else None
 
         # A replay of an already-dispatched key returns that run before any other check, same as
@@ -149,7 +153,11 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
 
         try:
             started = start_workflow_scout_run(
-                team_id=team_id, skill_name=skill_name, workflow_origin_key=idempotency_key
+                team_id=team_id,
+                skill_name=skill_name,
+                workflow_origin_key=idempotency_key,
+                run_note=note,
+                trigger_workflow_id=str(hog_flow_id),
             )
         except WorkflowScoutRunRejected as error:
             logger.info(

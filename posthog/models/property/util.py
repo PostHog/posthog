@@ -77,13 +77,21 @@ def get_property_string_expr(
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
+def _json_events_to_json_string_expr(value: str) -> str:
+    serialized = f"toJSONString({value})"
+    # With slash escaping disabled, a backslash before '/' belongs to the value and must survive.
+    return f"if(getSetting('output_format_json_escape_forward_slashes'), replaceAll({serialized}, '\\\\/', '/'), {serialized})"
+
+
 def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
-    object_value = f"JSONStripEmptyStringsAndNulls(toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)}))"
+    object_value = _json_events_to_json_string_expr(
+        _json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)
+    )
     scalar_string = f"toString({scalar_value})"
     # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
     # string's JSON form starts with '"' (see the HogQL resolver).
-    scalar_json = f"toJSONString({scalar_value})"
+    scalar_json = _json_events_to_json_string_expr(scalar_value)
     # 91 and 123 are '[' and '{'; compared by code so no brace literal reaches callers that str.format the SQL.
     is_container = f"ascii({scalar_string}) IN (91, 123) AND ascii({scalar_json}) IN (91, 123)"
     raw_value = (
@@ -142,7 +150,7 @@ def _chain_attribute_order(key: str) -> str:
 # A semicolon separates elements only outside a quoted attribute value — an inline
 # style="display: flex; gap: 4px" carries its own. Quotes inside a value are escaped
 # as \" (see _escape in posthog/models/element/element.py), so an escaped quote must
-# not close the span. split_chain_regex draws the boundary the same way. A backslash
+# not close the span. split_elements_chain draws the boundary the same way. A backslash
 # is consumed only together with the character after it, so a long run of backslashes
 # has one way to match and cannot cause catastrophic backtracking.
 _QUOTED_VALUE = r'"(?:\\.|[^"\\])*"'

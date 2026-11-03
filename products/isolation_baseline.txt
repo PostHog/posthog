@@ -54,7 +54,6 @@ managed_migrations
 marketing_analytics
 mcp_analytics
 mcp_store
-messaging
 notebooks
 notifications
 platform_features
@@ -65,7 +64,6 @@ reminders
 replay
 replay_vision
 revenue_analytics
-review_hog
 signals
 skills
 slack_app

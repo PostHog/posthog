@@ -15,3 +15,6 @@ export type CdpEventsDlqOutput = typeof CDP_EVENTS_DLQ_OUTPUT
 
 export const SES_WEBHOOKS_OUTPUT = 'ses_webhooks' as const
 export type SesWebhooksOutput = typeof SES_WEBHOOKS_OUTPUT
+
+export const EMAIL_STATUS_OUTPUT = 'email_status' as const
+export type EmailStatusOutput = typeof EMAIL_STATUS_OUTPUT

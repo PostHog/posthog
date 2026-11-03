@@ -36,6 +36,8 @@ export function ScoutTrialComparisonReport({
     const differencesOnly = filter?.evaluationId === report.evaluation_id ? filter.differencesOnly : checks.length > 5
     const rubricLabel = 'Saved rubric'
     const outcome = report.outcome
+    const hasExcludedVersions = versions.some((version) => version.excluded)
+    const hasTiedLeaders = (outcome?.variant_ids?.length ?? 0) > 1
     const bestVersionNames = versions
         .filter(({ variant }) => outcome?.variant_ids?.includes(variant.variant_id))
         .map(({ variant }) => variant.label)
@@ -49,11 +51,16 @@ export function ScoutTrialComparisonReport({
                 <div className="flex min-w-0 flex-col gap-1">
                     <strong className="break-words">
                         {outcome?.status === 'winner'
-                            ? `Best in this trial: ${bestVersionNames}`
+                            ? `${hasExcludedVersions ? 'Best among completed versions' : 'Best in this trial'}: ${bestVersionNames}`
                             : outcome?.status === 'tie'
-                              ? `Tie: ${bestVersionNames}`
-                              : 'No clear winner'}
+                              ? `${hasExcludedVersions ? 'Best among completed versions (tie)' : 'Tie'}: ${bestVersionNames}`
+                              : outcome?.status === 'provisional'
+                                ? `${hasTiedLeaders ? 'Provisional tied leaders' : 'Provisional leader'}: ${bestVersionNames}`
+                                : 'No clear winner'}
                     </strong>
+                    {outcome?.status === 'provisional' && hasExcludedVersions && (
+                        <span>Best among completed versions</span>
+                    )}
                     <span className="break-words">
                         {outcome?.summary ??
                             'This saved report has no comparison conclusion. Review the results below.'}
@@ -64,23 +71,25 @@ export function ScoutTrialComparisonReport({
 
             <section className="flex min-w-0 flex-col gap-2">
                 <h3 className="m-0 text-sm font-semibold">Leaderboard</h3>
-                <p className="m-0 text-xs text-muted">Ranked by checks passed. Cost and time don't affect the rank.</p>
+                <p className="m-0 text-xs text-muted">
+                    Completed versions are ranked by confirmed checks passed. Cost and time don't affect the rank.
+                </p>
                 <LemonTable<TrialVersionResult>
                     dataSource={versions}
                     rowKey={({ variant }) => variant.variant_id}
                     size="small"
-                    rowClassName={({ variant }) =>
-                        outcome?.status === 'winner' && outcome.variant_ids?.includes(variant.variant_id)
+                    rowClassName={({ variant, excluded }) =>
+                        !excluded && outcome?.status === 'winner' && outcome.variant_ids?.includes(variant.variant_id)
                             ? 'bg-success-highlight'
                             : null
                     }
                     columns={[
-                        { title: '#', key: 'rank', width: 44, render: (_, version) => version.rank },
+                        { title: '#', key: 'rank', width: 44, render: (_, version) => version.rank ?? '–' },
                         {
                             title: 'Version',
                             key: 'version',
                             width: 240,
-                            render: (_, { variant, letter, settings, prompt }) => (
+                            render: (_, { variant, letter, settings, prompt, excluded }) => (
                                 <div className="flex min-w-48 flex-col items-start gap-1">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <LemonTag type="muted">{letter}</LemonTag>
@@ -88,10 +97,27 @@ export function ScoutTrialComparisonReport({
                                     </div>
                                     <div className="flex flex-wrap gap-1">
                                         {variant.is_baseline && <LemonTag type="muted">Baseline</LemonTag>}
-                                        {outcome?.variant_ids?.includes(variant.variant_id) &&
+                                        {excluded && <LemonTag type="warning">Excluded</LemonTag>}
+                                        {!excluded &&
+                                            outcome?.variant_ids?.includes(variant.variant_id) &&
                                             outcome.status !== 'inconclusive' && (
-                                                <LemonTag type={outcome.status === 'winner' ? 'success' : 'muted'} wrap>
-                                                    {outcome.status === 'winner' ? 'Most checks passed' : 'Tied'}
+                                                <LemonTag
+                                                    type={
+                                                        outcome.status === 'provisional'
+                                                            ? 'warning'
+                                                            : outcome.status === 'winner'
+                                                              ? 'success'
+                                                              : 'muted'
+                                                    }
+                                                    wrap
+                                                >
+                                                    {outcome.status === 'provisional'
+                                                        ? hasTiedLeaders
+                                                            ? 'Provisional tie'
+                                                            : 'Provisional leader'
+                                                        : outcome.status === 'winner'
+                                                          ? 'Most checks passed'
+                                                          : 'Tied'}
                                                 </LemonTag>
                                             )}
                                     </div>
@@ -175,7 +201,8 @@ export function ScoutTrialComparisonReport({
                     ]}
                 />
                 <p className="m-0 text-xs text-muted">
-                    Pass rates average the judged runs. Unknown and not applicable checks are left out of the rate.
+                    Pass rates average the judged runs. Unknown and not applicable checks are left out of the rate and
+                    earn no passes in the ranking.
                 </p>
             </section>
 
@@ -318,14 +345,21 @@ export function ScoutTrialComparisonReport({
                         header: 'How ranking works',
                         content: (
                             <ul className="m-0 flex flex-col gap-2 pl-4 text-sm">
-                                <li>The most checks passed across all runs ranks first. Equal totals are a tie.</li>
                                 <li>
-                                    There is no winner if a run failed, was stopped, could not be judged, or has unknown
-                                    checks.
+                                    A version is excluded if any run failed, was stopped, was excluded, or could not be
+                                    judged. Its results stay visible.
                                 </li>
                                 <li>
-                                    Checks that don't apply aren't counted. Versions need the same number of runs and
-                                    applicable checks for a fair comparison.
+                                    At least two complete versions are needed. The most confirmed checks passed across
+                                    all runs ranks first. Equal totals are a tie.
+                                </li>
+                                <li>
+                                    Unknown checks earn no passes and make the lead provisional. They stay visible so
+                                    you can review the missing evidence.
+                                </li>
+                                <li>
+                                    Checks that don't apply aren't counted. A final winner or tie needs the same number
+                                    of runs and comparable applicable checks.
                                 </li>
                                 <li>{`The rubric stayed fixed at revision ${report.rubric_revision}. These results describe these runs, not future performance.`}</li>
                             </ul>

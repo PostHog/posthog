@@ -17,6 +17,7 @@ from products.data_modeling.backend.logic.freshness import (
     compute_target_bounds,
     find_invalid_targets,
     intersect_target_bounds,
+    max_data_age,
     normalize_seed_target,
     validate_declared_target,
 )
@@ -253,6 +254,25 @@ class TestComputeTargetBounds(TestCase):
         self.assertFalse(bounds.satisfiable)
 
 
+class TestMaxDataAge(TestCase):
+    @parameterized.expand(
+        [
+            ("slowest_of_two_sources", [("hourly", "v"), ("daily", "v")], {"hourly": H1, "daily": DAY}, {}, DAY),
+            ("fast_source_still_counts", [("src", "v")], {"src": M5}, {}, M5),
+            ("streaming_only", [("events", "v")], {"events": STREAMING}, {}, STREAMING),
+            ("refresh_adds_to_its_sources", [("src", "mat"), ("mat", "v")], {"src": H6}, {"mat": H12}, H6 + H12),
+            ("own_target_does_not_count", [("src", "v")], {"src": H1}, {"v": DAY}, H1),
+        ]
+    )
+    def test_takes_the_slowest_chain_of_syncs_and_refreshes(self, _name, edges, intervals, targets, expected):
+        self.assertEqual(max_data_age("v", edges, intervals, targets), expected)
+
+    def test_deep_chain_does_not_overflow(self):
+        depth = 5000
+        edges = [(f"n{i}", f"n{i + 1}") for i in range(depth - 1)]
+        self.assertEqual(max_data_age(f"n{depth - 1}", edges, {"n0": H1}, {}), H1)
+
+
 class TestIntersectTargetBounds(TestCase):
     # the same saved query has a node in two DAGs: one bounded by a 6h source, the other by a
     # 12h consumer. The save path validates against both, so the picker has to as well.
@@ -304,6 +324,17 @@ class TestFindInvalidTargets(TestCase):
                 {"a": H6, "ep": M15},
                 {"src": STREAMING},
                 [InvalidTarget(node_id="a", declared=H6, source_floor=STREAMING, consumer_ceiling=M15)],
+            ),
+            # a stale target in the middle of a chain does not hide the 6h demand from the node above it
+            (
+                "stale_chain_flags_every_ancestor",
+                [("src", "a"), ("a", "b"), ("b", "c")],
+                {"a": DAY, "b": DAY, "c": H6},
+                {"src": STREAMING},
+                [
+                    InvalidTarget(node_id="a", declared=DAY, source_floor=STREAMING, consumer_ceiling=H6),
+                    InvalidTarget(node_id="b", declared=DAY, source_floor=STREAMING, consumer_ceiling=H6),
+                ],
             ),
             # a source slowing down (6h import) pushes the floor above an existing 15min target
             (

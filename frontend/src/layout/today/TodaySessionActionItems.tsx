@@ -5,7 +5,6 @@ import {
     IconCheckbox,
     IconCopy,
     IconExternal,
-    IconFolder,
     IconPencil,
     IconPin,
     IconPinFilled,
@@ -23,8 +22,6 @@ import { todayArchiveShortcutLabel } from './todaySessionArchiveShortcut'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { todayShellLogic } from './todayShellLogic'
-import { TodaySpaceFileList } from './TodaySpaceFileList'
-import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySessionMenuTarget } from './todayWorkItems'
 
 interface TodaySessionActionItemsProps {
@@ -37,20 +34,18 @@ interface TodaySessionActionItemsProps {
 
 /** A session's actions, in Desktop's order: the edits, the places it can go, then archive last. */
 export function TodaySessionActionItems({
-    parts: { Item, Separator, Shortcut, Sub },
+    parts: { Item, Separator, Shortcut },
     target,
     surface,
     dataAttrPrefix,
 }: TodaySessionActionItemsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { spaces } = useValues(todaySpacesLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { toggleSessionSelection } = useActions(todaySessionSelectionLogic)
     const {
         setSessionPinned,
         startRenaming,
         requestArchive,
-        moveSession,
         openHandoff,
         analyzeSession,
         openSessionInNewTab,
@@ -92,25 +87,6 @@ export function TodaySessionActionItems({
                     <IconStopFilled />
                     Stop session
                 </Item>
-            )}
-            {spaces.length > 0 && (
-                <Sub
-                    label={
-                        <>
-                            <IconFolder />
-                            File to…
-                        </>
-                    }
-                    title="File to…"
-                    dataAttr={attr('file')}
-                >
-                    <TodaySpaceFileList
-                        currentSpaceId={target.spaceId}
-                        onSelect={(spaceId) => moveSession(sessionId, spaceId)}
-                        itemDataAttr={attr('move')}
-                        searchDataAttr={attr('move-search')}
-                    />
-                </Sub>
             )}
             {target.canHandOff && (
                 <Item onClick={() => openHandoff(menuId)} dataAttr={attr('handoff')}>

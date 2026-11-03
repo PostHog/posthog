@@ -203,6 +203,7 @@ def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
     "host,port,bypass_proxy",
     [
         ("tenant.dw.us.postwh.com", 443, True),
+        ("tenant.dw.eu.postwh.com", 443, True),
         ("TENANT.DW.DEV.POSTWH.COM.", 443, True),
         ("tenant.dw.us.postwh.com", 8443, False),
         ("trino.example.com", 443, False),

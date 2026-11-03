@@ -192,7 +192,8 @@ tools:
             finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
             canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`. Stage a draft with canvas-draft-create only when the user asked for a draft or a
-            review step.
+            review step. After substantial visual changes, check the final canvas once its build is ready if browser
+            access is already available. Skip browser checks for small edits.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -236,7 +237,8 @@ tools:
             publish) — a stale base is rejected with 409 version_conflict; re-read the layout, re-apply, and patch
             again. To fill a drawn box: update_placement with changes {status: "live", component: <component canvas id>,
             config: {...}}. The component must be published (canvas-list kind=component shows component_meta and
-            published_build_id) and the config must match its configSchema.
+            published_build_id) and the config must match its configSchema. After substantial visual changes, check the
+            final live canvas once if browser access is already available. Skip browser checks for small edits.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to patch.
@@ -257,7 +259,8 @@ tools:
             component's configSchema); errors reject the publish and leave the canvas untouched. The new version is live
             immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before
             the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild
-            the document on the new head, and publish again.
+            the document on the new head, and publish again. After substantial visual changes, check the final live
+            canvas once if browser access is already available. Skip browser checks for small edits.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to publish.
@@ -360,7 +363,8 @@ tools:
             this tool is what saves it. The response's `build` carries the build status: `ready` means the build
             finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
             canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
-            `queued` or `building`.
+            `queued` or `building`. After substantial visual changes, check the final canvas once its build is ready if
+            browser access is already available. Skip browser checks for small edits.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
@@ -411,9 +415,9 @@ tools:
             own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
             progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
             declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
-            Returns a key inventory by default. Keep filters unchanged and follow next_offset until complete is true.
-            Set key or key_prefix and keys_only=false for small selected values. Use canvas-state-value-retrieve for
-            long values. This reads persisted state directly; no composition storage tool is needed.
+            Returns a key inventory by default. Keep filters unchanged and pass next_cursor as cursor until complete is
+            true. Set key or key_prefix and keys_only=false for small selected values. Use canvas-state-value-retrieve
+            for long values. This reads persisted state directly; no composition storage tool is needed.
         param_overrides:
             limit:
                 input_schema: CanvasStateReadLimitSchema

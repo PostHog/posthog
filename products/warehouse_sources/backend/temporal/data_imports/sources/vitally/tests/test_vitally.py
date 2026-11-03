@@ -5,17 +5,32 @@ from unittest.mock import MagicMock, Mock, patch
 
 from requests import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
+    VitallyRegionConfig,
+    VitallySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source import VitallySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally import (
     VitallyPaginator,
+    VitallyResumeConfig,
     get_custom_object_records_resource,
     get_messages,
     list_custom_object_definitions,
     vitally_source,
 )
+
+
+def _no_resume() -> Mock:
+    return Mock(can_resume=Mock(return_value=False))
 
 
 def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
@@ -25,17 +40,6 @@ def _make_response(json_data: dict[str, Any], status_code: int = 200) -> Mock:
     response.json.return_value = json_data
     response.raise_for_status = Mock()
     return response
-
-
-def _make_session(responses: list[Mock]) -> MagicMock:
-    session = MagicMock()
-    session.__enter__.return_value = session
-    session.__exit__.return_value = False
-    session.send.side_effect = responses
-    # prepare_request returns its argument unchanged so the paginator's url updates
-    # propagate to the next send() call.
-    session.prepare_request.side_effect = lambda r: r
-    return session
 
 
 FEATURE_REQUEST_DEFINITION = {
@@ -104,45 +108,130 @@ class TestListCustomObjectDefinitions:
             pytest.param([{"results": [], "next": None}], [], 1, id="empty_results"),
         ],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_returns_definitions(self, mock_session_factory, pages, expected_defs, expected_call_count):
-        session = _make_session([_make_response(page) for page in pages])
-        mock_session_factory.return_value = session
-
-        defs = list_custom_object_definitions("secret", "EU", None)
+    def test_returns_definitions(self, pages, expected_defs, expected_call_count):
+        with scripted_network([ScriptedResponse(json=page) for page in pages]) as network:
+            defs = list_custom_object_definitions("secret", "EU", None)
 
         assert defs == expected_defs
-        assert session.send.call_count == expected_call_count
+        assert len(network.requests_log) == expected_call_count
+        assert {request.path for request in network.requests_log} == {"/resources/customObjects"}
+        assert [request.param("from") for request in network.requests_log[1:]] == [page["next"] for page in pages[:-1]]
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_raises_on_http_error(self, mock_session_factory):
-        bad = _make_response({}, status_code=401)
-        bad.raise_for_status.side_effect = RuntimeError("401 Unauthorized")
-        mock_session_factory.return_value = _make_session([bad])
-
-        with pytest.raises(RuntimeError, match="401 Unauthorized"):
-            list_custom_object_definitions("secret", "EU", None)
+    def test_raises_on_http_error(self):
+        with scripted_network(always(ScriptedResponse(status=401, json={}))):
+            with pytest.raises(HTTPError, match="401"):
+                list_custom_object_definitions("secret", "EU", None)
 
 
 class TestGetMessages:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self, mock_session_factory):
+    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self):
         # A non-2xx conversations list response carries an error body with no "results" key.
         # Previously get_messages indexed json["results"] directly, surfacing a misleading
         # KeyError('results'); now raise_for_status lets the real HTTP error through.
-        bad = _make_response({"message": "Unauthorized"}, status_code=401)
-        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized", response=bad)
-        mock_session_factory.return_value = _make_session([bad])
+        with scripted_network(always(ScriptedResponse(status=401, json={"message": "Unauthorized"}))):
+            with pytest.raises(HTTPError, match="401"):
+                list(get_messages("secret", "EU", None, None, False, MagicMock(), _no_resume()))
 
-        with pytest.raises(HTTPError, match="401"):
-            list(get_messages("secret", "EU", None, None, False, MagicMock()))
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_handles_missing_results_key_without_keyerror(self, mock_session_factory):
+    def test_handles_missing_results_key_without_keyerror(self):
         # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
-        mock_session_factory.return_value = _make_session([_make_response({"next": None})])
+        with scripted_network([ScriptedResponse(json={"next": None})]):
+            assert list(get_messages("secret", "EU", None, None, False, MagicMock(), _no_resume())) == []
 
-        assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
+
+class TestResume:
+    @pytest.mark.parametrize(
+        "endpoint, saved, script, expected_paths, expected_from, expected_ids",
+        [
+            pytest.param(
+                "Organizations",
+                VitallyResumeConfig(cursor="cursor-2"),
+                [ScriptedResponse(json={"results": [{"id": "org-2"}], "next": None})],
+                ["/resources/organizations"],
+                ["cursor-2"],
+                ["org-2"],
+                id="list_endpoint_starts_at_saved_cursor",
+            ),
+            pytest.param(
+                "Messages",
+                VitallyResumeConfig(cursor="cursor-2", conversations_done=["c1"]),
+                [
+                    ScriptedResponse(json={"results": [{"id": "c1"}, {"id": "c2"}], "next": None}),
+                    ScriptedResponse(json={"messages": [{"id": "m2"}]}),
+                ],
+                ["/resources/conversations", "/resources/conversations/c2"],
+                ["cursor-2", None],
+                ["m2"],
+                id="messages_skip_conversations_already_handed_on",
+            ),
+            pytest.param(
+                "Messages",
+                VitallyResumeConfig(cursor=None, conversations_done=["c1"]),
+                [
+                    ScriptedResponse(json={"results": [{"id": "c3"}, {"id": "c1"}, {"id": "c2"}], "next": None}),
+                    ScriptedResponse(json={"messages": [{"id": "m3"}]}),
+                    ScriptedResponse(json={"messages": [{"id": "m2"}]}),
+                ],
+                ["/resources/conversations", "/resources/conversations/c3", "/resources/conversations/c2"],
+                [None, None, None],
+                ["m3", "m2"],
+                id="messages_read_a_conversation_that_moved_ahead_of_finished_ones",
+            ),
+            pytest.param(
+                "Organizations",
+                VitallyResumeConfig(completed=True),
+                [],
+                [],
+                [],
+                [],
+                id="list_endpoint_reads_nothing_after_its_last_page",
+            ),
+        ],
+    )
+    def test_resumes_from_saved_state(
+        self,
+        endpoint: str,
+        saved: VitallyResumeConfig,
+        script: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_from: list[str | None],
+        expected_ids: list[str],
+    ) -> None:
+        driver = SourceDriver(
+            VitallySource(),
+            VitallySourceConfig(secret_token="secret", region=VitallyRegionConfig(subdomain="", selection="EU")),
+        )
+
+        result = driver.run(endpoint, script, resume_state=saved)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("from") == expected_from
+        assert [row["id"] for row in result.rows] == expected_ids
+
+    def test_messages_stage_each_conversation_before_its_messages(self) -> None:
+        driver = SourceDriver(
+            VitallySource(),
+            VitallySourceConfig(secret_token="secret", region=VitallyRegionConfig(subdomain="", selection="EU")),
+        )
+
+        result = driver.run(
+            "Messages",
+            [
+                ScriptedResponse(json={"results": [{"id": "c1"}, {"id": "c2"}], "next": "cursor-2"}),
+                ScriptedResponse(json={"messages": [{"id": "m1"}]}),
+                ScriptedResponse(json={"messages": []}),
+                ScriptedResponse(json={"results": [], "next": None}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"id": "m1", "conversation_updated_at": None}]]
+        assert result.saved_states == [
+            VitallyResumeConfig(cursor=None, conversations_done=[]),
+            VitallyResumeConfig(cursor=None, conversations_done=["c1"]),
+            VitallyResumeConfig(cursor=None, conversations_done=["c1", "c2"]),
+            VitallyResumeConfig(cursor="cursor-2"),
+        ]
 
 
 class TestGetCustomObjectRecordsResource:
@@ -189,6 +278,7 @@ class TestVitallySourceCustomObjectRouting:
                 job_id="job-1",
                 logger=MagicMock(),
                 db_incremental_field_last_value=None,
+                resumable_source_manager=_no_resume(),
                 should_use_incremental_field=False,
             )
         )
@@ -219,6 +309,7 @@ class TestVitallySourceCustomObjectRouting:
                     job_id="job-1",
                     logger=MagicMock(),
                     db_incremental_field_last_value=None,
+                    resumable_source_manager=_no_resume(),
                     should_use_incremental_field=False,
                 )
             )
@@ -272,3 +363,24 @@ class TestVitallySourceGetSchemas:
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
         # Unexpected discovery failures are still captured for triage.
         mock_capture.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
+    def test_transient_egress_proxy_failure_is_not_captured(self, mock_list, mock_capture):
+        # Regression: PostHog's own egress proxy briefly 502ing on the tunnel used to reach
+        # Vitally was reported as an exception on every discovery run, even though it's not a
+        # bug and the next attempt recovers on its own.
+        mock_list.side_effect = ConnectionError(
+            "HTTPSConnectionPool(host='example.rest.vitally.io', port=443): Max retries exceeded "
+            "with url: /resources/customObjects?limit=100 (Caused by ProxyError('Cannot connect "
+            "to proxy.', OSError('Tunnel connection failed: 502 Bad gateway')))"
+        )
+
+        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
+        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+        mock_capture.assert_not_called()

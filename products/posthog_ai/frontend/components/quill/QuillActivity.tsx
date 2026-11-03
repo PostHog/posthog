@@ -19,10 +19,11 @@ export function QuillActivity({
     details = null,
     children = null,
     autoExpand = true,
+    defaultOpen,
     onToggleDetails,
 }: ActivityProps): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const { open, setOpen } = useActivityDisclosure({ autoExpand, hasDetails, status, onToggleDetails })
+    const { open, setOpen } = useActivityDisclosure({ autoExpand, defaultOpen, hasDetails, status, onToggleDetails })
 
     const isRunning = status === 'in_progress'
     const body = hasDetails ? (
@@ -52,12 +53,19 @@ export function QuillActivity({
                     wrapTitle && 'items-start [&>[data-slot=marker-icon]]:mt-[3px]'
                 )}
             >
-                <span className={cn('min-w-0 font-medium', wrapTitle ? 'whitespace-normal' : 'truncate')}>{title}</span>
+                <span
+                    className={cn(
+                        'min-w-0 font-medium [&_.LemonMarkdown_p]:mb-0',
+                        wrapTitle ? 'whitespace-normal' : 'truncate'
+                    )}
+                >
+                    {title}
+                </span>
                 {subtitle && <span className="min-w-0 truncate">{subtitle}</span>}
             </ThreadMarker>
             {/* Product widgets (charts, tables, diffs) keep PostHog's own colours inside the quill thread. */}
             {children && (
-                <div className="min-w-0 ps-5" data-not-quill>
+                <div className="my-2 min-w-0 ps-5" data-not-quill>
                     {children}
                 </div>
             )}

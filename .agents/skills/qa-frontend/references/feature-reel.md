@@ -16,7 +16,7 @@ Run every command below from the root of the PostHog checkout.
 ## 1. Pick the source
 
 Use a Storybook story when one shows the start of the flow, or when a scratch story can.
-Reuse a Storybook that runs. Otherwise, start one with `pnpm storybook` (port 6006).
+Reuse a Storybook that runs. Otherwise, start one with `STORYBOOK_STORIES=<dir or story file> pnpm storybook` (port 6006).
 Story ids are in `http://localhost:6006/index.json`.
 On a cold dev server the first load of a story can take minutes, because Vite compiles each lazy chunk on its first request.
 `reel-capture.mjs` waits up to five minutes for it.
@@ -102,7 +102,7 @@ Look for names, emails, tokens, and internal text in the pixels and in the capti
 
 ```bash
 # --yes only after the check above, and for a running-app reel only after the developer approves this exact file
-hogli pr:upload-image --yes --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
+hogli pr:upload-image --yes --print-markdown --alt "<what the flow shows>" "$RUN_DIR/feature-reel.webp"
 ```
 
 Paste the markdown line that the command prints as the "after" of the change. For the "before", follow `references/screenshots-and-reels.md` in `/writing-pr-descriptions`.

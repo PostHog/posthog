@@ -38,11 +38,25 @@ class RepositorySearchQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.",
     )
+    library_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Limit the search to repositories in this library. "
+            "Pass the same id to document search and file read. Omit to search every selected repository."
+        ),
+    )
 
 
 class RepositoryFileQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="owner/repo to read. It must already be selected.")
     path = serializers.CharField(help_text="File path returned by the repository search.")
+    library_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Require the repository to be in this library. "
+            "Pass the same id used for document search and repository search. Omit to read any selected repository."
+        ),
+    )
 
 
 class RepositorySearchHitSerializer(serializers.Serializer):
@@ -64,6 +78,10 @@ class RepositoryCacheStateSerializer(serializers.Serializer):
     cache_status = serializers.ChoiceField(
         choices=RepositoryCacheStatus.choices,
         help_text="ready means the file list was cached recently. warming means a refresh was just queued.",
+    )
+    description = serializers.CharField(
+        allow_blank=True,
+        help_text="GitHub description for this repository. Empty when GitHub has none or the cache has not loaded it.",
     )
 
 

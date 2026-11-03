@@ -1,10 +1,10 @@
-name: Semgrep diff-aware scan
+name: Semgrep scan
 description: >
-    Run `semgrep ci` in the digest-pinned Semgrep image. On pull requests semgrep
-    resolves the merge-base with the base branch itself (GH_TOKEN fast path, then
-    deepening fetches) and reports only findings the PR introduces; on pushes there
-    is no baseline, so it runs a full scan. Runs logged out: nothing is uploaded to
-    semgrep.dev, and any finding fails the step via the exit code.
+    Run `semgrep scan --error` in the digest-pinned Semgrep image. On pull requests
+    it scans only the files the PR adds or modifies, with no baseline; on pushes it
+    scans the whole tree. Runs logged out: nothing is uploaded to semgrep.dev, and
+    any finding fails the step via the exit code. Callers check out with
+    fetch-depth 2, so the merge commit's first parent (the base tip) is present.
 
 inputs:
     image:
@@ -12,7 +12,7 @@ inputs:
         required: true
     args:
         description: >
-            Arguments for `semgrep ci` (--config, --include/--exclude, --exclude-rule,
+            Arguments for `semgrep scan` (--config, --include/--exclude, --exclude-rule,
             --jobs, ...). Split on whitespace and handed to semgrep as positional
             parameters, so a single argument must not contain spaces or quotes.
             Everything else reaches semgrep verbatim -- glob characters included,
@@ -22,29 +22,23 @@ inputs:
         required: true
     full-scan:
         description: >
-            'true' runs `semgrep scan --error` over the whole tree instead of the
-            diff-aware `semgrep ci`, so a pull request reports every finding, the way a
-            push does. Set it when the pull request changes a rule or the scan setup:
-            the diff-aware scan cannot see what an edited rule matches in unchanged code.
+            'true' scans the whole tree on a pull request too, the way a push does.
+            Set it when the pull request changes a rule or the scan setup: a scan of
+            the changed files cannot see what an edited rule matches in unchanged code.
         required: false
         default: 'false'
 
 runs:
     using: composite
     steps:
-        - name: Run semgrep ci
+        - name: Run semgrep scan
           shell: bash
           env:
               SEMGREP_ARGS: ${{ inputs.args }}
               SEMGREP_IMAGE: ${{ inputs.image }}
               FULL_SCAN: ${{ inputs.full-scan }}
-              # Lets semgrep resolve the PR merge-base with one API call instead of
-              # deepening fetches (cli/src/semgrep/meta.py GithubMeta._find_branchoff_point)
-              GH_TOKEN: ${{ github.token }}
-          # GithubMeta reads the GITHUB_* vars and the event payload to detect the
-          # PR context; the baseline git operations need the checkout's persisted
-          # auth from .git/config, and safe.directory because the workspace is
-          # owned by the runner user while the container runs as root.
+          # safe.directory because the workspace is owned by the runner user while
+          # the container runs as root, and semgrep lists targets through git.
           run: |
               # Split `args` HERE and pass the words as positional parameters.
               # Never splice the string into the command the container shell
@@ -64,21 +58,63 @@ runs:
               semgrep_args=($SEMGREP_ARGS)
               set +f
 
-              if [[ "$FULL_SCAN" == 'true' ]]; then
-                semgrep_command=(scan --error)
-              else
-                semgrep_command=(ci)
+              semgrep_in_container() {
+                docker run --rm \
+                  -v "$GITHUB_WORKSPACE:/src" -w /src \
+                  -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                  "$SEMGREP_IMAGE" \
+                  sh -c 'git config --global --add safe.directory /src && exec semgrep "$@"' sh \
+                  "$@"
+              }
+
+              full_scan() {
+                semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}"
+              }
+
+              if [[ "$FULL_SCAN" == 'true' || "$GITHUB_EVENT_NAME" != 'pull_request' ]]; then
+                full_scan
+                exit 0
               fi
 
-              docker run --rm \
-                -v "$GITHUB_WORKSPACE:/src" -w /src \
-                -v "$GITHUB_EVENT_PATH:/github-event.json:ro" \
-                -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_EVENT_PATH=/github-event.json \
-                -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL \
-                -e GITHUB_SHA -e GITHUB_REF -e GITHUB_HEAD_REF -e GITHUB_RUN_ID \
-                -e GITHUB_REPOSITORY_ID -e GITHUB_REPOSITORY_OWNER_ID \
-                -e GH_TOKEN \
-                "$SEMGREP_IMAGE" \
-                sh -c 'git config --global --add safe.directory /src && exec semgrep "$@"' sh \
-                "${semgrep_command[@]}" --metrics=off --verbose --timeout 300 "${semgrep_args[@]}"
+              # A diff-aware scan drops a match that the base also has, even where a
+              # nosemgrep comment suppressed it there, so moving a call away from its
+              # comment passes it. Master passes the full scan and the rules are
+              # intrafile, so any finding in a changed file is one this PR introduces.
+              changed_list="$RUNNER_TEMP/semgrep-changed"
+              git diff -z --name-only --diff-filter=d HEAD^1 HEAD > "$changed_list"
+
+              # A file named on the command line bypasses --include, --exclude and
+              # semgrep's default ignores (tests/, node_modules/, ...), so only the
+              # changed files in semgrep's own target list are scanned.
+              # --x-ls is experimental; the pinned image keeps it stable.
+              target_list="$RUNNER_TEMP/semgrep-targets"
+              semgrep_in_container scan --x-ls --metrics=off "${semgrep_args[@]}" > "$target_list"
+
+              declare -A is_target
+              while IFS= read -r path; do
+                is_target["$path"]=1
+              done < "$target_list"
+
+              targets=()
+              while IFS= read -r -d '' path; do
+                # --x-ls prints one path per line, so a name with a newline never matches it.
+                if [[ "$path" == *$'\n'* ]]; then
+                  echo "A changed file name contains a newline, so running the full scan"
+                  full_scan
+                  exit 0
+                fi
+                if [[ -n "${is_target[$path]:-}" ]]; then
+                  targets+=("$path")
+                fi
+              done < "$changed_list"
+
+              echo "Scanning ${#targets[@]} changed file(s)"
+              if (( ${#targets[@]} == 0 )); then
+                exit 0
+              fi
+              # Keeps the command line under the kernel's argument size limit.
+              if (( ${#targets[@]} > 3000 )); then
+                full_scan
+                exit 0
+              fi
+              semgrep_in_container scan --error --metrics=off --verbose --timeout 300 "${semgrep_args[@]}" -- "${targets[@]}"

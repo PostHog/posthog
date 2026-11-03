@@ -79,6 +79,9 @@ FIELDS: dict[str, FieldOrTable] = {
     "pushes_after_approval": IntegerDatabaseField(name="pushes_after_approval", nullable=True),
     # NULL when the pull request never entered the merge queue.
     "queue_seconds": FloatDatabaseField(name="queue_seconds", nullable=True),
+    # Gate attempts with any failed workflow run. The GitHub source does not say which checks the queue
+    # requires, so a failed optional check also counts: an upper bound on queue removals. The name stays
+    # because saved queries over the view select it.
     "kickout_count": IntegerDatabaseField(name="kickout_count", nullable=True),
     # A read filters on its own authorized source: the view unions every source, and a member can be denied some.
     "source_id": StringDatabaseField(name="source_id"),

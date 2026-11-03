@@ -1,10 +1,16 @@
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'CDP',
+    activityDescribers: {
+        [ActivityScope.HOG_FUNCTION]: () =>
+            import('scenes/hog-functions/misc/activityDescriptions').then(
+                (module) => module.hogFunctionActivityDescriber
+            ),
+    },
     scenes: {
         Transformations: {
             import: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
@@ -70,6 +76,7 @@ export const manifest: ProductManifest = {
             iconType: 'web_script',
             iconColor: ['var(--color-product-web-scripts-light)', 'var(--color-product-web-scripts-dark)'],
             href: urls.webScripts(),
+            searchKeywords: ['site apps', 'custom javascript', 'tag manager'],
             sceneKey: 'WebScripts',
             sceneKeys: ['WebScripts'],
         },
@@ -82,6 +89,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_transformation',
             iconColor: ['var(--color-product-transformations-light)', 'var(--color-product-transformations-dark)'],
             href: urls.transformations(),
+            searchKeywords: ['enrichment', 'geoip', 'redact pii', 'plugins'],
             sceneKey: 'Transformations',
             sceneKeys: ['Transformations'],
         },
@@ -92,6 +100,7 @@ export const manifest: ProductManifest = {
             iconType: 'event_filter',
             iconColor: ['var(--color-product-event-filtering-light)', 'var(--color-product-event-filtering-dark)'],
             href: urls.eventFiltering(),
+            searchKeywords: ['drop events', 'block events'],
             sceneKey: 'EventFiltering',
             sceneKeys: ['EventFiltering'],
         },
@@ -102,7 +111,10 @@ export const manifest: ProductManifest = {
             iconType: 'data_destination',
             iconColor: ['var(--color-product-destinations-light)', 'var(--color-product-destinations-dark)'],
             href: urls.destinations(),
-            searchKeywords: ['batch exports', 'export data'],
+            searchKeywords: ['export data', 'webhooks'],
+            searchTabs: [
+                { name: 'Batch exports', href: urls.destinations('batch'), searchKeywords: ['scheduled export'] },
+            ],
             sceneKey: 'Destinations',
             sceneKeys: ['Destinations'],
         },

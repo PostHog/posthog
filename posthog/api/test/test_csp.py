@@ -5,7 +5,7 @@ from html import escape
 import time_machine
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -20,7 +20,7 @@ from posthog.api.csp import (
 from posthog.sampling import sample_on_property
 
 
-class TestCSPModule(TestCase):
+class TestCSPModule(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 

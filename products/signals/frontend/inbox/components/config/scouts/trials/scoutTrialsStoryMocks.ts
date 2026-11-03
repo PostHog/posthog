@@ -6,6 +6,7 @@ import type {
     ScoutRubricDocumentApi,
     ScoutRubricSaveApi,
     ScoutTrialComparisonApi,
+    ScoutTrialComparisonArchiveRequestApi,
     ScoutTrialComparisonRequestApi,
     ScoutTrialComparisonQueryApi,
     ScoutTrialEvaluationApi,
@@ -117,13 +118,19 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
     const mocks: Mocks = {
         get: {
             '/api/projects/:team/signals/scout/rubrics/:config/': () => [200, rubric],
-            '/api/projects/:team/signals/scout/configs/:config/trial_comparison_history/': () => [
+            '/api/projects/:team/signals/scout/configs/:config/trial_comparison_history/': ({ request }) => [
                 200,
                 {
                     results: [...comparisons.values()]
                         .reverse()
+                        .filter(
+                            (comparison) =>
+                                !comparison.archived ||
+                                new URL(request.url).searchParams.get('include_archived') === 'true'
+                        )
                         .map((comparison) => ({ ...comparison, evaluation: null })),
                     has_more: false,
+                    next_cursor: null,
                 },
             ],
             '/api/projects/:team/signals/scout/configs/:config/trial_comparison_result/': ({ request }) => {
@@ -196,6 +203,19 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
             },
         },
         post: {
+            '/api/projects/:team/signals/scout/configs/:config/trial_comparison_archive/': async ({ request }) => {
+                const payload = (await request.json()) as ScoutTrialComparisonArchiveRequestApi
+                const comparison = comparisons.get(payload.comparison_id)
+                if (!comparison) {
+                    return [404, { detail: 'Trial not found.' }]
+                }
+                if (payload.archived && comparison.status !== 'completed' && comparison.status !== 'failed') {
+                    return [400, { detail: 'Only completed or failed trials can be archived.' }]
+                }
+                const updated = { ...comparison, archived: payload.archived }
+                comparisons.set(payload.comparison_id, updated)
+                return [200, updated]
+            },
             '/api/projects/:team/signals/scout/configs/:config/trial_comparison/': async ({ request }) => {
                 const payload = (await request.json()) as ScoutTrialComparisonRequestApi
                 const existing = comparisons.get(payload.comparison_id)
@@ -224,6 +244,7 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                     })),
                 })
                 const comparison: ScoutTrialComparisonApi = {
+                    archived: false,
                     comparison_id: payload.comparison_id,
                     config_id: trialFixtureConfig.id,
                     context_id: trialFixtureResult.context_id,

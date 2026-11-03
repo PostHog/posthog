@@ -6,6 +6,7 @@
  */
 import { z as zod } from 'zod'
 
+import { ErrorTrackingOrderBy } from './errorTrackingOrderBy.zod'
 import { WidgetAssigneeFilter } from './widgetAssigneeFilter.zod'
 import { WidgetDateRange } from './widgetDateRange.zod'
 import { WidgetFilterEntry } from './widgetFilterEntry.zod'
@@ -13,7 +14,7 @@ import { WidgetFilterEntry } from './widgetFilterEntry.zod'
 export const errorTrackingListWidgetConfigLimitDefault = 10
 export const errorTrackingListWidgetConfigLimitMax = 25
 
-export const errorTrackingListWidgetConfigOrderByDefault = `occurrences`
+export const errorTrackingListWidgetConfigOrderByDefault = 'occurrences'
 export const errorTrackingListWidgetConfigOrderDirectionDefault = `DESC`
 export const errorTrackingListWidgetConfigStatusDefault = `active`
 
@@ -27,10 +28,9 @@ export const ErrorTrackingListWidgetConfig = /* @__PURE__ */ zod.object({
         .max(errorTrackingListWidgetConfigLimitMax)
         .default(errorTrackingListWidgetConfigLimitDefault)
         .describe('Maximum number of issues to return.'),
-    orderBy: zod
-        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-        .default(errorTrackingListWidgetConfigOrderByDefault)
-        .describe('Issue ranking column.'),
+    orderBy: ErrorTrackingOrderBy.default(errorTrackingListWidgetConfigOrderByDefault).describe(
+        'Issue ranking column.'
+    ),
     orderDirection: zod
         .enum(['ASC', 'DESC'])
         .default(errorTrackingListWidgetConfigOrderDirectionDefault)

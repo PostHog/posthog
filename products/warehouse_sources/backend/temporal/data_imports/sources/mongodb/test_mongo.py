@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 import bson
+import certifi
 from bson import Binary, DatetimeMS, Decimal128, Int64, ObjectId, Timestamp
 from bson.binary import UUID_SUBTYPE, UuidRepresentation
 from bson.code import Code
@@ -18,10 +19,12 @@ from bson.codec_options import CodecOptions
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
+from pymongo import DESCENDING
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, ServerSelectionTimeoutError
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
@@ -30,11 +33,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    CONNECT_TIMEOUT_MS,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
+    SERVER_SELECTION_TIMEOUT_MS,
+    SOCKET_TIMEOUT_MS,
     MongoResumeConfig,
+    UnsupportedConnectionOptionError,
     _adaptive_chunk_size,
     _build_query,
     _get_avg_document_size,
@@ -45,11 +52,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
+    _read_upper_bound,
+    connection_timeouts,
     decode_resume_id,
     encode_resume_id,
     get_index_keys,
     get_index_keys_by_collection,
     get_server_metadata,
+    mongo_client,
     mongo_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
@@ -429,6 +439,15 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
                 "PyMongo requires at least 8 (MongoDB 4.2).",
             ),
+            # Real pymongo OperationFailure string for an Atlas Data Federation / Online Archive
+            # data source whose cluster was renamed or deleted (code 125, CommandFailed).
+            (
+                "cluster_not_found_in_project",
+                'cluster "myCluster0" not found in project 000000000000000000000000, correlationID = '
+                "000000000000000000000000, full error: {'ok': 0, 'errmsg': 'cluster \"myCluster0\" not "
+                "found in project 000000000000000000000000, correlationID = 000000000000000000000000', "
+                "'code': 125, 'codeName': 'CommandFailed'}",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -487,6 +506,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("server_too_old", "version of PyMongo requires at least", "upgrade the cluster"),
             ("replica_set_no_members", "No replica set members available for replica set name", "replica set"),
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
+            ("cluster_not_found_in_project", "not found in project", "data federation"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
@@ -696,6 +716,28 @@ class TestProbesFailFastOnUnreachableCluster(SimpleTestCase):
         with pytest.raises(type(error)):
             _get_avg_document_size(coll, MagicMock())
 
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", ServerSelectionTimeoutError("No servers found yet, Topology Description: .")),
+            ("host_not_allowed", HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")),
+        ]
+    )
+    def test_upper_bound_probe_propagates(self, _name, error):
+        coll = MagicMock()
+        coll.index_information.side_effect = error
+
+        with pytest.raises(type(error)):
+            _read_upper_bound(coll, {}, "updated_at", MagicMock())
+
+
+class TestReadUpperBound(SimpleTestCase):
+    def test_a_lookup_that_fails_leaves_the_read_uncapped(self):
+        coll = MagicMock()
+        coll.index_information.return_value = {"updated_at_1": {"key": [("updated_at", 1)]}}
+        coll.find_one.side_effect = ExecutionTimeout("operation exceeded time limit")
+
+        assert _read_upper_bound(coll, {}, "updated_at", MagicMock()) is None
+
 
 class TestListImportableCollectionNames(SimpleTestCase):
     def test_excludes_reserved_system_collections(self):
@@ -785,6 +827,18 @@ class _FakeCollection:
         self.last_cursor: _FakeCursor | None = None
         self.database = MagicMock()
         self.database.command.return_value = {"avgObjSize": None}
+        self.indexes: dict[str, Any] = {"_id_": {"key": [("_id", 1)]}}
+        self.newest: dict[str, Any] | None = None
+        self.find_one_calls: list[dict[str, Any]] = []
+        self.find_one_sorts: list[Any] = []
+
+    def index_information(self) -> dict[str, Any]:
+        return self.indexes
+
+    def find_one(self, query: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        self.find_one_calls.append(query)
+        self.find_one_sorts.append(kwargs.get("sort"))
+        return self.newest
 
     def find(self, query: dict[str, Any], **kwargs: Any) -> _FakeCursor:
         self.find_kwargs = kwargs
@@ -815,10 +869,11 @@ def _read_rows(
     *,
     resumable_source_manager: Any = None,
     should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
     on_row: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[Any, list[dict[str, Any]]]:
     @contextlib.contextmanager
-    def fake_mongo_client(connection_string: str, team_id: int) -> Any:
+    def fake_mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> Any:
         client = MagicMock()
         client.__getitem__.return_value.__getitem__.return_value = collection
         yield client
@@ -834,7 +889,7 @@ def _read_rows(
             logger=MagicMock(),
             team_id=1,
             should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=None,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field="_id" if should_use_incremental_field else None,
             incremental_field_type=IncrementalFieldType.ObjectID if should_use_incremental_field else None,
             resumable_source_manager=resumable_source_manager,
@@ -1111,16 +1166,87 @@ class TestMongoSourceResume(SimpleTestCase):
         assert [row["_id"] for row in rows] == [str(doc["_id"]) for doc in docs]
         assert collection.find_queries[1] == {"$and": [_id_seek_filter(saved_id), {"_id": {"$gt": docs[1]["_id"]}}]}
 
-    def test_incremental_run_does_not_resume(self) -> None:
+    def test_incremental_run_with_a_watermark_does_not_resume(self) -> None:
         collection = _FakeCollection([{"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")}])
         manager = _FakeResumeManager(_saved_state(ObjectId("65f1c2a4e4b0a1b2c3d4e5f0")))
 
-        response, rows = _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+        response, rows = _read_rows(
+            collection,
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=ObjectId("65f1c2a4e4b0a1b2c3d4e5e0"),
+        )
 
         assert len(rows) == 1
         assert response.supports_resume is False
+        assert response.sort_mode is None
         assert "$or" not in collection.find_queries[0]
         assert (manager.load_calls, manager.staged, manager.clear_calls) == (0, [], 0)
+
+    @parameterized.expand([("capped", ObjectId("65f1c2a4e4b0a1b2c3d4e5f9")), ("uncapped", None)])
+    def test_first_incremental_sync_resumes_inside_the_filter_of_its_first_attempt(
+        self, _name: str, saved_bound: ObjectId | None
+    ) -> None:
+        saved_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f0")
+        next_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")
+        collection = _FakeCollection([{"_id": next_id}])
+        collection.newest = {"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5ff")}
+        bound = None if saved_bound is None else encode_resume_id(saved_bound)
+        manager = _FakeResumeManager(MongoResumeConfig(last_id=_saved_state(saved_id).last_id, upper_bound=bound))
+
+        response, rows = _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+
+        assert [row["_id"] for row in rows] == [str(next_id)]
+        assert response.supports_resume is True
+        incremental_filter, seek = collection.find_queries[0]["$and"]
+        assert incremental_filter == _build_query(True, "_id", IncrementalFieldType.ObjectID, None, saved_bound)
+        assert seek == _id_seek_filter(saved_id)
+        assert collection.find_one_calls == []
+        assert [(decode_resume_id(s.last_id), s.upper_bound) for s in manager.staged] == [(next_id, bound)]
+
+    @parameterized.expand(
+        [
+            ("ascending_index", {"_id_": {"key": [("_id", 1)]}}, True),
+            ("descending_index", {"_id_-1": {"key": [("_id", -1)]}}, True),
+            ("hashed_index", {"_id_hashed": {"key": [("_id", "hashed")]}}, False),
+            (
+                "partial_index",
+                {"_id_1": {"key": [("_id", 1)], "partialFilterExpression": {"active": True}}},
+                False,
+            ),
+            ("hidden_index", {"_id_1": {"key": [("_id", 1)], "hidden": True}}, False),
+            ("compound_index_on_another_field_first", {"other_1__id_1": {"key": [("other", 1), ("_id", 1)]}}, False),
+            ("not_indexed", {}, False),
+        ]
+    )
+    def test_first_incremental_sync_caps_its_read_at_the_newest_value_when_it_starts(
+        self, _name: str, indexes: dict[str, Any], capped: bool
+    ) -> None:
+        newest = ObjectId("65f1c2a4e4b0a1b2c3d4e5f9")
+        doc_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")
+        collection = _FakeCollection([{"_id": doc_id}])
+        collection.newest = {"_id": newest}
+        collection.indexes = indexes
+        manager = _FakeResumeManager()
+
+        _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+
+        bound = newest if capped else None
+        assert collection.find_queries[0] == _build_query(True, "_id", IncrementalFieldType.ObjectID, None, bound)
+        assert [s.upper_bound for s in manager.staged] == [encode_resume_id(bound) if capped else None]
+        probes = [_build_query(True, "_id", IncrementalFieldType.ObjectID, None)] if capped else []
+        assert collection.find_one_calls == probes
+        assert collection.find_one_sorts == ([[("_id", DESCENDING)]] if capped else [])
+
+    def test_incremental_read_with_nothing_to_read_at_its_start_reads_nothing(self) -> None:
+        collection = _FakeCollection([{"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")}])
+        collection.newest = None
+
+        _read_rows(collection, resumable_source_manager=_FakeResumeManager(), should_use_incremental_field=True)
+
+        lower_bound = _build_query(True, "_id", IncrementalFieldType.ObjectID, None)["_id"]["$gt"]
+        expected = _build_query(True, "_id", IncrementalFieldType.ObjectID, None, lower_bound)
+        assert collection.find_queries[0] == expected
 
     def test_id_without_a_checkpoint_clears_the_state_once_per_run_of_such_ids(self) -> None:
         collection = _FakeCollection([{"_id": None}, {"_id": float("nan")}, {"_id": 1}, {"_id": MaxKey()}])
@@ -1223,3 +1349,115 @@ class TestGetServerMetadata(SimpleTestCase):
             assert "wire_version" not in metadata
         else:
             assert metadata["wire_version"] == expected_wire_version
+
+
+_MONGO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo"
+
+
+class TestConnectionTimeouts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "no_options",
+                "mongodb+srv://user:pw@cluster.example.com/db",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+            (
+                "other_options_only",
+                "mongodb://user:pw@db.example.com:27017/db?retryWrites=true&w=majority&tls=true",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+            (
+                "socket_timeout_in_the_connection_string",
+                "mongodb://user:pw@db.example.com/db?socketTimeoutMS=900000&tls=true",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS},
+            ),
+            (
+                "option_names_are_not_case_sensitive",
+                "mongodb://user:pw@db.example.com/db?connecttimeoutms=5000&SOCKETTIMEOUTMS=5000&tls=true",
+                {},
+            ),
+            (
+                "an_option_name_in_another_options_value_is_not_an_option",
+                "mongodb://user:pw@db.example.com/db?appName=import-socketTimeoutMS=1&tls=true",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+            (
+                "an_option_name_in_the_credentials_is_not_an_option",
+                "mongodb://sockettimeoutms=1:pw@db.example.com/db?tls=true",
+                {"connectTimeoutMS": CONNECT_TIMEOUT_MS, "socketTimeoutMS": SOCKET_TIMEOUT_MS},
+            ),
+        ]
+    )
+    def test_default_timeouts_give_way_to_the_connection_string(self, _name, connection_string, expected):
+        # A keyword argument to `MongoClient` wins over the connection string, so a default that
+        # was always sent would discard the limit a customer chose.
+        assert connection_timeouts(connection_string) == expected
+
+    def test_client_limits_server_selection_connect_and_each_socket_wait(self):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client("mongodb://user:pw@db.example.com/db?tls=true", team_id=1):
+                pass
+
+        kwargs = client_class.call_args.kwargs
+        assert kwargs["serverSelectionTimeoutMS"] == SERVER_SELECTION_TIMEOUT_MS
+        assert kwargs["connectTimeoutMS"] == CONNECT_TIMEOUT_MS
+        assert kwargs["socketTimeoutMS"] == SOCKET_TIMEOUT_MS
+
+    @parameterized.expand(
+        [
+            (
+                "public_ca_without_file_options",
+                "mongodb://user:pw@db.example.com/db?tls=true",
+                None,
+                "mongodb://user:pw@db.example.com/db?tls=true",
+                certifi.where(),
+            ),
+            (
+                "aws_string_with_its_bundle_name",
+                "mongodb://user:pw@docdb.example.com:27017/?tls=true&tlsCAFile=global-bundle.pem&retryWrites=false",
+                "/srv/bundle.pem",
+                "mongodb://user:pw@docdb.example.com:27017/?tls=true&retryWrites=false",
+                "/srv/bundle.pem",
+            ),
+            (
+                "option_names_are_not_case_sensitive",
+                "mongodb://user:pw@db.example.com/db?TLSCAFILE=ca.pem&tls=true",
+                None,
+                "mongodb://user:pw@db.example.com/db?tls=true",
+                certifi.where(),
+            ),
+        ]
+    )
+    def test_client_trusts_the_source_ca_and_never_reads_the_ca_file_the_string_names(
+        self, _name, connection_string, tls_ca_file, expected_string, expected_ca
+    ):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with mongo_client(connection_string, team_id=1, tls_ca_file=tls_ca_file):
+                pass
+
+        assert client_class.call_args.args[0] == expected_string
+        assert client_class.call_args.kwargs["tlsCAFile"] == expected_ca
+
+    @parameterized.expand(
+        [("revocation_list", "tlsCRLFile=crl.pem"), ("client_certificate", "tlscertificatekeyfile=c.pem")]
+    )
+    def test_a_file_option_with_no_replacement_stops_the_sync_before_the_client_opens(self, _name, option):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with pytest.raises(UnsupportedConnectionOptionError) as raised:
+                with mongo_client(f"mongodb://user:pw@db.example.com/db?tls=true&{option}", team_id=1):
+                    pass
+
+        client_class.assert_not_called()
+        assert error_message_matches(str(raised.value), MongoDBSource().get_non_retryable_errors())
+
+    def test_socket_timeout_error_is_retryable(self):
+        # pymongo's NetworkTimeout wording when a socket read reaches `socketTimeoutMS`.
+        message = (
+            "db.example.com:27017: timed out (configured timeouts: socketTimeoutMS: 600000.0ms, "
+            "connectTimeoutMS: 10000.0ms)"
+        )
+        source = MongoDBSource()
+
+        assert error_message_matches(message, source.get_retryable_errors())
+        assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})

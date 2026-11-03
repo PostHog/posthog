@@ -330,6 +330,13 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
         .describe('Mapping from assignment rule UUID to its new evaluation order.'),
 })
 
+export const ErrorTrackingBuiltInFiltersPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod
+        .boolean()
+        .optional()
+        .describe('`true` drops matching exceptions for this project. `false` stops dropping them.'),
+})
+
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
@@ -568,7 +575,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
+ * Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault = true
@@ -828,6 +835,12 @@ export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 export const errorTrackingQueryIssuesListCreateBodyFilePathMax = 1000
 
 export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object({
+    firstSeenAfter: zod
+        .string()
+        .optional()
+        .describe(
+            'Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences.'
+        ),
     dateRange: zod
         .object({
             date_from: zod
@@ -969,13 +982,13 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
             'Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.'
         ),
     orderBy: zod
-        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+        .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions', 'severity'])
         .describe(
-            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+            '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions\n\* `severity` - severity'
         )
         .default(errorTrackingQueryIssuesListCreateBodyOrderByDefault)
         .describe(
-            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+            'Field used to sort issues. Defaults to occurrences.\n\n\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions\n\* `severity` - severity'
         ),
     orderDirection: zod
         .enum(['ASC', 'DESC'])
@@ -1009,7 +1022,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyReleaseMax)
         .optional()
-        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
+        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_release.'),
     fingerprint: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
@@ -1105,6 +1118,12 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .min(1)
         .nullish()
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+    ingestion_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
+        ),
 })
 
 export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0
@@ -1312,6 +1331,14 @@ export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.o
 })
 
 export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */ zod.object({
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID from the corresponding bulk start request for upload analytics.'),
+    upload_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID shared by every batch in one CLI upload run, including release-ID retries.'),
     content_hashes: zod.record(zod.string(), zod.string()).describe('Map of symbol set ID to uploaded content hash.'),
 })
 
@@ -1352,6 +1379,14 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID used to correlate upload analytics across start and finish requests.'),
+    upload_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID shared by every batch in one CLI upload run, including release-ID retries.'),
     chunk_ids: zod
         .array(zod.string())
         .optional()

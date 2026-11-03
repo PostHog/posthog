@@ -8,7 +8,9 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
  */
 export function useSliderPositioning<C extends HTMLElement, S extends HTMLElement>(
     currentValue: React.Key | null | undefined,
-    transitionMs: number
+    transitionMs: number,
+    /** Changes when the options change, so the slider follows a selection that moved without changing. */
+    layoutKey?: string
 ): {
     containerRef: React.RefObject<C>
     selectionRef: React.RefObject<S>
@@ -33,7 +35,7 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
             }
             hasRenderedInitiallyRef.current = true
         }
-    }, [currentValue, containerWidth]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentValue, containerWidth, layoutKey]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return {
         containerRef,

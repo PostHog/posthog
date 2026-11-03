@@ -41,6 +41,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+zstd = { workspace = true }
 
 [features]
 # Adversarial states the integration tests need to construct but that no

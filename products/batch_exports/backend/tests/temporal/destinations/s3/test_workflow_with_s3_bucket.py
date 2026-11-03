@@ -8,7 +8,7 @@ import pytest_asyncio
 
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import AnyBatchExportModel, BatchExportEventsModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
@@ -122,7 +122,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test S3 Export Workflow end-to-end by using an S3 bucket.
@@ -138,7 +138,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     will require its prescense in the database when running. This model is indirectly parametrized
     by several fixtures. Refer to them for more information.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     await run_s3_batch_export_workflow(
@@ -159,7 +159,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("encryption", [None, "AES256", "aws:kms"], indirect=True)
 @pytest.mark.parametrize("compression", [*COMPRESSION_EXTENSIONS.keys(), None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("S3_TEST_BUCKET")], indirect=True)
@@ -177,7 +177,7 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_file_formats(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test S3 Export Workflow end-to-end by using an S3 bucket with various file formats, compression, and

@@ -9,6 +9,7 @@ import {
     filterVisibleScoutWriteScopeRows,
     offeredScoutWriteScopes,
     SCOUT_ALWAYS_GRANTED_ROWS,
+    scoutWriteScopesBeyondDefault,
 } from './scoutWriteScopes'
 
 interface ScoutWriteScopesPickerProps {
@@ -83,7 +84,7 @@ export function ScoutWriteScopesPicker({
                     </div>
                 ))}
             </div>
-            {selectedScopes.length > 0 && (
+            {scoutWriteScopesBeyondDefault(selectedScopes).length > 0 && (
                 <p className="text-[11.5px] text-warning mb-0">
                     Write access covers the whole project. A scout that can write dashboards can change or delete any
                     dashboard here, not only ones it created. Annotations also include organization-wide ones that other

@@ -77,6 +77,8 @@ export interface ContainerDimensions {
 export interface UseToolResultReturn<T> {
     /** The parsed tool result data, or null if not yet received */
     data: T | null
+    /** The tool result's `_meta`, or null if not yet received */
+    resultMeta: Record<string, unknown> | null
     /** Whether the app is connected to the host */
     isConnected: boolean
     /** Connection or parsing error, if any */
@@ -124,6 +126,8 @@ const WAIT_TIMEOUT_MESSAGES: Record<Exclude<WaitPhase, 'settled'>, string> = {
 }
 
 const PARSE_ERROR_MESSAGE = "Couldn't read the results for this app. Re-run the tool to try again."
+
+const TOOL_ERROR_MESSAGE = 'The tool call failed, so there are no results to show. Re-run the tool to try again.'
 
 /**
  * Parse tool result content, preferring structuredContent over the `_meta`
@@ -184,6 +188,7 @@ export function useToolResult<T = unknown>({
     waitTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
+    const [resultMeta, setResultMeta] = useState<Record<string, unknown> | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
     const [isCancelled, setIsCancelled] = useState(false)
     const [timedOutPhase, setTimedOutPhase] = useState<Exclude<WaitPhase, 'settled'> | null>(null)
@@ -241,7 +246,7 @@ export function useToolResult<T = unknown>({
             appInstance.ontoolresult = (params) => {
                 try {
                     const meta = (params as { _meta?: Record<string, unknown> })._meta
-                    const parsed = parseToolResultContent<T>(params.structuredContent, meta)
+                    const parsed = params.isError ? null : parseToolResultContent<T>(params.structuredContent, meta)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)
@@ -257,13 +262,15 @@ export function useToolResult<T = unknown>({
                         hasAppData: meta?.[APP_DATA_META_KEY] !== undefined && meta[APP_DATA_META_KEY] !== null,
                         contentLength: params.content?.length,
                         rendered: parsed !== null,
+                        isError: !!params.isError,
                     })
 
                     if (parsed !== null) {
+                        setResultMeta(meta ?? null)
                         setData(parsed)
                         setParseError(null)
                     } else {
-                        const err = new Error(PARSE_ERROR_MESSAGE)
+                        const err = new Error(params.isError ? TOOL_ERROR_MESSAGE : PARSE_ERROR_MESSAGE)
                         console.error('[PostHog MCP App UI] Parse error:', err)
                         setParseError(err)
                     }
@@ -366,6 +373,7 @@ export function useToolResult<T = unknown>({
 
     return {
         data,
+        resultMeta,
         isConnected,
         error,
         isCancelled,

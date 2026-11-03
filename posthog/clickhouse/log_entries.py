@@ -233,14 +233,14 @@ def LOG_ENTRIES_V3_TABLE_MV_SQL():
     )
 
 
-# aux cluster migration (log_entries -> aux, S3-tiered)
+# log_entries on the aux cluster (S3-tiered)
 #
-# `log_entries_data` on the aux cluster is the go-forward store for log_entries: hot days on
-# local disk, days older than LOG_ENTRIES_AUX_HOT_DAYS on the `cold` (S3) volume, 90 day delete.
-# It is fed by a dedicated Kafka consumer (kafka_log_entries_aux + log_entries_aux_mv ->
-# writable_log_entries_aux) that runs alongside the main-cluster consumer during the dual-write
-# phase. `log_entries_distributed` is the reader over the aux data, present on both the aux and
-# main clusters; the read cutover swaps it with `log_entries` in a follow-up migration.
+# `log_entries_data` on the aux cluster stores log_entries: hot days on local disk, days older
+# than LOG_ENTRIES_AUX_HOT_DAYS on the `cold` (S3) volume, 90 day delete. A dedicated Kafka
+# consumer (kafka_log_entries_aux + log_entries_aux_mv -> writable_log_entries_aux) feeds it.
+# `log_entries` is the reader over this data on the aux and data nodes. On the data nodes,
+# `log_entries_distributed` reads `sharded_log_entries` and is the rollback target for reads.
+# On the aux nodes, `log_entries_distributed` is a second name for the aux reader.
 #
 # The S3 storage policy only exists on deployed cloud clusters, so the tiering clauses are
 # resolved per run mode and omitted locally.
@@ -303,6 +303,49 @@ def LOG_ENTRIES_AUX_DISTRIBUTED_TABLE_SQL():
         extra_fields=KAFKA_COLUMNS,
         engine=_log_entries_aux_distributed_engine(),
     )
+
+
+def LOG_ENTRIES_AUX_READER_SQL():
+    """The app-facing `log_entries` name as the aux-cluster reader over `log_entries_data`.
+
+    On the data nodes of deployed cloud regions, the name comes from an operational
+    EXCHANGE with `log_entries_distributed`, which keeps the main-cluster reader as the
+    rollback target. This SQL creates the same table on the aux nodes and in fresh
+    environments.
+    """
+    return LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name=LOG_ENTRIES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        extra_fields=KAFKA_COLUMNS,
+        engine=_log_entries_aux_distributed_engine(),
+    )
+
+
+def _as_create_or_replace(sql: str) -> str:
+    assert "CREATE TABLE IF NOT EXISTS" in sql
+    return sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE OR REPLACE TABLE", 1)
+
+
+def LOG_ENTRIES_DATA_NODE_READERS_SQL() -> list[str]:
+    """The data-node read layout: `log_entries` reads aux, `log_entries_distributed` reads main.
+
+    Both are Distributed tables that hold no data, so `CREATE OR REPLACE` declares the
+    target state directly. A second run, or a run on a node that already has this layout,
+    changes nothing. An EXCHANGE of the two names would swap them back on a second run.
+    """
+    return [
+        _as_create_or_replace(LOG_ENTRIES_AUX_READER_SQL()),
+        _as_create_or_replace(
+            LOG_ENTRIES_TABLE_BASE_SQL.format(
+                table_name=LOG_ENTRIES_AUX_DISTRIBUTED_TABLE,
+                on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+                extra_fields=KAFKA_COLUMNS,
+                engine=Distributed(
+                    data_table=LOG_ENTRIES_SHARDED_TABLE, cluster=CLICKHOUSE_CLUSTER, sharding_key="rand()"
+                ),
+            )
+        ),
+    ]
 
 
 def LOG_ENTRIES_AUX_WRITABLE_TABLE_SQL():

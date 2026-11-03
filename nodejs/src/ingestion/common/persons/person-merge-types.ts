@@ -47,6 +47,19 @@ export class PersonMergeCallFailedError extends PersonMergeError {
     }
 }
 
+/** The merge backend refused the call before anything ran (`x-not-applied`); re-sent, never settled as lost. */
+export class PersonMergeNotAppliedError extends PersonMergeError {
+    readonly type = 'NOT_APPLIED' as const
+
+    constructor(
+        message: string,
+        public readonly reason: string,
+        public readonly failure: unknown
+    ) {
+        super(message)
+    }
+}
+
 /**
  * The merge backend answered an unsettled verdict: a retry under the same
  * op id may change the answer. Retried in-process; exhaustion drops the
@@ -98,7 +111,7 @@ export class TargetPersonNotFoundError extends PersonMergePersonNotFoundError {
 /**
  * Error when source person cannot be deleted due to concurrent distinct ID additions.
  * This occurs when a concurrent merge operation adds a distinct ID to the person being
- * deleted, causing a foreign key constraint violation. The retry will refresh the person
+ * deleted, which blocks the tombstone delete. The retry will refresh the person
  * data and move all distinct IDs (including the newly added ones) before attempting deletion.
  */
 export class SourcePersonHasDistinctIdsError extends PersonMergePersonNotFoundError {

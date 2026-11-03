@@ -95,6 +95,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
  * * `hog_function` - hog_function
+ * * `inbox` - inbox
  * * `ingestion_warning` - ingestion_warning
  * * `insight` - insight
  * * `insight_variable` - insight_variable
@@ -135,6 +136,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
  * * `signal_scout` - signal_scout
+ * * `signal_usage` - signal_usage
  * * `stamphog` - stamphog
  * * `streamlit_app` - streamlit_app
  * * `subscription` - subscription
@@ -215,6 +217,7 @@ export const ScopeObjectEnumApi = {
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
     HogFunction: 'hog_function',
+    Inbox: 'inbox',
     IngestionWarning: 'ingestion_warning',
     Insight: 'insight',
     InsightVariable: 'insight_variable',
@@ -255,6 +258,7 @@ export const ScopeObjectEnumApi = {
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
     SignalScout: 'signal_scout',
+    SignalUsage: 'signal_usage',
     Stamphog: 'stamphog',
     StreamlitApp: 'streamlit_app',
     Subscription: 'subscription',
@@ -358,6 +362,7 @@ export interface ProjectAccessSourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -398,6 +403,7 @@ export interface ProjectAccessSourceApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -521,6 +527,7 @@ export interface AccessControlObjectRuleApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -561,6 +568,7 @@ export interface AccessControlObjectRuleApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -651,6 +659,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `feature_flag` - feature_flag
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
+ * * `inbox` - inbox
  * * `insight` - insight
  * * `llm_analytics` - llm_analytics
  * * `llm_playground` - llm_playground
@@ -709,6 +718,7 @@ export const RuleResourceEnumApi = {
     FeatureFlag: 'feature_flag',
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
+    Inbox: 'inbox',
     Insight: 'insight',
     LlmAnalytics: 'llm_analytics',
     LlmPlayground: 'llm_playground',
@@ -772,6 +782,7 @@ export interface AccessControlRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -909,6 +920,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -949,6 +961,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -992,12 +1005,31 @@ export interface AccessControlDefaultsResponseApi {
     available_resource_levels: string[]
     /** Whether the caller may change access rules in this project. */
     can_edit: boolean
+    /** Whether the access rules of this project are locked to Terraform. */
+    is_managed_by_terraform: boolean
     /** The default project access level for members. */
     project_access_level: string
     /** The default level per resource type, keyed by resource name. */
     resource_access_levels: AccessControlDefaultsResponseApiResourceAccessLevels
     /** The resource types that accept rules on single objects, with the levels each accepts. */
     object_rule_resources: AccessControlObjectRuleResourceApi[]
+}
+
+export interface AccessControlManagementApi {
+    /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+    managed: boolean
+    /**
+     * When Terraform last wrote an access rule in this project, or null.
+     * @nullable
+     */
+    terraform_last_applied_at: string | null
+    /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+    has_terraform_account: boolean
+}
+
+export interface AccessControlManagementRequestApi {
+    /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+    managed: boolean
 }
 
 /**
@@ -1031,6 +1063,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1175,6 +1208,7 @@ export interface ResolvedAccessApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -1215,6 +1249,7 @@ export interface ResolvedAccessApi {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
+     * * `signal_usage` - signal_usage
      * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
@@ -1341,6 +1376,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground

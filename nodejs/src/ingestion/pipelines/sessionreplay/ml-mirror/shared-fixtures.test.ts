@@ -87,7 +87,7 @@ describeAddon('native rust addon matches the shared fixtures', () => {
         })
         const inner = JSON.stringify({
             event: '$snapshot_items',
-            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId },
+            properties: { $snapshot_items: items, $session_id: 's-1', $window_id: windowId, $snapshot_source: 'web' },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
     }
@@ -355,6 +355,7 @@ describeAddon('native image collection', () => {
                 ],
                 $session_id: 's-1',
                 $window_id: 'w',
+                $snapshot_source: 'web',
             },
         })
         return Buffer.from(JSON.stringify({ distinct_id: 'd-1', data: inner }))
@@ -434,9 +435,25 @@ describeAddon('native image collection', () => {
         expect(second.lines!.toString()).toContain(urlRefs[0])
     })
 
-    it('collects nothing without the collection keys and blurs inline instead', async () => {
+    it.each([
+        ['without the collection keys', () => rustAddon!.anonymizeKafkaPayload(imagePayload())],
+        [
+            'over maxImageBytes',
+            () =>
+                rustAddon!.anonymizeKafkaPayload(
+                    imagePayload(),
+                    undefined,
+                    PSEUDO_TEAM,
+                    CONTENT_KEY,
+                    null,
+                    null,
+                    undefined,
+                    16
+                ),
+        ],
+    ])('collects nothing %s and blanks the image instead', async (_case, anonymize) => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
-        const result = await rustAddon!.anonymizeKafkaPayload(imagePayload())
+        const result = await anonymize()
         expect(result.failed).toBe(false)
         expect(result.images).toBeNull()
         expect(result.lines!.toString()).not.toContain(PNG_B64)
@@ -451,6 +468,18 @@ describeAddon('native image collection', () => {
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
         ).resolves.toMatchObject({ failed: false })
+        await expect(
+            rustAddon!.anonymizeKafkaPayload(
+                imagePayload(),
+                undefined,
+                PSEUDO_TEAM,
+                CONTENT_KEY,
+                null,
+                null,
+                undefined,
+                0
+            )
+        ).rejects.toThrow('maxImageBytes')
     })
 
     it('runs either collection lane without the other', async () => {

@@ -21,6 +21,7 @@ def _make_llm_response(verdict: str) -> MagicMock:
     response = MagicMock()
     response.content = [block]
     response.stop_reason = "end_turn"
+    response._request_id = None
     return response
 
 
@@ -171,6 +172,8 @@ class TestEmitSignalWiring:
             patch(f"{FACADE_MODULE_PATH}.SignalSourceConfig") as source_config,
             patch(f"{FACADE_MODULE_PATH}.posthoganalytics"),
             patch(f"{FACADE_MODULE_PATH}.async_connect", connect),
+            patch(f"{FACADE_MODULE_PATH}.complete_signal_pipeline"),
+            patch(f"{FACADE_MODULE_PATH}.finalized_signal_ids", return_value=set()),
             patch(f"{GATE_MODULE_PATH}.steering_filters_signal", AsyncMock(return_value=True)) as gate,
         ):
             source_config.is_source_enabled.return_value = True

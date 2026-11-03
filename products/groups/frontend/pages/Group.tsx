@@ -14,6 +14,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -54,7 +55,7 @@ export const scene: SceneExport<GroupLogicProps> = {
     logic: groupLogic,
     paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
-        groupKey: decodeURIComponent(groupKey ?? ''),
+        groupKey: tryDecodeURIComponent(groupKey ?? ''),
     }),
 }
 

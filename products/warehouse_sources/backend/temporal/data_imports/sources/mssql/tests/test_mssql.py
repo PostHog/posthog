@@ -3,11 +3,14 @@ import threading
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pymssql
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -18,16 +21,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    MSSQL_LOGIN_TIMEOUT_SECONDS,
+    MSSQL_METADATA_LOCK_TIMEOUT_MS,
+    MSSQL_ROW_READ_LOCK_TIMEOUT_MS,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLColumn,
     MSSQLImplementation,
     MSSQLMetadataTimeoutError,
+    MSSQLRowReadTimeoutError,
     _build_query,
     filter_mssql_incremental_fields,
     retry_on_deadlock,
     retry_on_transient_connection_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
+    _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
     MSSQLSource,
 )
@@ -97,6 +105,20 @@ class TestMSSQLColumnToArrowField:
         col = MSSQLColumn(name="x", data_type="decimal", nullable=True)
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
+
+    @parameterized.expand(
+        [
+            ("tinyint", pa.uint8()),
+            ("smallint", pa.int16()),
+            ("int", pa.int32()),
+            ("bigint", pa.int64()),
+        ]
+    )
+    def test_integer_types_match_mssql_value_range(self, data_type, expected_arrow_type):
+        # tinyint is 0-255 in MSSQL, unlike every signed integer type here; a signed arrow
+        # type raises ArrowInvalid as soon as a row carries a value above 127.
+        col = MSSQLColumn(name="x", data_type=data_type, nullable=True)
+        assert col.to_arrow_field().type == expected_arrow_type
 
 
 class TestBuildQuery:
@@ -300,6 +322,21 @@ class TestFetchTableStats:
         assert cursor.execute.call_count == 1
         capture.assert_not_called()
 
+    def test_tempdb_log_full_skips_capture(self, impl, cursor, logger, mocker):
+        # SQL Server 9002: another session's active transaction filled tempdb's log. This clears
+        # once that transaction ends, so it's as self-recovering as the connection-death case above
+        # and must not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = pymssql.OperationalError(
+            9002,
+            b"The transaction log for database 'tempdb' is full due to 'ACTIVE_TRANSACTION' and the holdup lsn "
+            b"is (1:2:3).DB-Lib error message 20018, severity 17:\nGeneral SQL Server error\n",
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query
@@ -409,6 +446,11 @@ def build_pipeline_mocks(mocker):
     return mock_connect, streaming_cursor
 
 
+def _drain_source():
+    source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+    list(source.items())  # type: ignore[arg-type]
+
+
 class TestBuildPipeline:
     def test_setup_that_hangs_at_connect_raises_a_non_retryable_timeout(self, build_pipeline_mocks, mocker):
         mock_connect, _ = build_pipeline_mocks
@@ -423,6 +465,54 @@ class TestBuildPipeline:
             release.set()
 
         assert error_message_matches(str(error.value), MSSQLSource().get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "hangs_at, batches_before_the_hang",
+        [("execute", 0), ("fetchmany", 0), ("fetchmany", 1)],
+        ids=["query", "first_fetch", "later_fetch"],
+    )
+    def test_row_read_that_goes_silent_raises_a_retryable_timeout(
+        self, build_pipeline_mocks, mocker, hangs_at, batches_before_the_hang
+    ):
+        _, streaming_cursor = build_pipeline_mocks
+        release = threading.Event()
+        # One full batch of the 1000 row chunk size for each batch before the hang.
+        answers = [[(n,) for n in range(1000)] for _ in range(batches_before_the_hang)]
+
+        def _answer_then_hang(*args):
+            # Every connection of the fixture shares this cursor, and each one sets its lock timeout.
+            if args and str(args[0]).startswith("SET LOCK_TIMEOUT"):
+                return None
+            return answers.pop(0) if answers else release.wait()
+
+        getattr(streaming_cursor, hangs_at).side_effect = _answer_then_hang
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_FIRST_BATCH_DEADLINE_SECONDS", 0.05)
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_NEXT_BATCH_DEADLINE_SECONDS", 0.05)
+        source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+
+        batches = []
+        try:
+            with pytest.raises(MSSQLRowReadTimeoutError) as error:
+                for batch in source.items():  # type: ignore[union-attr]
+                    batches.append(batch)
+        finally:
+            release.set()
+
+        assert len(batches) == batches_before_the_hang
+        message = str(error.value)
+        assert error_message_matches(message, MSSQLSource().get_retryable_errors())
+        assert not error_message_matches(message, {**Any_Source_Errors, **MSSQLSource().get_non_retryable_errors()})
+
+    def test_row_read_connection_limits_its_lock_wait(self, build_pipeline_mocks, mocker):
+        connect = mocker.spy(MSSQLImplementation, "connect")
+        _drain_source()
+
+        # Metadata, row count, then the connection that reads the rows.
+        assert [call.kwargs.get("lock_timeout_ms") for call in connect.call_args_list] == [
+            None,
+            None,
+            MSSQL_ROW_READ_LOCK_TIMEOUT_MS,
+        ]
 
     @pytest.mark.parametrize("fails", [False, True], ids=["count_hangs", "count_connection_fails"])
     def test_row_count_fault_costs_the_estimate_and_not_the_import(self, build_pipeline_mocks, mocker, fails):
@@ -442,6 +532,46 @@ class TestBuildPipeline:
             release.set()
 
         assert source.rows_to_sync == 0
+
+
+class TestConnectTimeouts:
+    @pytest.mark.parametrize(
+        "connect_kwargs, expected_statements",
+        [
+            ({}, [f"SET LOCK_TIMEOUT {MSSQL_METADATA_LOCK_TIMEOUT_MS}"]),
+            (
+                {"lock_timeout_ms": MSSQL_ROW_READ_LOCK_TIMEOUT_MS},
+                [f"SET LOCK_TIMEOUT {MSSQL_ROW_READ_LOCK_TIMEOUT_MS}"],
+            ),
+        ],
+        ids=["metadata_connection", "row_reading_connection"],
+    )
+    def test_connect_limits_the_login_and_the_lock_wait_but_not_the_query(
+        self, mocker, connect_kwargs, expected_statements
+    ):
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        mock_connect = mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect", return_value=connection)
+
+        with MSSQLImplementation().connect(_make_config(), **connect_kwargs):
+            pass
+
+        assert mock_connect.call_args.kwargs["login_timeout"] == MSSQL_LOGIN_TIMEOUT_SECONDS
+        # pymssql applies `timeout` to every connection in the process, the row reads included.
+        assert "timeout" not in mock_connect.call_args.kwargs
+        assert [call.args[0] for call in cursor.execute.call_args_list] == expected_statements
+
+    @pytest.mark.parametrize("overrides,expected", [({}, None), ({"require_encryption": "true"}, "require")])
+    def test_connect_requires_encryption_only_when_asked(self, mocker, overrides, expected):
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        mock_connect = mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect")
+
+        with MSSQLImplementation().connect(_make_config(**overrides)):
+            pass
+
+        assert mock_connect.call_args.kwargs["encryption"] == expected
 
 
 class _RaisingTunnel:
@@ -562,6 +692,40 @@ class TestMSSQLSourceRetryableErrors:
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql shape for SQL Server error 1105 during an ORDER BY sort spill into tempdb.
+            "(1105, b\"Could not allocate space for object 'dbo.SORT temporary run storage:  "
+            "140760200970240' in database 'tempdb' because the 'PRIMARY' filegroup is full due to "
+            'lack of storage space or database files reaching the maximum allowed size.")',
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'SECONDARY' filegroup is full due to lack of storage space or database files reaching "
+            "the maximum allowed size.",
+        ],
+    )
+    def test_tempdb_storage_exhausted_is_retryable(self, error_msg):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable), error_msg
+
+    def test_tempdb_storage_exhausted_is_not_non_retryable(self):
+        error_msg = (
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    def test_tempdb_storage_exhausted_has_a_friendly_exhausted_message(self):
+        exhausted = MSSQLSource().get_retry_exhausted_errors()
+        error_msg = (
+            "Could not allocate space for object 'dbo.SORT temporary run storage' in database "
+            "'tempdb' because the 'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        matches = [message for pattern, message in exhausted.items() if pattern in error_msg]
+        assert matches, error_msg
+        assert "still enabled" in matches[0]
+
 
 class TestMSSQLSourceValidateCredentials:
     @pytest.fixture
@@ -584,6 +748,26 @@ class TestMSSQLSourceValidateCredentials:
 
         assert valid is False
         assert error == _FIREWALL_BLOCKED_ERROR
+        capture.assert_not_called()
+
+    def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real DB-Lib 20017/20002 pair: the server closed the connection mid-handshake, which
+        # FreeTDS reports as both an EOF and a generic "connection failed".
+        dropped_connection_error = pymssql.OperationalError(
+            20017,
+            b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server (127.0.0.1)\n"
+            b"DB-Lib error message 20002, severity 9:\nAdaptive Server connection failed (127.0.0.1)\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=dropped_connection_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(

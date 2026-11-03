@@ -1,4 +1,5 @@
 export * from "@posthog/agent-contracts";
+export * from "./ai-gateway-blocked";
 export * from "./analytics-events";
 export type { ArchivedTask } from "./archive-domain";
 export { withTimeout } from "./async";

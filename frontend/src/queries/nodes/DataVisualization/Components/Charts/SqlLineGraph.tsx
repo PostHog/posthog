@@ -3,9 +3,8 @@ import { useCallback } from 'react'
 
 import { TimeSeriesLineChart, type PointClickData, type TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
 import { SqlChartTooltip } from './SqlChartTooltip'
@@ -69,6 +68,7 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
                 >
+                    {props.children}
                     {props.showAnnotations && props.insightNumericId && (
                         <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
                     )}

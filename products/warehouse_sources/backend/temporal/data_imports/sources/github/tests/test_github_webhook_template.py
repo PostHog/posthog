@@ -3,8 +3,7 @@ from typing import Any
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.webhook_template import template
 
 
@@ -48,7 +47,7 @@ def _status_body(**overrides: Any) -> dict[str, Any]:
     return body
 
 
-class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
+class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     template = template
 
     def createHogGlobals(self, globals=None) -> dict:

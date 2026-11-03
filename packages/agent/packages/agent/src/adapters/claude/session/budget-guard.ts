@@ -9,6 +9,7 @@ export const BUDGET_CRITICAL_RATIO = 0.7;
 export const BUDGET_STOP_RATIO = 0.9;
 export const FAST_MODE_PRICE_MULTIPLIER = 2;
 export const ONE_HOUR_CACHE_WRITE_INPUT_MULTIPLIER = 2;
+export const BUDGET_STEER_MAX_ATTEMPTS = 3;
 
 export type BudgetStage = "ok" | "warn" | "critical";
 export type BudgetSteerStage = Exclude<BudgetStage, "ok">;
@@ -104,6 +105,10 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
     match: /kimi/i,
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 },
+  },
+  {
+    match: /deepseek-v4\.1-flash-1017-fast/i,
+    price: { input: 0.6, output: 2.4, cacheRead: 0.014, cacheWrite: 0.6 },
   },
   {
     match: /deepseek/i,
@@ -324,6 +329,15 @@ export class RunBudgetGuard {
     const stage = this.pendingSteer;
     this.pendingSteer = null;
     return stage;
+  }
+
+  hasRetryableSteer(): boolean {
+    const stage = this.pendingSteer;
+    if (!stage) return false;
+    const attempts = this.steers.filter(
+      (steer) => steer.stage === stage,
+    ).length;
+    return attempts > 0 && attempts < BUDGET_STEER_MAX_ATTEMPTS;
   }
 
   markUndelivered(stage: BudgetSteerStage): void {

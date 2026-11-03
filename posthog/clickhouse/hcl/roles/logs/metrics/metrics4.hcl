@@ -95,6 +95,13 @@ database "posthog" {
     column "service_name" {
       type = "LowCardinality(String)"
     }
+    column "metric_types" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
+    }
+    column "metric_type" {
+      type  = "String"
+      alias = "metric_types[1]"
+    }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
       replica_name = "{replica}-{shard}"
@@ -106,8 +113,9 @@ database "posthog" {
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
-      index_granularity   = "128"
-      ttl_only_drop_parts = "1"
+      index_granularity                 = "128"
+      ttl_only_drop_parts               = "1"
+      deduplicate_merge_projection_mode = "rebuild"
     }
     column "team_id" {
       type = "Int32"
@@ -216,6 +224,18 @@ database "posthog" {
       expr        = "timestamp_max"
       type        = "minmax"
       granularity = 1
+    }
+    projection "service_freshness_by_hour" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  max(arrayMax(timestamp_arr))
+GROUP BY
+  team_id, time_bucket, service_name
+SQL
+
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_samples"

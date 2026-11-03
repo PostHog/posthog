@@ -1157,9 +1157,9 @@ class AccountSerializer(DataclassSerializer):
         help_text="When the account churned. Null means the account has not churned.",
     )
     ignored_at = serializers.DateTimeField(
-        read_only=True,
+        required=False,
         allow_null=True,
-        help_text="When Track Rules ignored the account. Null means the account is tracked.",
+        help_text=("When the account was ignored, set by Track Rules or by hand. Null means the account is tracked."),
     )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
@@ -2245,10 +2245,14 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
 class PinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=AccountPropertyPinKind.choices,
-        help_text="Definition type for this pinned account property.",
+        help_text="Type of this pinned account property: a custom property, a relationship, or a built-in account field.",
     )
-    id = serializers.UUIDField(
-        help_text="Team-scoped custom property or relationship definition UUID.",
+    id = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Team-scoped custom property or relationship definition UUID. "
+            "For an account_field pin, the account field name, such as stripe_customer_id."
+        ),
     )
 
 

@@ -33,7 +33,7 @@ export function RetentionAggregationSelector(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { allTablesMap } = useValues(databaseTableListLogic)
 
     const aggregationType = retentionFilter?.aggregationType || 'count'
     const aggregationProperty = retentionFilter?.aggregationProperty
@@ -46,7 +46,7 @@ export function RetentionAggregationSelector(): JSX.Element {
         ? (returningEntity.table_name ?? (returningEntity.id as string | undefined))
         : null
     const schemaColumns: DatabaseSchemaField[] = dwhTableName
-        ? Object.values(dataWarehouseTablesMap[dwhTableName]?.fields ?? {})
+        ? Object.values(allTablesMap[dwhTableName]?.fields ?? {})
         : []
 
     const propertyGroupType = aggregationTypeToTaxonomicType[aggregationPropertyType]

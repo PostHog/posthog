@@ -15,8 +15,7 @@ import { Experiment } from '~/types'
 /**
  * Status line for an in-flight recalculation. Renders only while a run is actually executing
  * (`cold` / `refreshing`); loading-from-latest and terminal states show nothing — the metric rows
- * carry their own loading and error affordances. Only rendered behind
- * EXPERIMENTS_METRICS_RECALCULATION (see ExperimentView).
+ * carry their own loading and error affordances. ExperimentView renders it once the experiment has metrics.
  */
 export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element | null {
     const { recalculationDisplayState, currentRecalculation, liveRowsProgress, metricRetries, nextRetryAt } = useValues(
@@ -71,11 +70,13 @@ function InFlightStatus({
     const pending = Math.max(0, total - succeeded - failed - retryingCount)
     return (
         <StatusBar>
-            <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 <Spinner textColored className="text-sm text-accent" />
                 <CountsSegment pending={pending} retrying={retryingCount} succeeded={succeeded} failed={failed} />
-                {retryingCount > 0 && <span className="text-muted text-xs">· next retry {nextRetryLabel}</span>}
-                <span className="text-muted text-xs">· running in the background</span>
+                {retryingCount > 0 && (
+                    <span className="text-muted text-xs whitespace-nowrap">· next retry {nextRetryLabel}</span>
+                )}
+                <span className="text-muted text-xs whitespace-nowrap">· running in the background</span>
                 <Tooltip title="We're computing each metric against the latest data. This runs server-side so you can leave this page; results appear as each metric finishes.">
                     <IconInfo className="text-muted text-xs" />
                 </Tooltip>
@@ -149,9 +150,9 @@ function CountsSegment({
         )
     }
     return (
-        <span className="flex items-center gap-1 whitespace-nowrap font-medium">
+        <span className="flex flex-wrap items-center gap-1 font-medium">
             {parts.map((part, i) => (
-                <span key={part.key} className="flex items-center gap-1">
+                <span key={part.key} className="flex items-center gap-1 whitespace-nowrap">
                     {i > 0 && <span>·</span>}
                     {part}
                 </span>

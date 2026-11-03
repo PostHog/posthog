@@ -9,13 +9,16 @@ import type { McpServerStdio } from "@agentclientprotocol/sdk";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
   enabledLocalTools,
+  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   type LocalToolGateMeta,
   resolveGithubToken,
 } from "@posthog/harness/extensions/local-tools";
+import { isTaskRunSandbox } from "../../server/memory-watchdog";
 import { resolveBundledMcpScript } from "../../utils/resolve-bundled-script";
 import { resolveTaskId } from "../session-meta";
+import { MEMORY_KILL_HOOK_TOOL_NAME } from "./memory-kill-hook";
 
 /**
  * Gate inputs the local-tools server needs beyond `LocalToolGateMeta`: the task id
@@ -81,13 +84,12 @@ export function buildLocalToolsServer(
     taskId: resolveTaskId(meta),
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
+    finishReportRequired: isFinishReportRequired(meta),
   };
-  const tools = enabledLocalTools(toolCtx, meta);
-  if (tools.length === 0) {
+  const names = enabledLocalTools(toolCtx, meta).map((tool) => tool.name);
+  if (isTaskRunSandbox(process.env)) names.push(MEMORY_KILL_HOOK_TOOL_NAME);
+  if (names.length === 0) {
     return null;
   }
-  return toMcpServerStdio(
-    toolCtx,
-    tools.map((t) => t.name),
-  );
+  return toMcpServerStdio(toolCtx, names);
 }

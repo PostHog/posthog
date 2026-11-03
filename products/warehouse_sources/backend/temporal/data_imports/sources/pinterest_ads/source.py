@@ -5,6 +5,7 @@ import requests
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -51,6 +52,18 @@ def _format_permission(permission: str) -> str:
 
 @SourceRegistry.register
 class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^PINTEREST_ADS_",
+            "^PINTEREST_APP_ID$",
+            "^PINTEREST_APP_SECRET$",
+            "^PINTEREST_ACCESS_TOKEN$",
+            "^PINTEREST_REFRESH_ACCESS_TOKEN$",
+        ),
+        script_hosts=("s.pinimg.com",),
+        pypi=("pinterest-api-sdk",),
+    )
+
     supported_versions = ("v5",)
     default_version = "v5"
     api_docs_url = "https://developers.pinterest.com/docs/api/v5/"

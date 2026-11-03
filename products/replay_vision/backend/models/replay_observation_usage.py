@@ -43,7 +43,9 @@ class ReplayObservationUsage(UUIDModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["organization", "observation_created_at"]),
+            models.Index(fields=["organization", "observation_created_at"], name="rlou_org_observed_idx"),
+            # Drives the org quota, which buckets receipts by write time so it agrees with billing.
+            models.Index(fields=["organization", "created_at"], name="rlou_org_created_idx"),
             # Drives the daily per-team billing usage query, which buckets receipts by write time.
             models.Index(fields=["created_at", "team_id"], name="rlou_created_team_idx"),
             # Drives the per-scanner credit limit aggregate over the current billing period. Partial

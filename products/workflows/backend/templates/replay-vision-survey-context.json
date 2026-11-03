@@ -1,0 +1,263 @@
+{
+    "id": "36022328-1e1c-45bc-849d-e521e7c00d2e",
+    "name": "Negative survey feedback with session context",
+    "description": "When someone leaves a low survey rating, Replay Vision summarizes their session and posts it to Slack with the feedback, so your team sees what led to it.",
+    "version": 1,
+    "created_at": "2026-10-16T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-16T00:00:00Z",
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_2_c54cc98bea.jpg",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "survey sent",
+                    "name": "Survey sent",
+                    "type": "events"
+                }
+            ],
+            "source": "events",
+            "properties": [
+                {
+                    "key": "$survey_id",
+                    "type": "event",
+                    "operator": "is_set"
+                },
+                {
+                    "key": "$survey_completed",
+                    "type": "event",
+                    "value": true,
+                    "operator": "exact"
+                },
+                {
+                    "key": "$session_id",
+                    "type": "event",
+                    "operator": "is_set"
+                }
+            ],
+            "filter_test_accounts": false
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "action_conditional_branch_d2a41def-3023-4776-9441-bd5d6b379b2b",
+            "type": "continue"
+        },
+        {
+            "from": "action_conditional_branch_d2a41def-3023-4776-9441-bd5d6b379b2b",
+            "to": "exit_node",
+            "type": "continue"
+        },
+        {
+            "from": "action_conditional_branch_d2a41def-3023-4776-9441-bd5d6b379b2b",
+            "to": "action_function_ac627245-3a85-4acd-8c8e-127a76b31bb9",
+            "type": "branch",
+            "index": 0
+        },
+        {
+            "from": "action_function_ac627245-3a85-4acd-8c8e-127a76b31bb9",
+            "to": "action_function_2e097608-aa1b-4e41-b676-77edfe9bc0a9",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_2e097608-aa1b-4e41-b676-77edfe9bc0a9",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Survey completed",
+            "description": "Runs when someone completes a survey.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "output_variable": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "survey sent",
+                            "name": "Survey sent",
+                            "type": "events"
+                        }
+                    ],
+                    "source": "events",
+                    "properties": [
+                        {
+                            "key": "$survey_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        },
+                        {
+                            "key": "$survey_completed",
+                            "type": "event",
+                            "value": true,
+                            "operator": "exact"
+                        },
+                        {
+                            "key": "$session_id",
+                            "type": "event",
+                            "operator": "is_set"
+                        }
+                    ],
+                    "filter_test_accounts": false
+                }
+            }
+        },
+        {
+            "id": "action_conditional_branch_d2a41def-3023-4776-9441-bd5d6b379b2b",
+            "name": "Low rating?",
+            "description": "Matches a rating of 2 or lower on the survey's first question. Change the number to fit your rating scale.",
+            "on_error": null,
+            "created_at": 1772805521677,
+            "updated_at": 1772805521677,
+            "filters": null,
+            "type": "conditional_branch",
+            "config": {
+                "conditions": [
+                    {
+                        "name": "Rating of 2 or lower",
+                        "filters": {
+                            "source": "events",
+                            "properties": [
+                                {
+                                    "key": "toFloat(coalesce(properties[concat('$survey_response_', properties.$survey_questions[1].id)], properties.$survey_response)) <= 2",
+                                    "type": "hogql",
+                                    "value": null
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_ac627245-3a85-4acd-8c8e-127a76b31bb9",
+            "name": "Summarize the session",
+            "description": "Replay Vision watches the session where the feedback was given and summarizes what the person did.",
+            "on_error": "continue",
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": [
+                {
+                    "key": "vision_summary",
+                    "result_path": "output.summary"
+                }
+            ],
+            "config": {
+                "template_id": "template-posthog-replay-vision",
+                "inputs": {
+                    "analysis": {
+                        "value": {
+                            "type": "summarizer",
+                            "prompt": "This person just completed a survey and gave a low rating. The team will read your summary next to their feedback to understand what led to it.\n\nSummarize the session with a focus on the moments before the survey:\n1. What they were trying to do, and whether they managed it.\n2. Where they had trouble: errors, failed requests, slow or broken pages, rage clicks, repeated attempts, or moments where they seemed lost.\n3. The page or feature they were on when the survey appeared.\n4. Anything else that may explain the low rating, such as a missing feature they looked for or a confusing flow.\n\nIf the session shows no clear problem, say so. Don't guess at a cause the recording doesn't show."
+                        }
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409]
+                    }
+                }
+            }
+        },
+        {
+            "id": "action_function_2e097608-aa1b-4e41-b676-77edfe9bc0a9",
+            "name": "Alert in Slack",
+            "description": "Posts the feedback and the session summary to a Slack channel.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "config": {
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "*{person.name}* left negative survey feedback\n\n*Rating:* {event.properties[concat('$survey_response_', event.properties.$survey_questions[1].id)] ?? event.properties.$survey_response}\n\n*What happened in the session:*\n{substring(variables.vision_summary, 1, 2500)}"
+                                }
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": "View person in PostHog"
+                                        },
+                                        "url": "{person.url}"
+                                    }
+                                ]
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": "*{person.name}* left negative survey feedback",
+                        "templating": "hog"
+                    }
+                },
+                "template_id": "template-slack"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [
+        {
+            "key": "vision_summary",
+            "type": "string",
+            "default": ""
+        }
+    ],
+    "billable_action_types": ["function"],
+    "tags": ["ai", "replay vision", "survey", "slack"],
+    "scope": "global"
+}

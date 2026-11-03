@@ -1,15 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconLetter, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
-import { LemonDialog } from '@posthog/lemon-ui'
+import { IconClock, IconCopy, IconLetter, IconPlus, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
 
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { cohortBroadcastDisabledReason, urlForCohortBroadcast, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
+import {
+    cohortBroadcastAudience,
+    cohortBroadcastDisabledReason,
+    urlForCohortWorkflow,
+} from 'scenes/cohorts/cohortUtils'
+import { openDeleteCohortDialog } from 'scenes/cohorts/DeleteCohortDialog'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -23,7 +28,13 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { CohortType } from '~/types'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
+
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -37,9 +48,12 @@ export function CohortSceneMenuBar({ id }: { id?: CohortType['id'] }): JSX.Eleme
 
 function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element | null {
     const logic = cohortEditLogic({ id })
-    const { cohort, cohortLoading } = useValues(logic)
-    const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
+    const { cohort, cohortLoading, hasAddUsersMenu } = useValues(logic)
+    const { duplicateCohort, deleteCohort, restoreCohort, setCsvUploadModalOpen } = useActions(logic)
+    const modalLogic = addPersonToCohortModalLogic({ id })
+    const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!cohort) {
         return null
@@ -49,7 +63,8 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
     const isDeleted = cohort.deleted
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
-    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
+    const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort) ?? accessDisabledReason
 
     return (
         <SceneMenuBar>
@@ -58,35 +73,41 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                     <>
                         <SceneMenuBarSubMenu label="Create">
                             <SceneMenuBarItem
-                                onClick={() => router.actions.push(urlForCohortWorkflow(cohort))}
-                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
-                            >
-                                <IconSend />
-                                Message this cohort
-                            </SceneMenuBarItem>
-                            <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'broadcast')
-                                    router.actions.push(
-                                        urlForCohortBroadcast({ id: cohortIdNumber, name: cohort.name })
-                                    )
+                                    void openMessageAudience(cohortBroadcastAudience(cohort), 'broadcast')
                                 }}
                                 disabled={!!broadcastDisabledReason}
                                 tooltip={broadcastDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
                             >
                                 <IconLetter />
-                                Send a broadcast
+                                Email this cohort
                             </SceneMenuBarItem>
-                            <SceneMenuBarAddToNotebook
-                                dataAttrKey={RESOURCE_TYPE}
-                                notebookSelectButtonProps={{
-                                    resource: {
-                                        type: NotebookNodeType.Cohort,
-                                        attrs: { id: cohortIdNumber },
-                                    },
+                            <SceneMenuBarItem
+                                onClick={() => {
+                                    captureMessageAudienceClicked('cohort', 'workflow')
+                                    router.actions.push(urlForCohortWorkflow(cohort))
                                 }}
-                            />
+                                disabled={!!accessDisabledReason}
+                                tooltip={accessDisabledReason ?? undefined}
+                                data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
+                            >
+                                <IconSend />
+                                Build a custom workflow
+                            </SceneMenuBarItem>
+                            {/* Adding to notebooks is deprecated under the rail redesign. */}
+                            {!todayRailNav && (
+                                <SceneMenuBarAddToNotebook
+                                    dataAttrKey={RESOURCE_TYPE}
+                                    notebookSelectButtonProps={{
+                                        resource: {
+                                            type: NotebookNodeType.Cohort,
+                                            attrs: { id: cohortIdNumber },
+                                        },
+                                    }}
+                                />
+                            )}
                         </SceneMenuBarSubMenu>
                         <SceneMenuBarSeparator />
                     </>
@@ -125,20 +146,10 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                     <SceneMenuBarItem
                         variant="destructive"
                         onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete cohort?',
-                                description: `Are you sure you want to delete "${cohort.name}"?`,
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteCohort(),
-                                    size: 'small',
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                    type: 'tertiary',
-                                    size: 'small',
-                                },
+                            openDeleteCohortDialog({
+                                cohortId: cohort.id,
+                                cohortName: cohort.name,
+                                onConfirm: () => deleteCohort(),
                             })
                         }}
                         data-attr={`${RESOURCE_TYPE}-menubar-delete`}
@@ -150,6 +161,29 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
             </SceneMenuBarMenu>
             {!isDeleted && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                    {hasAddUsersMenu && (
+                        <>
+                            <SceneMenuBarSubMenu label="Add users">
+                                <SceneMenuBarItem
+                                    onClick={() => setCsvUploadModalOpen(true)}
+                                    opensFloatingUi
+                                    data-attr={`${RESOURCE_TYPE}-menubar-upload-csv`}
+                                >
+                                    <IconPlus />
+                                    Upload a CSV
+                                </SceneMenuBarItem>
+                                <SceneMenuBarItem
+                                    onClick={showAddPersonToCohortModal}
+                                    opensFloatingUi
+                                    data-attr={`${RESOURCE_TYPE}-menubar-add-users-manually`}
+                                >
+                                    <IconPlus />
+                                    Add users manually
+                                </SceneMenuBarItem>
+                            </SceneMenuBarSubMenu>
+                            <SceneMenuBarSeparator />
+                        </>
+                    )}
                     <SceneMenuBarItem
                         onClick={() => duplicateCohort(false)}
                         disabled={isNewCohort || cohort.is_static === true || (cohort.is_calculating ?? false)}

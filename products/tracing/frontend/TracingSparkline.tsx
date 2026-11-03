@@ -25,6 +25,8 @@ import { shortTimeZone } from 'lib/utils/timezones'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
+
 import { TRACING_DATE_TIME_FORMAT } from './dateFormats'
 import {
     type TracingDurationHistogramData,
@@ -49,6 +51,8 @@ interface CompareConfig {
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
+    sparklineError?: string | null
+    onRetry?: () => void
     onDateRangeChange: (dateRange: DateRange, source: TracingDateRangeSource) => void
     displayTimezone: string
     /** End of the queried window, used as `date_to` when the selection runs to the last bucket
@@ -80,6 +84,8 @@ interface TracingSparklineProps {
 export function TracingSparkline({
     sparklineData,
     sparklineLoading,
+    sparklineError = null,
+    onRetry,
     onDateRangeChange,
     displayTimezone,
     currentDateTo,
@@ -289,7 +295,7 @@ export function TracingSparkline({
                                 )}
                             </TimeSeriesBarChart>
                         )
-                    ) : !sparklineLoading ? (
+                    ) : !sparklineLoading && !sparklineError ? (
                         <div className="h-full text-muted flex items-center justify-center">
                             No results matching filters
                         </div>
@@ -304,6 +310,15 @@ export function TracingSparkline({
                         />
                     )}
                     {sparklineLoading && <SpinnerOverlay />}
+                    {onRetry && (
+                        <QueryFailedOverlay
+                            error={sparklineError}
+                            title="Couldn't load trace volume"
+                            onRetry={onRetry}
+                            compact
+                            className="bg-primary"
+                        />
+                    )}
                 </div>
             )}
         </div>

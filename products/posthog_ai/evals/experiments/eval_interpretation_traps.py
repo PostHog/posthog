@@ -41,7 +41,7 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.experiments.scorers import AdvisesAgainstShipping, CitesDiagnosticGroup
@@ -50,6 +50,7 @@ from products.posthog_ai.evals.experiments.seeders import (
     seed_day_old_experiment,
     seed_running_experiment,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_interpretation_traps(ctx: EvalContext) -> None:
@@ -159,8 +160,13 @@ async def eval_interpretation_traps(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-experiments-diagnose-interpretation-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_interpretation_traps::eval_interpretation_traps",
+            metrics=["diagnosis_group", "advises_against_shipping"],
+        ),
         cases=cases,
         scorers=[
             CitesDiagnosticGroup(),

@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -38,12 +37,14 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.api.exports import BLOCKING_EXPORTS_PER_TEAM, _blocking_exports_limiter
+from products.exports.backend.facade import exporters as export_handlers
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.source_authentication import required_scopes_for_export_target
@@ -111,7 +112,7 @@ class TestExports(APIBaseTest):
     def test_screenshot_heatmap_export_requires_same_origin_url(
         self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
     ) -> None:
-        with self.settings(SITE_URL=site_url):
+        with self.settings(SITE_URL=site_url), mock_anti_ssrf_dns_lookup():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports/",
                 {
@@ -502,21 +503,22 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+    @parameterized.expand([("limit_context", "posthog_ai"), ("execution_mode", "blocking"), ("kind", "dataset")])
+    def test_errors_if_the_request_picks_an_internal_export_setting(self, key: str, value: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "image/png",
                 "export_context": {
                     "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
-                    "limit_context": "posthog_ai",
+                    key: value,
                 },
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "export_context")
-        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
+        self.assertEqual(response.json()["detail"], f"{key} is not supported for exports.")
 
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:
@@ -821,6 +823,36 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/datasets/{dataset_id}/exports/{dataset_export.id}/content",
             fetch_redirect_response=False,
         )
+
+    @parameterized.expand(
+        [
+            ("an owner path", "/api/owner/content", 302, "/api/owner/content?download=true"),
+            ("no owner path", None, 404, None),
+        ]
+    )
+    def test_registered_exports_are_hidden_and_their_content_goes_to_the_owner(
+        self, _name: str, owner_path: str | None, content_status: int, location: str | None
+    ) -> None:
+        with patch.dict(export_handlers._export_format_handlers):
+            export_handlers.register_export_format_handler(
+                export_format="application/json",
+                kind="test_kind",
+                handler=lambda asset: None,
+                content_path=lambda *, team_id, asset_id, export_context: owner_path,
+            )
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.JSON,
+                export_context={"kind": "test_kind"},
+                created_by=self.user,
+                content=b"{}",
+            )
+
+            retrieve = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
+            content = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/content?download=true")
+
+        self.assertEqual(retrieve.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual((content.status_code, content.get("Location")), (content_status, location))
 
     def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
         ordinary_export = ExportedAsset.objects.create(
@@ -2005,10 +2037,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     )
     def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
         with (
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {
@@ -2027,10 +2058,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
         with (
             self.settings(SITE_URL=site_url),
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {

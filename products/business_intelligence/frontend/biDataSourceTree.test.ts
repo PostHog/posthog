@@ -1,6 +1,7 @@
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { BIDataSource } from '~/queries/schema/schema-business-intelligence'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { buildBIDataSourceTree, searchBIDataSourceTree } from 'products/business_intelligence/frontend/biDataSourceTree'
 import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
@@ -39,6 +40,76 @@ const tree: TreeDataItem[] = [
 const sources: BIDataSource[] = [{ table: 'sales.orders' }, { table: 'sales.customers' }, { table: 'invoices' }]
 
 describe('BI data source tree', () => {
+    it.each([false, true])('preserves trust metadata and prioritizes certified sources (direct: %s)', (direct) => {
+        const certification = { status: 'certified' as const, notes: 'Reviewed example totals' }
+        const tables: DatabaseSchemaTable[] = [
+            {
+                id: 'old',
+                name: 'sales.old_orders',
+                type: 'posthog',
+                fields: {},
+                certification: { status: 'deprecated' },
+            },
+            { id: 'raw', name: 'sales.raw_orders', type: 'posthog', fields: {} },
+            { id: 'orders', name: 'sales.orders', type: 'posthog', fields: {}, certification },
+        ]
+        const connectionId = direct ? 'example-connection' : undefined
+        const savedSource = { table: 'sales.orders', connectionId: 'another-connection' }
+        const results = buildBIDataSourceTree(
+            [
+                {
+                    id: 'tables',
+                    name: 'Tables',
+                    children: tables.map((table) => ({
+                        id: table.id,
+                        name: table.name,
+                        record: { type: 'table', certification: table.certification },
+                    })),
+                },
+            ],
+            [...tables.map(({ name }) => ({ table: name, connectionId })), savedSource],
+            direct,
+            'public',
+            connectionId
+        )
+        const leaves = (nodes: TreeDataItem[]): TreeDataItem[] =>
+            nodes.flatMap((node) => (node.children ? leaves(node.children) : [node]))
+        const matched = leaves(searchBIDataSourceTree(results, 'orders'))
+        const current = matched.filter((node) => node.id !== getBIDataSourceKey(savedSource))
+        expect(current.map((node) => node.name)).toEqual(['sales.orders', 'sales.raw_orders', 'sales.old_orders'])
+        expect(current[0].record?.certification).toEqual(certification)
+        expect(
+            matched.find((node) => node.id === getBIDataSourceKey(savedSource))?.record?.certification
+        ).toBeUndefined()
+    })
+
+    it('prioritizes folders by their matching sources after search', () => {
+        const results = buildBIDataSourceTree(
+            [
+                { id: 'raw', name: 'Raw', children: [{ id: 'a', name: 'orders_raw', record: { type: 'table' } }] },
+                {
+                    id: 'views',
+                    name: 'Views',
+                    children: [
+                        {
+                            id: 'b',
+                            name: 'customers',
+                            record: { type: 'view', certification: { status: 'certified' } },
+                        },
+                        {
+                            id: 'c',
+                            name: 'orders_old',
+                            record: { type: 'view', certification: { status: 'deprecated' } },
+                        },
+                    ],
+                },
+            ],
+            [{ table: 'orders_raw' }, { table: 'customers' }, { table: 'orders_old' }],
+            false
+        )
+        expect(results.map((node) => node.name)).toEqual(['Certified sources', 'Raw', 'Views'])
+        expect(searchBIDataSourceTree(results, 'orders').map((node) => node.name)).toEqual(['Raw', 'Views'])
+    })
     it.each([
         ['orders', ['sales.orders']],
         [' POSTGRES ', ['sales.orders', 'sales.customers']],
@@ -101,7 +172,12 @@ describe('BI data source tree', () => {
         expect(searchBIDataSourceTree(results, 'Views')).toEqual(results)
         expect(results).toHaveLength(1)
         expect(results[0].children).toEqual([
-            { id: getBIDataSourceKey(endpoint), name: 'report_v1', icon, record: { type: 'endpoint' } },
+            {
+                id: getBIDataSourceKey(endpoint),
+                name: 'report_v1',
+                icon,
+                record: { type: 'endpoint', tableName: 'report_v1' },
+            },
         ])
     })
 })

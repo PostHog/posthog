@@ -1,8 +1,8 @@
 # Slow-query report: ready-to-run patterns
 
-All queries run against `posthog.query_log_archive` via `hogli metabase:query --region <us|eu>
---database-id <id>` (discover the id with `hogli metabase:databases`). Save wide results with
-`--save <path>`. `now() - INTERVAL 14 DAY` = "last two weeks"; adjust the interval per request.
+All queries run against `posthog.query_log_archive` through the ClickHouse direct-query connection
+of the region, with `sendRawQuery: true` (see the `querying-production-databases` skill). The Metabase
+skill still works for the same SQL. `now() - INTERVAL 14 DAY` = "last two weeks"; adjust the interval per request.
 
 The health-poll exclusion below removes the cluster's own liveness probe so it does not show up as a
 "slow query"; keep it in every aggregate.

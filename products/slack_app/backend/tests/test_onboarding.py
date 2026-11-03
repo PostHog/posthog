@@ -109,7 +109,7 @@ class TestOnboarding:
     ):
         # Install-only delivery: always post, even if every step is already done (shown as '✅').
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
         client.conversations_members.return_value = {"members": ["U1"], "response_metadata": {"next_cursor": ""}}
 
@@ -203,7 +203,7 @@ class TestOnboarding:
         self, mock_webclient_class, _resolve, _personal, _team, _responder, _admin
     ):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
         client.conversations_members.return_value = {"members": ["U1"], "response_metadata": {"next_cursor": ""}}
         self.organization.is_ai_data_processing_approved = False
@@ -224,7 +224,7 @@ class TestOnboarding:
         self, mock_webclient_class, _resolve, _personal, _team, _responder, _admin
     ):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
         client.conversations_members.return_value = {"members": ["U1"], "response_metadata": {"next_cursor": ""}}
         self.organization.is_ai_data_processing_approved = False
@@ -338,7 +338,7 @@ class TestOnboarding:
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):
-        from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
+        from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
         run_posthog_slack_inbox_onboarding(self.integration.id)
 
@@ -347,7 +347,7 @@ class TestOnboarding:
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_noop_for_missing_integration(self, mock_run):
-        from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
+        from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
         run_posthog_slack_inbox_onboarding(99999999)
 

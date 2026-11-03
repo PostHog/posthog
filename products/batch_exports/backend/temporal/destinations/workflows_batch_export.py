@@ -3,6 +3,7 @@ import time
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 import urllib.parse
 
@@ -18,7 +19,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
-from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
+from products.batch_exports.backend.service import (
+    BatchExportField,
+    BatchExportInsertInputs,
+    WorkflowsBatchExportInputs,
+    migrate_batch_export_model,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     get_data_interval,
@@ -409,7 +415,8 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         inputs.batch_export.data_interval_end or "END",
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
+        model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_WORKFLOWS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
         assert inputs.batch_export.batch_export_id is not None
@@ -420,6 +427,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             data_interval_end=inputs.batch_export.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -458,9 +466,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 team_id=inputs.batch_export.team_id,
                 session=session,
                 request_task_group=tg,
-                model=inputs.batch_export.batch_export_model.name
-                if inputs.batch_export.batch_export_model
-                else "events",
+                model=model.name,
                 max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
                 max_pending_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS,
             )
@@ -551,7 +557,6 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
-            batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=workflows_default_fields(inputs.batch_export_id),
         )

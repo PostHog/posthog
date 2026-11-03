@@ -20,6 +20,14 @@ Every caller meets these rules before it merges, and a reviewer blocks a caller 
 
 An API key, feature flag, or customer opt-in cannot enable TypeSafe on PostHog Cloud. Changing the Cloud guard needs a separate privacy review and explicit approval before any customer data can be sent.
 
+### Customer System One connections
+
+AI observability evaluations let a team save its own System One connection: an endpoint URL and the team's own credential.
+That connection can point at TypeSafe's hosted API, and evaluation runs then send the team's evaluation data there from Cloud.
+These calls do not use this domain: no instance key, budget, or Cloud guard applies, and the team pays TypeSafe directly.
+The team chooses the endpoint and supplies the key, so PostHog sends data to TypeSafe only on that team's instruction.
+Every other provider key rejects `typesafe.ai` hosts on save, so no other path can reach TypeSafe this way.
+
 An instance without `TYPESAFE_API_KEY` sends nothing.
 
 ## Identity
@@ -51,7 +59,9 @@ Raise both settings when real traffic outgrows them.
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-No TypeSafe caller exists on master yet. Each new local caller adds itself here with its lane and its feature flag.
+Each local caller adds itself here with its lane and its feature flag.
+
+- `mcp_analytics_evals` (`BATCH`, no feature flag): the `jev` grader of `manage.py grade_mcp_evals` sends an eval scenario's request, success criteria and the agent's answer, never tool results. It is a management command, not a Cloud feature, so there is no flag to gate; instead it runs only when a developer names `jev` in `--graders`, against synthetic or PostHog-owned projects.
 
 ## Rate-limit headers
 

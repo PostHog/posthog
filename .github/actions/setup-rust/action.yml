@@ -1,0 +1,84 @@
+name: Setup Rust
+description: |
+    Installs a pinned Rust toolchain with rustup and retries the download.
+    Runs the same rustup commands as dtolnay/rust-toolchain. That action does not retry,
+    so one network error on static.rust-lang.org fails the job before any test runs.
+
+inputs:
+    toolchain:
+        description: 'Rust toolchain to install (e.g. 1.91.1)'
+        required: true
+    components:
+        description: 'Comma-separated list of components to install in addition to the minimal profile'
+        required: false
+        default: ''
+
+runs:
+    using: composite
+    steps:
+        - name: Install rustup if needed
+          shell: bash
+          env:
+              RUSTUP_VERSION: 1.28.2
+          run: |
+              set -euo pipefail
+              echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
+              if ! command -v rustup &>/dev/null; then
+                case "$(uname -m)" in
+                  x86_64)
+                    target=x86_64-unknown-linux-gnu
+                    expected_sha256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+                    ;;
+                  aarch64)
+                    target=aarch64-unknown-linux-gnu
+                    expected_sha256=e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c
+                    ;;
+                  *)
+                    echo "::error::No pinned rustup-init checksum for $(uname -m)"
+                    exit 1
+                    ;;
+                esac
+                installer="$RUNNER_TEMP/rustup-init"
+                curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                  "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${target}/rustup-init" -o "$installer"
+                echo "${expected_sha256}  $installer" | sha256sum -c -
+                chmod +x "$installer"
+                "$installer" --default-toolchain none -y
+                echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> "$GITHUB_PATH"
+              fi
+
+        - name: rustup toolchain install ${{ inputs.toolchain }}
+          shell: bash
+          env:
+              TOOLCHAIN: ${{ inputs.toolchain }}
+              COMPONENTS: ${{ inputs.components }}
+              RUSTUP_PERMIT_COPY_RENAME: 1
+          run: |
+              set -euo pipefail
+              PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+              component_flags=()
+              for c in ${COMPONENTS//,/ }; do
+                component_flags+=(--component "$c")
+              done
+              for attempt in 1 2 3; do
+                if rustup toolchain install "$TOOLCHAIN" "${component_flags[@]}" --profile minimal --no-self-update; then
+                  break
+                fi
+                if [ "$attempt" -eq 3 ]; then
+                  echo "::error::rustup could not install $TOOLCHAIN after 3 attempts"
+                  exit 1
+                fi
+                echo "::warning::rustup toolchain install failed (attempt $attempt of 3), retrying in $((attempt * 15))s"
+                sleep $((attempt * 15))
+              done
+              rustup default "$TOOLCHAIN"
+
+        - name: Set Cargo defaults
+          shell: bash
+          run: |
+              if [ -z "${CARGO_INCREMENTAL+set}" ]; then
+                echo CARGO_INCREMENTAL=0 >> "$GITHUB_ENV"
+              fi
+              if [ -z "${CARGO_TERM_COLOR+set}" ]; then
+                echo CARGO_TERM_COLOR=always >> "$GITHUB_ENV"
+              fi

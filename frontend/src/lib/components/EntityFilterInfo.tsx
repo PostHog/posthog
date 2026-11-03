@@ -1,8 +1,16 @@
 import clsx from 'clsx'
 
+import {
+    LegacyDisplayEntity,
+    formatEventName,
+    getDisplayNameFromEntityFilter,
+    isAllEventsEntityFilter,
+} from 'lib/insights/entityFilterNames'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { FEATURE_FLAG_CALLED_EVENT, FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import { flagCallsSeriesName } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import {
     SeriesNode,
     isActionsSeriesNode,
@@ -10,21 +18,42 @@ import {
     isGroupSeriesNode,
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
-import { formatEventName, getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
+import { ActionFilter, EntityTypes } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 /** A series reaches this component either as a query node or as the legacy entity filter that
  *  query responses and the legacy-persisted surfaces still carry. */
-export type DisplayableEntity = EntityFilter | ActionFilter | SeriesNode
+export type DisplayableEntity = LegacyDisplayEntity | ActionFilter | SeriesNode
 
 /** Reads a node into the legacy display fields, so one set of display rules serves both shapes. */
-export type DisplayEntityFilter = (EntityFilter | ActionFilter) & { table_name?: string }
+export type DisplayEntityFilter = (LegacyDisplayEntity | ActionFilter) & { table_name?: string }
 
 export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
+    const displayFilter = nodeToDisplayEntityFilter(filter)
+    // Trends and lifecycle results describe a warehouse series as an events entity whose id is the table name.
+    // Funnel results describe a warehouse step with no id and the table name in `name`.
+    if (
+        displayFilter.id === FLAG_EVALUATIONS_TABLE ||
+        (displayFilter.type === EntityTypes.DATA_WAREHOUSE &&
+            (displayFilter.table_name ?? displayFilter.name) === FLAG_EVALUATIONS_TABLE)
+    ) {
+        const name = ensureStringIsNotBlank(displayFilter.name)
+        return {
+            ...displayFilter,
+            type: EntityTypes.EVENTS,
+            id: FEATURE_FLAG_CALLED_EVENT,
+            // Any name other than the table's is a rename, for example one set through the API.
+            name: name && name !== FLAG_EVALUATIONS_TABLE ? name : flagCallsSeriesName(),
+            table_name: undefined,
+        }
+    }
+    return displayFilter
+}
+
+function nodeToDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityFilter {
     if (!('kind' in filter)) {
         return filter
     }

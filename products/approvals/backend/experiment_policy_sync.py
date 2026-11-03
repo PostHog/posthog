@@ -1,8 +1,10 @@
 """TEMPORARY: mirror feature flag approval policies to experiment approval policies.
 
 This module exists only until experiment-owned flags leave `feature_flag.*` policy scope and the
-`experiment.*` policies are enforced. Delete it in the PR that ships that enforcement. The last sync
-run before that deploy is the final copy, so organizations keep the approvals they configured.
+`experiment.*` policies are enforced. Enforcement rolls out one organization at a time, and the sync
+skips an organization once it is rolled out, so the last run before that is that organization's
+final copy and it keeps the approvals it configured. Delete this module once every organization
+with a flag policy is rolled out.
 
 Every part of the sync carries the tag `TODO(experiment-approval-policies)`. Remove all of them:
 - this module and `tests/test_experiment_policy_sync.py`
@@ -11,8 +13,15 @@ Every part of the sync carries the tag `TODO(experiment-approval-policies)`. Rem
 - the `experiment.*` exclusions in `ApprovalPolicyViewSet`
 - the `experiment.*` rejection in `ApprovalPolicySerializer.validate_action_key`
 - the tests in `test_approvals_api.py` that create `experiment.*` rows to check they stay hidden
-- `fallback_policy_action_keys` on the experiment holdout actions, the fallback lookup in
-  `PolicyEngine.get_policy_for_action`, and `ignore_conditions` in `PolicyEngine.evaluate`
+- the branch of `fallback_policy_action_keys_for` on the experiment holdout actions that serves an
+  organization not rolled out
+
+Keep the rest of the holdout fallback: the fallback lookup in `PolicyEngine.get_policy_for_action`
+and `ignore_conditions` in `PolicyEngine.evaluate`. A holdout has no policy of its own, and once
+every organization is rolled out it borrows `experiment.update` through them.
+
+A self-hosted instance cannot evaluate the rollout flag, so it never rolls out. Decide how those
+instances move to the experiment policies before deleting this module.
 
 No column marks a row as a mirror. This is on purpose, because the sync is short-lived. So the sync
 treats every `experiment.*` row as a mirror. It overwrites or deletes any `experiment.*` row that a
@@ -26,6 +35,7 @@ from django.db import connection, transaction
 from structlog import get_logger
 
 from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.ownership import scope_by_owner_state
 
 logger = get_logger(__name__)
 
@@ -62,6 +72,12 @@ def sync_experiment_policies() -> None:
     Deleting orphans is safe because every row with a synced action key is a mirror: the API
     rejects those keys, so no person can create one.
 
+    An organization that evaluates policies by flag owner is skipped entirely. Its experiment
+    policies are enforced and it can edit them, so mirroring would overwrite a person's edit with
+    the flag policy, and the orphan sweep would delete an experiment policy they created. Skipping
+    makes the last run before that organization was rolled out its final copy, which is the
+    handover this sync exists to produce.
+
     One run at a time holds a lock, and an overlapping run skips. The unique constraint cannot
     stop two runs from each inserting an organization-level mirror, because `team_id` is NULL there.
     """
@@ -72,9 +88,16 @@ def sync_experiment_policies() -> None:
 
         created = updated = 0
         live: set[tuple[UUID, int | None, str]] = set()
+        handed_over: dict[UUID, bool] = {}
 
-        sources = ApprovalPolicy.objects.filter(action_key__in=ACTION_MAP).prefetch_related("bypass_roles")
+        sources = (
+            ApprovalPolicy.objects.filter(action_key__in=ACTION_MAP)
+            .select_related("organization")
+            .prefetch_related("bypass_roles")
+        )
         for source in sources:
+            if _is_handed_over(source.organization, handed_over):
+                continue
             target_action = ACTION_MAP[source.action_key]
             live.add((source.organization_id, source.team_id, target_action))
             fields = {field: getattr(source, field) for field in MIRRORED_FIELDS}
@@ -82,7 +105,7 @@ def sync_experiment_policies() -> None:
 
             mirror, was_created = ApprovalPolicy.objects.get_or_create(
                 organization_id=source.organization_id,
-                team_id=source.team_id,
+                team_id=source.team_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
                 action_key=target_action,
                 defaults=fields,
             )
@@ -105,8 +128,11 @@ def sync_experiment_policies() -> None:
 
         orphans = [
             mirror
-            for mirror in ApprovalPolicy.objects.filter(action_key__in=SYNCED_ACTION_KEYS)
+            for mirror in ApprovalPolicy.objects.filter(action_key__in=SYNCED_ACTION_KEYS).select_related(
+                "organization"
+            )
             if (mirror.organization_id, mirror.team_id, mirror.action_key) not in live
+            and not _is_handed_over(mirror.organization, handed_over)
         ]
         for orphan in orphans:
             orphan.delete()
@@ -118,3 +144,18 @@ def _try_sync_lock() -> bool:
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))", [_SYNC_LOCK_KEY])
         return cursor.fetchone()[0]
+
+
+def _is_handed_over(organization, handed_over: dict[UUID, bool]) -> bool:
+    """Whether this organization may own its experiment policies, so the sync leaves them alone.
+
+    Only an organization known to be on the old scope is synced. When the rollout flag cannot
+    answer, skipping costs one run of freshness, while syncing could overwrite or delete the
+    policies of an organization that is rolled out.
+
+    Memoized per run: one organization holds several policies, and the answer cannot change
+    while the run holds the lock.
+    """
+    if organization.id not in handed_over:
+        handed_over[organization.id] = scope_by_owner_state(organization) is not False
+    return handed_over[organization.id]

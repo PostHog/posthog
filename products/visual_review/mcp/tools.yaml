@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Visual review
 feature: visual_review
-url_prefix: /visual_review
+url_prefix: /visual-review
 ui_apps:
     visual-review-snapshots:
         type: custom

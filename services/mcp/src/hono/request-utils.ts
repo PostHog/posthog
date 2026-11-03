@@ -1,3 +1,4 @@
+import { getUiCapability, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 
 import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
@@ -9,7 +10,7 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
-import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
+import { META_CLIENT_CAPABILITIES, parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { trackAuthFailure } from './analytics'
@@ -26,12 +27,25 @@ const InitializeParamsSchema = z.object({
         })
         .optional(),
     protocolVersion: z.string().optional(),
+    capabilities: z.unknown().optional(),
 })
 
 const JsonRpcMessageSchema = z.object({
     method: z.string(),
     params: z.unknown().optional(),
 })
+
+function parseUiCapabilities(capabilities: unknown): Pick<ClientInfo, 'uiSupported'> {
+    const parsed = z
+        .object({ extensions: z.record(z.string(), z.record(z.string(), z.unknown())).optional() })
+        .safeParse(capabilities)
+    const uiCapability = getUiCapability(parsed.success ? parsed.data : undefined)
+    if (uiCapability === undefined) {
+        return { uiSupported: undefined }
+    }
+    const ui = z.object({ mimeTypes: z.array(z.string()).optional() }).safeParse(uiCapability)
+    return { uiSupported: ui.success && ui.data.mimeTypes?.includes(RESOURCE_MIME_TYPE) === true }
+}
 
 function parseClientInfo(bodyText: string): ClientInfo {
     try {
@@ -55,15 +69,25 @@ function parseClientInfo(bodyText: string): ClientInfo {
                     clientName: sanitizeHeaderValue(params.data.clientInfo?.name),
                     clientVersion: sanitizeHeaderValue(params.data.clientInfo?.version),
                     protocolVersion: sanitizeHeaderValue(params.data.protocolVersion),
+                    elicitationUrlSupported: z
+                        .object({ elicitation: z.object({ url: z.object({}) }) })
+                        .safeParse(params.data.capabilities).success,
+                    ...parseUiCapabilities(params.data.capabilities),
                 }
             }
             if (!metaFallback) {
                 const meta = parseRequestProtocolMeta(rpc.data.params)
                 if (meta.protocolVersion || meta.clientName) {
+                    const params = z
+                        .object({ _meta: z.record(z.string(), z.unknown()).optional() })
+                        .safeParse(rpc.data.params)
                     metaFallback = {
                         clientName: sanitizeHeaderValue(meta.clientName),
                         clientVersion: sanitizeHeaderValue(meta.clientVersion),
                         protocolVersion: sanitizeHeaderValue(meta.protocolVersion),
+                        ...parseUiCapabilities(
+                            params.success ? params.data._meta?.[META_CLIENT_CAPABILITIES] : undefined
+                        ),
                     }
                 }
             }

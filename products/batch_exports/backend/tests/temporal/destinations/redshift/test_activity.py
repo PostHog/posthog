@@ -7,7 +7,15 @@ from psycopg import sql
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportInsertInputs,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ConnectionParameters,
     RedshiftInsertInputs,
@@ -45,8 +53,7 @@ async def _run_activity(
     data_interval_end,
     table_name: str,
     properties_data_type: str,
-    batch_export_model: BatchExportModel | None = None,
-    batch_export_schema: BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
@@ -65,7 +72,6 @@ async def _run_activity(
         backfill_details=None,
         is_backfill=False,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=redshift_default_fields(),
     )
@@ -102,7 +108,6 @@ async def _run_activity(
             run_id=None,
             backfill_details=None,
             batch_export_model=insert_inputs.batch_export.batch_export_model,
-            batch_export_schema=insert_inputs.batch_export.batch_export_schema,
             destination_default_fields=redshift_default_fields(),
         ),
     )
@@ -117,7 +122,7 @@ async def _run_activity(
         table_name=table_name,
         team_id=team.pk,
         date_ranges=[(data_interval_start, data_interval_end)],
-        batch_export_model=batch_export_model or batch_export_schema,
+        batch_export_model=batch_export_model,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
         sort_key=sort_key,
@@ -137,7 +142,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     psycopg_connection,
     redshift_config,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -158,14 +163,14 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     that they appear in the expected Redshift table.
     """
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
         pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and MISSING_REQUIRED_ENV_VARS
     ):
@@ -192,12 +197,11 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     table_name = f"test_insert_activity_table__{ateam.pk}"
 
@@ -218,7 +222,6 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
@@ -245,7 +248,7 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     properties_data_type = "varchar"
     table_name = f"test_insert_activity_mutability_table_{ateam.pk}"
 
@@ -345,7 +348,7 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Sessions batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="sessions", schema=None)
+    model = BatchExportSessionsModel()
     properties_data_type = "varchar"
     table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
 
@@ -446,7 +449,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     properties_data_type = "varchar"
     table_name = f"test_insert_activity_migration_table__{ateam.pk}"
     expected_fields = [
@@ -528,7 +531,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
-@pytest.mark.parametrize("model", [TEST_MODELS[1]])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("missing_person_id", [False, True])
 async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     clickhouse_client,
@@ -536,7 +539,7 @@ async def test_insert_into_redshift_activity_inserts_data_with_extra_columns(
     psycopg_connection,
     redshift_config,
     exclude_events,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,

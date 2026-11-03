@@ -4,16 +4,19 @@ import * as React from 'react'
 import './separator.css'
 import { cn } from './lib/utils'
 
-function Separator({ className, orientation = 'horizontal', ...props }: SeparatorPrimitive.Props): React.ReactElement {
-    return (
-        <SeparatorPrimitive
-            data-quill
-            data-slot="separator"
-            orientation={orientation}
-            className={cn('quill-separator shrink-0', className)}
-            {...props}
-        />
-    )
-}
+const Separator = React.forwardRef<React.ComponentRef<typeof SeparatorPrimitive>, SeparatorPrimitive.Props>(
+    function Separator({ className, orientation = 'horizontal', ...props }, ref) {
+        return (
+            <SeparatorPrimitive
+                ref={ref}
+                data-quill
+                data-slot="separator"
+                orientation={orientation}
+                className={cn('quill-separator shrink-0', className)}
+                {...props}
+            />
+        )
+    }
+)
 
 export { Separator }

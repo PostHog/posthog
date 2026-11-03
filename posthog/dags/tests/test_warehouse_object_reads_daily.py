@@ -1,24 +1,28 @@
 import json
 import uuid
 from collections.abc import Iterator
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+import time_machine
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import dagster
 from clickhouse_driver import Client
+from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_TABLE
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE
 from posthog.dags.warehouse_object_reads_daily import (
     ROLLUP_START_DATE,
     insert_rollup_into_staging,
     warehouse_object_reads_daily_job,
+    warehouse_object_reads_daily_overdue_sensor,
     warehouse_object_reads_daily_schedule,
 )
 from posthog.models import Team
@@ -27,6 +31,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 ROLLUP_MODULE = "posthog.dags.warehouse_object_reads_daily"
+QUERY_LOG_TABLE = "test_warehouse_object_reads_query_log"
 
 
 @pytest.fixture(autouse=True)
@@ -35,11 +40,34 @@ def rollup_on_the_local_data_node() -> Iterator[None]:
         yield
 
 
+@pytest.fixture
+def query_log(cluster: ClickhouseCluster) -> Iterator[None]:
+    cluster.any_host(
+        lambda client: client.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {QUERY_LOG_TABLE} (
+                event_date Date,
+                event_time DateTime,
+                is_initial_query UInt8,
+                type Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
+                query_id String,
+                query_duration_ms UInt64,
+                read_bytes UInt64,
+                log_comment String
+            ) ENGINE = MergeTree ORDER BY (event_date, event_time)
+            """
+        )
+    ).result()
+    with patch(f"{ROLLUP_MODULE}.query_log_source", return_value=QUERY_LOG_TABLE):
+        yield
+    cluster.any_host(lambda client: client.execute(f"DROP TABLE IF EXISTS {QUERY_LOG_TABLE}")).result()
+
+
 def rollup_day() -> date:
     return date.today() - timedelta(days=2)
 
 
-def archive_row(
+def query_log_row(
     team: Team,
     day: date,
     *,
@@ -50,9 +78,7 @@ def archive_row(
 ) -> dict[str, Any]:
     query_id = str(uuid.uuid4())
     return {
-        "team_id": team.pk,
         "query_id": query_id,
-        "initial_query_id": query_id,
         "is_initial_query": int(is_initial_query),
         "type": "QueryFinish",
         "event_date": day,
@@ -93,8 +119,8 @@ def refresh_comment(workflow_id: str, materialized_saved_query_id: str) -> dict[
     }
 
 
-def clear_archive(client: Client) -> None:
-    client.execute(f"TRUNCATE TABLE {SHARDED_QUERY_LOG_ARCHIVE_TABLE}")
+def clear_query_log(client: Client) -> None:
+    client.execute(f"TRUNCATE TABLE {QUERY_LOG_TABLE}")
 
 
 def run_rollup(cluster: ClickhouseCluster, day: date, *, succeeds: bool = True) -> None:
@@ -104,11 +130,11 @@ def run_rollup(cluster: ClickhouseCluster, day: date, *, succeeds: bool = True) 
     assert result.success is succeeds
 
 
-def insert_archive_rows(rows: list[dict[str, Any]], client: Client) -> None:
+def insert_query_log_rows(rows: list[dict[str, Any]], client: Client) -> None:
     columns = list(rows[0])
     for row in rows:
         client.execute(
-            f"INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_TABLE} ({', '.join(columns)}) "
+            f"INSERT INTO {QUERY_LOG_TABLE} ({', '.join(columns)}) "
             f"SELECT {', '.join(f'%({column})s' for column in columns)}",
             row,
         )
@@ -130,6 +156,7 @@ def read_rollup(team_id: int, day: date, subject_ids: list[str], client: Client)
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("query_log")
 def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_partition_on_rerun(
     cluster: ClickhouseCluster, team: Team
 ) -> None:
@@ -161,14 +188,14 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
     from_table = read_tags(saved_query_ids=[], warehouse_table_ids=[table_id], directly_read_ids=[table_id])
     untagged_view_read = {"saved_query_ids": [view_id]}
     rows = [
-        archive_row(team, day, log_comment=read_comment("shared", 7, **from_view), duration_ms=100),
-        archive_row(team, day, log_comment=read_comment("shared", 7, **from_view), duration_ms=300),
-        archive_row(team, day, log_comment=read_comment("joined", 8, **from_view_joined_to_table), duration_ms=50),
-        archive_row(team, day, log_comment=read_comment("table", 9, **from_table), duration_ms=20),
-        archive_row(team, day, log_comment=read_comment("untagged", 7, **untagged_view_read), duration_ms=10),
-        archive_row(team, day, log_comment=read_comment("staff", 9, is_impersonated=True, **from_view)),
-        archive_row(team, day, log_comment=read_comment("leaf", 7, **from_view), is_initial_query=False),
-        archive_row(
+        query_log_row(team, day, log_comment=read_comment("shared", 7, **from_view), duration_ms=100),
+        query_log_row(team, day, log_comment=read_comment("shared", 7, **from_view), duration_ms=300),
+        query_log_row(team, day, log_comment=read_comment("joined", 8, **from_view_joined_to_table), duration_ms=50),
+        query_log_row(team, day, log_comment=read_comment("table", 9, **from_table), duration_ms=20),
+        query_log_row(team, day, log_comment=read_comment("untagged", 7, **untagged_view_read), duration_ms=10),
+        query_log_row(team, day, log_comment=read_comment("staff", 9, is_impersonated=True, **from_view)),
+        query_log_row(team, day, log_comment=read_comment("leaf", 7, **from_view), is_initial_query=False),
+        query_log_row(
             team,
             day,
             log_comment=refresh_comment(refresh_workflow_id, nested_view_id),
@@ -176,7 +203,7 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
             read_bytes=50000,
         ),
     ]
-    cluster.any_host(partial(insert_archive_rows, rows)).result()
+    cluster.any_host(partial(insert_query_log_rows, rows)).result()
 
     expected = sorted(
         [
@@ -205,18 +232,15 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
         run_rollup(cluster, day, succeeds=False)
     assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
 
-    cluster.any_host(clear_archive).result()
-    run_rollup(cluster, day)
-    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == []
+    cluster.any_host(clear_query_log).result()
+    run_rollup(cluster, day, succeeds=False)
+    assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected
 
 
 @pytest.mark.django_db
-def test_rollup_of_a_day_without_archive_rows_succeeds(cluster: ClickhouseCluster) -> None:
-    result = warehouse_object_reads_daily_job.execute_in_process(
-        partition_key=ROLLUP_START_DATE, resources={"cluster": cluster}
-    )
-
-    assert result.success
+@pytest.mark.usefixtures("query_log")
+def test_rollup_of_a_day_without_query_log_rows_fails(cluster: ClickhouseCluster) -> None:
+    run_rollup(cluster, date.fromisoformat(ROLLUP_START_DATE), succeeds=False)
 
 
 def test_schedule_runs_after_the_archive_day_closes() -> None:
@@ -239,3 +263,41 @@ def test_rollup_fails_before_touching_staging_while_another_run_executes(cluster
     assert not result.success
     assert other_run.run_id in str(result.all_events)
     recreate_staging_table.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("before_the_deadline", time(hour=9, minute=59), False, False, 0),
+        ("published_day", time(hour=10), True, False, 0),
+        ("missing_day", time(hour=10), False, False, 1),
+        ("missing_day_slack_down", time(hour=10), False, True, 2),
+    ]
+)
+@override_settings(CLOUD_DEPLOYMENT="US", DAGSTER_DOMAIN="dagster.example.com")
+def test_overdue_sensor_alerts_once_when_yesterday_is_not_published(
+    _name: str, check_time: time, published: bool, slack_down: bool, expected_posts: int
+) -> None:
+    today = date(2026, 10, 8)
+    instance = dagster.DagsterInstance.ephemeral()
+    if published:
+        instance.create_run_for_job(
+            job_def=warehouse_object_reads_daily_job,
+            status=dagster.DagsterRunStatus.SUCCESS,
+            tags={"dagster/partition": (today - timedelta(days=1)).isoformat()},
+        )
+    slack = MagicMock()
+    if slack_down:
+        slack.get_client.return_value.chat_postMessage.side_effect = ConnectionError
+
+    with time_machine.travel(datetime.combine(today, check_time, tzinfo=UTC), tick=False):
+        context = dagster.build_sensor_context(instance=instance, resources={"slack": slack})
+        warehouse_object_reads_daily_overdue_sensor(context)
+        warehouse_object_reads_daily_overdue_sensor(
+            dagster.build_sensor_context(instance=instance, cursor=context.cursor, resources={"slack": slack})
+        )
+
+    posts = slack.get_client.return_value.chat_postMessage.call_args_list
+    assert len(posts) == expected_posts
+    if expected_posts:
+        assert posts[0].kwargs["channel"] == "#alerts-data-modeling"
+        assert "2026-10-07" in posts[0].kwargs["text"]

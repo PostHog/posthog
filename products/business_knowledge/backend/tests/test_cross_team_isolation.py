@@ -6,8 +6,16 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.business_knowledge.backend import logic
+from products.business_knowledge.backend.libraries import create_library, list_libraries
 from products.business_knowledge.backend.logic import create_text_source
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
+from products.business_knowledge.backend.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    KnowledgeLibrary,
+    KnowledgeLibrarySource,
+    KnowledgeSource,
+    SafetyVerdict,
+)
 
 
 class TestCrossTeamIsolation(BaseTest):
@@ -62,3 +70,14 @@ class TestCrossTeamIsolation(BaseTest):
         KnowledgeDocument.objects.unscoped().filter(team=self.team).update(safety_verdict=SafetyVerdict.UNKNOWN)
 
         assert logic.has_ready_sources(self.team.id) is False
+
+    def test_library_and_link_reads_do_not_cross_teams(self) -> None:
+        source = KnowledgeSource.objects.unscoped().get(team=self.team, name="Team A Docs")
+        library = create_library(self.team.id, "Docs")
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeLibrarySource.objects.create(team_id=self.team.id, library=library, source=source)
+
+        assert list_libraries(self.other_team.id) == []
+        assert not KnowledgeLibrary.objects.unscoped().filter(team=self.other_team).exists()
+        assert not KnowledgeLibrarySource.objects.unscoped().filter(team=self.other_team).exists()
+        assert KnowledgeLibrarySource.objects.unscoped().filter(team=self.team, library=library).exists()

@@ -66,7 +66,11 @@ def create_github_source(
 
 
 def create_trunk_source(
-    team: Team, *, prefix: str = "trunkprefix_", source_id: str = "trunk-source"
+    team: Team,
+    *,
+    prefix: str = "trunkprefix_",
+    source_id: str = "trunk-source",
+    job_inputs: dict[str, Any] | None = None,
 ) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -75,7 +79,7 @@ def create_trunk_source(
         status=ExternalDataSource.Status.COMPLETED,
         source_type=ExternalDataSourceType.TRUNKIO,
         prefix=prefix,
-        job_inputs={},
+        job_inputs=job_inputs or {},
     )
 
 
@@ -107,20 +111,36 @@ def create_depot_source(team: Team, *, prefix: str = "depot_", repository: str =
     )
 
 
-def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str, v2_shape: bool = True) -> dict[str, Any]:
+    if not v2_shape:
+        return {
+            "file": file,
+            "name": name,
+            "labels": "[]",
+            "parent": parent,
+            "status": "FLAKY",
+            "variant": "",
+            "classname": classname,
+            "codeowners": "[]",
+            "test_case_id": f"case-{name}",
+            "quarantined_at": "2026-01-10T10:00:00.000Z",
+            "quarantine_setting": "AUTO_QUARANTINE",
+            "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        }
     return {
+        "id": f"case-{name}",
+        "test_collection_id": "collection",
         "file": file,
         "name": name,
         "labels": "[]",
-        "parent": parent,
-        "status": "FLAKY",
+        "parent_name": parent,
+        "class_name": classname,
         "variant": "",
-        "classname": classname,
+        "status": "flaky",
         "codeowners": "[]",
-        "test_case_id": f"case-{name}",
-        "quarantined_at": "2026-01-10T10:00:00.000Z",
-        "quarantine_setting": "AUTO_QUARANTINE",
-        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        "quarantine_state": "quarantined",
+        "quarantined_since": "2026-01-10T10:00:00.000Z",
+        "url": f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}",
     }
 
 
@@ -245,11 +265,12 @@ def _pr_row(
     full_name: str = "PostHog/posthog",
     default_branch: str = "",
     labels: tuple[str, ...] = (),
+    title: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": 1000 + number,
         "number": number,
-        "title": f"PR {number}",
+        "title": title if title is not None else f"PR {number}",
         "state": state,
         "draft": draft,
         "created_at": created_at,
@@ -296,10 +317,14 @@ def _run_row(
     head_branch: str = "main",
     commit_message: str | None = None,
     actor: str = "alice",
+    workflow_id: int | None = None,
+    event: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
+        "workflow_id": workflow_id,
+        "event": event,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "status": status,

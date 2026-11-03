@@ -325,8 +325,7 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
                     is_deleted=False,
                 )
         elif ch_version > pg_version:
-            # This could be happening due to person deletions - check out fix_person_distinct_ids_after_delete management cmd.
-            # Ignoring here to be safe.
+            # Republishing below ClickHouse changes nothing; person_divergence repair raises Postgres above it first.
             logger.info(
                 f"Clickhouse version ({ch_version}) for '{person_distinct_id['distinct_id']}' is higher than in Postgres ({pg_version}). Ignoring."
             )

@@ -15,18 +15,29 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSourceDestination,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NO_ACTIVE_DESTINATIONS_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+    JOB_CREATION_TIMED_OUT_MESSAGE,
     CreateExternalDataJobModelActivityInputs,
+    JobCreationTimedOutError,
     SourceOrSchemaDeletedError,
     V2PipelineRemovedError,
     V3PipelineLockLostError,
     _build_schema_snapshot,
     _create_job,
     _enrichment_pending,
+    _start_to_close_deadline_passed,
     _statistics_stale,
     _verify_v3_lock_still_held,
     create_external_data_job_model_activity,
@@ -221,6 +232,7 @@ class TestCreateJob:
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
 
         team = _team()
         schema = _schema(team, None)
@@ -248,6 +260,88 @@ class TestCreateJob:
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 1
         assert job.id is not None
         mock_sleep.assert_called_once()
+
+
+class TestStartToCloseDeadline:
+    @parameterized.expand(
+        [
+            ("no_timeout", dt.timedelta(seconds=500), None, False),
+            ("inside_the_timeout", dt.timedelta(seconds=10), dt.timedelta(minutes=1), False),
+            ("past_the_timeout", dt.timedelta(seconds=75), dt.timedelta(minutes=1), True),
+        ]
+    )
+    @patch(f"{MODULE}.activity")
+    def test_deadline(
+        self,
+        _name: str,
+        started_ago: dt.timedelta,
+        timeout: dt.timedelta | None,
+        expected: bool,
+        mock_activity: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.started_time = dt.datetime.now(dt.UTC) - started_ago
+        mock_activity.info.return_value.start_to_close_timeout = timeout
+
+        assert _start_to_close_deadline_passed() is expected
+
+
+@pytest.mark.django_db
+class TestCreateJobActivityAfterTimeout:
+    # The server times the activity out and the worker still runs its thread. The workflow has
+    # finalized the run by then, so a Running row made now would never be closed.
+    def _inputs(self, schema: ExternalDataSchema) -> CreateExternalDataJobModelActivityInputs:
+        return CreateExternalDataJobModelActivityInputs(
+            team_id=schema.team_id, schema_id=schema.id, source_id=schema.source_id, billable=True
+        )
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
+    @patch(f"{MODULE}.activity")
+    def test_a_late_start_creates_no_job_and_leaves_the_schema_alone(
+        self, mock_activity: MagicMock, _mock_verify_lock: MagicMock, _mock_close_connections: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.started_time = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5)
+        mock_activity.info.return_value.start_to_close_timeout = dt.timedelta(minutes=1)
+        schema = _schema(_team(), None)
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.save()
+
+        with pytest.raises(JobCreationTimedOutError) as exc_info:
+            create_external_data_job_model_activity(self._inputs(schema))
+
+        assert is_expected_activity_failure(exc_info.value)
+        assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
+    @patch(f"{MODULE}._start_to_close_deadline_passed", side_effect=[False, True])
+    @patch(f"{MODULE}.activity")
+    def test_a_timeout_during_the_insert_closes_the_new_job(
+        self,
+        mock_activity: MagicMock,
+        _mock_deadline: MagicMock,
+        _mock_verify_lock: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        schema = _schema(_team(), None)
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.save()
+
+        with pytest.raises(JobCreationTimedOutError):
+            create_external_data_job_model_activity(self._inputs(schema))
+
+        job = ExternalDataJob.objects.get(schema_id=schema.id)
+        assert job.status == ExternalDataJob.Status.FAILED
+        assert job.latest_error == JOB_CREATION_TIMED_OUT_MESSAGE
+        assert job.finished_at is not None
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
 
 
 @pytest.mark.django_db
@@ -302,6 +396,7 @@ class TestCreateJobActivityStatusOrdering:
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
         team = _team()
         schema = _schema(team, None)
         schema.status = ExternalDataSchema.Status.FAILED
@@ -325,6 +420,7 @@ class TestCreateJobActivityStatusOrdering:
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
         team = _team()
         schema = _schema(team, None)
         schema.sync_type_config = {
@@ -339,6 +435,35 @@ class TestCreateJobActivityStatusOrdering:
         )
 
         assert outputs.failed_runs_in_a_row == 4
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}._verify_v3_lock_still_held")
+    @patch(f"{MODULE}.is_multi_destination_enabled", return_value=True)
+    def test_a_table_whose_every_destination_is_paused_fails_before_the_job_exists(
+        self, _mock_flag: MagicMock, _mock_lock: MagicMock, mock_activity: MagicMock, _mock_close: MagicMock
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
+        team = _team()
+        schema = _schema(team, None)
+        destination = ExternalDataDestination.objects.for_team(team.id).create(
+            team_id=team.id, type=ExternalDataDestination.Type.REDSHIFT, name="paused"
+        )
+        ExternalDataSourceDestination.objects.for_team(team.id).create(
+            team_id=team.id, source=schema.source, destination=destination, enabled=False
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=True, is_v3=True
+                )
+            )
+
+        assert str(exc_info.value.cause) == NO_ACTIVE_DESTINATIONS_MESSAGE
+        assert not ExternalDataJob.objects.filter(schema_id=schema.id).exists()
 
 
 @pytest.mark.django_db
@@ -397,6 +522,7 @@ class TestCreateJobActivityScheduledFullRefresh:
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
         team = _team()
         schema = _schema(team, None)
         schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
@@ -528,6 +654,7 @@ class TestCreateJobActivityPrepareRunOutputs:
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
         team = _team()
         schema = _schema(team, None)
         # Past the free window for a new source, so only the quota decides.
@@ -567,6 +694,7 @@ class TestCreateJobActivityPrepareRunOutputs:
     ) -> None:
         mock_activity.info.return_value.workflow_id = "wf-1"
         mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
         team = _team()
         source = ExternalDataSource.objects.create(
             source_id="src", connection_id="conn", team=team, source_type=source_type

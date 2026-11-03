@@ -1,6 +1,6 @@
 import { cleanDomains, cleanEmails } from '../../components/Accounts/accountEmailMatching'
 import { accountsPartialUpdate, accountsRetrieve } from '../../generated/api'
-import type { AccountApi, PatchedAccountApiProperties } from '../../generated/api.schemas'
+import type { AccountApi, PatchedAccountApi, PatchedAccountApiProperties } from '../../generated/api.schemas'
 
 export const ACCOUNT_ID_FIELDS = [
     { key: 'website_domain', label: 'Website domain', placeholder: 'example.com' },
@@ -23,6 +23,8 @@ export type AccountNativePropertyPatch = Partial<
     Pick<NonNullable<PatchedAccountApiProperties>, AccountNativePropertyKey>
 >
 
+export type AccountTopLevelPatch = Partial<Pick<PatchedAccountApi, 'name' | 'churned_at' | 'ignored_at'>>
+
 export function isAccountNativePropertyKey(key: unknown): key is AccountNativePropertyKey {
     return [...ACCOUNT_ID_FIELDS, ...ACCOUNT_LIST_FIELDS].some((field) => field.key === key)
 }
@@ -33,7 +35,7 @@ export async function updateAccountNativeProperties(
     projectId: number,
     accountId: string,
     properties: AccountNativePropertyPatch,
-    name?: string
+    topLevelFields: AccountTopLevelPatch = {}
 ): Promise<AccountApi> {
     const key = `${projectId}:${accountId}`
     const previous = accountWrites.get(key) ?? Promise.resolve()
@@ -57,7 +59,7 @@ export async function updateAccountNativeProperties(
             }
             // Serialize local editors and merge against a fresh read so another field's edit is not replaced.
             return accountsPartialUpdate(String(projectId), accountId, {
-                ...(name === undefined ? {} : { name }),
+                ...topLevelFields,
                 properties: { ...current.properties, ...changes },
             })
         })

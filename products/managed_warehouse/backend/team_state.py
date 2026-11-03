@@ -20,7 +20,6 @@ from products.managed_warehouse.backend.facade.contracts import (
     CPUnavailableError,
     DucklingTables,
     ManagedWarehouseBackfillState,
-    ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
 
@@ -38,22 +37,6 @@ def _get_cp_row(team_id: int) -> cp_teams.CPTeam | None:
     if teams is None:
         raise CPUnavailableError(f"duckgres control plane unreachable reading team state for team {team_id}")
     return next((team for team in teams if team.team_id == team_id), None)
-
-
-def _to_membership(row: cp_teams.CPTeam) -> ManagedWarehouseTeamMembership:
-    return ManagedWarehouseTeamMembership(
-        team_id=row.team_id,
-        organization_id=row.organization_id,
-        schema_name=row.schema_name,
-        enabled=row.enabled,
-        backfill_enabled=row.backfill_enabled,
-        table_names=ManagedWarehouseTableNames(
-            events_table=row.resolved_events_table,
-            persons_table=row.resolved_persons_table,
-            data_imports_schema=row.resolved_data_imports_schema,
-        ),
-        earliest_event_date=row.earliest_event_date,
-    )
 
 
 # --- events/persons table names (Dagster duckling backfill) -----------------------
@@ -74,6 +57,13 @@ def resolve_events_persons_tables(team_id: int) -> DucklingTables:
     validate_duckgres_identifier(events_table)
     validate_duckgres_identifier(persons_table)
     return DucklingTables(events_table=events_table, persons_table=persons_table)
+
+
+def resolve_groups_table(team_id: int) -> str:
+    row = _get_cp_row(team_id)
+    table = row.resolved_groups_table if row is not None else "groups"
+    validate_duckgres_identifier(table)
+    return table
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------
@@ -117,7 +107,7 @@ def team_backfill_row(team_id: int) -> ManagedWarehouseTeamMembership | None:
     except CPUnavailableError:
         logger.warning("duckgres_team_state_cp_unavailable", call_site="team_backfill_row", team_id=team_id)
         return None
-    return _to_membership(row) if row is not None else None
+    return row.to_membership() if row is not None else None
 
 
 def team_backfill_state(team_id: int) -> ManagedWarehouseBackfillState:
@@ -168,4 +158,4 @@ def list_enabled_backfill_rows(call_site: str) -> list[ManagedWarehouseTeamMembe
     if cp_rows is None:
         logger.warning("duckgres_team_state_cp_unavailable", call_site=call_site)
         return []
-    return [_to_membership(row) for row in sorted(cp_rows, key=lambda row: row.team_id)]
+    return [row.to_membership() for row in sorted(cp_rows, key=lambda row: row.team_id)]

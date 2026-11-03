@@ -1,10 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsSourceStatusBanner } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 
 import { mswDecorator } from '~/mocks/browser'
 import { DatabaseSchemaDataWarehouseTable, MARKETING_INTEGRATION_CONFIGS } from '~/queries/schema/schema-general'
+
+import { expect } from 'storybook/test'
 
 const table: DatabaseSchemaDataWarehouseTable = {
     id: 'example-insights-table',
@@ -22,9 +25,9 @@ const table: DatabaseSchemaDataWarehouseTable = {
 const meta: Meta<typeof MarketingAnalyticsSourceStatusBanner> = {
     title: 'Scenes-App/Marketing Analytics/Source status',
     component: MarketingAnalyticsSourceStatusBanner,
-    render: () => (
+    render: (args) => (
         <div id="source-status-snapshot" className="w-200 max-w-[calc(100vw-2rem)]">
-            <MarketingAnalyticsSourceStatusBanner />
+            <MarketingAnalyticsSourceStatusBanner {...args} />
         </div>
     ),
     parameters: {
@@ -47,7 +50,13 @@ const meta: Meta<typeof MarketingAnalyticsSourceStatusBanner> = {
                         },
                     },
                 ],
-                '/api/projects/:team_id/external_data_sources/wizard/': () => [200, {}],
+                '/api/projects/:team_id/external_data_sources/wizard/': () => [
+                    200,
+                    {
+                        GoogleAds: { iconPath: '/static/services/google-ads.png' },
+                        OpenAIAds: { iconPath: '/static/services/openai_ads.svg' },
+                    },
+                ],
                 '/api/environments/:team_id/external_data_sources/': () => [
                     200,
                     {
@@ -102,3 +111,12 @@ export default meta
 
 type Story = StoryObj<typeof MarketingAnalyticsSourceStatusBanner>
 export const SourceIssues: Story = {}
+
+export const ConnectionAlreadyInPanel: Story = {
+    args: { hiddenSourceIds: ['example-google-source'] },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        expect(await canvas.findByText(/OpenAI Ads is missing/)).toBeVisible()
+        expect(canvas.queryByRole('link', { name: 'Google Ads' })).not.toBeInTheDocument()
+    },
+}

@@ -11,7 +11,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { isScopeNotFoundError } from 'lib/api-error'
+import { ApiError, isBrowserNetworkFailure, isScopeNotFoundError } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -61,6 +61,8 @@ export interface SetupDetectionLogicOptions {
      * and a query on every scene entry.
      */
     cacheHasData?: boolean
+    /** Entity products can become empty when users delete their last item. Recheck mutations even after data exists. */
+    allowReturnToSetup?: boolean
     /**
      * With `cacheHasData`, re-run detection once in the background after a cached has-data
      * answer, for data users can delete or that ages out of the probe's window. A no-data answer
@@ -163,6 +165,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
         recheckActionTypes,
         cacheHasData,
         revalidateCachedHasData,
+        allowReturnToSetup,
     } = options
     return buildKea<SetupDetectionLogicType>([
         path(options.path),
@@ -178,22 +181,24 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             ],
         })),
         actions({ revalidateCachedStatus: true }),
-        loaders({
+        loaders(({ cache }) => ({
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
                 detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus | null> => {
-                    const status = await detect()
+                    const status = await detectOrNullOnOutageOrForbidden(detect, () =>
+                        cache.disposables.dispose('poll')
+                    )
                     breakpoint()
                     return status
                 },
             },
-        }),
+        })),
         listeners(({ actions, values, cache }) => ({
             ...Object.fromEntries(
                 (recheckActionTypes?.() ?? []).map((actionType) => [
                     actionType,
                     () => {
-                        if (values.currentProjectId && values.setupStatus !== 'has-data') {
+                        if (values.currentProjectId && (allowReturnToSetup || values.setupStatus !== 'has-data')) {
                             actions.detectStatus()
                         }
                     },
@@ -213,7 +218,15 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                     }
                     return
                 }
-                actions.setDetectedStatus(detectedStatus)
+                if (allowReturnToSetup && isNoDataStatus(detectedStatus)) {
+                    clearCachedHasData(values.currentTeamId, productKey)
+                    productSetupStatusLogic({ productKey }).actions.applyDetectedStatus(
+                        detectedStatus,
+                        values.currentTeamId
+                    )
+                } else {
+                    actions.setDetectedStatus(detectedStatus)
+                }
                 onDetected?.(detectedStatus)
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {
@@ -267,6 +280,30 @@ async function detectOrNull(detect: () => Promise<ProductSetupStatus | null>): P
         return await detect()
     } catch {
         return null
+    }
+}
+
+// A 5xx, a dropped connection or a 403 says nothing about setup, and the gate treats null as
+// "cannot answer". Throwing would file one error tracking issue per product for each failure.
+// A 403 does not clear on retry, so it also stops the poll.
+async function detectOrNullOnOutageOrForbidden(
+    detect: () => Promise<ProductSetupStatus | null>,
+    onForbidden: () => void
+): Promise<ProductSetupStatus | null> {
+    try {
+        return await detect()
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 403) {
+            onForbidden()
+            return null
+        }
+        if (
+            (error instanceof ApiError && error.status !== undefined && error.status >= 500) ||
+            isBrowserNetworkFailure(error)
+        ) {
+            return null
+        }
+        throw error
     }
 }
 

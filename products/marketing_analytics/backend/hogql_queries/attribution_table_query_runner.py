@@ -131,8 +131,8 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE])],
         )
 
-    def _build_per_conversion_select(self) -> ast.SelectQuery:
-        """(D) One row per conversion, carrying all five weight arrays.
+    def _build_per_conversion_select(self, model: AttributionMode | None = None) -> ast.SelectQuery:
+        """(D) One row per conversion, carrying the requested weight arrays.
 
         Every builder maps over the same `ts`, so all five arrays have identical length — that is what
         lets (E) explode them with a single shared ARRAY JOIN instead of five.
@@ -189,6 +189,15 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             ),
             ast.Alias(alias=_WEIGHT_ALIASES[AttributionMode.POSITION_BASED], expr=build_position_based_weights(ts)),
         ]
+
+        if model is not None:
+            select = [
+                expr
+                for expr in select
+                if not isinstance(expr, ast.Alias)
+                or expr.alias not in _WEIGHT_ALIASES.values()
+                or expr.alias == _WEIGHT_ALIASES[model]
+            ]
 
         return ast.SelectQuery(
             select=select,

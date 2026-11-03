@@ -70,7 +70,7 @@ function ScannerAlertEditModalContent({
         scannerAlertFormLogic(formLogicProps)
     )
     const { touchAlertFormField } = useActions(scannerAlertFormLogic(formLogicProps))
-    const { destinationGroups } = useValues(scannerAlertNotificationLogic(notificationLogicProps))
+    const { destinationGroups, pendingNotifications } = useValues(scannerAlertNotificationLogic(notificationLogicProps))
     const { busyAlertIds } = useValues(scannerAlertsLogic({ scannerId }))
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(
         scannerAlertsLogic({ scannerId })
@@ -205,12 +205,16 @@ function ScannerAlertEditModalContent({
                         isEditing
                         isSubmitting={isAlertFormSubmitting}
                         hasChanges={alertFormChanged}
+                        hasPendingChanges={pendingNotifications.length > 0}
+                        noChangesReason="No changes to save. Destination, snooze, and Enabled changes save automatically."
                         onSubmitAttempted={() => touchAlertFormField('name')}
                         leadingActions={leadingActions}
                         trailingActions={
                             <LemonSwitch
                                 checked={alert.enabled ?? true}
                                 label="Enabled"
+                                tooltip="Saves automatically"
+                                disabledReason={busyAlertIds.has(alert.id) ? 'Updating' : undefined}
                                 onChange={() => toggleAlertEnabled(alert)}
                             />
                         }

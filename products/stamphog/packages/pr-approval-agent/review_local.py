@@ -42,6 +42,7 @@ comes from the environment (ANTHROPIC_API_KEY).
 `--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
 in a temporary tree that holds the trusted policy files, this engine and, when the server could read
 them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
+`--attest` runs the same gates in the same tree before the server posts an approval (see attest()).
 """
 
 import os
@@ -251,6 +252,8 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
                 }
             )
 
+    review_evidence = [item for item in context.get("review_evidence") or [] if isinstance(item, dict)]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -274,6 +277,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
+        review_evidence=review_evidence,
     )
 
 
@@ -598,6 +602,56 @@ def pregate(context: dict) -> dict:
     return {**outcome, "final": True, "needs_summary": True, "result": pipeline.to_dict()}
 
 
+def attest(context: dict) -> dict:
+    """Gate-only check that the hosted server runs before it posts an approval from the sandbox.
+
+    The sandbox prints its verdict and its gate results on stdout, and the server cannot authenticate
+    that output. So the server runs the deterministic gates again on the worker, under the trusted
+    policy and on the file list it read from GitHub. ``attested`` is True only when this run reaches
+    every condition that the sandbox needs before it may ask the LLM: no refused bot author, every
+    gate passed, and no reviewer in flight. ``reason`` names the first condition that failed.
+
+    Two inputs come from the checkout in the sandbox, so an unknown value fails the check rather
+    than guessing. The folder files can lower a size ceiling, so ``folder_policies_known`` must be
+    set. The manifest scripts scan can add a deny, so each dependency manifest without its lockfile
+    needs its texts in ``manifest_contents``. Without them the reason is ``dependency_manifest``,
+    and ``manifests`` names the paths for the server to read and pass in on a second run.
+    """
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+
+    def outcome(reason: str) -> dict:
+        gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
+        return {"attested": not reason, "reason": reason, "gates": gates}
+
+    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+        return outcome("bot_author")
+    if context.get("folder_policies_known") is not True:
+        return outcome("folder_policies_unknown")
+    manifests = dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+    manifest_contents = context.get("manifest_contents")
+    if manifests:
+        if not isinstance(manifest_contents, dict) or any(path not in manifest_contents for path in manifests):
+            return {**outcome("dependency_manifest"), "manifests": manifests}
+        pipeline.manifest_contents = manifest_contents
+
+    pipeline.author_team_slugs = _author_team_slugs(context)
+    pipeline._classify()
+    _run_gates_offline(pipeline)
+    if any(not gate.passed for gate in pipeline.gate_results):
+        return outcome("gate_failed")
+    if pipeline._in_flight_bot_reviewers() or pipeline.pr.pending_review_evidence():
+        return outcome("review_in_flight")
+    return outcome("")
+
+
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
@@ -659,6 +713,23 @@ def run(context: dict) -> dict:
             }
             return pipeline.to_dict()
 
+        # The server waited for these reviews too, so a review still pending here outlasted the
+        # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.pending_review_evidence()):
+            reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
+            verb = "are" if len(pending) > 1 else "is"
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    f"{reviewers} {verb} still reviewing this commit, so stamphog does not approve yet. "
+                    "The review runs again on the next push, or you can re-request it once that review finishes."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            return pipeline.to_dict()
+
         with _timed_phase("familiarity"):
             _attach_familiarity(pipeline, context)
         with _timed_phase("llm"):
@@ -700,6 +771,9 @@ def main() -> None:
     parser.add_argument("--context", required=True, help="Path to the review context JSON")
     parser.add_argument("--repo-dir", default=None, help="Checkout directory (defaults to cwd)")
     parser.add_argument("--pregate", action="store_true", help="Gates only, no checkout and no LLM (server pre-check)")
+    parser.add_argument(
+        "--attest", action="store_true", help="Gates only, no checkout and no LLM (server check before an approval)"
+    )
     args = parser.parse_args()
 
     if args.repo_dir:
@@ -712,6 +786,10 @@ def main() -> None:
         pregate_result = pregate(context)
         flush_analytics()
         print(json.dumps(pregate_result), flush=True)
+        return
+    if args.attest:
+        # A crash exits non-zero, and the server treats that as a failed check and posts no approval.
+        print(json.dumps(attest(context)), flush=True)
         return
 
     launched_at = _launched_at_ms()

@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
@@ -22,7 +24,7 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
 )
 
 
-class TestGetStopReason(BaseTest):
+class TestGetStopReason(SimpleTestCase):
     def test_returns_result_stop_reason_when_present(self):
         self.assertEqual(_get_stop_reason({"result": {"stopReason": "max_tokens"}}), "max_tokens")
 
@@ -35,7 +37,7 @@ class TestGetStopReason(BaseTest):
         self.assertEqual(_get_stop_reason({"result": "ok"}), "end_turn")
 
 
-class TestSteerDeclineReason(BaseTest):
+class TestSteerDeclineReason(SimpleTestCase):
     @parameterized.expand(
         [
             ("startup_turn", {"result": {"steered": False, "reason": "startup_turn"}}, "startup_turn"),
@@ -127,6 +129,7 @@ class TestSendFollowupToSandbox(BaseTest):
         task_run.state = {"sandbox_id": "sandbox-123"}
         task_run.task.created_by_id = 42
         task_run.task.created_by = MagicMock(id=42)
+        task_run.task.stored_profile = None
         mock_task_run_objects.select_related.return_value.get.return_value = task_run
         mock_send_user_message.return_value = MagicMock(
             success=True,

@@ -6,11 +6,13 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,11 +30,19 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import type { SimplifiedRepliesProps } from '../../components/ComposerHeader/ComposerHeader'
 import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
+import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import {
+    type Ticket,
+    type TicketPriority,
+    type TicketStatus,
+    priorityOptions,
+    statusOptionsWithoutAll,
+} from '../../types'
 import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
@@ -41,6 +51,7 @@ import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
@@ -75,6 +86,21 @@ const SEND_AND_SET_STATUS_OPTIONS: { value: TicketStatus; statusLabel: string }[
     { value: 'resolved', statusLabel: 'resolved' },
 ]
 
+export function simplifiedRepliesFor(ticket: Ticket, emailRecipients: string): SimplifiedRepliesProps {
+    const customer =
+        ticket.person?.properties?.name ||
+        ticket.person?.properties?.email ||
+        ticket.anonymous_traits?.name ||
+        ticket.anonymous_traits?.email ||
+        null
+    // Person properties and traits can hold any JSON value, and React cannot render an object.
+    const customerText = customer === null || typeof customer === 'string' ? customer : JSON.stringify(customer)
+    return {
+        recipient: ticket.channel_source === 'email' ? emailRecipients : customerText,
+        statusLabel: statusOptionsWithoutAll.find((option) => option.value === ticket.status)?.label,
+    }
+}
+
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
@@ -100,6 +126,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         unsavedTicketChanges,
         ticketUpdating,
+        ticketDeleting,
+        deleteDisabledReason,
         draftContent,
         draftIsPrivate,
         draftModeEnabled,
@@ -115,6 +143,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailContentLoading,
         fullEmailMessageId,
         composerPrefillAt,
+        composerInsertAt,
+        pendingComposerInsert,
         aiDraftApplying,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
@@ -138,12 +168,17 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         startEditingMessage,
         cancelEditingMessage,
         deleteMessage,
+        deleteTicket,
         loadFullEmail,
         closeFullEmail,
         applyAiDraft,
+        insertMacro,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
+    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -232,6 +267,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     return (
         <SceneContent className="flex-1 min-h-0 pb-4">
+            <SupportTicketSceneMenuBar ticketId={ticketId} />
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
@@ -287,6 +323,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftModeChange={setDraftModeEnabled}
                         sendConfirmationMessage={`This will send to ${replyRecipientDescription}`}
                         sendAndSetStatusOptions={ticket ? SEND_AND_SET_STATUS_OPTIONS : undefined}
+                        simplifiedReplies={
+                            simplifiedReplies && ticket
+                                ? simplifiedRepliesFor(ticket, replyRecipientDescription)
+                                : undefined
+                        }
                         unsavedTicketChanges={unsavedTicketChanges}
                         replyDisabledReason={replyDisabledReason}
                         sendDisabledReason={sendDisabledReason}
@@ -305,6 +346,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         fullEmailLoadingMessageId={fullEmailContentLoading ? fullEmailMessageId : null}
                         onViewFullEmail={loadFullEmail}
                         composerPrefillAt={composerPrefillAt}
+                        composerInsertAt={composerInsertAt}
+                        composerInsertContent={pendingComposerInsert}
+                        enableMacros={macrosEnabled}
+                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        macroPicker={
+                            macrosEnabled ? (
+                                <MacroPicker
+                                    disabledReason={sendDisabledReason}
+                                    onInsert={(macro) => insertMacro(macro, 'button')}
+                                />
+                            ) : undefined
+                        }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}
                         onApplyAiDraft={applyAiDraft}
@@ -575,7 +628,18 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 />
                             </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t flex justify-end">
+                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                onClick={() => deleteTicket()}
+                                loading={ticketDeleting}
+                                disabledReason={deleteDisabledReason}
+                                data-attr="ticket-delete"
+                            >
+                                Delete ticket
+                            </LemonButton>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Ticket}
                                 minAccessLevel={AccessControlLevel.Editor}

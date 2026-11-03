@@ -12,6 +12,9 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingProductDisplayName } from 'lib/logic/billing/billingProductDisplayName'
+import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -24,17 +27,14 @@ import {
     createGaugeItems,
     createProductValueFormatter,
     getProductUnitLabel,
-    isUsageAtOrOverLimit,
     isProductVariantPrimary,
 } from './billing-utils'
+import { BillingCompanionSection } from './BillingCompanionSection'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
-import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { DesktopUsageBreakdown } from './DesktopUsageBreakdown'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
@@ -61,7 +61,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug, isBillingManagedByPartner } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, selfServeBillingDisabledReason } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -147,15 +147,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     {displayProductName}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
-                                    )}
-                                    {product.type === 'realtime_destinations' && (
-                                        <Tooltip
-                                            title={`Data pipelines have moved to new usage-based pricing on ${REALTIME_DESTINATIONS_BILLING_START_DATE}.`}
-                                        >
-                                            <LemonTag type="success" icon={<IconInfo />}>
-                                                Migrated
-                                            </LemonTag>
-                                        </Tooltip>
                                     )}
                                 </h3>
                                 <div>{product.description}</div>
@@ -548,7 +539,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             {/* Add-ons title */}
                             <h4 className="my-4">{addonSectionLabel}</h4>
-                            {billing?.subscription_level == 'free' && !isBillingManagedByPartner && (
+                            {billing?.subscription_level == 'free' && !selfServeBillingDisabledReason && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>
@@ -587,6 +578,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <BillingLimit product={product} />
                     </div>
                 )}
+
+                <BillingCompanionSection
+                    product={product}
+                    cardShowsBillingLimit={!isTemporaryFreeProduct}
+                    // Same branches as the header: the variants' combined amounts or the usage-priced (tiered) layout.
+                    cardShowsProjection={isProductWithVariants || (!isTemporaryFreeProduct && product.tiered)}
+                />
 
                 {/* Feature flag usage notice */}
                 <FeatureFlagUsageNotice product={product} />

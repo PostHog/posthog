@@ -1,10 +1,13 @@
 import os
 import re
-from typing import Any, get_args
+import copy
+from typing import TYPE_CHECKING, Any, Literal, get_args
+from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
+from drf_spectacular.contrib.rest_framework_dataclasses import OpenApiDataclassSerializerExtensions
 from drf_spectacular.drainage import warn as spectacular_warn
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.openapi import AutoSchema
@@ -19,13 +22,18 @@ from drf_spectacular.utils import (
 )  # # noqa: F401 for easy import
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
+from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 
-from posthog.models.entity import MathType
+from posthog.enums import LabeledEnumType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.models.property.property import SemverOperator
 from posthog.permissions import APIScopePermission
 from posthog.products import is_product_module
 
 from products.feature_flags.backend.types import PropertyFilterType
+
+if TYPE_CHECKING:
+    from posthog.api.routing import PathParameter
 
 # Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
 # therefore cannot be derived from any model field.  We pre-supply their
@@ -35,6 +43,13 @@ _KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
     "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
     "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
+}
+
+# OpenAPI schemas for the types a view can declare in TeamAndOrgViewSetMixin.path_parameters.
+_DECLARED_PATH_PARAM_SCHEMAS: dict[type, dict[str, str]] = {
+    UUID: {"type": "string", "format": "uuid"},
+    int: {"type": "integer"},
+    str: {"type": "string"},
 }
 
 
@@ -107,6 +122,18 @@ class PostHogAutoSchema(AutoSchema):
             operation["x-request-dependent-scopes"] = True
         return operation
 
+    def _declared_path_parameter(self, variable: str) -> "PathParameter | None":
+        # routing imports this module through posthog.api.utils, so a module-level import is circular.
+        from posthog.api.routing import as_path_parameter  # noqa: PLC0415
+
+        declared = getattr(self.view, "path_parameters", {})
+        if variable in declared:
+            return as_path_parameter(declared[variable])
+        # The router names the detail kwarg `pk`, and drf-spectacular renames `{pk}` to `{id}` in the path.
+        if variable == "id" and "pk" in declared:
+            return as_path_parameter(declared["pk"])
+        return None
+
     def _resolve_path_parameters(self, variables):
         from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
 
@@ -114,6 +141,7 @@ class PostHogAutoSchema(AutoSchema):
         parameters = []
 
         for variable in variables:
+            declared = self._declared_path_parameter(variable)
             if variable in _KNOWN_PATH_PARAMS:
                 # Params handled by TeamAndOrgViewSetMixin — not derivable from any model.
                 parameters.append(
@@ -122,6 +150,16 @@ class PostHogAutoSchema(AutoSchema):
                         location=OpenApiParameter.PATH,
                         description=_KNOWN_PATH_PARAMS[variable]["description"],
                         schema=_KNOWN_PATH_PARAMS[variable]["schema"],
+                    )
+                )
+            elif declared is not None:
+                # TeamAndOrgViewSetMixin parses the kwarg to this type, so the schema states the same type.
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        description=declared.description,
+                        schema=_DECLARED_PATH_PARAM_SCHEMAS[declared.type],
                     )
                 )
             elif model is None:
@@ -180,6 +218,37 @@ class ValueField(serializers.Field):
 
     def to_internal_value(self, data):
         return data
+
+
+def _use_class_labels(field: serializers.Field) -> None:
+    child = getattr(field, "child", None)
+    if isinstance(child, serializers.Field):
+        _use_class_labels(child)
+    if not isinstance(field, DataclassEnumField) or field.by_name:
+        return
+    enum_class = field.enum_class
+    if not (isinstance(enum_class, LabeledEnumType) or issubclass(enum_class, models.Choices)):
+        return
+    # Leave choices that a declared field or extra_kwargs set on purpose.
+    library_default = {field.to_representation(member): member.name for member in enum_class}
+    if dict(field.choices) == library_default:
+        field.choices = enum_class.choices
+
+
+# rest_framework_dataclasses labels enum choices with member names, which no class carries, so
+# posthog/openapi/enum_names.py cannot name those enums after their class. This fixes the schema only.
+class LabeledEnumDataclassSerializerExtension(OpenApiDataclassSerializerExtensions):
+    priority = 1
+
+    def map_serializer(self, auto_schema: AutoSchema, direction: Any) -> dict[str, Any]:
+        # drf-spectacular reuses instances passed to extend_schema, so map a copy. A shallow copy keeps
+        # partial=True on PATCH bodies, and dropping the cached fields gives the copy fresh ones.
+        serializer = copy.copy(self.target)
+        serializer.__dict__.pop("fields", None)
+        for field in serializer.fields.values():
+            _use_class_labels(field)
+        schema = auto_schema._map_serializer(serializer, direction, bypass_extensions=True)
+        return self.strip_library_doc(schema)
 
 
 class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
@@ -430,17 +499,7 @@ class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBa
 
 class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=[
-            "semver_gt",
-            "semver_gte",
-            "semver_lt",
-            "semver_lte",
-            "semver_eq",
-            "semver_neq",
-            "semver_tilde",
-            "semver_caret",
-            "semver_wildcard",
-        ],
+        choices=SemverOperator.choices,
         required=True,
         help_text="Semantic version comparison operator.",
     )
@@ -477,6 +536,16 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
     value = serializers.JSONField(
         required=True,
         help_text="Cohort comparison value (single or list, depending on usage).",
+    )
+    cohort_deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when the cohort is deleted or does not exist. "
+        "The flag cannot evaluate this condition. Ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when no cohort with this id exists in the project, so it cannot be "
+        "restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
     )
 
 
@@ -674,6 +743,35 @@ class PersonPropertiesSerializer(serializers.Serializer):
     properties = PropertySerializer(required=False, many=True, help_text="Filter Persons by person properties.")
 
 
+MathType = Literal[
+    "total",
+    "dau",
+    "weekly_active",
+    "monthly_active",
+    "unique_group",
+    "unique_session",
+    "hogql",
+    # Equivalent to *PROPERTY_MATH_FUNCTIONS.keys(),
+    "sum",
+    "min",
+    "max",
+    "avg",
+    "median",
+    "p75",
+    "p90",
+    "p95",
+    "p99",
+    # Equivalent to *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
+    "min_count_per_actor",
+    "max_count_per_actor",
+    "avg_count_per_actor",
+    "median_count_per_actor",
+    "p75_count_per_actor",
+    "p90_count_per_actor",
+    "p95_count_per_actor",
+    "p99_count_per_actor",
+]
+
 math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.
 - `total` (default): no aggregation, count by events
 - `dau`: count by unique users. Despite the name, if you select the `interval` to be weekly or monthly, this will show weekly or monthly active users respectively
@@ -819,7 +917,13 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
         org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
-        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+        # Sharing a suffix usually means one resource served at both levels. A viewset whose organization
+        # paths are a different resource opts out with `schema_org_paths_are_not_duplicates = True`.
+        is_org_duplicate = (
+            org_suffix is not None
+            and (org_suffix, method) in projects_suffixes
+            and not getattr(callback.cls, "schema_org_paths_are_not_duplicates", False)
+        )
 
         if is_env_duplicate:
             path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)

@@ -17,8 +17,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
-import { offersProportionBar } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
-
 import { Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
@@ -60,8 +58,7 @@ export function getTableDisplayOptions(
     numericalColumns: Column[],
     autoVisualizationType: ChartDisplayType,
     disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined,
-    metricInsightEnabled = false,
-    proportionBarEnabled = false
+    metricInsightEnabled = false
 ): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     const canDisplayScatterPlot = numericalColumns.length > 1
@@ -153,18 +150,12 @@ export function getTableDisplayOptions(
                     label: 'Donut chart',
                     disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
                 },
-                ...(proportionBarEnabled
-                    ? [
-                          {
-                              value: ChartDisplayType.ActionsProportionBar,
-                              icon: <IconProportionBarChart />,
-                              label: 'Proportion bar',
-                              disabledReason: !numericalColumns.length
-                                  ? 'Requires at least one numeric column'
-                                  : undefined,
-                          },
-                      ]
-                    : []),
+                {
+                    value: ChartDisplayType.ActionsProportionBar,
+                    icon: <IconProportionBarChart />,
+                    label: 'Proportion bar',
+                    disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
+                },
                 {
                     value: ChartDisplayType.ScatterPlot,
                     icon: <IconScatter />,
@@ -204,7 +195,7 @@ export function getTableDisplayOptions(
 
 interface TableDisplayProps extends Pick<
     LemonSelectProps<ChartDisplayType>,
-    'disabledReason' | 'fullWidth' | 'loading'
+    'disabledReason' | 'fullWidth' | 'loading' | 'size'
 > {
     dataAttr?: string
     disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
@@ -216,6 +207,7 @@ export const TableDisplay = ({
     disabledReasonFor,
     fullWidth,
     loading,
+    size = 'small',
 }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
     const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
@@ -235,11 +227,10 @@ export const TableDisplay = ({
                 numericalColumns,
                 autoVisualizationType,
                 disabledReasonFor,
-                !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
-                offersProportionBar(!!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART], visualizationType)
+                !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
             )}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
-            size="small"
+            size={size}
             value={visualizationType}
             data-attr={dataAttr}
         />

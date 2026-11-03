@@ -1,3 +1,5 @@
+import secrets
+
 from posthog.test.base import BaseTest
 
 from django.test import Client, override_settings
@@ -7,7 +9,6 @@ from parameterized import parameterized
 from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
 from posthog.models.utils import (
-    generate_random_token,
     generate_random_token_personal,
     generate_random_token_secret,
     hash_key_value,
@@ -65,7 +66,7 @@ class TestApiKeySearchView(BaseTest):
         ]
     )
     def test_finds_personal_api_key(self, _name: str, prefixed: bool, mode: str, iterations: int | None):
-        token = generate_random_token_personal() if prefixed else generate_random_token(32)
+        token = generate_random_token_personal() if prefixed else secrets.token_urlsafe(32)
         self._create_personal_api_key(token, mode=mode, iterations=iterations)
 
         response = self._search(token)

@@ -1,5 +1,6 @@
 import type { IconProps } from "@phosphor-icons/react";
 import type { SignalReport } from "@posthog/shared/types";
+import { ReportSourceSuggestion } from "@posthog/ui/features/inbox/components/detail/ReportSourceSuggestion";
 import { InboxDetailFrameView } from "@posthog/ui/features/inbox/components/InboxDetailFrameView";
 import {
   SignalsList,
@@ -77,7 +78,15 @@ export function InboxDetailFrame({
       again.
     </p>
   ) : signals.length > 0 ? (
-    <SignalsList signals={signals} />
+    <div className="flex flex-col gap-2">
+      <SignalsList signals={signals} />
+      {report.source_suggestion && (
+        <ReportSourceSuggestion
+          report={report}
+          suggestion={report.source_suggestion}
+        />
+      )}
+    </div>
   ) : (
     <SignalsListSkeleton count={evidenceCount} />
   );

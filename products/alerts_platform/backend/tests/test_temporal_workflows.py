@@ -3,6 +3,7 @@ import asyncio
 import logging
 import datetime as dt
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -18,7 +19,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from parameterized import parameterized
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
-from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError, WorkflowHistory
 from temporalio.common import SearchAttributeKey, SearchAttributePair, TypedSearchAttributes
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.exceptions import (
@@ -86,11 +87,15 @@ def sdk_metrics() -> MetricBuffer:
     return MetricBuffer(10000)
 
 
-@pytest_asyncio.fixture(scope="module")
-async def environment(
-    sdk_metrics: MetricBuffer, span_exporter: InMemorySpanExporter
-) -> AsyncIterator[WorkflowEnvironment]:
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=sdk_metrics))
+@pytest.fixture(scope="module")
+def runtime(sdk_metrics: MetricBuffer) -> Runtime:
+    return Runtime(telemetry=TelemetryConfig(metrics=sdk_metrics))
+
+
+# One server per test: once a parent closes with an abandoned child, the time-skipping test server
+# stops skipping time, and every later test on that server waits out its timers in real time.
+@pytest_asyncio.fixture
+async def environment(runtime: Runtime, span_exporter: InMemorySpanExporter) -> AsyncIterator[WorkflowEnvironment]:
     async with await WorkflowEnvironment.start_time_skipping(
         runtime=runtime, plugins=[OpenTelemetryPlugin(add_temporal_spans=True)]
     ) as env:
@@ -369,6 +374,60 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
     assert attempts[-1] - attempts[0] >= PENDING_CLAIM_TTL
 
 
+@pytest.mark.asyncio
+async def test_a_split_delivery_sends_every_part_in_turn_even_after_one_fails(
+    environment: WorkflowEnvironment,
+) -> None:
+    steps: list[str] = []
+
+    @activity.defn(name="alerts_platform_emit_transitions_activity")
+    async def emit(request: AlertDeliveryRequest) -> None:
+        steps.append(f"emit {request.part}")
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def deliver(request: AlertDeliveryRequest) -> None:
+        steps.append(f"send {request.part}")
+        if request.part == 0:
+            raise ApplicationError("channel refused", non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[deliver, emit],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+                parts=3,
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT * 3,
+        )
+        with pytest.raises(WorkflowFailureError) as failure:
+            await handle.result()
+
+    assert isinstance(failure.value.cause, ActivityError)
+    assert steps == ["send 0", "send 1", "send 2"]
+
+
+@pytest.mark.asyncio
+async def test_a_delivery_that_emitted_transition_events_before_the_removal_still_replays() -> None:
+    history = WorkflowHistory.from_json(
+        "alerts-deliver-preview-cfg-1:eval-1",
+        (Path(__file__).parent / "histories" / "split_delivery_with_transition_events.json").read_text(),
+    )
+    await Replayer(workflows=DELIVERY_WORKFLOWS, workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(history)
+
+
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
 async def test_probe_timeout_still_starts_independent_delivery(
     environment: WorkflowEnvironment,
@@ -486,12 +545,15 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
 
 
 class TestDemandDiscovery(APIBaseTest):
-    def _configuration(self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert"):
+    def _configuration(
+        self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert", check_status: str = "ok"
+    ):
         with team_scope(self.team.id):
             return PlatformAlertConfiguration.objects.create(
                 team=self.team,
                 name=name,
                 enabled=enabled,
+                check_status=check_status,
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
                 check_interval_minutes=5,
@@ -505,14 +567,11 @@ class TestDemandDiscovery(APIBaseTest):
     def _key(self, minutes_ago: int) -> AlertBatchKey:
         return AlertBatchKey(team_id=self.team.id, slot=(self.tick - dt.timedelta(minutes=minutes_ago)).isoformat())
 
-    def _alert(
-        self, configuration, *, state: str, snooze_until: dt.datetime | None = None, grouping_key: str = ""
-    ) -> None:
+    def _alert(self, configuration, *, state: str, snooze_until: dt.datetime | None = None) -> None:
         with team_scope(self.team.id):
             PlatformAlert.objects.create(
                 team=self.team,
                 configuration=configuration,
-                grouping_key=grouping_key,
                 state=state,
                 snooze_until=snooze_until,
             )
@@ -521,19 +580,15 @@ class TestDemandDiscovery(APIBaseTest):
         self._configuration(minutes_ago=1, name="due")
         self._configuration(minutes_ago=-1, name="not yet due")
         self._configuration(minutes_ago=1, enabled=False, name="disabled")
-        self._alert(self._configuration(minutes_ago=2, name="broken"), state=PlatformAlert.State.BROKEN)
+        self._configuration(minutes_ago=2, name="broken", check_status="broken")
         # Excluding a muted alert here would stop its state tracking reality for the whole snooze.
         self._alert(
             self._configuration(minutes_ago=3, name="snoozed"),
             state=PlatformAlert.State.NOT_FIRING,
             snooze_until=self.tick + dt.timedelta(hours=1),
         )
-        # Two rows on one configuration, neither suppressing on its own. Written as a lookup across
-        # the relation instead of one correlated subquery, the empty group and the broken state match
-        # different rows and this configuration silently stops being checked.
-        grouped = self._configuration(minutes_ago=4, name="broken in one group only")
-        self._alert(grouped, state=PlatformAlert.State.NOT_FIRING)
-        self._alert(grouped, state=PlatformAlert.State.BROKEN, grouping_key="/api/checkout")
+        # An errored check retries, so only BROKEN holds a configuration back.
+        self._configuration(minutes_ago=4, name="errored", check_status="errored")
 
         discovered = demand.discover_demand(self.tick.isoformat())
 
@@ -583,6 +638,20 @@ class TestDemandDiscovery(APIBaseTest):
             demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
 
 
+async def test_a_failed_inventory_count_does_not_raise() -> None:
+    with (
+        patch.object(
+            alert_workflows,
+            "count_inventory",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+        patch.object(alert_workflows, "push_inventory") as push,
+    ):
+        await alert_workflows.alerts_platform_record_inventory_activity()
+
+    push.assert_not_called()
+
+
 @pytest.mark.parametrize("scheduled", [False, True])
 async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
     tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
@@ -594,6 +663,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
     )
     info = MagicMock(
         workflow_start_time=actual_start,
+        start_time=actual_start,
         typed_search_attributes=attributes,
         workflow_id="tick",
         run_id="run",
@@ -606,6 +676,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
             workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
         patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+        patch.object(workflow, "logger"),
     ):
         result = await AlertsPlatformOrchestrateWorkflow().run(OrchestrateInputs())
     assert discover.await_args is not None

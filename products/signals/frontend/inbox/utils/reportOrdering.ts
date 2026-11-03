@@ -1,4 +1,6 @@
-import { isRankingSortField, RANKING_SORT_HEADS } from '../filterOptions'
+import type { ReportRankingPredictionApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { isRankingSortField, rankingScoreForField } from '../filterOptions'
 import type { InboxRankingSortField, InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 
@@ -18,7 +20,9 @@ const STATUS_RANK: Record<SignalReportStatus, number> = {
     [SignalReportStatus.CANDIDATE]: 4,
     [SignalReportStatus.POTENTIAL]: 5,
     [SignalReportStatus.FAILED]: 6,
+    [SignalReportStatus.MONITORING]: 6,
     [SignalReportStatus.RESOLVED]: 7,
+    [SignalReportStatus.CLOSED]: 7,
     [SignalReportStatus.SUPPRESSED]: 8,
     [SignalReportStatus.DELETED]: 9,
 }
@@ -47,13 +51,54 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
-/** The served probability a model sort orders by, or null when the report has no score for that head or the score is stale. */
-export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
-    if (report.ranking?.stale) {
+/** The served model's prediction for one outcome, or undefined when the report has none. */
+export function rankingPrediction(
+    ranking: SignalReport['ranking'],
+    outcome: string
+): ReportRankingPredictionApi | undefined {
+    return ranking?.predictions.find((prediction) => prediction.outcome === outcome)
+}
+
+export interface RankingPillLifts {
+    open: number | null
+    action: number | null
+    fix: number | null
+}
+
+/** The lifts the Recommended pill shows, or null when the report has no current score to show. */
+export function rankingPillLifts(report: SignalReport): RankingPillLifts | null {
+    if (report.ranking?.status !== 'scored') {
         return null
     }
-    const score = report.ranking?.scores[RANKING_SORT_HEADS[field].head]
-    return typeof score === 'number' ? score : null
+    const lift = (outcome: string): number | null => {
+        const value = rankingPrediction(report.ranking, outcome)?.lift
+        return typeof value === 'number' && Number.isFinite(value) ? value : null
+    }
+    const lifts = { open: lift('open'), action: lift('action'), fix: lift('fix') }
+    return lifts.open === null && lifts.action === null && lifts.fix === null ? null : lifts
+}
+
+/** The served probability a model sort orders by, or null when the report has no score for that outcome or the score is stale. */
+export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
+    if (report.ranking?.status !== 'scored') {
+        return null
+    }
+    const probability = rankingPrediction(report.ranking, rankingScoreForField(field).outcome)?.probability
+    return typeof probability === 'number' ? probability : null
+}
+
+/**
+ * The Recommended sort's comparator. The server gives each row a merge key that follows the ranker's
+ * order, so rows from several responses merge in one order. Rows with equal keys keep their input order.
+ * A row without a key sorts last.
+ */
+export function compareInboxMergeKeys(a: SignalReport, b: SignalReport): number {
+    const keyA = a.inbox_merge_key ?? null
+    const keyB = b.inbox_merge_key ?? null
+    if (keyA === null || keyB === null) {
+        return keyA === keyB ? 0 : keyA === null ? 1 : -1
+    }
+    return keyA - keyB
 }
 
 // The server puts unscored reports after every scored report, in both directions.
@@ -69,6 +114,9 @@ export function compareSignalReports(
     field: InboxSortField,
     direction: InboxSortDirection
 ): (a: SignalReport, b: SignalReport) => number {
+    if (field === 'recommended') {
+        return compareInboxMergeKeys
+    }
     const dir = direction === 'desc' ? -1 : 1
     return (a, b) => {
         if (isRankingSortField(field)) {

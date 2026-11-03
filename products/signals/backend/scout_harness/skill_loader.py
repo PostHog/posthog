@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from django.db.models import Max, Min
+from django.db.models import Max, Min, QuerySet
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
@@ -29,6 +31,8 @@ def reserved_scout_name_error(name: str) -> str | None:
     Applied by the scout create serializer and by explicit config registration — the two paths
     that mint a scout — so both refuse the same set.
     """
+    if name in SYSTEM_SCOUT_NAMES:
+        return "This scout is managed by Self-Driving onboarding."
     if name.lower() in RESERVED_SCOUT_NAMES:
         return (
             f"'{name}' is reserved by the inbox and cannot be a scout name. "
@@ -176,6 +180,16 @@ def resolve_skill_owner_user_uuids(team: Team, skill_name: str) -> list[str]:
     ]
 
 
+def earliest_member_author_id(team: Team, versions: QuerySet[LLMSkill]) -> int | None:
+    """The author of the earliest version in `versions` who is still an active member of `team`."""
+    return (
+        versions.filter(created_by__isnull=False, created_by__in=team.all_users_with_access())
+        .order_by("created_at", "id")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+
+
 def resolve_scout_acting_user_id(team: Team, skill_name: str, config: SignalScoutConfig | None) -> int | None:
     """User id a scout run acts as, which is also where its AI spend is attributed.
 
@@ -196,18 +210,7 @@ def resolve_scout_acting_user_id(team: Team, skill_name: str, config: SignalScou
     mints a sandbox token as this user. Returns None when no path resolves a member; the runner
     then falls back to the team-level default (`resolve_acting_user_id_for_team`).
     """
-    creator_id = (
-        LLMSkill.objects.filter(
-            team=team,
-            name=skill_name,
-            deleted=False,
-            created_by__isnull=False,
-            created_by__in=team.all_users_with_access(),
-        )
-        .order_by("created_at", "id")
-        .values_list("created_by_id", flat=True)
-        .first()
-    )
+    creator_id = earliest_member_author_id(team, LLMSkill.objects.filter(team=team, name=skill_name, deleted=False))
     if creator_id is not None:
         return creator_id
     if config is None:
@@ -301,7 +304,7 @@ def resolve_skill_authors(team: Team, skill_name: str) -> list[SkillAuthor]:
     if not people:
         return []
 
-    def to_author(person: dict, role: Literal["creator", "editor"]) -> SkillAuthor:
+    def to_author(person: Mapping[str, Any], role: Literal["creator", "editor"]) -> SkillAuthor:
         # Collapse whitespace so a multi-line display name can't break out of the prompt's
         # one-line list-item structure.
         name = " ".join(f"{person['created_by__first_name']} {person['created_by__last_name']}".split())

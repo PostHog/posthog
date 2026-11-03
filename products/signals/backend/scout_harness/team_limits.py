@@ -10,6 +10,7 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
+import math
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -23,11 +24,17 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.models import SignalScoutBackgroundBand, SignalScoutRun
+from products.signals.backend.scout_harness.limits import (
+    COORDINATOR_INTERVAL_MINUTES,
+    MAX_DISPATCH_SMEAR_SECONDS,
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -164,7 +171,7 @@ def _read_flag_payload() -> dict | None:
 ENROLL_ALL_TOKEN = "*"
 
 
-@dataclass(frozen=True)
+@frozen
 class Enrollment:
     """Parsed scout enrollment from the `signals-scout` flag payload.
 
@@ -177,6 +184,7 @@ class Enrollment:
     wildcard: bool
     explicit: set[int]
     skip: set[int]
+    drained: bool = False
 
 
 def _parse_enrollment(payload: dict | None) -> Enrollment:
@@ -218,12 +226,14 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
     else:
         skip = set()
 
-    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
+    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip, drained=payload.get("guaranteed_team_ids") == [])
 
 
-# Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
-# asking. Separate from `guaranteed_team_ids`: a background team gets one config for one skill, not
-# the full catalog seed.
+# Flag payload blocks that enroll a cohort in scouts that PostHog sets up without a person asking.
+# Separate from `guaranteed_team_ids`: a background team gets one config per lane skill, not the
+# full catalog seed. `background_lanes` holds one lane per skill. The older single `background`
+# block parses as one lane and applies only when `background_lanes` is absent.
+BACKGROUND_LANES_KEY = "background_lanes"
 BACKGROUND_KEY = "background"
 DEFAULT_BACKGROUND_SKILL_NAME = "signals-scout-general"
 # Bounds how many teams get a new background config in one tick, so a large list starts over
@@ -244,10 +254,52 @@ BACKGROUND_BANDS = (1, 2, 3, 4)
 
 
 @dataclass(frozen=True)
-class BackgroundEnrollment:
-    """Parsed `background` block from the `signals-scout` flag payload.
+class BackgroundBackoff:
+    """Parsed `background.backoff`: each background run that nobody engages with multiplies the
+    interval to the next run by `factor`, up to `max_interval_minutes`."""
 
-    `enabled` → the coordinator creates and dispatches background configs. A valid block with
+    factor: int
+    max_interval_minutes: int
+
+    def effective_interval_minutes(self, base_minutes: int, level: int | None) -> int:
+        return min(base_minutes * self.factor ** (level or 0), max(base_minutes, self.max_interval_minutes))
+
+    def next_level(self, base_minutes: int, level: int | None) -> int:
+        """One level up, but never past the first level that reaches the cap, so the level stays bounded."""
+        current = level or 0
+        if self.effective_interval_minutes(base_minutes, current) >= self.max_interval_minutes:
+            return current
+        return current + 1
+
+
+TICKS_PER_DAY = 24 * 60 // COORDINATOR_INTERVAL_MINUTES
+
+
+@dataclass(frozen=True)
+class BackgroundBudget:
+    """Parsed `background.budget`: the run budget of the whole background lane in one region.
+
+    `max_runs_per_day` bounds the background runs dispatched in the trailing `DAILY_BUDGET_WINDOW`.
+    `0` stops background dispatch and keeps every config as it is. `max_runs_per_tick` is `None`
+    when unset, so the day spreads evenly across `TICKS_PER_DAY`.
+    """
+
+    max_runs_per_day: int
+    max_runs_per_tick: int | None = None
+
+    def tick_allowance(self, runs_last_24h: int) -> int:
+        tick_cap = self.max_runs_per_tick or math.ceil(self.max_runs_per_day / TICKS_PER_DAY)
+        return max(0, min(self.max_runs_per_day - runs_last_24h, tick_cap))
+
+
+@dataclass(frozen=True)
+class BackgroundEnrollment:
+    """One background lane: an entry of `background_lanes`, or the older `background` block.
+
+    A lane is its skill. Every config, sample, budget, and backoff of the lane belongs to
+    `skill_name` alone, so two lanes never change each other's configs.
+
+    `enabled` → the coordinator creates and dispatches background configs. A valid lane with
     `enabled` off still pauses configs whose team left `team_ids`. `interval_minutes` is `None`
     when unset, so the created row keeps the model default.
     """
@@ -259,6 +311,15 @@ class BackgroundEnrollment:
     max_new_teams_per_tick: int
     # Only the bands with a valid entry. A missing band samples no project.
     bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
+    # `None` turns the backoff off, so every background config runs at its band interval.
+    backoff: BackgroundBackoff | None = None
+    # `None` means no lane budget, so every due background run goes on to the shared tick caps.
+    budget: BackgroundBudget | None = None
+    # The band rows the lane samples from: projects that did not set Signals up, or ones that did.
+    audience: str = SignalScoutBackgroundBand.Audience.NOT_SET_UP
+    # Dispatch only when the skill's default pre-check finds something, whatever the skill's
+    # `precheck_default_rollout` says. Keeps a short interval cheap.
+    require_precheck: bool = False
 
     def band_interval_minutes(self, band: int | None) -> int | None:
         entry = self.bands.get(band) if band is not None else None
@@ -269,6 +330,10 @@ class BackgroundEnrollment:
 
 def _positive_int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _non_negative_int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
@@ -292,33 +357,157 @@ def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
     return bands
 
 
-def background_sample_bucket(team_id: int) -> int:
-    """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
+def _parse_background_backoff(raw: object) -> BackgroundBackoff | None:
+    """Parse `background.backoff`. A missing, disabled, or malformed block turns the backoff off."""
+    if not isinstance(raw, dict) or raw.get("enabled") is not True:
+        return None
+    factor = _positive_int_or_none(raw.get("factor"))
+    max_interval_minutes = _positive_int_or_none(raw.get("max_interval_minutes"))
+    if factor is None or factor < 2 or max_interval_minutes is None:
+        return None
+    return BackgroundBackoff(factor=factor, max_interval_minutes=max_interval_minutes)
+
+
+def _parse_background_budget(raw: object) -> BackgroundBudget | None:
+    """Parse `background.budget`. A missing or malformed block means no lane budget.
+
+    A malformed `max_runs_per_tick` alone falls back to the even spread and keeps the daily budget.
+    """
+    if not isinstance(raw, dict):
+        return None
+    max_runs_per_day = _non_negative_int_or_none(raw.get("max_runs_per_day"))
+    if max_runs_per_day is None:
+        return None
+    return BackgroundBudget(
+        max_runs_per_day=max_runs_per_day, max_runs_per_tick=_positive_int_or_none(raw.get("max_runs_per_tick"))
+    )
+
+
+def background_lane_for(lanes: Sequence[BackgroundEnrollment] | None, skill_name: str) -> BackgroundEnrollment | None:
+    return next((lane for lane in lanes or () if lane.skill_name == skill_name), None)
+
+
+def resolve_background_lane(skill_name: str) -> BackgroundEnrollment | None:
+    """One flag-payload read of the lane that runs `skill_name`, for callers outside the coordinator."""
+    return background_lane_for(parse_background_lanes(_read_flag_payload()), skill_name)
+
+
+def resolve_background_backoff(skill_name: str) -> BackgroundBackoff | None:
+    lane = resolve_background_lane(skill_name)
+    return lane.backoff if lane is not None else None
+
+
+def background_sample_bucket(team_id: int, skill_name: str = DEFAULT_BACKGROUND_SKILL_NAME) -> int:
+    """The stable 0-99 bucket of a project in one lane. Python's `hash()` is salted per process, so it cannot be used.
 
     A project is sampled when its bucket is below its band percent, so a higher percent keeps every
-    project that a lower percent sampled.
+    project that a lower percent sampled. The skill name salts the hash, so each lane samples on
+    its own. The general scout keeps the salt it had before lanes, so its cohort does not move.
     """
-    digest = hashlib.sha256(f"signals-scout-background:{team_id}".encode()).digest()
+    salt = (
+        "signals-scout-background"
+        if skill_name == DEFAULT_BACKGROUND_SKILL_NAME
+        else f"signals-scout-background:{skill_name}"
+    )
+    digest = hashlib.sha256(f"{salt}:{team_id}".encode()).digest()
     return int.from_bytes(digest[:8], "big") % 100
 
 
-def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
-    """Parse the `background` block, or return `None` when the coordinator must not act on it.
+# Payload key: a `{skill_name: percent}` map. It sets the share of projects (0-100) whose scout uses
+# the default pre-check its canonical skill ships. A skill that is absent reads as 0, so a new
+# default stays off until the flag names it, and the rest of the projects form the control group.
+PRECHECK_DEFAULT_ROLLOUT_KEY = "precheck_default_rollout"
 
-    `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
-    that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
-    `team_ids` must not read as an empty list, because an empty list pauses every background
-    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
-    `max_new_teams_per_tick`, or `bands` entry falls back to its default and does not invalidate the block.
+
+def _parse_precheck_default_rollout(payload: dict | None) -> dict[str, int]:
+    raw = (payload or {}).get(PRECHECK_DEFAULT_ROLLOUT_KEY)
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        name: max(0, min(100, percent))
+        for name, percent in raw.items()
+        if isinstance(name, str) and isinstance(percent, int) and not isinstance(percent, bool)
+    }
+
+
+def precheck_default_rollout_percent(skill_name: str) -> int:
+    """The share of projects (0-100) that use this skill's default pre-check. 0 when the payload is unreadable."""
+    return _parse_precheck_default_rollout(_read_flag_payload()).get(skill_name, 0)
+
+
+def precheck_default_rollout_bucket(team_id: int, skill_name: str) -> int:
+    """The stable 0-99 bucket of a project for one skill's default pre-check.
+
+    A project uses the default when its bucket is below the skill's rollout percent, so a wider
+    rollout keeps every project a narrower one included. The skill name is in the hash, so each
+    skill gets its own control group.
+    """
+    digest = hashlib.sha256(f"signals-scout-precheck-default:{skill_name}:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
+
+
+def parse_background_lanes(payload: dict | None) -> tuple[BackgroundEnrollment, ...] | None:
+    """Parse the background lanes, or return `None` when the coordinator must not act on them.
+
+    `background_lanes` wins over `background` when both are present. `None` for a missing payload,
+    no lane key at all, a `background_lanes` value that is not a list, any malformed lane, or two
+    lanes with the same `skill_name`. One bad lane fails the whole list, because a lane that drops
+    out reads as a removed lane, and a removed lane pauses its configs. An empty list is valid and
+    removes every lane.
     """
     if payload is None:
         return None
-    raw = payload.get(BACKGROUND_KEY)
+    if BACKGROUND_LANES_KEY not in payload:
+        lane = _parse_background(payload)
+        return (lane,) if lane is not None else None
+
+    if BACKGROUND_KEY in payload:
+        logger.info("signals_scout: background_lanes is set, ignoring the background block")
+    raw_lanes = payload[BACKGROUND_LANES_KEY]
+    if not isinstance(raw_lanes, list):
+        logger.warning("signals_scout: background_lanes is not a list, skipping background lanes")
+        return None
+    lanes: list[BackgroundEnrollment] = []
+    for index, raw in enumerate(raw_lanes):
+        lane = _parse_background_lane(raw, default_skill_name=None)
+        if lane is None:
+            logger.warning("signals_scout: malformed background lane, skipping background lanes", index=index)
+            return None
+        lanes.append(lane)
+    skill_names = [lane.skill_name for lane in lanes]
+    if len(set(skill_names)) != len(skill_names):
+        logger.warning("signals_scout: duplicate background lane skill, skipping background lanes", skills=skill_names)
+        return None
+    return tuple(lanes)
+
+
+def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
+    """The older single `background` block as one lane. `None` when it is missing or malformed."""
+    if payload is None:
+        return None
+    return _parse_background_lane(payload.get(BACKGROUND_KEY), default_skill_name=DEFAULT_BACKGROUND_SKILL_NAME)
+
+
+def _parse_background_lane(raw: object, *, default_skill_name: str | None) -> BackgroundEnrollment | None:
+    """Parse one lane, or return `None` when the coordinator must not act on it.
+
+    `None` for a lane that is not an object, a `skill_name` that is not a non-empty string (a
+    `background_lanes` entry has no default skill), a `team_ids` that is not a list of integer ids,
+    or an `audience` that is not a known value. A malformed `team_ids` must not read as an empty
+    list, because an empty list pauses every config of the lane. `enabled` and `require_precheck`
+    are on only for a literal `true`. An absent or malformed `interval_minutes`,
+    `max_new_teams_per_tick`, `bands` entry, `backoff`, or `budget` falls back to its default and
+    does not invalidate the lane.
+    """
     if not isinstance(raw, dict):
         return None
 
-    skill_name = raw.get("skill_name", DEFAULT_BACKGROUND_SKILL_NAME)
+    skill_name = raw.get("skill_name", default_skill_name)
     if not isinstance(skill_name, str) or not skill_name.strip():
+        return None
+
+    audience = raw.get("audience", SignalScoutBackgroundBand.Audience.NOT_SET_UP)
+    if audience not in SignalScoutBackgroundBand.Audience.values:
         return None
 
     raw_team_ids = raw.get("team_ids", [])
@@ -335,6 +524,10 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
         max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
         bands=_parse_background_bands(raw.get("bands")),
+        backoff=_parse_background_backoff(raw.get("backoff")),
+        budget=_parse_background_budget(raw.get("budget")),
+        audience=SignalScoutBackgroundBand.Audience(audience),
+        require_precheck=raw.get("require_precheck") is True,
     )
 
 
@@ -493,12 +686,28 @@ DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
 
 
 def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    """The smear window from the flag, else `default`, capped at `MAX_DISPATCH_SMEAR_SECONDS`.
+
+    The cap keeps the runs of one tick out of the next tick.
+    """
     if payload is None:
-        return default
+        return min(default, MAX_DISPATCH_SMEAR_SECONDS)
     override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
     if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
-        return override
-    return default
+        return min(override, MAX_DISPATCH_SMEAR_SECONDS)
+    return min(default, MAX_DISPATCH_SMEAR_SECONDS)
+
+
+# Flag payload key that moves the smear from the coordinator into each child. On, the coordinator
+# starts every child of the tick at once, and each child sleeps a stable per-config delay inside the
+# smear window before it starts work. Off, the coordinator dispatches in paced batches. Absent or
+# malformed → off.
+CHILD_START_DELAY_KEY = "child_start_delay"
+
+
+def _resolve_child_start_delay(payload: dict | None) -> bool:
+    """Whether children carry their own start delay. Only a literal `true` turns it on."""
+    return payload is not None and payload.get(CHILD_START_DELAY_KEY) is True
 
 
 # Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,
@@ -671,11 +880,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     A skipped team is never enrolled. Otherwise enrolled iff the wildcard is set (everyone is in —
     the UI gates whether they actually HAVE configs) or the team is in the explicit allowlist.
     Canonicalizes child-env ids the same way the coordinator does (`_is_team_enrolled`)."""
-    if _is_team_enrolled(canonical_team_id, enrollment.skip):
+    if enrollment.drained or _is_team_enrolled(canonical_team_id, enrollment.skip):
         return False
     if enrollment.wildcard:
         return True
-    return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+    return _is_team_enrolled(canonical_team_id, enrollment.explicit) or ResearchAccessPolicy.enrolled(canonical_team_id)
 
 
 def team_is_enrolled(canonical_team_id: int) -> bool:

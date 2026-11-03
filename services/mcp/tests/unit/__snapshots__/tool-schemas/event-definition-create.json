@@ -12,6 +12,19 @@
                     "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
                     "type": "boolean"
                 },
+                "owner": {
+                    "anyOf": [
+                        {
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991,
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner."
+                },
                 "tags": {
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                     "items": {

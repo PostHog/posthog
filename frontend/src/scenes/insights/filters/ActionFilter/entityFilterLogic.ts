@@ -8,20 +8,12 @@ import { uuid } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyEntityNode, EventsNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
-import {
-    ActionFilter,
-    AnyPropertyFilter,
-    EntityFilter,
-    EntityType,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyMathType,
-} from '~/types'
+import { AnyPropertyFilter, EntityType, FilterLogicalOperator, PropertyFilterType, PropertyMathType } from '~/types'
 
 import {
     SeriesNode,
     WarehouseSeriesNodeKind,
-    createDefaultEventsNode,
+    createDefaultSeriesNode,
     isGroupSeriesNode,
     isWarehouseSeriesNode,
     isWarehouseSeriesNodeKind,
@@ -67,6 +59,28 @@ export interface SelectedSeries {
 
 const PROPERTY_VALUE_MATHS = new Set<string>(Object.values(PropertyMathType))
 
+// Fields that only the data warehouse node kinds define. The events and actions node schemas
+// forbid unknown keys, so a query fails when one of these is left on an event or action series.
+const WAREHOUSE_ONLY_FIELDS = [
+    'table_name',
+    'timestamp_field',
+    'id_field',
+    'distinct_id_field',
+    'aggregation_target_field',
+    'created_at_field',
+    'dw_source_type',
+    'events_join_key',
+    'data_warehouse_join_key',
+] as const
+
+// Fields only an events node defines. The actions and data warehouse node schemas forbid unknown
+// keys, so a query fails when one of these is left on a series that stopped being an event.
+const EVENTS_ONLY_FIELDS = ['event', 'limit', 'orderBy'] as const
+
+// A multiplier and a revenue currency describe one math property, so they cannot carry over to
+// another property. Otherwise the query would scale and currency-convert the wrong value.
+const PROPERTY_MATH_SETTINGS = ['math_multiplier', 'math_property_revenue_currency'] as const
+
 // math_property names a column or property on the entity the series aggregates, so it cannot
 // survive an entity switch. Property-value math (sum, avg, percentiles) is dropped with it —
 // the backend errors out on that math without a math_property.
@@ -76,6 +90,9 @@ function dropStaleMath(node: Record<string, any>): void {
     }
     node.math_property = undefined
     node.math_property_type = undefined
+    PROPERTY_MATH_SETTINGS.forEach((field) => {
+        node[field] = undefined
+    })
 }
 
 function toLocalSeries(series: SeriesNode[]): LocalSeries[] {
@@ -114,7 +131,7 @@ export interface EntityFilterProps {
     onChange?: (series: SeriesNode[]) => void
     typeKey: string
     singleMode?: boolean
-    newSeriesDefaults?: Partial<EventsNode>
+    newSeriesDefaults?: Partial<SeriesNode>
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     dataWarehouseNodeKind?: WarehouseSeriesNodeKind
 }
@@ -148,9 +165,6 @@ export interface entityFilterLogicActions {
     renameSeries: (customName: string) => {
         customName: string
     }
-    selectFilter: (filter: ActionFilter | EntityFilter | null) => {
-        filter: ActionFilter | EntityFilter | null
-    }
     selectSeries: (
         index: number | null,
         node?: SeriesNode | null,
@@ -159,6 +173,9 @@ export interface entityFilterLogicActions {
         index: number | null
         node: SeriesNode | null | undefined
         uuid: string | undefined
+    }
+    selectSeriesAt: (index: number | null) => {
+        index: number | null
     }
     setEntityFilterVisibility: (
         index: number,
@@ -233,8 +250,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     })),
     actions({
         selectSeries: (index: number | null, node?: SeriesNode | null, uuid?: string) => ({ index, node, uuid }),
-        // The results table hands over the legacy-shaped series object the trends runner emits.
-        selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
+        selectSeriesAt: (index: number | null) => ({ index }),
         updateSeriesEntity: (index: number, update: SeriesEntityUpdate) => ({ index, update }),
         updateSeriesMath: (index: number, math: SeriesMathUpdate) => ({ index, math }),
         updateSeriesProperties: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
@@ -324,13 +340,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         }
 
         return {
-            selectFilter: ({ filter }) => {
-                if (!filter) {
-                    actions.selectSeries(null)
-                    return
-                }
-                const index = filter.order ?? filter.index ?? -1
-                const local = values.localSeries[index]
+            selectSeriesAt: ({ index }) => {
+                const local = index === null ? undefined : values.localSeries[index]
                 actions.selectSeries(local ? index : null, local?.node, local?.uuid)
             },
             renameSeries: ({ customName }) => {
@@ -367,6 +378,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     }
 
                     if (isWarehouseSeriesNodeKind(kind)) {
+                        EVENTS_ONLY_FIELDS.forEach((field) => {
+                            delete next[field]
+                        })
                         applySeriesKey(next, kind, typeof key === 'undefined' ? seriesNodeKey(current) : key)
                         dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                             const value = extra[fieldKey]
@@ -389,6 +403,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
 
                         if (!isWarehouseSeriesNode(current) || next.table_name !== (current as any).table_name) {
                             dropStaleMath(next)
+                            // The source type describes the previous table.
+                            delete next.dw_source_type
                         }
 
                         return withLatestVersion(next as SeriesNode)
@@ -398,12 +414,14 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                         return withLatestVersion({ ...next, ...extra } as SeriesNode)
                     }
 
-                    // Leaving the warehouse: its popover fields and column filters name a table
-                    // an event or action series does not select from, so neither can carry over.
+                    // Leaving the warehouse: its fields, popover fields and column filters name a
+                    // table an event or action series does not select from, so none can carry over.
+                    WAREHOUSE_ONLY_FIELDS.forEach((field) => {
+                        delete next[field]
+                    })
                     dataWarehousePopoverFields.forEach(({ key: fieldKey }) => {
                         delete next[fieldKey]
                     })
-                    delete next.table_name
                     if (Array.isArray(current.properties)) {
                         next.properties = current.properties.filter(
                             (property: AnyPropertyFilter) => property.type !== PropertyFilterType.DataWarehouse
@@ -416,7 +434,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     if (kind === NodeKind.EventsNode) {
                         delete next.id
                     } else {
-                        delete next.event
+                        EVENTS_ONLY_FIELDS.forEach((field) => {
+                            delete next[field]
+                        })
                     }
                     if (previousKind === NodeKind.GroupNode) {
                         delete next.nodes
@@ -433,7 +453,15 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 replaceAt(index, (node) => ({ ...node, properties }) as SeriesNode)
             },
             updateSeriesMath: ({ index, math }) => {
-                replaceAt(index, (node) => ({ ...node, ...math }) as SeriesNode)
+                replaceAt(index, (node) => {
+                    const next: Record<string, any> = { ...node, ...math }
+                    if (next.math_property !== node.math_property) {
+                        PROPERTY_MATH_SETTINGS.forEach((field) => {
+                            next[field] = undefined
+                        })
+                    }
+                    return next as SeriesNode
+                })
             },
             updateSeriesOptional: ({ index, optionalInFunnel }) => {
                 replaceAt(index, (node) => ({ ...node, optionalInFunnel }) as SeriesNode)
@@ -456,7 +484,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             },
             addSeries: () => {
                 const newLength = values.localSeries.length + 1
-                const node = createDefaultEventsNode(props.newSeriesDefaults)
+                const node = createDefaultSeriesNode(props.newSeriesDefaults)
                 const newUuid = uuid()
                 actions.setLocalSeries([...values.localSeries, { uuid: newUuid, node }])
                 actions.selectSeries(newLength - 1, node, newUuid)

@@ -1,10 +1,15 @@
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { BillingProductV2Type } from '~/types'
+
 import {
     billingErrorGuidance,
     buildSpendTrackingProperties,
+    createGaugeItems,
     filterSpendUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
 } from './billing-utils'
+import { BillingGaugeItemKind } from './types'
 
 describe('getUsageTypeOptions', () => {
     it('includes informational Desktop component metrics in Usage but not Spend', () => {
@@ -63,5 +68,20 @@ describe('billingErrorGuidance', () => {
 
     it('falls back to billing text for a code it does not know', () => {
         expect(billingErrorGuidance({ code: 'something_new', detail: 'billing said this' })).toBe('billing said this')
+    })
+})
+
+describe('createGaugeItems', () => {
+    const productAnalytics = billingJson.products.find((p) => p.type === 'product_analytics') as BillingProductV2Type
+
+    it.each([
+        ['draws the billing limit marker for a product that allows a limit', undefined, true],
+        ['draws no billing limit marker for a product without billing limits', true, false],
+    ])('%s', (_name, noBillingLimit, expectMarker) => {
+        const product: BillingProductV2Type = { ...productAnalytics, no_billing_limit: noBillingLimit }
+
+        const kinds = createGaugeItems(product, { billingLimitAsUsage: 1000000 }).map((item) => item.type)
+
+        expect(kinds.includes(BillingGaugeItemKind.BillingLimit)).toBe(expectMarker)
     })
 })

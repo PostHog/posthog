@@ -61,4 +61,30 @@ describe('groupsModel', () => {
 
         expect(groupTypesRequest).toHaveBeenCalledTimes(1)
     })
+
+    it('saves renamed group types and keeps the names the server returns', async () => {
+        const [organization] = MOCK_DEFAULT_TEAM.group_types
+        const renamed = { ...organization, name_singular: 'company', name_plural: 'companies' }
+        const saved = { ...organization, name_singular: 'account', name_plural: 'accounts' }
+        let requestBody: unknown
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/groups_types/update_metadata': async ({ request }) => {
+                    requestBody = await request.json()
+                    return [200, [saved]]
+                },
+            },
+        })
+        initKeaTests(true, MOCK_DEFAULT_TEAM, undefined, ORGANIZATION_WITH_GROUPS)
+        groupsModel.mount()
+        await expectLogic(groupsModel).toFinishAllListeners()
+
+        groupsModel.actions.updateGroupTypesMetadata([renamed])
+        await expectLogic(groupsModel).toFinishAllListeners()
+
+        expect(requestBody).toEqual([
+            expect.objectContaining({ group_type_index: 0, name_singular: 'company', name_plural: 'companies' }),
+        ])
+        expect(groupsModel.values.aggregationLabel(0)).toEqual({ singular: 'account', plural: 'accounts' })
+    })
 })

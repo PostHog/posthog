@@ -1,9 +1,19 @@
 import posthog from 'posthog-js'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AnyPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { urlForNewBroadcastWithAudience } from '../Broadcasts/broadcastAudiencePrefill'
+import type { EmailDraftRequestApi } from '../generated/api.schemas'
 import { type WorkflowTriggerConfig, urlForNewWorkflowWithTrigger } from '../Workflows/workflowTriggerPrefill'
+import { MessageDraft } from './messageDrafts'
 
 export type MessageAudienceDestination = 'broadcast' | 'workflow'
 
@@ -13,6 +23,11 @@ export interface MessageAudience {
     broadcastName?: string
     /** The workflow to start. Without one, the workflow sends to the same people with a batch trigger. */
     workflowTrigger?: WorkflowTriggerConfig
+    broadcastEmail?: MessageDraft
+    workflowEmail?: MessageDraft
+    /** The record the email is about, as "<kind>:<id>". A later broadcast about it warns that it was already sent. */
+    sourceRecord?: string
+    draftSource?: EmailDraftRequestApi
 }
 
 export function cohortAudienceProperties(cohort: { id: number; name?: string | null }): AnyPropertyFilter[] {
@@ -33,14 +48,25 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
             properties: audience.properties,
             name: audience.broadcastName,
             source: audience.source,
+            sourceRecord: audience.sourceRecord,
+            email: audience.broadcastEmail,
+            draftSource: audience.draftSource,
         })
     }
     return urlForNewWorkflowWithTrigger(
-        audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } }
+        audience.workflowTrigger ?? { type: 'batch', filters: { properties: audience.properties } },
+        audience.source,
+        audience.workflowEmail,
+        audience.draftSource
     )
 }
 
 export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): void {
     // pinned: analytics event name
     posthog.capture('message audience clicked', { source, destination })
+}
+
+/** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */
+export function messageAudienceAccessDisabledReason(): string | null {
+    return getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor)
 }

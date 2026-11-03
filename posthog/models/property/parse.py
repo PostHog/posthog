@@ -8,7 +8,14 @@ from posthog.constants import FILTER_TEST_ACCOUNTS, PROPERTIES, PropertyOperator
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_enums import PropertyOperator
 
-from .property import Property, PropertyGroup, PropertyValidationError
+from .property import (
+    BEHAVIORAL_VALUE_ALIASES,
+    VALIDATE_BEHAVIORAL_PROP_TYPES,
+    VALIDATE_PROP_TYPES,
+    Property,
+    PropertyGroup,
+    PropertyValidationError,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -40,6 +47,28 @@ def parse_property_group_data(data: Any) -> PropertyGroup:
         return loaded_props
 
     return PropertyGroup(type=PropertyOperatorType.AND, values=parse_properties(loaded_props))
+
+
+def _unparsable_property_fingerprint(error: Exception, prop_dict: dict[str, Any]) -> str:
+    """Group a dropped property by its shape, not by the message or by the exception in flight.
+
+    Without this, a chained exception that is in flight changes the default fingerprint, so one
+    known malformed filter opens a new error tracking issue each time. Only known names go into
+    the fingerprint, so stored data cannot create an unbounded number of issues.
+    """
+    parts = ["parse_properties", type(error).__name__]
+    prop_type = prop_dict.get("type")
+    # Stored filters can hold a list here. Check str first, because an unhashable `in` lookup
+    # would raise out of the except block in parse_properties.
+    parts.append(prop_type if isinstance(prop_type, str) and prop_type in VALIDATE_PROP_TYPES else "unknown")
+    value = prop_dict.get("value")
+    if prop_type == "behavioral" and isinstance(value, str):
+        behavioral_value = BEHAVIORAL_VALUE_ALIASES.get(value, value)
+        parts.append(behavioral_value if behavioral_value in VALIDATE_BEHAVIORAL_PROP_TYPES else "unknown")
+    attr = getattr(error, "attr", None)
+    if attr:
+        parts.append(attr)
+    return ".".join(parts)
 
 
 def parse_properties(properties: Optional[Any]) -> list[Property]:
@@ -74,6 +103,7 @@ def parse_properties(properties: Optional[Any]) -> list[Property]:
                             additional_properties={
                                 "property_type": prop_dict.get("type"),
                                 "property_fields": sorted(prop_dict.keys()) or None,
+                                "$exception_fingerprint": _unparsable_property_fingerprint(e, prop_dict),
                             },
                         )
                     continue

@@ -7,10 +7,15 @@ This directory owns the **scene action surfaces**:
   This is the **legacy** action surface.
 - **`SceneMenuBar`** (`components/SceneMenuBar.tsx`): the Mac-style menu bar above `<SceneTitleSection>`
   that consolidates those actions into File / Edit / View / Metadata / Staff only menus. This is the
-  **new** action surface, gated behind the `SCENE_MENU_BAR` feature flag.
+  **new** action surface, gated behind the `SCENE_MENU_BAR` feature flag. Under the `today-rail-nav` flag
+  the menus move into the title row after the scene name, so scenes still render it above `<SceneTitleSection>`.
 
 We are mid-migration (`ScenePanel` to `SceneMenuBar`). Until the flag ships everywhere, **both surfaces
 must stay in sync**.
+
+**`ScenePanel` is deprecated under `today-rail-nav`.** That redesign will remove the side panel's Info tab,
+which renders `ScenePanel`, and the `SceneMenuBar` takes over every action. Keep the dual-write while
+the flag-off UI still ships, but build no new surface on `ScenePanel` and treat it as scheduled for removal.
 
 ## Rule: every scene action goes in the SceneMenuBar
 
@@ -21,6 +26,13 @@ you **must** make the same change in that scene's `SceneMenuBar`. A feature that
 
 This is a dual-write, not a move: keep the `ScenePanel` entry (flag-off path) **and** add the menu bar
 entry (flag-on path). Don't delete `ScenePanel` actions while the flag is still rolling out.
+
+### Title actions are a shortcut, never the only home
+
+Every action a user can reach from the `actions` prop of `<SceneTitleSection>` must also be in that scene's `SceneMenuBar`.
+The menu bar is the complete list of a scene's actions. The title row shows a few of them as a shortcut.
+Usage decides which actions the title row shows, and which ones stay only in the menus.
+Promote or demote an action on usage data, not on how important it looks.
 
 ### If the scene has no SceneMenuBar yet, create one
 

@@ -6,7 +6,7 @@
 //! copy is still stashed alongside.
 
 use posthog_replay_anonymizer::{
-    anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, ImagePolicy, UrlCollection,
+    anonymize_kafka_payload_collecting, AllowLists, AnonymizeOpts, UrlCollection,
 };
 use serde_json::{json, Value};
 
@@ -48,7 +48,7 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
             &mut bytes,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
             None,
@@ -161,7 +161,7 @@ fn picture_source_srcset_is_collected_when_its_parent_is_known() {
             &mut bytes,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
             None,
@@ -220,7 +220,7 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
             &mut bytes,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
             None,
@@ -399,7 +399,7 @@ fn an_escaped_or_repeated_dimension_key_still_declines_a_hidden_pixel() {
                 &mut bytes,
                 AnonymizeOpts {
                     byte_walk,
-                    image_policy: ImagePolicy::Inline,
+                    ..Default::default()
                 },
                 None,
                 None,
@@ -524,7 +524,7 @@ fn unusable_srcset_keeps_the_src_fallback() {
         "https://cdn.example.com/a.png?token=secret 2x",
         "https://127.0.0.1/a.png 2x",
         "data:image/png;base64,%%% 2x",
-        "data:image/svg+xml;base64,PHN2Zz4= 2x",
+        "data:image/svg+xml;base64,bm90IHN2Zw== 2x",
     ] {
         for (engine, result) in run(
             json!({
@@ -663,13 +663,13 @@ fn monthly_refs_survive_compressed_snapshot_fields() {
             &mut payload,
             AnonymizeOpts {
                 byte_walk,
-                image_policy: ImagePolicy::Inline,
+                ..Default::default()
             },
             None,
-            Some(ImageCollection {
-                team_id: namespace.to_string(),
-                content_key: URL_KEY.to_string(),
-            }),
+            Some(ImageCollection::new(
+                namespace.to_string(),
+                URL_KEY.to_string(),
+            )),
             Some(UrlCollection {
                 url_key: URL_KEY.to_string(),
                 reference_namespace: Some(namespace.to_string()),

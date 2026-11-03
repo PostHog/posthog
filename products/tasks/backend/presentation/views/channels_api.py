@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import page_link_with_params
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
@@ -38,6 +39,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
     ChannelInstructionsWriteSerializer,
+    ChannelListResponseSerializer,
     ChannelMembersWriteSerializer,
     ChannelSerializer,
     ChannelSetupResponseSerializer,
@@ -136,7 +138,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return authenticator.access_token.sandbox_task_id
 
     @extend_schema(
-        responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
+        responses={
+            200: OpenApiResponse(
+                response=ChannelListResponseSerializer,
+                description="An array of channels without limit, or a page of channels with limit",
+            )
+        },
         summary="List channels",
         description=(
             "List channels the requester can access, sorted by name and ID. "
@@ -380,9 +387,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def publish_instructions(self, request, pk=None, **kwargs):
         sandbox_task_id = self._sandbox_task_id(request)
         if sandbox_task_id is not None and not tasks_facade.task_can_publish_channel_instructions(
-            sandbox_task_id, self.team_id, pk
+            sandbox_task_id, self.team_id
         ):
-            raise PermissionDenied("This loop can update only the CONTEXT.md configured for this run.")
+            raise PermissionDenied("This run can't update CONTEXT.md in this project.")
 
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -393,7 +400,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self._user_id(),
                 content=serializer.validated_data["content"],
                 base_version=serializer.validated_data.get("base_version"),
-                # The facade never sees the request, so the loop-vs-person split is set here.
+                # The facade never sees the request, so the agent-vs-person split is set here.
                 source="agent" if sandbox_task_id is not None else "user",
             )
         except tasks_facade.ChannelInstructionsVersionConflictError as err:
@@ -738,7 +745,11 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             before=request.validated_query_data.get("before"),
             before_id=request.validated_query_data.get("before_id"),
         )
-        return Response(TaskActivityPageSerializer(activity).data)
+        data = TaskActivityPageSerializer(activity).data
+        if data["next_before"] is not None:
+            next_params = {"before": data["next_before"], "before_id": data["next_before_id"]}
+            data["next"] = page_link_with_params(request, next_params)
+        return Response(data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
     # annotation applied earlier — including @validated_request's — from the generated OpenAPI.

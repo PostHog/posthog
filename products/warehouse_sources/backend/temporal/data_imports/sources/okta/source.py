@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -22,12 +23,112 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.okta.okta 
     okta_source,
     validate_credentials as validate_okta_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    OKTA_ENDPOINTS,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class OktaSource(ResumableSource[OktaSourceConfig, OktaResumeConfig]):
+    codebase_detection = detect(
+        env=(
+            "^OKTA_",
+            "^REACT_APP_OKTA_",
+            "^VITE_OKTA_",
+            "^NEXT_PUBLIC_OKTA_",
+            "^VUE_APP_OKTA_",
+            "^EXPO_PUBLIC_OKTA_",
+            "^AUTH_OKTA_ID$",
+            "^AUTH_OKTA_SECRET$",
+            "^AUTH_OKTA_ISSUER$",
+        ),
+        script_hosts=("global.oktacdn.com", "ok1static.oktacdn.com"),
+        npm=(
+            "@okta/okta-sdk-nodejs",
+            "@okta/okta-auth-js",
+            "@okta/okta-react",
+            "@okta/okta-signin-widget",
+            "@okta/okta-vue",
+            "@okta/okta-angular",
+            "@okta/jwt-verifier",
+            "@okta/okta-react-native",
+            "@okta/oidc-middleware",
+            "@okta/auth-foundation",
+            "@okta/spa-platform",
+            "@okta/oauth2-flows",
+            "@okta/react-native-platform",
+            "@okta/react-native-webcrypto-bridge",
+            "@okta/okta-idx-js",
+            "@okta/vdc-sdk-node",
+        ),
+        pypi=("okta", "okta-jwt-verifier", "okta-client-python", "okta-mcp-server"),
+        cargo=("okta", "okta-jwt-verifier"),
+        cocoapods=(
+            "OktaOidc",
+            "OktaClient",
+            "OktaAuthFoundation",
+            "OktaOAuth2",
+            "OktaDirectAuth",
+            "OktaIdxAuth",
+            "OktaWebAuthenticationUI",
+            "OktaIdx",
+            "OktaAuthSdk",
+            "OktaJWT",
+            "DeviceAuthenticator",
+        ),
+        composer=("okta/sdk", "okta/jwt-verifier", "socialiteproviders/okta", "foxworth42/oauth2-okta"),
+        go=(
+            "github.com/okta/okta-sdk-golang",
+            "github.com/okta/okta-jwt-verifier-golang",
+            "github.com/okta/okta-idx-golang",
+            "github.com/okta/okta-governance-sdk-golang",
+        ),
+        hex=("ueberauth_okta",),
+        maven=(
+            "com.okta.sdk:okta-sdk-api",
+            "com.okta.spring:okta-spring-boot-starter",
+            "com.okta.jwt:okta-jwt-verifier",
+            "com.okta.android:okta-oidc-android",
+            "com.okta.sdk:okta-sdk-impl",
+            "com.okta.sdk:okta-sdk-httpclient",
+            "com.okta.sdk:okta-sdk-okhttp",
+            "com.okta.spring:okta-spring-sdk",
+            "com.okta.spring:okta-spring-security-starter",
+            "com.okta.jwt:okta-jwt-verifier-impl",
+            "com.okta.authn.sdk:okta-authn-sdk-api",
+            "com.okta.authn.sdk:okta-authn-sdk-impl",
+            "com.okta.idx.sdk:okta-idx-java-api",
+            "com.okta.hooks.sdk:okta-hooks",
+            "com.okta.shiro:okta-shiro-plugin",
+            "com.okta.android:library",
+            "com.okta.android:okta-idx-kotlin",
+            "com.okta.android:idx-kotlin",
+            "com.okta.kotlin:bom",
+            "com.okta.kotlin:auth-foundation",
+            "com.okta.kotlin:auth-foundation-bootstrap",
+            "com.okta.kotlin:oauth2",
+            "com.okta.kotlin:okta-direct-auth",
+            "com.okta.kotlin:okta-idx-kotlin",
+            "com.okta.kotlin:web-authentication-ui",
+            "com.okta.kotlin:legacy-token-migration",
+            "com.okta.devices:devices-authenticator",
+            "com.okta.devices:devices-push",
+        ),
+        rubygems=("omniauth-okta", "omniauth-oktaoauth", "oktakit"),
+        swiftpm=(
+            "github.com/okta/okta-mobile-swift",
+            "github.com/okta/okta-oidc-ios",
+            "github.com/okta/okta-auth-swift",
+            "github.com/okta/okta-idx-swift",
+            "github.com/okta/okta-ios-jwt",
+            "github.com/okta/okta-devices-swift",
+            "github.com/okta/okta-sdk-swift",
+        ),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developer.okta.com/docs/reference/"
@@ -59,6 +160,10 @@ The token's user should have read access to the resources you want to sync, for 
 - `okta.groups.read`
 - `okta.apps.read`
 - `okta.logs.read`
+- `okta.policies.read`
+- `okta.devices.read`
+- `okta.roles.read`
+- `okta.idps.read`
 """,
             iconPath="/static/services/okta.png",
             docsUrl="https://posthog.com/docs/cdp/sources/okta",
@@ -114,7 +219,7 @@ The token's user should have read access to the resources you want to sync, for 
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Only syncs the last 90 days on initial sync" if endpoint == "logs" else None,
+                description=OKTA_ENDPOINTS[endpoint].description,
             )
             for endpoint in ENDPOINTS
         ]

@@ -15,7 +15,7 @@ is the only claim made about all of time, and it leans on `Team.ingested_event`.
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import lru_cache, partial
@@ -44,7 +44,7 @@ QUIET_AFTER_DAYS = 7
 CACHE_TTL_SECONDS = 10 * 60
 # Bump when ProjectFreshness or SourceFreshness change shape: cached values are pickled, so old
 # entries would otherwise unpickle missing a field.
-_CACHE_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 2
 
 # Backstops for a pathological org, not a latency budget. Postgres has no server-side
 # statement_timeout here, and the ClickHouse cluster's failure mode is concurrent IO-heavy
@@ -124,6 +124,8 @@ class ProjectFreshness:
     freshness: Freshness
     last_data_at: Optional[datetime]
     sources: list[SourceFreshness] = field(default_factory=list)
+    # A probe failed, so a product missing from `sources` may have data the registry could not see.
+    degraded: bool = False
 
 
 # Probes never emit a null timestamp or a team they weren't given, so `_compute` trusts both.
@@ -195,7 +197,7 @@ def reportable(results: list[ProjectFreshness], *, degraded: bool) -> list[Proje
     """
     if not degraded:
         return results
-    return [result for result in results if result.freshness == Freshness.LIVE]
+    return [replace(result, degraded=True) for result in results if result.freshness == Freshness.LIVE]
 
 
 def _probes(
@@ -291,6 +293,8 @@ def _probe_app_metrics(specs: tuple[DataSourceSpec, ...], teams: list[Team], win
     """Every `app_metrics2`-backed product, in one query.
 
     That table is already a per-team, per-product activity ledger sorted on `team_id` first.
+    `retention_byte_days` rows are excluded: the logs consumer dates them at future billing
+    months, so they would make a project look live long after its ingestion stopped.
     """
     products_by_app_source = {spec.app_metrics_source: spec.product for spec in specs if spec.app_metrics_source}
     if not products_by_app_source:
@@ -307,6 +311,7 @@ def _probe_app_metrics(specs: tuple[DataSourceSpec, ...], teams: list[Team], win
             FROM app_metrics2
             WHERE team_id IN %(team_ids)s
               AND app_source IN %(app_sources)s
+              AND metric_name != 'retention_byte_days'
               AND timestamp >= %(cutoff)s
               AND timestamp <= %(horizon)s
             GROUP BY team_id, app_source

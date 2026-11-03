@@ -32,7 +32,9 @@ from products.billing_alerts.backend.presentation.serializers import (
 from products.billing_alerts.backend.presentation.throttles import BillingAlertCheckNowThrottle
 
 
-@extend_schema(tags=["billing"])
+# x-internal removes these operations from the public API docs because the API is behind the
+# `billing-alerts` flag. Codegen still includes them, so the frontend types stay.
+@extend_schema(tags=["billing"], extensions={"x-internal": True})
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     queryset = BillingAlertConfiguration.objects.all()

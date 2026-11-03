@@ -506,8 +506,15 @@ fn spawn_write(
     let sink = service.sink.clone();
     let token = token.to_string();
     writes.spawn(async move {
-        sink.write(&token, batch.rows, batch.bytes, batch.timestamps_overridden)
-            .await
+        sink.write(
+            &token,
+            batch.rows,
+            batch.bytes,
+            batch.timestamps_overridden,
+            None,
+            None,
+        )
+        .await
     });
 }
 
@@ -761,6 +768,12 @@ mod tests {
             ("{\"level\":\"warn\",\"msg\":\"x\"}", "warn", 13),
             ("{\"level\":\"warning\",\"msg\":\"x\"}", "warn", 13),
             ("{\"severity\":\"CRITICAL\"}", "fatal", 21),
+            ("{\"levelname\":\"WARNING\",\"msg\":\"x\"}", "warn", 13),
+            (
+                "{\"levelname\":\"WARNING\",\"level\":\"error\"}",
+                "error",
+                17,
+            ),
             ("plain line with error later in it", "info", 9),
             ("Errors: 0", "info", 9),
             ("", "info", 9),

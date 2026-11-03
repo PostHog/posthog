@@ -66,6 +66,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'early_access_feature',
             href: urls.earlyAccessFeatures(),
+            searchKeywords: ['beta', 'waitlist', 'opt-in'],
             iconType: 'early_access_feature' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-early-access-features-light)',

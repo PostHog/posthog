@@ -1,0 +1,424 @@
+//! Outputs-level integration tests for the v1 analytics pipeline.
+//!
+//! These tests verify the end-to-end path:
+//!   WrappedEvent -> OutputRegistry::publish_prepared() -> real Kafka -> consumer -> CapturedEvent
+//!
+//! Requires Docker Kafka (same rig as legacy integration tests).
+//!
+//! HTTP-level round trips (POST /i/v1/analytics/events -> Kafka) live in
+//! `v1_http_integration.rs`; this file stays focused on the outputs layer.
+
+#[path = "common/utils.rs"]
+mod utils;
+use utils::*;
+
+use std::collections::HashMap;
+
+use anyhow::Result;
+use common_types::{CapturedEvent, RawEvent};
+
+use capture::config::{Config, EnvelopeCompression};
+use capture::outputs::OutputRegistry;
+use capture::producers::{self, ProducerRegistry};
+use capture::sinks::kafka::KafkaSink;
+use capture::sinks::registry::OutputTable;
+use capture::sinks::sink::Outcome;
+use capture::v1::context::RequestContext;
+use capture::v1::test_utils::{self, prepared, WrappedEventMut};
+use capture::v1::types::Publishable;
+
+fn v1_test_context() -> RequestContext {
+    let mut ctx = test_utils::test_context();
+    ctx.api_token = "phc_integration_test_token".to_string();
+    ctx
+}
+
+async fn v1_outputs(topic: &str) -> OutputRegistry {
+    v1_outputs_with(topic, |_| {}).await
+}
+
+async fn v1_outputs_with(
+    topic: &str,
+    override_outputs: impl FnOnce(&mut Config),
+) -> OutputRegistry {
+    let producer_configs =
+        producers::load_all(&test_producer_env()).expect("failed to load producer config");
+    let producers = ProducerRegistry::build(&producer_configs, HashMap::new())
+        .expect("failed to create producers");
+
+    let mut config = DEFAULT_CONFIG.clone();
+    point_outputs_at(&mut config, topic);
+    override_outputs(&mut config);
+    let table = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane())
+        .map_producers(|name| producers.get(*name));
+
+    OutputRegistry::single(KafkaSink::new(table, EnvelopeCompression::None))
+}
+
+// ---------------------------------------------------------------------------
+// Single realistic pageview round-trip
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_single_pageview_round_trip() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let wrapped = test_utils::realistic_pageview("integ-user-1");
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].uuid, wrapped.uuid);
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let event_json = topic.next_event()?;
+    let captured: CapturedEvent = serde_json::from_value(event_json)?;
+    assert_eq!(captured.uuid, wrapped.uuid);
+    assert_eq!(captured.distinct_id, "integ-user-1");
+    assert_eq!(captured.event, "$pageview");
+    assert_eq!(captured.token, "phc_integration_test_token");
+
+    let data: RawEvent = serde_json::from_str(&captured.data)?;
+    assert_eq!(data.event, "$pageview");
+    assert_eq!(data.properties["$browser"], "Chrome");
+    assert_eq!(
+        data.properties["$session_id"],
+        "01jq9abc-def0-1234-5678-9abcdef01234"
+    );
+    assert_eq!(data.properties["$process_person_profile"], true);
+    assert_eq!(data.properties["custom_prop"], 42);
+
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 3-event realistic batch round-trip
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_batch_round_trip() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let batch = test_utils::realistic_batch();
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&batch[0], &batch[1], &batch[2]];
+
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert!(matches!(r.outcome, Outcome::Published));
+    }
+
+    let mut event_names = Vec::new();
+    for _ in 0..3 {
+        let json = topic.next_event()?;
+        let captured: CapturedEvent = serde_json::from_value(json)?;
+        let data: RawEvent = serde_json::from_str(&captured.data)?;
+        assert_eq!(captured.distinct_id, "user-42");
+        assert_eq!(captured.token, "phc_integration_test_token");
+        event_names.push(data.event.clone());
+    }
+
+    event_names.sort();
+    assert_eq!(
+        event_names,
+        vec!["$identify", "$pageview", "button_clicked"]
+    );
+
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Verify Kafka headers round-trip
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_kafka_headers_round_trip() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let wrapped = test_utils::realistic_pageview("integ-user-headers");
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let (_event_json, headers) = topic.next_message_with_headers()?;
+
+    assert_eq!(
+        headers.get("token").map(|s| s.as_str()),
+        Some("phc_integration_test_token")
+    );
+    assert_eq!(
+        headers.get("distinct_id").map(|s| s.as_str()),
+        Some("integ-user-headers")
+    );
+    assert_eq!(headers.get("event").map(|s| s.as_str()), Some("$pageview"));
+    assert!(headers.contains_key("uuid"));
+    assert!(headers.contains_key("timestamp"));
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Partition key verification
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_partition_key_round_trip() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let wrapped = test_utils::realistic_pageview("integ-user-pkey");
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let key = topic.next_message_key()?;
+    assert_eq!(
+        key.as_deref(),
+        Some("phc_integration_test_token:integ-user-pkey")
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Dropped event not published
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_dropped_event_not_published() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let wrapped = test_utils::realistic_pageview("integ-user-dropped").with_result(
+        capture::v1::analytics::types::EventResult::Drop,
+        Some("rate_limited"),
+    );
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert!(results.is_empty());
+
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Exception event routes to the error tracking topic
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_exception_event_round_trip() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let exception_topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs_with(topic.topic_name(), |config| {
+        config.outputs.error_tracking_topic = exception_topic.topic_name().to_string();
+    })
+    .await;
+    let ctx = v1_test_context();
+
+    let uuid = uuid::Uuid::new_v4();
+    let mut wrapped = test_utils::realistic_pageview("integ-user-exception");
+    wrapped.event.event = "$exception".to_string();
+    wrapped.uuid = uuid;
+    wrapped.event.uuid = uuid.to_string();
+    wrapped.destination = capture::v1::types::Destination::ErrorTrackingMain;
+
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert_eq!(results.len(), 1);
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let event_json = exception_topic.next_event()?;
+    let captured: CapturedEvent = serde_json::from_value(event_json)?;
+    assert_eq!(captured.event, "$exception");
+    assert_eq!(captured.uuid, uuid);
+    assert_eq!(captured.distinct_id, "integ-user-exception");
+
+    exception_topic.assert_empty();
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Cookieless mode affects partition key
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_cookieless_mode_partition_key() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let mut ctx = v1_test_context();
+    ctx.client_ip = "198.51.100.7".parse().unwrap();
+
+    let uuid = uuid::Uuid::new_v4();
+    let mut wrapped = test_utils::realistic_pageview("integ-user-cookieless");
+    wrapped.uuid = uuid;
+    wrapped.event.uuid = uuid.to_string();
+    wrapped.options.cookieless_mode = Some(true);
+
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let key = topic.next_message_key()?;
+    assert_eq!(
+        key.as_deref(),
+        Some("phc_integration_test_token:198.51.100.7"),
+        "cookieless mode should use token:IP as partition key"
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Event with all options fields set — property injection round-trip
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_all_options_property_injection() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let uuid = uuid::Uuid::new_v4();
+    let mut wrapped = test_utils::realistic_pageview("integ-user-all-opts");
+    wrapped.uuid = uuid;
+    wrapped.event.uuid = uuid.to_string();
+    wrapped.options = capture::v1::analytics::types::Options {
+        cookieless_mode: Some(true),
+        disable_skew_correction: Some(true),
+        product_tour_id: Some("tour_abc123".to_string()),
+        process_person_profile: Some(false),
+    };
+    wrapped.event.session_id = Some("sess-opt-test".to_string());
+    wrapped.event.window_id = Some("win-opt-test".to_string());
+
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let event_json = topic.next_event()?;
+    let captured: CapturedEvent = serde_json::from_value(event_json)?;
+    let data: RawEvent = serde_json::from_str(&captured.data)?;
+
+    assert_eq!(data.properties["$session_id"], "sess-opt-test");
+    assert_eq!(data.properties["$window_id"], "win-opt-test");
+    assert_eq!(data.properties["$cookieless_mode"], true);
+    assert_eq!(data.properties["$ignore_sent_at"], true);
+    assert_eq!(data.properties["$product_tour_id"], "tour_abc123");
+    assert_eq!(data.properties["$process_person_profile"], false);
+
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Event with empty options — no extra properties injected from options
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_empty_options_no_injection() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs(topic.topic_name()).await;
+    let ctx = v1_test_context();
+
+    let uuid = uuid::Uuid::new_v4();
+    let mut wrapped = test_utils::realistic_pageview("integ-user-no-opts");
+    wrapped.uuid = uuid;
+    wrapped.event.uuid = uuid.to_string();
+    wrapped.options = capture::v1::analytics::types::Options {
+        cookieless_mode: None,
+        disable_skew_correction: None,
+        product_tour_id: None,
+        process_person_profile: None,
+    };
+    wrapped.event.session_id = None;
+    wrapped.event.window_id = None;
+
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&wrapped];
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert!(matches!(results[0].outcome, Outcome::Published));
+
+    let event_json = topic.next_event()?;
+    let captured: CapturedEvent = serde_json::from_value(event_json)?;
+    let data: RawEvent = serde_json::from_str(&captured.data)?;
+
+    assert!(!data.properties.contains_key("$session_id"));
+    assert!(!data.properties.contains_key("$window_id"));
+    assert!(!data.properties.contains_key("$cookieless_mode"));
+    assert!(!data.properties.contains_key("$ignore_sent_at"));
+    assert!(!data.properties.contains_key("$product_tour_id"));
+    assert!(!data.properties.contains_key("$process_person_profile"));
+
+    topic.assert_empty();
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Multi-destination batch — each event lands on its destination's topic
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn v1_multi_destination_batch() -> Result<()> {
+    setup_tracing();
+    let topic = EphemeralTopic::new().await;
+    let main_topic = EphemeralTopic::new().await;
+    let historical_topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
+    let outputs = v1_outputs_with(topic.topic_name(), |config| {
+        config.outputs.analytics_main_topic = main_topic.topic_name().to_string();
+        config.outputs.analytics_historical_topic = historical_topic.topic_name().to_string();
+        config.outputs.analytics_overflow_topic = overflow_topic.topic_name().to_string();
+    })
+    .await;
+    let ctx = v1_test_context();
+
+    let main_ev = test_utils::realistic_pageview("integ-dest-main");
+    let hist_ev = test_utils::realistic_pageview("integ-dest-hist")
+        .with_destination(capture::v1::types::Destination::AnalyticsHistorical);
+    let overflow_ev = test_utils::realistic_pageview("integ-dest-overflow")
+        .with_destination(capture::v1::types::Destination::AnalyticsOverflow);
+
+    let events: Vec<&(dyn Publishable + Send + Sync)> = vec![&main_ev, &hist_ev, &overflow_ev];
+    let results = outputs.publish_prepared(prepared(&events, &ctx)).await;
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert!(matches!(r.outcome, Outcome::Published));
+    }
+
+    for (dest_topic, expected_distinct_id) in [
+        (&main_topic, "integ-dest-main"),
+        (&historical_topic, "integ-dest-hist"),
+        (&overflow_topic, "integ-dest-overflow"),
+    ] {
+        let captured: CapturedEvent = serde_json::from_value(dest_topic.next_event()?)?;
+        assert_eq!(captured.distinct_id, expected_distinct_id);
+        dest_topic.assert_empty();
+    }
+
+    topic.assert_empty();
+    Ok(())
+}

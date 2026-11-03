@@ -146,6 +146,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerEmail?: boolean
     cdpCohortMembership?: boolean
+    cdpCohortMembershipTriggers?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
@@ -635,7 +636,7 @@ export interface Hook {
     updated: string
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export enum PropertyOperator {
     Exact = 'exact',
     IsNot = 'is_not',
@@ -656,29 +657,29 @@ export enum PropertyOperator {
     IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 interface PropertyFilterBase {
     key: string
     value?: string | number | Array<string | number> | null
     label?: string
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export interface PropertyFilterWithOperator extends PropertyFilterBase {
     operator?: PropertyOperator
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export interface EventPropertyFilter extends PropertyFilterWithOperator {
     type: 'event'
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
     type: 'hogql'
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
@@ -691,21 +692,21 @@ export interface DataWarehousePersonPropertyFilter extends PropertyFilterWithOpe
     type: 'data_warehouse_person_property'
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export interface ElementPropertyFilter extends PropertyFilterWithOperator {
     type: 'element'
     key: 'tag_name' | 'text' | 'href' | 'selector'
     value: string | string[]
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export interface CohortPropertyFilter extends PropertyFilterBase {
     type: 'cohort'
     key: 'id'
     value: number | string
 }
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -715,7 +716,7 @@ export type PropertyFilter =
     | DataWarehousePersonPropertyFilter
     | HogQLPropertyFilter
 
-/** Sync with posthog/frontend/src/types.ts */
+/** Sync with frontend/src/types.ts */
 export enum StringMatching {
     Contains = 'contains',
     Regex = 'regex',

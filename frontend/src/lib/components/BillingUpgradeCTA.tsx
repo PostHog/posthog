@@ -2,16 +2,16 @@ import { useActions, useValues } from 'kea'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 
 export function BillingUpgradeCTA({ children, disabledReason, ...props }: LemonButtonProps): JSX.Element {
     const { reportBillingCTAShown } = useActions(eventUsageLogic)
-    const { billingManagedByPartnerDisabledReason } = useValues(billingLogic)
+    const { selfServeBillingDisabledReason } = useValues(billingLogic)
     useOnMountEffect(reportBillingCTAShown)
 
     return (
-        <LemonButton {...props} disabledReason={billingManagedByPartnerDisabledReason || disabledReason}>
+        <LemonButton {...props} disabledReason={selfServeBillingDisabledReason || disabledReason}>
             {children}
         </LemonButton>
     )

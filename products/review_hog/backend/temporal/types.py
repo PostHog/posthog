@@ -8,15 +8,22 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 
-# How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
-# inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
-# scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
+# How a review run was triggered. Gates are trigger-aware: inbox → `review_inbox_prs`, automatic →
+# the repository rules; stamphog (a Stamphog refusal of a self-driving PR), manual (CLI/eval), ui
+# (an explicit human ask from the Code review scene) and comment (an `@posthog review` pull request
+# comment) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
 # across deploys.
+TRIGGER_STAMPHOG = "stamphog"
+# No new run uses it. Label runs started before the label trigger was removed still replay with it.
 TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
+TRIGGER_COMMENT = "comment"
 TRIGGER_AUTOMATIC = "automatic"
+# The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
+# Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
+REQUESTED_TRIGGERS = frozenset({TRIGGER_STAMPHOG, TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
 
 
 @frozen
@@ -34,9 +41,8 @@ class ReviewPRWorkflowInputs:
     no resolvable PR stores the review instead — the target's shape decides, not a mode flag.
 
     `acting_user_id` overrides whose perspectives run: the label trigger leaves it None (the workflow
-    resolves the PR author after fetch, falling back to the default run user when the author isn't a
-    PostHog user); the eval CLI and the inbox trigger set it explicitly (the inbox PR author is a
-    bot, so it can't be resolved from GitHub).
+    resolves the PR owner after fetch, falling back to the default run user when the PR has no
+    owner); the UI, the eval CLI and the inbox trigger set it explicitly.
 
     `trigger_source` / `signal_report_id` default so in-flight payloads serialized before these
     fields existed still deserialize.
@@ -50,7 +56,7 @@ class ReviewPRWorkflowInputs:
     pr_number: int | None = None
     publish: bool = False
     acting_user_id: int | None = None
-    # Which trigger started this run (TRIGGER_LABEL / TRIGGER_INBOX / TRIGGER_MANUAL).
+    # Which trigger started this run (TRIGGER_STAMPHOG / TRIGGER_INBOX / TRIGGER_MANUAL).
     trigger_source: str = TRIGGER_MANUAL
     # The signals report whose implementation this run reviews (inbox trigger only): stamped onto the
     # ReviewReport as provenance, and the target of the `code_review` artefact receipt.
@@ -60,20 +66,19 @@ class ReviewPRWorkflowInputs:
     signal_priority: str | None = None
     # Branch target (PR-less review): the pushed head branch to review when no PR URL is known.
     head_branch: str | None = None
-    # Per-run override for chaining the resolution stage after this turn (fire-and-forget
-    # `resolve-pr` dispatch once the turn finishes, when the target has a PR). None — the default,
-    # and what every trigger passes except the UI's explicit "review without resolving" — means the
-    # acting user's `resolve_comments` setting decides (snapshotted by `resolve_acting_user`, and
-    # only on publishing runs — an unpublished eval/CLI review must not write to the PR). Replay-safe
-    # both ways: pre-field payloads decode to None and their recorded snapshot lacks the setting
-    # (False), while payloads serialized under the old `bool = False` default decode to an explicit
-    # False — in both cases the dispatch never fires for old histories, exactly as they ran.
+    # Per-run switch-off for chaining the resolution stage after this turn (fire-and-forget
+    # `resolve-pr` dispatch once the turn finishes, when the target has a PR). None, the default,
+    # means the PR owner's `resolve_comments` opt-in decides (snapshotted by `resolve_acting_user`,
+    # and only on publishing runs: an unpublished eval/CLI review must not write to the PR). False
+    # turns resolution off for this run; True cannot turn it on without the owner's opt-in.
     resolve_comments: bool | None = None
     # What this turn runs on (`REVIEW_MODE_FULL` / `REVIEW_MODE_FLASH`). Per turn, never persisted:
     # a flash turn must not change what the PR's next normal review runs on. Defaulted so in-flight
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
 
     @property
     def repository(self) -> str:
@@ -102,8 +107,8 @@ class ResolvePRWorkflowInputs:
 
     PR-only — review threads live on PRs, so there is no branch-target shape. `(team_id, user_id)`
     are the explicit identity the sandbox session runs under; `acting_user_id` pins whose selected
-    resolution-criteria skill applies (None means the PR author: prepare maps the author login to a
-    PostHog user, and an unmapped author pins the canonical criteria — never `user_id`'s).
+    resolution-criteria skill applies (None means the PR owner, which prepare resolves; a PR without
+    an owner never resolves, because nobody opted in).
     """
 
     team_id: int

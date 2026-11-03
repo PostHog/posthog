@@ -38,7 +38,7 @@ def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
     """
     name = PurePosixPath(path).name
     if path.endswith(".py"):
-        return name.startswith("test_") or (name.startswith("eval_") and path.startswith("ee/hogai/eval/"))
+        return name.startswith("test_")
     if path.endswith((".test.ts", ".test.tsx")):
         return True
     if path.endswith(".spec.ts") and path.startswith("playwright/"):
@@ -565,6 +565,14 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     )
 
 
+def runs_on_playwright(file_path: str) -> bool:
+    """Whether `hogli test <file_path>` hands the path to Playwright, resolved from the current directory."""
+    try:
+        return detect_test_type(_resolve_to_repo_relative(file_path)).test_type == "playwright"
+    except click.UsageError:
+        return False
+
+
 def detect_test_type(file_path: str) -> TestRunConfig:
     """Detect the test type from a file or directory path and return run configuration.
 
@@ -594,16 +602,7 @@ def detect_test_type(file_path: str) -> TestRunConfig:
             description="Playwright E2E test",
         )
 
-    # 2. Python eval tests (special pytest config)
-    if file_only.startswith("ee/hogai/eval/") and ext == ".py":
-        return TestRunConfig(
-            test_type="python-eval",
-            command=["pytest", "-c", "ee/hogai/eval/pytest.ini", "-s", file_path],
-            description="Python eval test (pytest with eval config)",
-            env=_python_env(),
-        )
-
-    # 3. Python tests
+    # 2. Python tests
     if ext == ".py" and any(file_only.startswith(root) for root in _PYTHON_ROOTS):
         return TestRunConfig(
             test_type="python",
@@ -612,15 +611,15 @@ def detect_test_type(file_path: str) -> TestRunConfig:
             env=_python_env(),
         )
 
-    # 4. Jest tests (*.test.ts, *.test.tsx) — finds nearest package.json to determine pnpm filter
+    # 3. Jest tests (*.test.ts, *.test.tsx) — finds nearest package.json to determine pnpm filter
     if file_only.endswith((".test.ts", ".test.tsx")):
         return _detect_jest_test(file_only, file_path, node_id)
 
-    # 5. Rust tests — finds nearest Cargo.toml; supports node IDs (path.rs::test_name)
+    # 4. Rust tests — finds nearest Cargo.toml; supports node IDs (path.rs::test_name)
     if ext == ".rs":
         return _detect_rust_test(file_only, node_id)
 
-    # 6. Go — any .go file or go.mod; finds nearest go.mod and runs from module root
+    # 5. Go — any .go file or go.mod; finds nearest go.mod and runs from module root
     if ext == ".go" or PurePosixPath(file_only).name == "go.mod":
         return _detect_go_test(file_only)
 
@@ -710,7 +709,7 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
         groups.setdefault(config.test_type, []).append((f, config))
 
     for test_type, entries in groups.items():
-        if test_type in ("python", "python-eval"):
+        if test_type == "python":
             # pytest can take multiple files at once
             cfg = entries[0][1]
             command = cfg.command[:-1] + [f for f, _ in entries]
@@ -735,8 +734,19 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
                 _run(cfg.command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
 
 
-def _run_changed(extra_args: list[str]) -> None:
-    """Find changed test files and tests for changed source files, then run them."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ChangedTests:
+    directly_changed: set[str]
+    discovered: set[str]
+    skipped_playwright_specs: set[str]
+
+    @property
+    def all_files(self) -> list[str]:
+        return sorted(self.directly_changed | self.discovered)
+
+
+def changed_test_files(*, skip_playwright: bool = False) -> ChangedTests:
+    """The changed test files, and the test files found for changed source files."""
     changed = _get_changed_files()
 
     directly_changed = {f for f in changed if _is_test_file(f)}
@@ -746,7 +756,26 @@ def _run_changed(extra_args: list[str]) -> None:
         if not _is_test_file(f):
             discovered.update(_find_test_files_for_source(f))
 
-    all_test_files = sorted(directly_changed | discovered)
+    playwright_specs: set[str] = set()
+    if skip_playwright:
+        playwright_specs = {f for f in directly_changed | discovered if f.startswith("playwright/")}
+        directly_changed -= playwright_specs
+        discovered -= playwright_specs
+
+    return ChangedTests(
+        directly_changed=directly_changed, discovered=discovered, skipped_playwright_specs=playwright_specs
+    )
+
+
+def _run_changed(extra_args: list[str], skip_playwright: bool = False) -> None:
+    """Find changed test files and tests for changed source files, then run them."""
+    tests = changed_test_files(skip_playwright=skip_playwright)
+    if tests.skipped_playwright_specs:
+        click.secho(f"Skipping {len(tests.skipped_playwright_specs)} Playwright spec(s).", fg="yellow")
+    directly_changed = tests.directly_changed
+    discovered = tests.discovered
+
+    all_test_files = tests.all_files
 
     if not all_test_files:
         click.secho("No test files found for changes on this branch.", fg="yellow")
@@ -777,7 +806,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
     resolved = _resolve_to_repo_relative(file_path)
     config = detect_test_type(resolved)
 
-    if config.test_type in ("python", "python-eval"):
+    if config.test_type == "python":
         # Use nodemon for Python, matching bin/tests behavior
         watch_dirs = ["./posthog", "./common/hogvm/python", "./ee", "./dags", "./products"]
 
@@ -837,16 +866,21 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 )
 @click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests changed on this branch, plus tests for changed source files")
+@click.option(
+    "--skip-playwright",
+    is_flag=True,
+    help="With --changed, leave out Playwright specs, which need a running stack",
+)
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, skip_playwright: bool, watch: bool) -> None:
     """Auto-detect test type and run the correct test runner."""
     if changed:
         if file_path:
             raise click.UsageError("Cannot combine --changed with a file path.")
         if watch:
             raise click.UsageError("Cannot combine --changed with --watch.")
-        _run_changed(list(ctx.args))
+        _run_changed(list(ctx.args), skip_playwright=skip_playwright)
         return
 
     if not file_path:

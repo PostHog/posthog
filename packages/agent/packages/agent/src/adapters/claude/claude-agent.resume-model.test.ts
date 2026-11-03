@@ -24,6 +24,7 @@ type SdkQueryHandle = {
   setModel: ReturnType<typeof vi.fn>;
   setMcpServers: ReturnType<typeof vi.fn>;
   applyFlagSettings: ReturnType<typeof vi.fn>;
+  getContextUsage: ReturnType<typeof vi.fn>;
   supportedCommands: ReturnType<typeof vi.fn>;
   initializationResult: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -43,6 +44,7 @@ function makeQueryHandle(): SdkQueryHandle {
     setModel: vi.fn().mockImplementation(() => nextSetModel()),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),
+    getContextUsage: vi.fn().mockResolvedValue({ rawMaxTokens: 0 }),
     supportedCommands: vi.fn().mockResolvedValue([]),
     initializationResult: vi.fn().mockImplementation(() => nextInitPromise),
     close: vi.fn(),
@@ -379,6 +381,154 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
+  it.each([
+    { isAiGateway: true, expectedSetModel: "zai-org/glm-5.2" },
+    { isAiGateway: false, expectedSetModel: "@cf/zai-org/glm-5.2" },
+  ])(
+    "resumes a run stored on @cf/zai-org/glm-5.2 as $expectedSetModel when isAiGateway is $isAiGateway",
+    async ({ isAiGateway, expectedSetModel }) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValueOnce([]);
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://gateway.test",
+          anthropicAuthToken: "token",
+          openaiBaseUrl: "http://gateway.test/v1",
+          openaiApiKey: "token",
+          isAiGateway,
+        },
+      });
+
+      const response = await agent.resumeSession({
+        sessionId: "0197a000-0000-7000-8000-000000000021",
+        cwd,
+        mcpServers: [],
+        _meta: { taskRunId: "run-glm", model: "@cf/zai-org/glm-5.2" },
+      });
+
+      expect(createdQueries).toHaveLength(1);
+      expect(createdQueries[0].setModel).toHaveBeenCalledWith(expectedSetModel);
+      expect(getModelConfigOption(response)?.currentValue).toBe(
+        expectedSetModel,
+      );
+    },
+  );
+
+  it("reads the model list from the gateway for an own-subscription session", async () => {
+    vi.mocked(fetchGatewayModels).mockImplementationOnce(async (options) =>
+      options?.gatewayUrl === "http://gateway.test"
+        ? [
+            {
+              id: "claude-opus-5-5",
+              owned_by: "anthropic",
+              context_window: 1_000_000,
+              supports_streaming: true,
+              supports_vision: true,
+              allowed: true,
+            },
+            {
+              id: "zai-org/glm-5.3",
+              owned_by: "zai",
+              context_window: 200_000,
+              supports_streaming: true,
+              supports_vision: false,
+              allowed: true,
+              api_shapes: ["anthropic-messages"],
+            },
+          ]
+        : [],
+    );
+    const client = {
+      sessionUpdate: vi.fn().mockResolvedValue(undefined),
+      extNotification: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AgentSideConnection;
+    const agent = new ClaudeAcpAgent(client, {
+      machineAuth: { oauthToken: "subscription-token" },
+      modelsGatewayUrl: "http://gateway.test",
+    });
+
+    const response = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-subscription", model: "claude-opus-5-5" },
+    });
+
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "http://gateway.test",
+      authToken: undefined,
+      projectId: undefined,
+    });
+    expect(getModelConfigOption(response)).toMatchObject({
+      currentValue: "claude-opus-5-5",
+      options: [
+        expect.objectContaining({
+          value: "claude-opus-5-5",
+          description: "Context: 1,000,000 tokens",
+        }),
+      ],
+    });
+  });
+
+  it.each([
+    {
+      start: undefined,
+      startEnv: undefined,
+      next: "200k",
+      nextEnv: "1",
+      cli: 200_000,
+    },
+    { start: "200k", startEnv: "1", next: "1m", nextEnv: "0", cli: 1_000_000 },
+  ] as const)(
+    "switches a $start session to $next and reads the window from the CLI",
+    async ({ start, startEnv, next, nextEnv, cli }) => {
+      vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+        {
+          id: "claude-opus-5-5",
+          owned_by: "anthropic",
+          context_window: 200_000,
+          supports_streaming: true,
+          supports_vision: true,
+          allowed: true,
+        },
+      ]);
+      const agent = makeAgent();
+      const { sessionId } = await agent.newSession({
+        cwd,
+        mcpServers: [],
+        _meta: {
+          taskRunId: `run-context-${next}`,
+          model: "claude-opus-5-5",
+          contextWindow: start,
+        },
+      });
+      expect(createdQueryOptions[0]?.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBe(
+        startEnv,
+      );
+      const query = createdQueries[0];
+      query?.getContextUsage.mockResolvedValue({ rawMaxTokens: cli });
+
+      const updated = await agent.setSessionConfigOption({
+        sessionId,
+        configId: "context_window",
+        value: next,
+      });
+
+      expect(query?.applyFlagSettings).toHaveBeenCalledWith({
+        env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: nextEnv },
+      });
+      expect(
+        (agent as unknown as { session: { lastContextWindowSize?: number } })
+          .session.lastContextWindowSize,
+      ).toBe(cli);
+      expect(
+        updated.configOptions.find((opt) => opt.id === "context_window"),
+      ).toMatchObject({ currentValue: next });
+    },
+  );
+
   // The shared claude settings file is cross-session state: the session's own
   // pick must win over it, with the file only as a fallback.
   it.each([
@@ -631,7 +781,7 @@ describe("ClaudeAcpAgent session creation", () => {
         await vi.waitFor(() => {
           expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
         });
-        await vi.advanceTimersByTimeAsync(30_001);
+        await vi.advanceTimersByTimeAsync(61_001);
 
         await expect(promise).rejects.toThrow(error);
         expect(createdQueryOptions[0]?.abortController?.signal.aborted).toBe(
@@ -650,6 +800,37 @@ describe("ClaudeAcpAgent session creation", () => {
       }
     },
   );
+
+  it("retries a failed model switch once and keeps the session", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      nextSetModel = () =>
+        attempts++ === 0
+          ? Promise.reject(new Error("set model boom"))
+          : Promise.resolve();
+      const agent = makeAgent();
+      const params = {
+        sessionId: "0197a000-0000-7000-8000-0000000000fb",
+        cwd,
+        mcpServers: [],
+        _meta: { taskRunId: "run-set-model-transient" },
+      };
+
+      const promise = agent.newSession(params);
+      await vi.waitFor(() => {
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(promise).resolves.toHaveProperty("sessionId");
+      expect(createdQueries).toHaveLength(1);
+      expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(2);
+      expect(createdQueries[0]?.close).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("preserves RequestError metadata when naming a rejected startup control", async () => {
     const requestError = new RequestError(42, "set model boom", {
@@ -929,6 +1110,7 @@ describe("ClaudeAcpAgent session creation", () => {
       const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
       expect(settings.startsWith(configDir)).toBe(true);
       expect(existsSync(settings)).toBe(true);
+      nextSetModel = () => Promise.reject(new Error("set model boom"));
       rejectSetModel(new Error("set model boom"));
       await rejection;
 

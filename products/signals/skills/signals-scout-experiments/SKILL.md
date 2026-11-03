@@ -15,6 +15,13 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: experiments
+scout-precheck-query: |
+  SELECT id, start_date, end_date, archived, updated_at
+  FROM system.experiments
+  WHERE (start_date IS NOT NULL AND end_date IS NULL AND archived = 0)
+     OR updated_at > {now} - INTERVAL 30 DAY
+  ORDER BY updated_at DESC
+  LIMIT 20
 ---
 
 # Signals scout: experiments
@@ -37,6 +44,8 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
 ## Quick close-out: are experiments even active?
+
+A scheduled run can start with a `<precheck_result>` block. Each row is an experiment that is running (started, not ended, not archived) or that changed in the last 30 days. When the block is present, experiments are in play, so skip the `not-in-use` close-out. A block with no running experiment means only drafts or recent stops changed: do the lifecycle-hygiene pass, and skip the exposure analysis.
 
 Read `recent_experiments` off `scout-project-profile-get`. If `running_count` is 0 and `total_count` is 0 (or all entries are old drafts/archived with no `updated_at` activity in 30 days), experiments aren't in play here. Write one scratchpad entry:
 
@@ -62,7 +71,7 @@ Then orient on experiments specifically:
 
 1. `experiment-list {"status": "running", "order": "-start_date"}` — cheap: returns id, name, status, dates, `feature_flag_key` per experiment. Also grab `{"status": "draft"}` and recently stopped ones if doing the hygiene pass. **Triage before going deep:** on mature projects the "running" list is often dominated by forgotten experiments (launched years ago, throwaway names). Reserve the per-experiment exposure analysis for the validity-watch set — experiments launched in the last ~90 days or known-active from scratchpad memory (cap ~10 per run; rotate if more). Older running experiments go straight to the zombie bundle without exposure SQL.
 2. `experiment-get {id}` on running candidates only — you need the linked flag's `filters.multivariate.variants` (the configured split) and `filters.groups[].rollout_percentage`, `exposure_criteria` (custom exposure event? `multiple_variant_handling`?), `running_time_calculation.recommended_running_time`, `stats_config.method`, and the linked `feature_flag` (active state, `filters.groups[].variant` forced-variant overrides). The full object is large (metrics arrays, flag filters) — never bulk-fetch every experiment; running experiments only, and lean on scratchpad memory for ones you've profiled before.
-3. `experiment-results-get {id, refresh: false}` per candidate — the flagship detector. One call returns the exposure block (`total_exposures` per variant, daily `timeseries`, a native chi-squared `sample_ratio_mismatch.p_value` and `bias_risk.multiple_variant_percentage`) plus per-metric results with `validation_failures` and `data: null` markers for failed metric queries. Read the exposure block and validation fields; **skip the per-metric stats** (movement is not your business) — with many metrics the response is heavy. Legacy experiments (`ExperimentTrendsQuery` / `ExperimentFunnelsQuery` metrics) aren't supported by this tool — fall back to the exposure SQL below.
+3. `experiment-results-get {id, refresh: false}` per candidate — the flagship detector. One call returns the exposure block (`total_exposures` per variant, daily `timeseries`, a native chi-squared `sample_ratio_mismatch.p_value` and `bias_risk.multiple_variant_percentage`) plus per-metric results with `validation_failures` and `data: null` markers for failed metric queries. Read the exposure block and validation fields; **skip the per-metric stats** (movement is not your business) — with many metrics the response is heavy. Skip this call and the exposure audit when `experiment-get` shows `is_legacy: true`: a legacy experiment shows no results at all, so report it under lifecycle drift (below).
 
 Drop to `execute-sql` only for diagnosis: dating an onset, per-person fragmentation, custom-exposure drill-downs. **Timezone footgun:** HogQL string timestamp literals parse in the _project_ timezone, not UTC — a UTC `start_date` literal can shift the window by hours and fake a dormant experiment. Use `now() - INTERVAL N DAY` for recency windows.
 
@@ -94,7 +103,7 @@ Two caveats before trusting a clean p-value:
 - It tests against the **current** configured split. If variants were redistributed mid-run, post-edit balance can look clean while pre-edit data is contaminated — check the flag history (below) whenever `feature_flag.version` is high.
 - It says nothing about `$multiple` — read `bias_risk.multiple_variant_percentage` as its own check (below).
 
-When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Read the default exposure event off `experiment-get`'s `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side, same properties either way):
+When you need to date an onset, fall back to the exposure SQL. Read the default exposure event off `experiment-get`'s `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side, same properties either way). When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows:
 
 ```sql
 SELECT
@@ -153,7 +162,7 @@ Both are report-worthy: the team thinks they're collecting evidence and they are
 
 #### Exposure stall / dormant experiment
 
-A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall:
+A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall. When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows:
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS exposures
@@ -183,7 +192,8 @@ Also `advanced-activity-logs-list {scopes: ["Experiment"], item_ids: [<id>]}` fo
 
 Cheap hygiene pass over the full list — P3 recommendations, not anomalies; bundle them into one finding rather than one per experiment:
 
-- **Zombie:** running well past its useful life — exposures far above `running_time_calculation.recommended_sample_size` (often the cleaner test; `recommended_running_time` can be 0/absent), or > 60 days with a plateaued exposure curve. The data is as good as it will get; recommend deciding. For high-stakes calls, `experiment-timeseries-results` (needs `metric_uuid` + `fingerprint` from the experiment's `metrics` array) shows whether the primary metric has been stable for weeks — a sustained flat answer strengthens "decide now".
+- **Zombie:** running well past its useful life — exposures far above `running_time_calculation.recommended_sample_size` (often the cleaner test; `recommended_running_time` can be 0/absent), or > 60 days with a plateaued exposure curve. The data is as good as it will get; recommend deciding. For high-stakes calls, `experiment-timeseries-results` (needs `metric_uuid` + `fingerprint` from the experiment's `metrics` array) shows whether the primary metric has been stable for weeks — a sustained flat answer strengthens "decide now". A legacy zombie has no answer to decide on, so it takes the next rule instead.
+- **Legacy:** a running experiment with `is_legacy: true` in `experiment-get` shows no results at all. Recommend migrating it with `experiment-migrate`, or ending it.
 - **Stopped but contaminating:** `end_date` set weeks ago, linked flag still `active` with a multivariate split (no variant shipped to 100%). Users still see random variants of a concluded test; recommend ship-variant or flag cleanup.
 - **Stale drafts:** drafts untouched > 30 days — lowest priority, mention only in a bundle, never alone.
 

@@ -22,6 +22,7 @@ import {
 import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
@@ -58,6 +59,7 @@ import { VersionBanner } from './endpoint-tabs/VersionBanner'
 import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
+import { EndpointSceneSkeleton } from './EndpointSceneSkeleton'
 import { endpointsLogic } from './endpointsLogic'
 import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLogic'
 
@@ -68,7 +70,8 @@ export const scene: SceneExport = {
 }
 
 export function EndpointScene(): JSX.Element {
-    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(endpointSceneLogic)
+    const { endpoint, endpointLoading, endpointMissing, activeTab, viewingVersion, isMaterialized } =
+        useValues(endpointSceneLogic)
     const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic)
     const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
     const { versions } = useValues(endpointLogic)
@@ -81,6 +84,10 @@ export function EndpointScene(): JSX.Element {
     const visibleTab =
         activeTab === EndpointTab.LINEAGE && endpoint && !lineageSavedQueryId ? EndpointTab.QUERY : activeTab
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+
+    if (endpointMissing) {
+        return <NotFound object="endpoint" />
+    }
 
     const tabs: LemonTab<EndpointTab>[] = [
         {
@@ -173,7 +180,6 @@ export function EndpointScene(): JSX.Element {
                 status: 'danger',
                 onClick: () => {
                     deleteEndpoint(endpoint.name)
-                    router.actions.push(urls.endpoints())
                 },
                 size: 'small',
             },
@@ -362,8 +368,14 @@ export function EndpointScene(): JSX.Element {
                         onGoToLatest={() => setViewingVersion(null)}
                     />
                 )}
-                {!endpointLoading && <EndpointOverview />}
-                {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                {endpointLoading && !endpoint ? (
+                    <EndpointSceneSkeleton showTabs={!sceneMenuBarEnabled} />
+                ) : (
+                    <>
+                        <EndpointOverview />
+                        {sceneMenuBarEnabled ? renderTabContent() : <LemonTabs activeKey={visibleTab} tabs={tabs} />}
+                    </>
+                )}
             </SceneContent>
             {endpoint && (
                 <ScenePanel>

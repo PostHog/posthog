@@ -33,6 +33,7 @@ const API_CONFIG: PostHogAPIConfig = {
 type RequestFinish = (
   status: "completed" | "failed",
   message?: string,
+  report?: string,
 ) => Promise<void>;
 
 function buildRequestFinish(
@@ -93,6 +94,16 @@ describe("ClaudeAcpAgent.buildRequestFinish", () => {
     });
   });
 
+  it("saves the report as the run's final message", async () => {
+    const requestFinish = buildRequestFinish(API_CONFIG, "task-1", "run-1");
+    await requestFinish?.("completed", undefined, "Opened 2 draft PRs");
+
+    expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
+      status: "completed",
+      output: { final_message: "Opened 2 draft PRs" },
+    });
+  });
+
   it("marks the run failed with the message as error_message", async () => {
     const requestFinish = buildRequestFinish(API_CONFIG, "task-1", "run-1");
     await requestFinish?.("failed", "blocked on missing credentials");
@@ -100,6 +111,7 @@ describe("ClaudeAcpAgent.buildRequestFinish", () => {
     expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
       status: "failed",
       error_message: "blocked on missing credentials",
+      error_type: "agent_declined",
     });
   });
 
@@ -109,6 +121,7 @@ describe("ClaudeAcpAgent.buildRequestFinish", () => {
 
     expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
       status: "failed",
+      error_type: "agent_declined",
     });
   });
 

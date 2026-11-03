@@ -84,6 +84,8 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "layouts": {},
             "order": 0,
             "color": color,
+            "group_key": None,
+            "badge": None,
             "filters_overrides": {},
             "text": self._expected_text(
                 body,

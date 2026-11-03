@@ -21,11 +21,12 @@ BASE_URL = "https://api.hubapi.com/"
 def _is_retryable_status(status_code: int) -> bool:
     """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
 
-    429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the non-standard 477
-    HubSpot's edge has been observed returning during brief incidents) aren't actionable client
-    errors, so treat any unknown 4xx as transient too instead of crashing the import on it.
+    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
+    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
+    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
+    import on it.
     """
-    if status_code == 429 or status_code >= 500:
+    if status_code in (408, 429) or status_code >= 500:
         return True
     if 400 <= status_code < 500:
         try:
@@ -137,6 +138,7 @@ def fetch_data(
     refresh_token: str,
     params: Optional[dict[str, Any]] = None,
     source_id: str | None = None,
+    follow_after_cursor: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     """
     Fetch data from HUBSPOT endpoint using a specified API key and yield the properties of each result.
@@ -146,6 +148,8 @@ def fetch_data(
         endpoint (str): The endpoint to fetch data from, as a string.
         api_key (str): The API key to use for authentication, as a string.
         params: Optional dict of query params to include in the request
+        follow_after_cursor: Page by re-sending `params` with `paging.next.after` instead of
+            following `paging.next.link`, for APIs that document `link` as optional.
 
     Yields:
         A List of CRM object dicts
@@ -222,7 +226,10 @@ def fetch_data(
 
         # Follow pagination links if they exist
         _next = _data.get("paging", {}).get("next", None)
-        if _next:
+        if follow_after_cursor:
+            after = (_next or {}).get("after")
+            _data = _get(url, {**(params or {}), "after": after}) if after else None
+        elif _next:
             _data = _get(_next["link"], None)
         else:
             _data = None

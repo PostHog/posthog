@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.weekly_digest.activities import (
@@ -49,6 +50,19 @@ MAX_CONCURRENT_GENERATION_ACTIVITIES = 100
 _PATCH_BOUNDED_GENERATION_ACTIVITIES = "weekly-digest-bounded-generation-activities"
 
 
+def resolve_redis_host() -> str:
+    # redis-py connects to localhost when the URL host is empty, so an empty value counts as missing.
+    host = os.getenv("WEEKLY_DIGEST_REDIS_HOST")
+    if host:
+        return host
+    if settings.DEBUG or settings.TEST:
+        return "localhost"
+    raise ApplicationError(
+        "WEEKLY_DIGEST_REDIS_HOST is not set. Set it on the weekly digest worker to the digest Redis host.",
+        non_retryable=True,
+    )
+
+
 @workflow.defn(name="weekly-digest")
 class WeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
@@ -59,7 +73,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: WeeklyDigestInput) -> None:
         if input.common.redis_host is None:
-            input.common.redis_host = os.getenv("WEEKLY_DIGEST_REDIS_HOST", "localhost")
+            input.common.redis_host = resolve_redis_host()
 
         if input.common.redis_port is None:
             input.common.redis_port = int(os.getenv("WEEKLY_DIGEST_REDIS_PORT", "6379"))
@@ -68,7 +82,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
             input.common.django_redis_url = settings.REDIS_URL
 
         year, week, _ = datetime.now().isocalendar()
-        period_end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        period_end = input.period_end_override or datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         period_start = period_end - timedelta(days=7)
 
         digest = Digest(
@@ -100,6 +114,8 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
                 allow_already_sent=input.allow_already_sent,
                 digest=digest,
                 common=input.common,
+                organization_ids=input.organization_ids,
+                workflows_only=input.workflows_only,
             ),
             parent_close_policy=workflow.ParentClosePolicy.REQUEST_CANCEL,
             execution_timeout=timedelta(hours=15),
@@ -222,8 +238,10 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, input: SendWeeklyDigestInput) -> None:
+        # Only a resend passes its organizations, so the scheduled run calls the activity exactly as before.
         organization_count = await workflow.execute_activity(
             count_organizations,
+            args=[input.organization_ids] if input.organization_ids is not None else [],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
@@ -245,8 +263,11 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         allow_already_sent=input.allow_already_sent,
                         digest=input.digest,
                         common=input.common,
+                        organization_ids=input.organization_ids,
+                        workflows_only=input.workflows_only,
                     ),
-                    start_to_close_timeout=timedelta(minutes=30),
+                    # Batches share the pace of the captures for Workflows, so a batch can wait well past 30 minutes.
+                    start_to_close_timeout=timedelta(hours=2),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),

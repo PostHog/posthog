@@ -1,9 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.db import close_old_connections, connection
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import OauthIntegration
@@ -16,6 +19,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -46,12 +50,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_ENDIVE,
+    STRIPE_V2_MONEY_MANAGEMENT_VERSIONS,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     DEFAULT_OFF_ENDPOINTS as STRIPE_DEFAULT_OFF_ENDPOINTS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    V2_LIST_PATHS as STRIPE_V2_LIST_PATHS,
     WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
     WEBHOOK_SYNC_ONLY_ENDPOINTS as STRIPE_WEBHOOK_SYNC_ONLY_ENDPOINTS,
@@ -107,11 +114,121 @@ class StripeSource(
     WebhookSource[StripeSourceConfig],
     OAuthMixin,
 ):
+    codebase_detection = detect(
+        env=(
+            "^STRIPE_(SECRET|API)_KEY$",
+            "^STRIPE_PUBLISHABLE_KEY$",
+            "^STRIPE_WEBHOOK_SECRET$",
+            "^NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY$",
+            "^STRIPE_KEY$",
+            "^STRIPE_SECRET$",
+            "^STRIPE_(LIVE|TEST)_SECRET_KEY$",
+            "^STRIPE_DEVICE_NAME$",
+        ),
+        script_hosts=("js.stripe.com", "connect-js.stripe.com", "crypto-js.stripe.com", "checkout.stripe.com"),
+        npm=(
+            "stripe",
+            "@stripe/stripe-js",
+            "@stripe/react-stripe-js",
+            "@stripe/stripe-react-native",
+            "@stripe/connect-js",
+            "@stripe/react-connect-js",
+            "@stripe/terminal-js",
+            "@stripe/stripe-terminal-react-native",
+            "@stripe/stripe-identity-react-native",
+            "@stripe/crypto",
+            "@stripe/agent-toolkit",
+            "@stripe/ai-sdk",
+            "@stripe/token-meter",
+            "@stripe/mcp",
+            "@stripe/link-cli",
+            "@stripe/cli",
+            "@stripe/sync-engine",
+            "@stripe/sync-integration-supabase",
+            "@stripe/ui-extension-sdk",
+            "@stripe/extensibility-sdk",
+            "@stripe/scripts",
+            "@stripe/firestore-stripe-payments",
+            "react-stripe-elements",
+            "tipsi-stripe",
+            "ngx-stripe",
+            "@vue-stripe/vue-stripe",
+            "svelte-stripe",
+        ),
+        pypi=("stripe", "stripe-agent-toolkit", "dj-stripe"),
+        cargo=(
+            "async-stripe",
+            "async-stripe-billing",
+            "async-stripe-checkout",
+            "async-stripe-connect",
+            "async-stripe-core",
+            "async-stripe-fraud",
+            "async-stripe-issuing",
+            "async-stripe-misc",
+            "async-stripe-payment",
+            "async-stripe-product",
+            "async-stripe-terminal",
+            "async-stripe-treasury",
+            "async-stripe-webhook",
+            "async-stripe-client-core",
+            "stripe-rust",
+        ),
+        cocoapods=(
+            "Stripe",
+            "StripePaymentSheet",
+            "StripePayments",
+            "StripeApplePay",
+            "StripePaymentsUI",
+            "StripeIdentity",
+            "StripeFinancialConnections",
+            "StripeConnect",
+            "StripeCardScan",
+            "StripeCryptoOnramp",
+            "StripeIssuing",
+            "StripeTerminal",
+        ),
+        composer=("stripe/stripe-php", "laravel/cashier"),
+        go=("github.com/stripe/stripe-go",),
+        hex=("stripity_stripe",),
+        maven=(
+            "com.stripe:stripe-java",
+            "com.stripe:stripe-android",
+            "com.stripe:paymentsheet",
+            "com.stripe:payments-core",
+            "com.stripe:financial-connections",
+            "com.stripe:financial-connections-lite",
+            "com.stripe:identity",
+            "com.stripe:connect",
+            "com.stripe:crypto-onramp",
+            "com.stripe:link",
+            "com.stripe:stripecardscan",
+            "com.stripe:payment-method-messaging",
+            "com.stripe:stripe-wechatpay",
+            "com.stripe:stripe-android-issuing-push-provisioning",
+            "com.stripe:stripeterminal",
+            "com.stripe:stripeterminal-taptopay",
+            "com.stripe:stripeterminal-localmobile",
+            "com.stripe:stripeterminal-ktx",
+            "com.stripe:stripeterminal-appsondevices",
+        ),
+        pub=(
+            "flutter_stripe",
+            "flutter_stripe_web",
+            "stripe_js",
+            "stripe_checkout",
+            "stripe_platform_interface",
+            "stripe_android",
+            "stripe_ios",
+        ),
+        rubygems=("stripe", "stripe_event"),
+        swiftpm=("github.com/stripe/stripe-ios", "github.com/stripe/stripe-terminal-ios"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
-    supported_versions = (STRIPE_API_VERSION_ACACIA,)
-    default_version = STRIPE_API_VERSION_ACACIA
+    supported_versions = (STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_ENDIVE)
+    default_version = STRIPE_API_VERSION_ENDIVE
     api_docs_url = "https://docs.stripe.com/changelog"
 
     @property
@@ -204,12 +321,21 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
+                        account_selector=True,
                         label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="acct_...",
                         caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="balance_history_all_customers",
+                        sync_setting=True,
+                        label="Sync balance history for every customer",
+                        caption="By default, the CustomerBalanceTransaction table only includes customers whose balance isn't zero. Turn this on to also include customers whose balance went back to zero. The sync then makes one Stripe request per customer, so it takes longer.",
+                        default=False,
+                        fields=[],
                     ),
                 ],
             ),
@@ -311,6 +437,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
             "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
             "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+            # A table that only newer API versions serve, synced under an older pinned version.
+            # The message names the versions that serve it.
+            "is not available on Stripe API version": None,
             # Stripe's own `invalid_request_error` body with no usable detail, seen when listing a
             # specific customer's nested resources (e.g. payment methods). It is a 400-class error,
             # so retrying replays the identical request against the same customer and fails
@@ -364,6 +493,15 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             raise ValueError("Stripe access token not found")
         return integration.access_token
 
+    def _get_api_key_closing_connection(self, config: StripeSourceConfig, team_id: int) -> str:
+        # Runs in a long-lived executor thread outside Django's request cycle, so close the
+        # connection an OAuth lookup opens instead of leaving it idle on that thread.
+        close_old_connections()
+        try:
+            return self._get_api_key(config, team_id)
+        finally:
+            connection.close()
+
     def get_schemas(
         self,
         config: StripeSourceConfig,
@@ -373,6 +511,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        serves_v2_lists = self.resolve_api_version(api_version) in STRIPE_V2_MONEY_MANAGEMENT_VERSIONS
         schemas = [
             SourceSchema(
                 name=endpoint,
@@ -400,6 +539,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 should_sync_default=endpoint not in STRIPE_DEFAULT_OFF_ENDPOINTS,
             )
             for endpoint in STRIPE_ENDPOINTS
+            if serves_v2_lists or endpoint not in STRIPE_V2_LIST_PATHS
         ]
         if names is not None:
             names_set = set(names)
@@ -417,7 +557,12 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, endpoints, auth_method=config.auth_method.selection):
+            if validate_stripe_credentials(
+                api_key,
+                endpoints,
+                auth_method=config.auth_method.selection,
+                api_version=self.resolve_api_version(api_version),
+            ):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
@@ -450,21 +595,19 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 "Couldn't reach Stripe to validate your credentials. This is usually temporary. Please try again in a few minutes.",
             )
         except StripeValidationError as e:
-            # Non-403, non-transient failures (e.g. an unexpected schema or response error) are not
-            # configuration issues, so surface the underlying Stripe message verbatim — the cause
-            # isn't obvious from the resource name. Transient 5xx/connection/rate-limit failures are
-            # handled by the StripeTransientError branch above. Fold any 403s collected before the
-            # unknown error into the same toast. Guard against empty / whitespace-only error strings
-            # so we never crash the response path while reporting a different error.
-            def _first_line(msg: str) -> str:
-                lines = (msg or "").splitlines()
-                return lines[0][:200] if lines else "(no detail)"
-
-            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
-            message = f"Stripe validation failed — {details}"
-            if e.missing_permissions:
-                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
-            return False, message
+            # Non-403, non-transient failures. Stripe's own text names request parameters the user
+            # never controls, so map known rejections to their curated copy and send the rest to
+            # error tracking behind a generic next step.
+            for msg in e.errors.values():
+                for pattern, friendly in self.get_non_retryable_errors().items():
+                    if friendly and pattern in msg:
+                        return False, friendly
+            capture_exception(e, {"stripe_errors": e.errors, "missing_permissions": e.missing_permissions})
+            return (
+                False,
+                "Stripe couldn't read your account with this API key. Check that the account is active in "
+                "your Stripe dashboard or contact Stripe support, then reconnect.",
+            )
         except ValueError as e:
             # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
             # missing integration ID, missing access token). The user-facing wording already lives
@@ -494,7 +637,12 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             return dict.fromkeys(endpoints, "Stripe credentials are not available")
 
         try:
-            return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
+            return check_stripe_endpoint_permissions(
+                api_key,
+                endpoints,
+                auth_method=config.auth_method.selection,
+                api_version=self.resolve_api_version(api_version),
+            )
         except StripeAuthenticationError as e:
             return dict.fromkeys(endpoints, e.stripe_message)
 
@@ -603,6 +751,10 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # conversion that declares a parent without threading these silently keeps polling
             # the parent API while the fan-out telemetry reports otherwise.
             use_warehouse_parent=inputs.fanout_warehouse_reuse,
+            api_key_provider=lambda: self._get_api_key_closing_connection(config, inputs.team_id),
+            include_zero_balance_customers=bool(
+                config.balance_history_all_customers and config.balance_history_all_customers.enabled
+            ),
         )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:

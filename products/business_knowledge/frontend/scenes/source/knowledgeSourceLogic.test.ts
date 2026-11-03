@@ -14,6 +14,7 @@ jest.mock('../../api', () => ({
     updateSource: jest.fn(),
     deleteSource: jest.fn(),
     refreshSource: jest.fn(),
+    listLibraries: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -54,6 +55,7 @@ const MOCK_SOURCE: KnowledgeSourceApi = {
     file_content_type: '',
     file_size_bytes: null,
     always_include: false,
+    library_ids: [],
 }
 
 const mockedApi = api as jest.Mocked<typeof api>
@@ -69,6 +71,7 @@ describe('knowledgeSourceLogic', () => {
         mockedApi.getSourceDocuments.mockResolvedValue([])
         mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, name: 'Updated policy', chunk_count: 4 })
         mockedApi.deleteSource.mockResolvedValue(undefined)
+        mockedApi.listLibraries.mockResolvedValue([])
         logic = knowledgeSourceLogic({ id: SOURCE_ID })
         logic.mount()
     })
@@ -175,6 +178,24 @@ describe('knowledgeSourceLogic', () => {
         expect(logic.values.editUrlSourceChanged).toBe(true)
         expect(mockedApi.getSourceDocuments).toHaveBeenCalledWith(SOURCE_ID)
         expect(logic.values.sourceDocumentsLoaded).toBe(true)
+    })
+
+    it('keeps saved libraries when an older source read lands after the save', async () => {
+        const libraryId = '22222222-2222-2222-2222-222222222222'
+        await expectLogic(logic).toFinishAllListeners()
+        let resolveRead: (source: KnowledgeSourceApi) => void = () => {}
+        mockedApi.getSource.mockReturnValue(new Promise((resolve) => (resolveRead = resolve)))
+        mockedApi.updateSource.mockResolvedValue({ ...MOCK_SOURCE, library_ids: [libraryId] })
+
+        logic.actions.loadSource()
+        await expectLogic(logic, () => {
+            logic.actions.saveSourceLibraries([libraryId])
+        }).toDispatchActions(['finishLibrarySave'])
+        expect(logic.values.source?.library_ids).toEqual([libraryId])
+        resolveRead(MOCK_SOURCE)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.source?.library_ids).toEqual([libraryId])
     })
 
     it('keeps the source when the indexed page list fails', async () => {

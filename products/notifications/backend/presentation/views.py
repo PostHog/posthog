@@ -4,7 +4,7 @@ from typing import cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_datetime
 
@@ -12,17 +12,21 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    UserAccessControl,
+    visible_teams_for_user,
+)
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
@@ -41,7 +45,7 @@ class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
     )
 
 
-class NotificationPagination(LimitOffsetPagination):
+class NotificationPagination(BoundedLimitOffsetPagination):
     default_limit = 20
     max_limit = 100
 
@@ -74,8 +78,12 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def _get_base_queryset(self) -> QuerySet:
         user = self._get_user()
         team = self.team
+        visible_team_ids = visible_teams_for_user(
+            team.organization, self.user_access_control, self.user_permissions
+        ).values("id")
         return (
             NotificationEvent.objects.filter(
+                Q(team__isnull=True) | Q(team_id__in=visible_team_ids),
                 organization_id=team.organization_id,
                 resolved_user_ids__contains=[user.id],
             )

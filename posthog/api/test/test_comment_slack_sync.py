@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from celery.exceptions import Retry
@@ -26,7 +27,7 @@ from posthog.tasks.comment_slack_sync import (
 from products.canvas.backend.facade import testing as canvas_testing
 
 
-class TestDiscussionCardBlocks(APIBaseTest):
+class TestDiscussionCardBlocks(SimpleTestCase):
     def _card_text(self, body: str) -> str:
         blocks = _discussion_card_blocks(
             body_mrkdwn=body, author_name="Ann", item_url="https://app.posthog.com/i/1", item_label="Insight"

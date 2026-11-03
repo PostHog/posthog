@@ -1,8 +1,9 @@
+import { getChartDisplayOptions } from 'lib/components/ChartFilter/chartDisplayOptions'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-import { getChartDisplayOptions } from './chartDisplayOptions'
 import { getChartAlternatives } from './chartRecommendations'
 
 function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {
@@ -22,14 +23,13 @@ function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {
     }
 }
 
-const compatibleOptions = (hasProportionBarChart: boolean): ReturnType<typeof getChartDisplayOptions> =>
+const compatibleOptions = (): ReturnType<typeof getChartDisplayOptions> =>
     getChartDisplayOptions({
         isTrends: true,
         hasSingleSeriesOutput: true,
         hasTrendsFormula: false,
         boxPlotMissingProperty: false,
         hasMetricInsight: true,
-        hasProportionBarChart,
     })
 
 describe('getChartAlternatives', () => {
@@ -99,19 +99,7 @@ describe('getChartAlternatives', () => {
             expected: [ChartDisplayType.BoxPlot, ChartDisplayType.Metric, ChartDisplayType.ActionsUnstackedBar],
         },
         {
-            name: 'prefers other total value charts when viewing a pie chart of several series',
-            query: makeTrendsQuery({
-                series: [
-                    { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
-                    { kind: NodeKind.EventsNode, event: '$autocapture', math: BaseMathType.TotalCount },
-                ],
-                trendsFilter: { display: ChartDisplayType.ActionsPie },
-            }),
-            expected: [ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsBarValue, ChartDisplayType.Metric],
-        },
-        {
-            name: 'suggests the proportion bar with the other parts-of-a-whole charts when its flag is on',
-            hasProportionBarChart: true,
+            name: 'prefers other parts-of-a-whole charts when viewing a pie chart of several series',
             query: makeTrendsQuery({
                 series: [
                     { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount },
@@ -153,9 +141,7 @@ describe('getChartAlternatives', () => {
                 ChartDisplayType.ActionsLineGraph,
             ],
         },
-    ])('$name', ({ query, expected, hasProportionBarChart = false }) => {
-        expect(
-            getChartAlternatives(compatibleOptions(hasProportionBarChart), query).map((option) => option.display)
-        ).toEqual(expected)
+    ])('$name', ({ query, expected }) => {
+        expect(getChartAlternatives(compatibleOptions(), query).map((option) => option.display)).toEqual(expected)
     })
 })

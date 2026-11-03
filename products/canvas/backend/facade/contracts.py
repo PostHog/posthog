@@ -270,6 +270,7 @@ class CanvasCapabilityWidening:
     network_origins_added: list[str]
     state_scopes_added: list[str]
     actions_added: list[str]
+    tools_added: list[str]
     connectors_added: list[dict[str, Any]]
 
 
@@ -344,14 +345,6 @@ class CanvasNotFoundError(Exception):
 
 class CanvasVersionNotFoundError(Exception):
     pass
-
-
-class CanvasAccessDeniedError(Exception):
-    """The viewer's access-control level for the canvas is below `required_level`."""
-
-    def __init__(self, required_level: str) -> None:
-        super().__init__(required_level)
-        self.required_level = required_level
 
 
 class CanvasBuildNotFoundError(Exception):

@@ -1,5 +1,13 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { serializeValidation, validationCommandKey } from "./memory-validation";
+import {
+  serializeValidation,
+  validationCommandKey,
+  validationLockPrefix,
+} from "./memory-validation";
 
 describe("validationCommandKey", () => {
   it.each([
@@ -96,4 +104,42 @@ describe("validationCommandKey", () => {
       expect(validationCommandKey(serializeValidation(command))).toBe(expected);
     }
   });
+});
+
+describe.runIf(process.platform === "linux")("validationLockPrefix", () => {
+  const gib = 1024 ** 3;
+
+  it.each([
+    [16 * gib, 13 * gib, 75, "", /has 0\.6 GiB of memory left/],
+    [16 * gib, 8 * gib, 0, "ran\n", /^$/],
+    [2 * gib, gib / 2, 0, "ran\n", /^$/],
+  ])(
+    "with a %d byte limit and %d bytes in use exits %d",
+    (limit, current, status, stdout, stderr) => {
+      const root = mkdtempSync(join(tmpdir(), "validation-lock-"));
+      try {
+        mkdirSync(join(root, "tmp"));
+        mkdirSync(join(root, "sys/fs/cgroup"), { recursive: true });
+        writeFileSync(join(root, "sys/fs/cgroup/memory.max"), `${limit}\n`);
+        writeFileSync(
+          join(root, "sys/fs/cgroup/memory.current"),
+          `${current}\n`,
+        );
+        const result = spawnSync(
+          "bash",
+          ["-c", `${validationLockPrefix(root)}echo ran`],
+          { encoding: "utf8" },
+        );
+        expect(result).toMatchObject({ status, stdout });
+        expect(result.stderr).toMatch(stderr);
+        if (status !== 0) {
+          expect(
+            result.stderr.match(/GiB {2}\S.* \(pid \d+\)$/gm),
+          ).toHaveLength(3);
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 });

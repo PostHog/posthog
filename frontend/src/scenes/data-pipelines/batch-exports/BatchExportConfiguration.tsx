@@ -16,9 +16,9 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -39,6 +39,7 @@ import {
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportHogQLQueryEditor } from './BatchExportHogQLQueryEditor'
+import { BatchExportQueryTimezoneSelector } from './BatchExportQueryTimezoneSelector'
 import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -404,6 +405,9 @@ export function BatchExportConfiguration(): JSX.Element {
                                 <p className="text-secondary text-xs mb-0">
                                     Write the SQL query whose results each run exports. Run it here to preview the data.
                                 </p>
+                            </div>
+                            <div className="max-w-160 mb-2">
+                                <BatchExportQueryTimezoneSelector />
                             </div>
                             <LemonField name="hogql_query">
                                 <BatchExportHogQLQueryEditor />

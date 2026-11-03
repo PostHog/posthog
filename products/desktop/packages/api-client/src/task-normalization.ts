@@ -255,6 +255,9 @@ export function normalizeTaskResponse(
     last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
+    ...(dto.client_provenance === undefined
+      ? {}
+      : { client_provenance: dto.client_provenance }),
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),
     repositories: dto.repositories ?? (dto.repository ? [dto.repository] : []),
     ...(dto.github_integration === undefined

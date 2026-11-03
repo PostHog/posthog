@@ -3,15 +3,13 @@ import {
   Clock,
   GitBranch,
   type Icon,
-  Lightning,
-  Play,
   Timer,
   Warning,
   X,
 } from "@phosphor-icons/react";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import { Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -127,7 +125,6 @@ export function LoopRunRow({
 }) {
   const StatusIcon = statusIcon(run.status);
   const duration = runDuration(run);
-  const triggered = Boolean(run.loop_trigger_id);
   const stoppable = isStoppable(run);
   const [stopOpen, setStopOpen] = useState(false);
 
@@ -157,9 +154,6 @@ export function LoopRunRow({
             </MetaItem>
           ) : null}
           {duration ? <MetaItem icon={Timer}>{duration}</MetaItem> : null}
-          <MetaItem icon={triggered ? Lightning : Play}>
-            {triggered ? "Triggered" : "Manual"}
-          </MetaItem>
         </div>
         {run.error_message ? (
           <div className="flex min-w-0 items-center gap-1">
@@ -196,7 +190,6 @@ export function LoopRunRow({
               task_id: run.task_id,
               status: run.status,
               environment: run.environment,
-              is_manual_run: !triggered,
             });
             navigateToTaskDetail(run.task_id);
           }}

@@ -4,17 +4,26 @@ import {
     cleanBehavioralTypeCriteria,
     cleanCriteria,
     cohortBroadcastDisabledReason,
+    createCohortFormData,
     criteriaToHumanSentence,
     determineFilterType,
+    isRecentPersonFilterUnsupported,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
 import {
     AnyCohortCriteriaType,
+    AnyPropertyFilter,
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionState,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
 } from '~/types'
 
 describe('validateGroup', () => {
@@ -26,6 +35,37 @@ describe('validateGroup', () => {
             values: criteria,
         }
     }
+
+    it.each<[PropertyOperator, string | string[], boolean]>([
+        [PropertyOperator.SemverGte, '1.2.3', true],
+        [PropertyOperator.SemverEq, '1.2.3-beta.1', true],
+        [PropertyOperator.SemverEq, '1.2.3+build.42', true],
+        [PropertyOperator.SemverEq, 'v1.2.3', true],
+        [PropertyOperator.SemverEq, ['1.2.3'], true],
+        [PropertyOperator.SemverGte, '01.2.3', false],
+        [PropertyOperator.SemverGte, '2.0', false],
+        [PropertyOperator.SemverLt, 'latest', false],
+        [PropertyOperator.SemverTilde, '1.2', true],
+        [PropertyOperator.SemverCaret, 'latest', false],
+        [PropertyOperator.SemverWildcard, '1.2.*', true],
+        [PropertyOperator.SemverWildcard, 'beta.*', false],
+    ])('a %s criterion with value %s is valid: %s', (operator, value, isValid) => {
+        const errors = validateGroup({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: BehavioralFilterKey.Person,
+                    value: BehavioralEventType.HaveProperty,
+                    key: '$app_version',
+                    operator,
+                    value_property: value,
+                },
+            ],
+        })
+
+        const criterionErrors = errors.values?.[0] as { value_property?: string } | undefined
+        expect(criterionErrors?.value_property).toBe(isValid ? undefined : CohortClientErrors.InvalidSemverValue)
+    })
 
     it('falls back to the raw filter type when the label map has no matching entry', () => {
         const group = groupWithNegatedCriteria([
@@ -264,5 +304,139 @@ describe('cohortBroadcastDisabledReason', () => {
         ['a deleted cohort', cohort([], { deleted: true }), 'Restore the cohort first'],
     ])('for %s', (_, input, expected) => {
         expect(cohortBroadcastDisabledReason(input)).toEqual(expected)
+    })
+})
+
+describe('createCohortFormData', () => {
+    const cohort = (overrides: Partial<CohortType> = {}): CohortType => ({
+        id: 1,
+        groups: [],
+        filters: {
+            properties: {
+                type: FilterLogicalOperator.Or,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            { type: BehavioralFilterKey.Person, key: 'email', value: BehavioralEventType.HaveProperty },
+                        ],
+                    },
+                ],
+            },
+            filterTestAccounts: true,
+        },
+        ...overrides,
+    })
+
+    it.each([
+        ['a dynamic cohort', cohort(), {}, true],
+        ['a static cohort built from criteria', cohort({ is_static: true }), { preserveStaticFilters: true }, true],
+        ['a static cohort without criteria', cohort({ is_static: true }), {}, undefined],
+    ])('serializes filterTestAccounts for %s', (_, input, options, expected) => {
+        const filters = JSON.parse(createCohortFormData(input, options).get('filters') as string)
+        expect(filters.filterTestAccounts).toEqual(expected)
+    })
+})
+
+describe('isRecentPersonFilterUnsupported', () => {
+    const definition = (propertyType: PropertyType): PropertyDefinition => ({
+        id: 'property',
+        name: 'property',
+        property_type: propertyType,
+    })
+
+    it.each<
+        [
+            string,
+            PropertyFilterType,
+            PropertyOperator,
+            PropertyFilterValue,
+            PropertyDefinition | PropertyDefinitionState | null,
+            boolean,
+        ]
+    >([
+        [
+            'text operator on a text property',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'Chrome',
+            definition(PropertyType.String),
+            false,
+        ],
+        [
+            'operator the text menu lacks',
+            PropertyFilterType.Person,
+            PropertyOperator.NotIn,
+            ['Mac'],
+            definition(PropertyType.String),
+            true,
+        ],
+        [
+            'absolute date on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '2000-01-01',
+            definition(PropertyType.DateTime),
+            false,
+        ],
+        [
+            'relative date on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '-30d',
+            definition(PropertyType.DateTime),
+            true,
+        ],
+        [
+            'text operator on a date property',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            '2000',
+            definition(PropertyType.DateTime),
+            true,
+        ],
+        [
+            'date on person metadata',
+            PropertyFilterType.PersonMetadata,
+            PropertyOperator.IsDateAfter,
+            '2020-01-01',
+            definition(PropertyType.DateTime),
+            false,
+        ],
+        [
+            'type still loading',
+            PropertyFilterType.Person,
+            PropertyOperator.IsDateBefore,
+            '2000-01-01',
+            PropertyDefinitionState.Loading,
+            true,
+        ],
+        [
+            'type not found',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'pro',
+            PropertyDefinitionState.Missing,
+            false,
+        ],
+        [
+            'type lookup failed',
+            PropertyFilterType.Person,
+            PropertyOperator.IContains,
+            'pro',
+            PropertyDefinitionState.Error,
+            false,
+        ],
+        [
+            'event property',
+            PropertyFilterType.Event,
+            PropertyOperator.IContains,
+            'Chrome',
+            definition(PropertyType.String),
+            true,
+        ],
+    ])('%s', (_, type, operator, value, lookupResult, expected) => {
+        const filter = { type, key: 'property', operator, value } as AnyPropertyFilter
+        expect(isRecentPersonFilterUnsupported(filter, () => lookupResult)).toBe(expected)
     })
 })

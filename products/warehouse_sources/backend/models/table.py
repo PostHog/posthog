@@ -31,6 +31,8 @@ from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDat
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
+    compression_for_url_pattern,
+    is_azure_blob_url,
 )
 from posthog.hogql.escape_sql import (
     backquote_clickhouse_identifier,
@@ -52,6 +54,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.file_uploads import HostedUpload, parse_hosted_upload
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -76,6 +79,8 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
     DatabaseSerializedFieldType.FLOAT: "Float64",
@@ -91,15 +96,17 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
+    "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
     "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "The specified blob does not exist": "The file in your files URL doesn't exist in the container. Check the container name and file path, then try again.",
+    # ClickHouse names the format in this message (CSV, CSVWithNames, Parquet, ...), so match the shared tail.
+    "there are no files with provided path in S3 or all files are empty": "No files match your Files URL pattern, or all the matching files are empty. Check the folder path and wildcards, then try again.",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
@@ -180,6 +187,22 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+# Capture and layout bookkeeping that a history table carries next to its validity columns and `_ph_deleted`,
+# which already tell a reader when a version held and whether it is a delete. The names mirror the
+# constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset(
+    {"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at", "_ph_history_partition"}
+)
+# Set in `options` when the sync registers a table as a schema's history table. Column names cannot
+# tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
+HISTORY_TABLE_OPTION = "history_table"
+# Set in `options` when the sync creates a history table named `<table>_history` with the validity
+# columns `_ph_valid_from` / `_ph_valid_to`. A history table without it is older and keeps `_cdc`,
+# `valid_from` and `valid_to`.
+HISTORY_NAMING_OPTION = "history_naming"
+PH_HISTORY_NAMING = "ph_validity"
+
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
 # builder escapes them already, so this is a second layer: it keeps such a name out of the other
@@ -263,6 +286,21 @@ sys.stdout.write(str(result))
 # that preloaded jemalloc.
 _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 
+# The pod authenticates to AWS through its service account token and never needs the instance
+# metadata service. Turning it off keeps the AWS SDK inside chdb from asking that service for
+# credentials when a read carries none.
+_CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
+
+# The deployment sets the egress proxy in the uppercase variables, and chdb reads only the lowercase
+# ones. Without a lowercase copy, chdb connects directly and its reads skip the proxy's address checks.
+_CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
+# A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
+# redirects by default, so a URL that passes validation can send chdb to an internal address. The
+# ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
+# follows no redirect, and a URL that needs one fails over to the cluster.
+_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0, "s3_retry_attempts": 0}
+
 
 def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
     # The query is passed over stdin because it embeds S3 credentials — argv is world-readable.
@@ -271,11 +309,15 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
     try:
         process = subprocess.run(
             [sys.executable, "-c", _CHDB_SUBPROCESS_SCRIPT],
-            input=query,
+            input=chdb_set_statements(_CHDB_GUARD_SETTINGS) + query,
             capture_output=True,
             text=True,
             timeout=timeout,
-            env={name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+            env={
+                **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **{name.lower(): os.environ[name] for name in _CHDB_SUBPROCESS_PROXY_ENV_VARS if name in os.environ},
+                **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
+            },
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"chdb query timed out after {timeout}s")
@@ -537,13 +579,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
 
-    def soft_delete(self):
+    @property
+    def hosted_upload(self) -> HostedUpload | None:
+        """The file this team uploaded that a credential-less table reads in place, if it reads one."""
+        if self.credential_id is not None:
+            return None
+        return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
+    def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
+        """Make a self-managed table one that `source` syncs. Returns the fields this changed.
+
+        The caller saves these fields together with the new `url_pattern` and `format`: the
+        customer's key can't read PostHog's bucket, and PostHog's key can't read the customer's, so
+        a row that has only some of these changes can't be read at all. The row id and the name stay,
+        so joins, views and saved queries that refer to the table keep working.
+        """
+        self.external_data_source = source
+        self.credential = None
+        # A CSV setting for the customer's files. The table now reads Parquet files PostHog wrote.
+        self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
+        return ["external_data_source", "credential", "options"]
+
+    def soft_delete(self, *, delete_joins: bool = True):
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
-        for join in DataWarehouseJoin.objects.filter(
-            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
-        ).exclude(deleted=True):
-            join.soft_delete()
+        if delete_joins:
+            for join in DataWarehouseJoin.objects.filter(
+                Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+            ).exclude(deleted=True):
+                join.soft_delete()
 
         self.deleted = True
         self.deleted_at = timezone.now()
@@ -555,6 +619,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         else:
             prefix = ""
         return self.name[len(prefix) :]
+
+    @property
+    def is_history_table(self) -> bool:
+        return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
+
+    def mark_as_history_table(self, *, ph_naming: bool = False) -> None:
+        self.options = {
+            **(self.options or {}),
+            HISTORY_TABLE_OPTION: True,
+            **({HISTORY_NAMING_OPTION: PH_HISTORY_NAMING} if ph_naming else {}),
+        }
+
+    @property
+    def has_ph_history_naming(self) -> bool:
+        return (self.options or {}).get(HISTORY_NAMING_OPTION) == PH_HISTORY_NAMING
+
+    def hidden_columns(self) -> frozenset[str]:
+        """The plumbing columns to keep out of the catalog for this table."""
+        if self.is_history_table:
+            return HIDDEN_COLUMNS | HISTORY_HIDDEN_COLUMNS
+        return HIDDEN_COLUMNS
 
     def get_user_facing_columns(self) -> list[dict[str, Any]]:
         """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
@@ -571,9 +656,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
         """
         hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
+        hidden = self.hidden_columns()
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
-            if name in HIDDEN_COLUMNS:
+            if name in hidden:
                 continue
             if isinstance(definition, dict):
                 clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
@@ -635,6 +721,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # a dataset that outgrows the budget reports the size of the customer's table rather than
         # a fault. get_count keeps the largest tables off chdb for the same reason.
         "chdb query timed out after",
+        # chdb follows no redirect (see _CHDB_GUARD_SETTINGS), so a URL that needs one, such as a
+        # path-style URL on the wrong region, is read by the cluster, which checks every hop.
+        "too many redirects",
     )
     # chdb 4 links delta-kernel only in its Linux wheels, so macOS dev boxes have no deltaLake().
     # On Linux the same error means the engine lost Delta support and has to reach error tracking.
@@ -688,6 +777,55 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             settings["format_csv_allow_double_quotes"] = 1 if self.csv_allow_double_quotes else 0
         return settings
 
+    def _chdb_may_read(self, read_format: str) -> bool:
+        """Whether the embedded engine may run this read, given the format it reads the URL with.
+
+        deltaLake() reads through delta-kernel's own HTTP client, which s3_max_redirects does not
+        govern, so chdb cannot stop it from following a redirect. A table with a credential reads a
+        URL the team supplied, so its Delta reads go to the cluster, which checks every hop against
+        remote_url_allow_hosts. A table without a credential reads a URL that PostHog built.
+        """
+        # chdb's Azure client ignores the egress proxy and connects directly.
+        if is_azure_blob_url(self.url_pattern):
+            return False
+        return read_format != DataWarehouseTableFormat.Delta or self.credential_id is None
+
+    def _chdb_compression(self, read_format: str) -> str | None:
+        compression = compression_for_url_pattern(self.url_pattern)
+        # A wrong codec fails a Parquet read, which falls back to the cluster, but a CSV or JSON read
+        # can infer a wrong schema instead.
+        if compression is None and read_format == DataWarehouseTableFormat.Parquet:
+            return "none"
+        return compression
+
+    def _describe_with_chdb(
+        self, read_format: str, compression: str, describe_settings: dict[str, str | int]
+    ) -> list[tuple[str, ...]] | None:
+        """The DESCRIBE rows read by the embedded engine, or None when it cannot answer and
+        ClickHouse has to."""
+        placeholder_context = HogQLContext(team_id=self.team.pk)
+        s3_table_func = build_function_call(
+            url=self.url_pattern,
+            queryable_folder=self.queryable_folder,
+            format=read_format,
+            access_key=self.credential.access_key if self.credential else None,
+            access_secret=self.credential.access_secret if self.credential else None,
+            context=placeholder_context,
+            table_size_mib=0,
+            compression=compression,
+        )
+        try:
+            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
+            chdb_query = f"{chdb_set_statements(describe_settings)}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
+            chdb_result = run_chdb_query(chdb_query)
+        except Exception as chdb_error:
+            self._capture_unexpected_chdb_error(chdb_error)
+            return None
+
+        reader = csv.reader(StringIO(chdb_result))
+        return [tuple(row) for row in reader]
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -695,31 +833,23 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         result: list[tuple[str, ...]] | None = None
         describe_settings = self._describe_settings()
         placeholder_context = HogQLContext(team_id=self.team.pk)
+        # Use deltaLake() to get table schema for evolved tables
+        describe_format = DataWarehouseTableFormat.Delta if self.format == "DeltaS3Wrapper" else self.format
         s3_table_func = build_function_call(
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
-            format="Delta"  # Use deltaLake() to get table schema for evolved tables
-            if self.format == "DeltaS3Wrapper"
-            else self.format,
+            format=describe_format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
-        try:
-            # chdb hangs in CI during tests
-            if TEST:
-                raise Exception()
+        chdb_compression = self._chdb_compression(describe_format)
+        # chdb hangs in CI during tests
+        if not TEST and chdb_compression is not None and self._chdb_may_read(describe_format):
+            result = self._describe_with_chdb(describe_format, chdb_compression, describe_settings)
 
-            quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
-            # chdb doesn't support parameterized queries
-            chdb_query = f"{chdb_set_statements(describe_settings)}DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
-            chdb_result = run_chdb_query(chdb_query)
-            reader = csv.reader(StringIO(chdb_result))
-            result = [tuple(row) for row in reader]
-        except Exception as chdb_error:
-            self._capture_unexpected_chdb_error(chdb_error)
-
+        if result is None:
             tag_queries(
                 team_id=self.team.pk,
                 table_id=self.id,
@@ -825,7 +955,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         """
         return self.size_in_s3_mib is None or self.size_in_s3_mib < S3_CLUSTER_TABLE_SIZE_MIB
 
-    def _count_with_chdb(self) -> int | None:
+    def _count_with_chdb(self, compression: str) -> int | None:
         """The row count read by the embedded engine, or None when it cannot answer and ClickHouse
         has to."""
         placeholder_context = HogQLContext(team_id=self.team.pk)
@@ -837,6 +967,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
+            compression=compression,
         )
         try:
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
@@ -855,9 +986,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         return int(rows[0][0]) if rows else None
 
     def get_count(self, safe_expose_ch_error=True) -> int:
+        chdb_compression = self._chdb_compression(self.format)
         # chdb hangs in CI during tests
-        if not TEST and self._count_fits_the_chdb_budget():
-            chdb_count = self._count_with_chdb()
+        if (
+            not TEST
+            and chdb_compression is not None
+            and self._count_fits_the_chdb_budget()
+            and self._chdb_may_read(self.format)
+        ):
+            chdb_count = self._count_with_chdb(chdb_compression)
             if chdb_count is not None:
                 return chdb_count
 
@@ -965,6 +1102,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_TRINO_SCHEMA_OPTION,
             DIRECT_TRINO_TABLE_OPTION,
         )
+        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 - the store imports this model package
+            SourceInputsStore,
+        )
 
         columns = self.columns or {}
 
@@ -975,7 +1115,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
         )
 
-        if self.external_data_source and self.external_data_source.is_direct_postgres:
+        is_managed_trino_table = (
+            self.external_data_source is not None
+            and self.external_data_source.is_managed_warehouse
+            and self.url_pattern == "direct://trino"
+        )
+        if self.external_data_source and self.external_data_source.is_direct_postgres and not is_managed_trino_table:
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
@@ -984,7 +1129,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             postgres_schema = (
                 self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
-                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+                else SourceInputsStore.load_settings(self.external_data_source).get("schema", "public")
             )
             postgres_table_name = (
                 self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
@@ -1003,7 +1148,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_mysql:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             mysql_schema = (
                 self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
@@ -1024,7 +1169,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             snowflake_catalog = (
                 self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
@@ -1053,7 +1198,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.external_data_source and self.external_data_source.is_direct_redshift:
             # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
             # double-quoted table-reference rendering (see DirectRedshiftTable).
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             redshift_catalog = (
                 self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
@@ -1086,7 +1231,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "motherduck"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             motherduck_database = (
                 self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
@@ -1116,9 +1261,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if (
             self.external_data_source
             and self.external_data_source.is_direct_query
-            and self.external_data_source.direct_engine == "trino"
+            and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             trino_catalog = (
                 self.options.get(DIRECT_TRINO_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
@@ -1154,7 +1299,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "clickhouse"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             # Every direct-ClickHouse table is discovered from the source's single configured
             # database, so the live source config is authoritative. Prefer it over the per-table
             # option, which can be stale — e.g. stored as "default" when the source was first synced
@@ -1198,6 +1343,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             if fields.get(PARTITION_KEY):
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
+            # Hidden rather than removed, so a saved query that names one of these still resolves.
+            if self.is_history_table:
+                for name in HISTORY_HIDDEN_COLUMNS:
+                    if (field := fields.get(name)) is not None:
+                        fields[name] = field.model_copy(update={"hidden": True})
 
         table_def = HogQLDataWarehouseTable(
             name=self.name,
@@ -1211,6 +1361,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.
@@ -1258,7 +1409,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
         """Read a few rows under one quote setting. False when the rows don't parse; any other
-        failure (credentials, a missing file) is raised for the caller to surface as-is."""
+        failure (credentials, a missing file) is raised with a user-facing message."""
         ctx = HogQLContext(team_id=self.team.pk)
         func = build_function_call(
             url=self.url_pattern,
@@ -1283,7 +1434,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 self._safe_expose_ch_error(e)
             if e.code in self._CSV_PARSE_ERROR_CODES:
                 return False
-            raise
+            if not is_expected_warehouse_read_error(e):
+                capture_exception(e)
+            self._safe_expose_ch_error(e)
         return True
 
     def detect_csv_double_quotes_setting(self) -> bool | None:

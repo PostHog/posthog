@@ -6,8 +6,6 @@ limits keyed on something other than a partner:
 
 - :class:`ClientRegistrationThrottle` and :class:`CIMDRegistrationThrottle`,
   per client_id / IP / domain, screening callers that are not partners yet.
-- ``enforce_wizard_run_user_rate_limit``, per end user, shared between the
-  granular wizard_runs action and the bundled account_requests wizard block.
 - :class:`RegionProxyThrottle`, per IP, checked by the region proxy in
   ``dispatch`` before DRF has authenticated the caller.
 
@@ -46,10 +44,7 @@ from ee.api.agentic_provisioning.constants import (
     CLIENT_REGISTRATION_RATE_LIMIT_PREFIX,
     CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS,
     REGION_PROXY_RATE_LIMIT,
-    WIZARD_RUN_USER_RATE_LIMIT_PREFIX,
-    WIZARD_RUN_USER_RATE_LIMITS,
 )
-from ee.api.agentic_provisioning.exceptions import ProvisioningError
 
 logger = structlog.get_logger(__name__)
 
@@ -102,28 +97,6 @@ class RegionProxyThrottle(IPThrottle):
         everything this throttle reads, and the view argument goes unused.
         """
         return self.allow_request(cast(Request, request), cast(APIView, None))
-
-
-def enforce_wizard_run_user_rate_limit(user_id: int, resource_id: str = "") -> None:
-    """Cache-counter equivalent of the session cloud_run endpoint's per-user throttles;
-    shared across the granular wizard_runs action and the bundled account_requests path
-    so retries can't double-spend the budget."""
-    for label, limit, window_seconds in WIZARD_RUN_USER_RATE_LIMITS:
-        window_index = int(time.time()) // window_seconds
-        key = f"{WIZARD_RUN_USER_RATE_LIMIT_PREFIX}{label}:{user_id}:{window_index}"
-        count = _fixed_window_count(key, window_seconds)
-        if count > limit:
-            capture_provisioning_event(
-                "rate_limited", "rate_limited", endpoint="wizard_runs_user", limit=limit, window=label
-            )
-            raise ProvisioningError(
-                "rate_limited",
-                "Too many wizard runs for this user. Try later.",
-                status=429,
-                envelope="status",
-                resource_id=resource_id,
-                retry_after=_window_retry_after(window_seconds),
-            )
 
 
 class ClientRegistrationThrottle(BaseThrottle):

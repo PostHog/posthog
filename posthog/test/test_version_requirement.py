@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db.backends.postgresql.features import DatabaseFeatures as PostgresFeatures
-from django.test.testcases import TestCase
+from django.test import SimpleTestCase
 
 from semantic_version.base import SimpleSpec, Version
 
@@ -10,7 +10,7 @@ from posthog import version_requirement
 from posthog.version_requirement import ServiceVersionRequirement
 
 
-class TestServiceVersionRequirement(TestCase):
+class TestServiceVersionRequirement(SimpleTestCase):
     def test_accepted_services(self):
         v1 = ServiceVersionRequirement(service="postgresql", supported_version="==14.0.0")
         v2 = ServiceVersionRequirement(service="clickhouse", supported_version="==22.3.0")

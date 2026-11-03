@@ -4,7 +4,7 @@ from posthog.test.base import _create_event
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import Team, User
+from posthog.models import Element, Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
@@ -18,6 +18,7 @@ def create_event(
     team: Team,
     event_name: str = "$pageview",
     properties: dict | None = None,
+    elements: list[Element] | None = None,
 ) -> str:
     if properties is None:
         properties = {"$os": "Windows 95", "$current_url": "aloha.com/2"}
@@ -27,6 +28,7 @@ def create_event(
         timestamp=timestamp,
         distinct_id=distinct_id,
         properties=properties,
+        elements=elements,
     )
 
 

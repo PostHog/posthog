@@ -43,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -112,7 +113,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    CreditNoteListWithAllLines,
+    InvoiceListWithAllLines,
+)
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.queue_replay import (
     PostgresQueueReplay,
     replay_v3_consumer,
@@ -414,7 +418,9 @@ async def _run(
         else:
             mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
-            source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
+            source_type=source_type,
+            status=ExternalDataJobStatus.COMPLETED.lower(),
+            streak="none",
         )
 
         # Assert that app_metrics2 rows were emitted for the successful job — both
@@ -595,6 +601,7 @@ async def _execute_run(
         mock.patch.object(PostHogRESTClient, "paginate", mock_paginate_pages),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(CreditNoteListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
@@ -690,9 +697,8 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
         mock_data_response=stripe_charge["data"],
     )
 
-    # Get team from the DB to remove cached config value
-    team = await sync_to_async(Team.objects.get)(id=team.id)
-    assert team.revenue_analytics_config.notified_first_sync
+    config = await sync_to_async(TeamRevenueAnalyticsConfig.objects.get)(team_id=team.id)
+    assert config.notified_first_sync
 
 
 _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
@@ -3054,12 +3060,8 @@ async def test_worker_shutdown_desc_sort_order(team):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
-    def mock_get_messages(*args, **kwargs):
-        yield {
-            "id": "test-message-id",
-            "conversation_updated_at": datetime.now().isoformat(),
-            "created_at": datetime.now().isoformat(),
-        }
+    def mock_get_rows(*args, **kwargs):
+        yield [{"_board_id": "1", "id": "test-log-id", "created_at": datetime.now().isoformat()}]
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -3070,22 +3072,19 @@ async def test_worker_shutdown_desc_sort_order(team):
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
-            mock_get_messages,
+            "products.warehouse_sources.sources.monday.monday.get_rows",
+            mock_get_rows,
         ),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="Messages",
-            table_name="vitally_messages",
-            source_type="Vitally",
-            job_inputs={
-                "secret_token": "test_token",
-                "region": {"selection": "EU", "subdomain": ""},
-            },
+            schema_name="board_activity_logs",
+            table_name="monday_board_activity_logs",
+            source_type="Monday",
+            job_inputs={"api_token": "test_token"},
             mock_data_response=[],
             sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 
@@ -3481,7 +3480,13 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_query_folder_slots_rotate(team, stripe_balance_transaction, mock_stripe_client, minio_client):
+async def test_query_folder_slots_rotate(
+    team, stripe_balance_transaction, mock_stripe_client, minio_client, monkeypatch
+):
+    monkeypatch.setattr(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model._start_to_close_deadline_passed",
+        lambda: False,
+    )
     datetime_1 = datetime.now()
     with time_machine.travel(datetime_1, tick=False):
         workflow_id, inputs = await _run(

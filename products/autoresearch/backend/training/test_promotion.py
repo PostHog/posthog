@@ -357,6 +357,9 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert self._champion().holdout_score == (0.7 if replaced else 0.8)
         if replaced:
             assert self._champion().metrics["promotion_reason"] == "replaced_unscorable"
+            champion.refresh_from_db()
+            assert champion.role == AutoresearchModel.Role.ARCHIVED
+            assert champion.metrics["archived_reason"] == "unscorable"
 
     @parameterized.expand([("part_day_anchors", None, True), ("utc_day_anchors", "utc_day", False)])
     def test_a_champion_trained_on_part_day_anchors_is_replaced_below_the_margin(self, _name, alignment, replaced):

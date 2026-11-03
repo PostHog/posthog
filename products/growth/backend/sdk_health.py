@@ -37,6 +37,8 @@ MOBILE_SDKS: frozenset[str] = frozenset(
         "posthog-react-native",
         "posthog-kmp",
         "posthog-unity",
+        "posthog-godot",
+        "posthog-unreal",
     }
 )
 
@@ -57,6 +59,12 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-convex",
         "posthog-rails",
         "posthog-aspnetcore",
+        "posthog-rs",
+        "posthog-rs-mcp",
+        "posthog-go-mcp",
+        "posthog-ruby-mcp",
+        "posthog-roblox",
+        "js",
     }
 )
 
@@ -84,6 +92,14 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-convex": "Convex",
     "posthog-rails": "Ruby on Rails",
     "posthog-aspnetcore": "ASP.NET Core",
+    "posthog-rs": "Rust",
+    "posthog-rs-mcp": "Rust MCP",
+    "posthog-godot": "Godot",
+    "posthog-unreal": "Unreal Engine",
+    "posthog-go-mcp": "Go MCP",
+    "posthog-ruby-mcp": "Ruby MCP",
+    "posthog-roblox": "Roblox",
+    "js": "JavaScript Lite",
 }
 
 

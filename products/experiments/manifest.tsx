@@ -2,10 +2,16 @@ import { toParams } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityScope, FileSystemIconColor, ProductManifest } from '~/types'
+import { ActivityScope, ExperimentsTabs, FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
+    activityDescribers: {
+        [ActivityScope.EXPERIMENT]: () =>
+            import('scenes/experiments/experimentActivityDescriber').then(
+                (module) => module.experimentActivityDescriber
+            ),
+    },
     scenes: {
         Experiments: {
             import: () => import('./frontend/scenes/ExperimentsScene'),
@@ -41,7 +47,7 @@ export const manifest: ProductManifest = {
             const params = options ? toParams(options) : ''
             return params ? `${baseUrl}?${params}` : baseUrl
         },
-        experiments: (): string => '/experiments',
+        experiments: (tab?: ExperimentsTabs): string => (tab ? `/experiments?tab=${tab}` : '/experiments'),
         experimentsStaffTools: (): string => '/experiments/staff',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
         experimentsSharedMetric: (id: string | number, action?: string): string =>
@@ -53,6 +59,7 @@ export const manifest: ProductManifest = {
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
             listHref: () => urls.experiments(),
+            listSearchParam: 'search',
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },
@@ -74,6 +81,11 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'experiment',
             href: urls.experiments(),
+            searchKeywords: ['a/b testing', 'ab test', 'split test'],
+            searchTabs: [
+                { name: 'Shared metrics', href: urls.experiments(ExperimentsTabs.SharedMetrics) },
+                { name: 'Holdout groups', href: urls.experiments(ExperimentsTabs.Holdouts) },
+            ],
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
             sceneKey: 'Experiments',

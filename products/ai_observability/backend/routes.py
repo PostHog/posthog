@@ -5,7 +5,6 @@ from products.ai_observability.backend.api import (
     AIBlobViewSet,
     AIObservabilityClusteringRunViewSet,
     AIObservabilityInstrumentationChecklistViewSet,
-    AIObservabilityOfflineEvaluationsViewSet,
     AIObservabilitySummarizationViewSet,
     AIObservabilityTextReprViewSet,
     AIObservabilityTranslateViewSet,
@@ -137,12 +136,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"llm_analytics/clustering_jobs", ClusteringJobViewSet, "project_llm_analytics_clustering_jobs", ["team_id"]
-    )
-    routers.projects.register(
-        r"llm_analytics/offline_evaluations",
-        AIObservabilityOfflineEvaluationsViewSet,
-        "project_llm_analytics_offline_evaluations",
-        ["team_id"],
     )
     routers.projects.register(
         r"llm_analytics/review_queue_items",

@@ -5,7 +5,19 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind, type InsightVizNode, type TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyMathType } from '~/types'
 
-import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from '../../__mocks__/inboxMocks'
+import { RankingOutcomeEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { userEvent } from 'storybook/test'
+
+import {
+    makeReport,
+    myAgentClaim,
+    myClaim,
+    pullRequestReports,
+    reportTabReports,
+    runReportsMany,
+    teammateClaim,
+} from '../../__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { AgentRunCard } from './AgentRunCard'
 import { CardSkeleton } from './CardSkeleton'
@@ -245,11 +257,162 @@ const impactReports: SignalReport[] = [
 ]
 
 export const ReportCardWithImpact: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
+    parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
     render: () => (
         <CardList>
             {impactReports.map((report) => (
                 <ReportCard key={report.id} report={report} />
+            ))}
+        </CardList>
+    ),
+}
+
+function ranking(
+    scores: Partial<Record<RankingOutcomeEnumApi, number>>,
+    lifts: Partial<Record<RankingOutcomeEnumApi, number>>,
+    stale = false
+): SignalReport['ranking'] {
+    return {
+        status: stale ? 'stale' : 'scored',
+        model: 'report_embeddings@2026-06-10',
+        scored_at: '2026-06-10T09:00:00Z',
+        predictions: Object.values(RankingOutcomeEnumApi).flatMap((outcome) => {
+            const probability = scores[outcome]
+            return probability === undefined
+                ? []
+                : [{ outcome, probability, lift: lifts[outcome] ?? null, readable: true }]
+        }),
+    }
+}
+
+// Under the Action sort: a lift above 1x, a lift below 1x, a probability with no lift, an unscored report, and a report edited after scoring.
+const rankedReports: SignalReport[] = [
+    makeReport({
+        title: 'Checkout button does nothing on Safari',
+        priority: 'P1',
+        source_products: ['session_replay'],
+        ranking: ranking({ open: 0.91, action: 0.78, fix: 0.33 }, { open: 0.6, action: 2.1, fix: 6.0 }),
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: ranking({ action: 0.21 }, { action: 0.6 }),
+    }),
+    makeReport({
+        title: 'Slow dashboard load for large projects',
+        priority: 'P2',
+        source_products: ['error_tracking'],
+        ranking: ranking({ open: 0.4, action: 0.062, fix: 0.05 }, {}),
+    }),
+    makeReport({ title: 'Typo in the billing settings page', priority: 'P4', ranking: null }),
+    makeReport({
+        title: 'Retry loop in the export job',
+        priority: 'P3',
+        ranking: ranking({ action: 0.5 }, { action: 1.2 }, true),
+    }),
+]
+
+export const ReportCardRankingTags: Story = {
+    render: () => (
+        <CardList>
+            {rankedReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" />
+            ))}
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText('2.1x more likely'))
+    },
+}
+
+// The Recommended pill: strong, mixed and weak scores, a lift under 0.1x, a report edited after scoring, and an unscored report.
+const pillReports: SignalReport[] = [
+    makeReport({
+        title: 'Payment webhook retries stop after one rate limit response',
+        priority: 'P1',
+        source_products: ['logs'],
+        ranking: ranking({ open: 0.8, action: 0.5, fix: 0.3 }, { open: 2.9, action: 3.1, fix: 3.2 }),
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: ranking({ open: 0.5, action: 0.2, fix: 0.04 }, { open: 1.4, action: 0.9, fix: 0.6 }),
+    }),
+    makeReport({
+        title: 'Typo in the billing settings page',
+        priority: 'P4',
+        ranking: ranking({ open: 0.1, action: 0.02, fix: 0.004 }, { open: 0.5, action: 0.3, fix: 0.05 }),
+    }),
+    makeReport({
+        title: 'Retry loop in the export job',
+        priority: 'P3',
+        ranking: ranking({ action: 0.5 }, { action: 1.2 }, true),
+    }),
+    makeReport({ title: 'Slow dashboard load for large projects', priority: 'P2', ranking: null }),
+]
+
+export const ReportCardRankingPills: Story = {
+    render: () => (
+        <CardList>
+            {pillReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingPill />
+            ))}
+        </CardList>
+    ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText('2.9x'))
+    },
+}
+
+/** The narrowest scene the inbox holds: the nav and a side panel open in a 1280px window. */
+export const ReportCardRankingPillsNarrow: Story = {
+    render: () => (
+        <div className="bg-primary min-h-screen w-[520px] px-3 py-6">
+            <div className="@container flex flex-col gap-1.5">
+                {pillReports.map((report) => (
+                    <ReportCard key={report.id} report={report} rankingPill />
+                ))}
+            </div>
+        </div>
+    ),
+}
+
+// Under the Action sort, so the ranking pill sits in the meta row: the user's claim, their agent's
+// claim, a teammate's claim, and no claim.
+const claimedRankedReports: SignalReport[] = [
+    makeReport({
+        title: 'Retry failed webhook deliveries with backoff',
+        priority: 'P3',
+        assignee: myClaim,
+        ranking: ranking({ action: 0.62 }, { action: 6.2 }),
+    }),
+    makeReport({
+        title: 'Cache the funnel step names on the insight page',
+        priority: 'P4',
+        assignee: myAgentClaim,
+        ranking: ranking({ action: 0.31 }, { action: 1.4 }),
+    }),
+    makeReport({
+        title: 'Stop the export job timing out on large files',
+        priority: 'P2',
+        assignee: teammateClaim,
+        ranking: ranking({ action: 0.62 }, { action: 6.2 }),
+    }),
+    makeReport({
+        title: 'Show an error when an invite email bounces',
+        priority: 'P3',
+        assignee: null,
+        ranking: ranking({ action: 0.08 }, { action: 0.7 }),
+    }),
+]
+
+export const ReportCardClaims: Story = {
+    render: () => (
+        <CardList>
+            {claimedRankedReports.map((report) => (
+                <ReportCard key={report.id} report={report} rankingSortField="ranking_action" />
             ))}
         </CardList>
     ),
@@ -299,12 +462,12 @@ export const ReportCardStates: Story = {
             />
             <ReportCard
                 report={makeReport({
-                    title: 'No summary yet, still collecting context',
-                    status: SignalReportStatus.CANDIDATE,
+                    title: 'note(example): Example report without a priority',
                     priority: null,
                     actionability: null,
-                    summary: null,
-                    source_products: ['llm_analytics'],
+                    summary:
+                        'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review.',
+                    source_products: ['signals_scout'],
                 })}
             />
             <ReportCard
@@ -335,6 +498,17 @@ export const ReportCardStates: Story = {
                     dismissal_reason: 'wontfix_intentional',
                     source_products: ['session_replay'],
                     summary: 'The flow works as designed.',
+                })}
+            />
+            <ReportCard
+                report={makeReport({
+                    title: 'Held back by the safety check',
+                    priority: 'P2',
+                    status: SignalReportStatus.SUPPRESSED,
+                    suppression_source: 'safety_judge',
+                    suppression_explanation: 'The report asks to turn off a safety control.',
+                    source_products: ['github'],
+                    summary: 'Nobody has reviewed this verdict yet.',
                 })}
             />
         </Stack>

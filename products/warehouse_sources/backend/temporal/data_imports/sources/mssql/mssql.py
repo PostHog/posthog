@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
     DeadlineExceededError,
+    iterate_with_deadline,
     run_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
@@ -94,9 +95,26 @@ MSSQL_LOGIN_TIMEOUT_SECONDS = 5
 
 # The longest a metadata statement waits for a lock before SQL Server ends it with error 1222. The
 # catalog views wait behind a schema modification lock, so an open DDL transaction on the server
-# blocks them without limit. Set on the metadata connections only. The connection that reads the
-# rows keeps the server default.
+# blocks them without limit.
 MSSQL_METADATA_LOCK_TIMEOUT_MS = 60_000
+
+# The same limit for the connection that reads the rows. The server default is to wait without
+# limit, so a read behind a long transaction of the customer's workload held its worker until that
+# transaction ended. It is longer than the metadata limit because a read that waits and then
+# continues loses nothing, and a read that fails starts again from its last checkpoint.
+MSSQL_ROW_READ_LOCK_TIMEOUT_MS = 300_000
+
+# Client-side limits on the wait for one batch of rows. pymssql cannot limit a query on one
+# connection (see the note on `dbsettime` below), so the read runs under `iterate_with_deadline`.
+# The limits are on one silent wait and not on the read, so a long read that keeps returning rows
+# never reaches them. The first batch includes the connect, the catalog re-read, and the query,
+# which sorts the full result of an incremental read before it returns a row. Both are above
+# `MSSQL_ROW_READ_LOCK_TIMEOUT_MS`, so a lock wait ends with the error of the server first.
+MSSQL_FIRST_BATCH_DEADLINE_SECONDS = 1800
+MSSQL_NEXT_BATCH_DEADLINE_SECONDS = 600
+
+# Stable prefix, matched by `MSSQLSource.get_retryable_errors`.
+MSSQL_ROW_READ_TIMEOUT_ERROR = "SQL Server sent no rows"
 
 # Client-side limits on the work that runs before the first row is read. pymssql has no limit that
 # can do this job: its `timeout` argument calls the DB-Library function `dbsettime`, which applies
@@ -119,6 +137,26 @@ class MSSQLMetadataTimeoutError(NonReportableError):
         super().__init__(f"{MSSQL_METADATA_TIMEOUT_ERROR} while PostHog {action} (waited {timeout_seconds:g} seconds)")
 
 
+class MSSQLRowReadTimeoutError(Exception):
+    """SQL Server sent no batch of rows before the deadline. A later attempt can succeed."""
+
+    def __init__(self, timeout_seconds: float) -> None:
+        super().__init__(f"{MSSQL_ROW_READ_TIMEOUT_ERROR} for {timeout_seconds:g} seconds, so PostHog ended the read")
+
+
+def read_rows_with_deadline(read: Callable[[], Iterator[_T]]) -> Iterator[_T]:
+    """Yield the batches of `read()`, and raise `MSSQLRowReadTimeoutError` when one does not come in time."""
+    try:
+        yield from iterate_with_deadline(
+            read,
+            first_item_timeout_seconds=MSSQL_FIRST_BATCH_DEADLINE_SECONDS,
+            next_item_timeout_seconds=MSSQL_NEXT_BATCH_DEADLINE_SECONDS,
+            thread_name="mssql-row-read",
+        )
+    except DeadlineExceededError as e:
+        raise MSSQLRowReadTimeoutError(e.timeout_seconds) from e
+
+
 def run_metadata_with_deadline(operation: Callable[[], _T], *, action: str, timeout_seconds: float) -> _T:
     """Run connect-and-read metadata work, and raise `MSSQLMetadataTimeoutError` when it hangs."""
     try:
@@ -132,6 +170,20 @@ def run_metadata_with_deadline(operation: Callable[[], _T], *, action: str, time
 # fetch raises. A fresh connection recovers, so this is transient rather than a config error.
 _TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
 _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
+
+# SQL Server error 9002 raised while running `sp_spaceused` for table stats. The transaction log
+# for the shared `tempdb` database filled up because another session's active transaction is
+# holding it open, so it can't be truncated — this clears once that transaction ends or is rolled
+# back and a later attempt can succeed. `fetch_table_stats` is best-effort, so this is matched like
+# `_is_transient_connection_error` below and skipped rather than captured as tracked noise.
+_TEMPDB_LOG_FULL_ERROR = "The transaction log for database 'tempdb' is full"
+
+
+def _is_tempdb_log_full_error(error: BaseException) -> bool:
+    """True for a SQL Server 9002 tempdb-log-full error that clears once the holding transaction ends."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _TEMPDB_LOG_FULL_ERROR in message
+
 
 # SQL Server error 1205 — this session was picked as the deadlock victim and its transaction was
 # rolled back to break a lock cycle with a concurrent process. SQL Server's own guidance is to
@@ -567,7 +619,8 @@ class MSSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "tinyint":
-                arrow_type = pa.int8()
+                # MSSQL's tinyint is unsigned (0 to 255), unlike every other integer type here.
+                arrow_type = pa.uint8()
             case "decimal" | "numeric" | "money":
                 if not self.numeric_precision or not self.numeric_scale:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
@@ -629,7 +682,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         config: MSSQLSourceConfig,
         *,
         team_id: int | None = None,
-        lock_timeout_ms: int | None = MSSQL_METADATA_LOCK_TIMEOUT_MS,
+        lock_timeout_ms: int = MSSQL_METADATA_LOCK_TIMEOUT_MS,
     ) -> Iterator[pymssql.Connection]:
         """Open a pymssql connection for the duration of the context.
 
@@ -637,7 +690,8 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         MSSQL-wide conventions: `MSSQL_LOGIN_TIMEOUT_SECONDS` login timeout.
 
         `lock_timeout_ms` limits how long each statement on this connection waits for a lock.
-        The default suits metadata work. Pass None for the connection that reads the rows.
+        The default suits metadata work. The connection that reads the rows passes
+        `MSSQL_ROW_READ_LOCK_TIMEOUT_MS`.
 
         The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
         uses both to dial and as the login server name, so there is no way to dial a pinned
@@ -653,10 +707,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 user=config.user,
                 password=config.password,
                 login_timeout=MSSQL_LOGIN_TIMEOUT_SECONDS,
+                # None keeps the FreeTDS default, which encrypts only when the server offers it.
+                encryption="require" if config.require_encryption else None,
             ) as conn:
-                if lock_timeout_ms is not None:
-                    with conn.cursor() as cursor:
-                        cursor.execute(f"SET LOCK_TIMEOUT {int(lock_timeout_ms)}")
+                with conn.cursor() as cursor:
+                    cursor.execute(f"SET LOCK_TIMEOUT {int(lock_timeout_ms)}")
                 yield conn
 
     @contextmanager
@@ -1095,10 +1150,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             return TableStats(table_size_bytes=total_bytes, row_count=total_rows)
         except Exception as e:
             # A transient connection death recovers on the next sync attempt with a fresh
-            # connection (see `retry_on_transient_connection_error`); table stats are best-effort,
-            # so skip capturing this known, self-recovering error as tracked noise.
-            if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
-                logger.debug(f"fetch_table_stats: transient MSSQL connection death, returning None: {e}")
+            # connection (see `retry_on_transient_connection_error`); a tempdb-log-full error
+            # recovers once the other session's transaction ends; table stats are best-effort, so
+            # both are skipped rather than captured as tracked noise.
+            if isinstance(e, pymssql.Error) and (_is_transient_connection_error(e) or _is_tempdb_log_full_error(e)):
+                logger.debug(f"fetch_table_stats: known self-recovering MSSQL error, returning None: {e}")
                 return None
             logger.debug(f"fetch_table_stats: Error: {e}. Returning None", exc_info=e)
             capture_exception(e)
@@ -1374,7 +1430,9 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     logger.debug(f"MSSQL incremental resume: {incremental_field} >= {resume_value}")
                     last_value, resumed = resume_value, True
 
-            with self.connect(config, team_id=inputs.team_id, lock_timeout_ms=None) as streaming_connection:
+            with self.connect(
+                config, team_id=inputs.team_id, lock_timeout_ms=MSSQL_ROW_READ_LOCK_TIMEOUT_MS
+            ) as streaming_connection:
                 projection = _refreshed_projection(streaming_connection)
                 arrow_schema = projection.table.to_arrow_schema()
                 with streaming_connection.cursor() as cursor:
@@ -1429,7 +1487,9 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             if last_key is not None:
                 logger.debug(f"MSSQL keyset resume: {key_columns} > {last_key}")
 
-            with self.connect(config, team_id=inputs.team_id, lock_timeout_ms=None) as connection:
+            with self.connect(
+                config, team_id=inputs.team_id, lock_timeout_ms=MSSQL_ROW_READ_LOCK_TIMEOUT_MS
+            ) as connection:
                 # Each page is its own transaction, so the walk holds no transaction open on the
                 # source between pages.
                 connection.autocommit(True)
@@ -1493,7 +1553,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
         return SourceResponse(
             name=location.response_name,
-            items=items,
+            items=functools.partial(read_rows_with_deadline, items),
             primary_keys=primary_keys,
             partition_count=setup.partition_settings.partition_count if setup.partition_settings else None,
             partition_size=setup.partition_settings.partition_size if setup.partition_settings else None,
@@ -1501,4 +1561,6 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             # `supports_resume` defaults to True. A read on the single query has no position to
             # hand to another worker, so it must say so.
             supports_resume=takes_keyset_path or resumes_incremental,
+            # The single query has `ORDER BY <incremental field>`. The keyset walk orders by its key.
+            sort_mode=("asc" if not takes_keyset_path and should_use_incremental_field and incremental_field else None),
         )

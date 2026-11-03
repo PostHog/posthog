@@ -4,6 +4,7 @@ ViewSet for AI observability proxy
 Endpoints:
 - GET /api/llm_proxy/models
 - POST /api/llm_proxy/completion
+- POST /api/llm_proxy/decision
 """
 
 import json
@@ -14,21 +15,35 @@ from time import perf_counter
 from typing import Any
 
 from django.core.cache import cache
+from django.db import models
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
 import structlog
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.streaming import sse_streaming_response
 from posthog.auth import SessionAuthentication
 from posthog.event_usage import groups, report_user_action
+from posthog.llm.system_one import (
+    MAX_CHOICE_OPTIONS,
+    MAX_SCORE_LEVELS,
+    Answer,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    NoulQuestion,
+    Question,
+    ScoreAnswer,
+    ScoreQuestion,
+)
 from posthog.rate_limit import (
     LLMProxyBurstRateThrottle,
     LLMProxyBYOKBurstRateThrottle,
@@ -41,22 +56,31 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.ai_observability.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
+from products.ai_observability.backend.api.datasets import JSONObjectField
+from products.ai_observability.backend.api.metrics import (
+    LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS,
+    LLMA_PROXY_BYOK_REQUESTS,
+    llma_track_latency,
+)
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,
     SUPPORTED_MODELS_WITH_THINKING,
     Client,
     CompletionRequest,
     ModelInfo,
+    OutputSchema,
     get_playground_models,
+    supports_reasoning_level,
 )
-from products.ai_observability.backend.llm.decisions import decision_evaluations_enabled
+from products.ai_observability.backend.llm.decisions import DecisionClient
 from products.ai_observability.backend.llm.errors import (
+    LLMError,
     ProviderConfigurationError,
     ProviderHostUnresolvedError,
     UnsupportedProviderError,
 )
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_BASE_URL, decision_model_ids
+from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
+from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids, non_chat_model_ids
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -83,9 +107,29 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "fireworks": "Fireworks",
     "azure_openai": "Azure OpenAI",
     "minimax": "MiniMax",
-    "zeabur": "Zeabur AI Hub",
     "openai_compatible": "OpenAI-compatible",
 }
+
+
+class LLMProxyResponseFormatType(models.TextChoices):
+    JSON_SCHEMA = "json_schema", "JSON schema"
+
+
+class LLMProxyJSONSchemaSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        default="response", help_text="Schema name, sent to providers that require one (OpenAI)."
+    )
+    schema = JSONObjectField(help_text="JSON schema the reply must match. Sent to the provider unchanged.")
+    strict = serializers.BooleanField(
+        default=True, help_text="Enforce the schema exactly, where the provider has a strictness switch."
+    )
+
+
+class LLMProxyResponseFormatSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=LLMProxyResponseFormatType.choices, help_text="Only `json_schema` is supported."
+    )
+    json_schema = LLMProxyJSONSchemaSerializer(help_text="The schema and its options, in the OpenAI shape.")
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -102,6 +146,9 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     reasoning_level = serializers.ChoiceField(
         choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
     )
+    response_format = LLMProxyResponseFormatSerializer(
+        required=False, allow_null=True, help_text="Ask the model for JSON that matches a schema."
+    )
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
 
 
@@ -112,8 +159,178 @@ class LLMProxyModelInfoSerializer(serializers.Serializer):
     description = serializers.CharField(allow_blank=True, help_text="Description of the model.")
     is_recommended = serializers.BooleanField(help_text="Whether the provider recommends this model.")
     supports_decisions = serializers.BooleanField(
-        default=False, help_text="Whether this model supports decision questions instead of chat completions."
+        default=False, help_text="Whether this model supports decision questions."
     )
+    supports_chat = serializers.BooleanField(
+        default=True, help_text="Whether this model supports chat completions with written reasoning."
+    )
+    supports_reasoning = serializers.BooleanField(
+        default=False, help_text="Whether an evaluation judge can set a reasoning level for this model."
+    )
+
+
+MAX_DECISION_QUESTIONS = 20
+MAX_DECISION_STATE_CHARS = 200_000
+MAX_DECISION_INSTRUCTIONS_CHARS = 4_000
+MAX_DECISION_OPTION_CHARS = 500
+
+
+class LLMProxyDecisionQuestionType(models.TextChoices):
+    NOUL = "noul", "Yes or no"
+    CHOICE = "choice", "Multiple choice"
+    SCORE = "score", "Rating scale"
+
+
+class LLMProxyDecisionAnswerType(models.TextChoices):
+    NOUL = "noul", "Yes or no"
+    CHOICE = "choice", "Multiple choice"
+    SCORE = "score", "Rating scale"
+    REFUSAL = "refusal", "Refusal"
+
+
+class LLMProxyDecisionOptionSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=MAX_DECISION_OPTION_CHARS,
+        help_text="The option name for a multiple choice question, or the level label for a rating question.",
+    )
+    description = serializers.CharField(
+        max_length=MAX_DECISION_OPTION_CHARS,
+        required=False,
+        allow_blank=True,
+        help_text="What a multiple choice option means. Ignored for a rating question.",
+    )
+
+
+class LLMProxyDecisionQuestionSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=LLMProxyDecisionQuestionType.choices,
+        help_text="The answer to produce: a yes/no probability, one of the options, or a level on the scale.",
+    )
+    instructions = serializers.CharField(
+        max_length=MAX_DECISION_INSTRUCTIONS_CHARS,
+        help_text="The question to ask about the state, phrased for the model.",
+    )
+    options = LLMProxyDecisionOptionSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            f"The options of a multiple choice question (1 to {MAX_CHOICE_OPTIONS}), or the levels of a rating "
+            f"question from lowest to highest (2 to {MAX_SCORE_LEVELS}). Omitted for a yes/no question."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        options = attrs.get("options") or []
+        names = [option["name"] for option in options]
+        if len(set(names)) != len(names):
+            raise serializers.ValidationError({"options": "Give each option a different name."})
+        match attrs["type"]:
+            case LLMProxyDecisionQuestionType.CHOICE if not 1 <= len(options) <= MAX_CHOICE_OPTIONS:
+                raise serializers.ValidationError(
+                    {"options": f"A multiple choice question needs 1 to {MAX_CHOICE_OPTIONS} options."}
+                )
+            case LLMProxyDecisionQuestionType.SCORE if not 2 <= len(options) <= MAX_SCORE_LEVELS:
+                raise serializers.ValidationError(
+                    {"options": f"A rating question needs 2 to {MAX_SCORE_LEVELS} levels."}
+                )
+        return attrs
+
+
+class LLMProxyDecisionSerializer(serializers.Serializer):
+    provider_key_id = serializers.UUIDField(help_text="The team's System One provider key that answers the questions.")
+    state = serializers.CharField(
+        max_length=MAX_DECISION_STATE_CHARS,
+        trim_whitespace=False,
+        help_text="The text the questions are about, for example a conversation. Sent unchanged.",
+    )
+    questions = serializers.DictField(
+        child=LLMProxyDecisionQuestionSerializer(),
+        help_text=(
+            f"The questions to ask, keyed by an id of your choice, at most {MAX_DECISION_QUESTIONS}. "
+            "Answers come back under the same ids."
+        ),
+    )
+
+    def validate_questions(self, questions: dict[str, Any]) -> dict[str, Any]:
+        if not 1 <= len(questions) <= MAX_DECISION_QUESTIONS:
+            raise serializers.ValidationError(f"Ask between 1 and {MAX_DECISION_QUESTIONS} questions.")
+        return questions
+
+
+class LLMProxyDecisionAnswerSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=LLMProxyDecisionAnswerType.choices,
+        help_text="The question type answered, or `refusal` when the model declined to answer.",
+    )
+    probability = serializers.FloatField(allow_null=True, help_text="For a yes/no question, the probability of yes.")
+    choice = serializers.CharField(allow_null=True, help_text="For a multiple choice question, the option chosen.")
+    score = serializers.FloatField(
+        allow_null=True, help_text="For a rating question, the expected level as a fractional index into the levels."
+    )
+    confidence = serializers.FloatField(
+        allow_null=True, help_text="For multiple choice and rating questions, how sure the model is, from 0 to 1."
+    )
+    probabilities = serializers.DictField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="For multiple choice and rating questions, the probability of each option or level index.",
+    )
+
+
+class LLMProxyDecisionResponseSerializer(serializers.Serializer):
+    model = serializers.CharField(help_text="The versioned model that answered.")
+    answers = serializers.DictField(
+        child=LLMProxyDecisionAnswerSerializer(), help_text="One answer per question, under the ids the request used."
+    )
+    input_tokens = serializers.IntegerField(allow_null=True, help_text="Tokens the model read, if reported.")
+    output_tokens = serializers.IntegerField(allow_null=True, help_text="Tokens the model wrote, if reported.")
+
+
+class LLMProxyErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="What went wrong and what to change.")
+
+
+def build_decision_question(question: dict[str, Any]) -> Question:
+    options = question.get("options") or []
+    match question["type"]:
+        case LLMProxyDecisionQuestionType.CHOICE:
+            return ChoiceQuestion(
+                instructions=question["instructions"],
+                criteria={option["name"]: option.get("description") or None for option in options},
+            )
+        case LLMProxyDecisionQuestionType.SCORE:
+            return ScoreQuestion(instructions=question["instructions"], criteria=[option["name"] for option in options])
+        case _:
+            return NoulQuestion(instructions=question["instructions"])
+
+
+def serialize_decision_answer(answer: Answer) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "type": LLMProxyDecisionAnswerType.REFUSAL,
+        "probability": None,
+        "choice": None,
+        "score": None,
+        "confidence": None,
+        "probabilities": None,
+    }
+    match answer:
+        case NoulAnswer():
+            body.update(type=LLMProxyDecisionAnswerType.NOUL, probability=answer.probability)
+        case ChoiceAnswer():
+            body.update(
+                type=LLMProxyDecisionAnswerType.CHOICE,
+                choice=answer.choice,
+                confidence=answer.confidence,
+                probabilities=dict(answer.probabilities),
+            )
+        case ScoreAnswer():
+            body.update(
+                type=LLMProxyDecisionAnswerType.SCORE,
+                score=answer.score,
+                confidence=answer.confidence,
+                probabilities=dict(answer.probabilities),
+            )
+    return body
 
 
 class PlaygroundAccessPermission(BasePermission):
@@ -127,7 +344,11 @@ class PlaygroundAccessPermission(BasePermission):
     """
 
     # Listing models is a read; running a completion spends money, so it's a write.
-    ACTION_REQUIRED_LEVELS: dict[str, AccessControlLevel] = {"models": "viewer", "completion": "editor"}
+    ACTION_REQUIRED_LEVELS: dict[str, AccessControlLevel] = {
+        "models": "viewer",
+        "completion": "editor",
+        "decision": "editor",
+    }
 
     def has_permission(self, request: Request, view) -> bool:
         user = request.user
@@ -175,7 +396,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         # BYOK requests should not count against shared playground limits.
         # Check the provider key directly from request data to avoid running the
         # full serializer just for throttle selection.
-        if self.action == "completion":
+        if self.action in ("completion", "decision"):
             data = getattr(self.request, "data", {})
             provider_key_id = data.get("provider_key_id")
             if provider_key_id:
@@ -346,6 +567,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 seed=data.get("seed"),
                 max_tokens=data.get("max_tokens"),
                 tools=data.get("tools"),
+                output_schema=self._build_output_schema(data.get("response_format")),
                 thinking=thinking,
                 reasoning_level=data.get("reasoning_level"),
             )
@@ -429,6 +651,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             return Response({"error": "An internal error occurred"}, status=500)
 
+    @staticmethod
+    def _build_output_schema(response_format: dict[str, Any] | None) -> OutputSchema | None:
+        if not response_format:
+            return None
+        json_schema = response_format["json_schema"]
+        return OutputSchema(schema=json_schema["schema"], name=json_schema["name"], strict=json_schema["strict"])
+
     def _extract_request_properties(self, validated_data: dict, model: str | None = None) -> dict:
         """Extract common properties from request for event tracking"""
         model_name = model or validated_data.get("model")
@@ -441,6 +670,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             "has_seed": validated_data.get("seed") is not None,
             "has_max_tokens": validated_data.get("max_tokens") is not None,
             "has_reasoning_level": validated_data.get("reasoning_level") is not None,
+            "has_response_format": validated_data.get("response_format") is not None,
             "has_system_prompt": bool(validated_data.get("system")),
         }
 
@@ -497,13 +727,24 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     # [], so caching that would persist a failure for the full TTL.
                     if models:
                         cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
+                    else:
+                        LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
+                        logger.info(
+                            "llma_proxy_byok_empty_model_list",
+                            provider=provider_key.provider,
+                            team_id=provider_key.team_id,
+                            provider_key_id=str(provider_key.id),
+                        )
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()
-                if provider_key.provider == LLMProvider.OPENROUTER and decision_evaluations_enabled(
-                    provider_key.team_id, base_url=OPENROUTER_BASE_URL
-                ):
+                non_chat_models: frozenset[str] = frozenset()
+                if provider_key.provider == LLMProvider.OPENROUTER:
                     decision_models = decision_model_ids() or frozenset()
+                    non_chat_models = non_chat_model_ids() or frozenset()
+                    models = list(dict.fromkeys([*models, *sorted(decision_models)]))
+                elif provider_key.provider == LLMProvider.OPENAI:
+                    decision_models = OpenAIConfig.DECISION_MODELS
                     models = list(dict.fromkeys([*models, *sorted(decision_models)]))
                 return Response(
                     [
@@ -514,6 +755,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             description="",
                             is_recommended=m in recommended,
                             supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
+                            supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
+                            supports_reasoning=supports_reasoning_level(provider_key.provider, m),
                         )
                         for m in models
                     ]
@@ -527,3 +770,62 @@ class LLMProxyViewSet(viewsets.ViewSet):
     @monitor(feature=None, endpoint="llma_proxy_completion", method="POST")
     def completion(self, request, *args, **kwargs):
         return self._handle_completion_request(request)
+
+    @validated_request(
+        request_serializer=LLMProxyDecisionSerializer,
+        responses={
+            200: OpenApiResponse(response=LLMProxyDecisionResponseSerializer, description="One answer per question."),
+            400: OpenApiResponse(
+                response=LLMProxyErrorSerializer, description="The key or the endpoint rejected the request."
+            ),
+            402: OpenApiResponse(response=LLMProxyErrorSerializer, description="No payment method on file."),
+        },
+        summary="Ask a System One model",
+        description="Ask the team's System One connection typed questions about a state, from the playground.",
+    )
+    @action(detail=False, methods=["POST"])
+    @llma_track_latency("llma_proxy_decision")
+    @monitor(feature=None, endpoint="llma_proxy_decision", method="POST")
+    def decision(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        organization = getattr(request.user, "organization", None)
+        if not organization or not organization.customer_id:
+            return Response(
+                {"error": "The playground requires a valid payment method on file to prevent abuse."}, status=402
+            )
+
+        data = request.validated_data
+        try:
+            provider_key = self._get_provider_key(str(data["provider_key_id"]), request.user)
+        except ValueError:
+            provider_key = None
+        # TypeSafe is not a subprocessor, so this path only reaches the team's own System One connection.
+        if provider_key is None or provider_key.provider != LLMProvider.SYSTEM_ONE:
+            return Response({"error": "Pick a System One connection to ask questions."}, status=400)
+
+        config = provider_key.encrypted_config
+        try:
+            result = DecisionClient.evaluate(
+                api_key=config.get("api_key", ""),
+                base_url=config.get("base_url", ""),
+                model=config.get("model", ""),
+                state=data["state"],
+                questions={
+                    question_id: build_decision_question(question)
+                    for question_id, question in data["questions"].items()
+                },
+            )
+        except LLMError as error:
+            return Response({"error": str(error)}, status=400)
+
+        return Response(
+            LLMProxyDecisionResponseSerializer(
+                {
+                    "model": result.model,
+                    "answers": {
+                        question_id: serialize_decision_answer(answer) for question_id, answer in result.answers.items()
+                    },
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                }
+            ).data
+        )
