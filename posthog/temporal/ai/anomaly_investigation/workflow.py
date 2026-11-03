@@ -257,7 +257,12 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     deliveries: list[AlertDeliveryRequest] = []
     if isinstance(subject, InsightAlertInvestigation):
         release = await sync_to_async(alerts.finish_investigation, thread_sensitive=False)(
-            alert, subject, verdict=result.report.verdict, summary=summary or None, notebook_id=notebook.id
+            subject.team_id,
+            alert.id,
+            subject.id,
+            verdict=result.report.verdict,
+            summary=summary or None,
+            notebook_id=notebook.id,
         )
         deliveries = list(release.deliveries)
         previous_verdict = release.previous_verdict
@@ -368,8 +373,9 @@ async def _finish_platform_investigation(
     alert: AlertConfiguration, investigation: InsightAlertInvestigation
 ) -> InvestigationRelease:
     return await sync_to_async(alerts.finish_investigation, thread_sensitive=False)(
-        alert,
-        investigation,
+        investigation.team_id,
+        alert.id,
+        investigation.id,
         verdict=investigation.verdict,
         summary=investigation.summary,
         notebook_id=investigation.notebook_id,
@@ -813,7 +819,7 @@ def _build_breach_descriptions(
 
 async def _mark_running(subject: AlertCheck | InsightAlertInvestigation) -> None:
     if isinstance(subject, InsightAlertInvestigation):
-        await sync_to_async(alerts.mark_investigation_running, thread_sensitive=False)(subject)
+        await sync_to_async(alerts.mark_investigation_running, thread_sensitive=False)(subject.team_id, subject.id)
         return
     await sync_to_async(AlertCheck.objects.filter(id=subject.id).update, thread_sensitive=False)(
         investigation_status=InvestigationStatus.RUNNING,
@@ -822,7 +828,9 @@ async def _mark_running(subject: AlertCheck | InsightAlertInvestigation) -> None
 
 async def _mark_failed(subject: AlertCheck | InsightAlertInvestigation, reason: str) -> None:
     if isinstance(subject, InsightAlertInvestigation):
-        await sync_to_async(alerts.mark_investigation_failed, thread_sensitive=False)(subject, reason)
+        await sync_to_async(alerts.mark_investigation_failed, thread_sensitive=False)(
+            subject.team_id, subject.id, reason
+        )
         return
     await sync_to_async(AlertCheck.objects.filter(id=subject.id).update, thread_sensitive=False)(
         investigation_status=InvestigationStatus.FAILED,
