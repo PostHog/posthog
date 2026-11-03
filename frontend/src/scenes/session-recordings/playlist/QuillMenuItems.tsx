@@ -1,11 +1,10 @@
 import { Fragment, ReactNode } from 'react'
 
+import { IconCheck } from '@posthog/icons'
 import {
     DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -42,10 +41,8 @@ function isNode(item: MenuEntry): item is LemonMenuItemNode {
 }
 
 function itemKey(item: LemonMenuItem, index: number): string {
-    if (isCustom(item)) {
-        return String(item.key ?? index)
-    }
-    return String(item.key ?? item['data-attr'] ?? (typeof item.label === 'string' ? item.label : index))
+    // Items in one menu often share a data-attr, so the index keeps keys unique.
+    return `${index}-${String(item.key ?? (isCustom(item) ? '' : (item['data-attr'] ?? item.label)))}`
 }
 
 /** Renders Lemon menu item definitions as quill dropdown menu content, so the Lemon and quill menus share one list. */
@@ -94,39 +91,24 @@ export function QuillMenuItems({
 }
 
 function SectionItems({ items, closeOnClick }: { items: LemonMenuItem[]; closeOnClick: boolean }): JSX.Element {
-    const exclusive = items.some((item) => 'active' in item && item.active !== undefined)
-    if (!exclusive) {
-        return (
-            <>
-                {items.map((item, index) => (
-                    <Entry key={itemKey(item, index)} item={item} closeOnClick={closeOnClick} />
-                ))}
-            </>
-        )
-    }
-    const activeIndex = items.findIndex((item) => 'active' in item && item.active)
+    const inset = items.some((item) => 'active' in item && item.active !== undefined)
     return (
-        <DropdownMenuRadioGroup value={activeIndex >= 0 ? itemKey(items[activeIndex], activeIndex) : ''}>
+        <>
             {items.map((item, index) => (
-                <Entry
-                    key={itemKey(item, index)}
-                    item={item}
-                    closeOnClick={closeOnClick}
-                    radioValue={itemKey(item, index)}
-                />
+                <Entry key={itemKey(item, index)} item={item} closeOnClick={closeOnClick} inset={inset} />
             ))}
-        </DropdownMenuRadioGroup>
+        </>
     )
 }
 
 function Entry({
     item,
     closeOnClick,
-    radioValue,
+    inset,
 }: {
     item: LemonMenuItem
     closeOnClick: boolean
-    radioValue?: string
+    inset: boolean
 }): JSX.Element {
     if (isCustom(item)) {
         return item.label()
@@ -157,23 +139,9 @@ function Entry({
         )
     }
     const leaf: MenuLeaf = entry
-    if (radioValue !== undefined) {
-        return (
-            <DropdownMenuRadioItem
-                value={radioValue}
-                onClick={leaf.onClick}
-                closeOnClick={closeOnClick}
-                disabled={entry.disabled}
-                disabledReason={entry.disabledReason}
-                tooltip={tooltipText(entry.tooltip)}
-                data-attr={entry['data-attr']}
-            >
-                {content}
-            </DropdownMenuRadioItem>
-        )
-    }
     return (
         <DropdownMenuItem
+            inset={inset}
             onClick={leaf.onClick}
             closeOnClick={closeOnClick}
             variant={leaf.status === 'danger' ? 'destructive' : 'default'}
@@ -193,6 +161,11 @@ function Entry({
                   }
                 : {})}
         >
+            {inset && leaf.active && (
+                <span className="pointer-events-none absolute start-2 flex items-center justify-center">
+                    <IconCheck />
+                </span>
+            )}
             {content}
         </DropdownMenuItem>
     )
