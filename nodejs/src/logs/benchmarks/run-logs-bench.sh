@@ -36,8 +36,14 @@ bench() {
 }
 
 bench generate "$OUT/workloads"
+run_rust=""
 if [ -z "${SKIP_RUST:-}" ]; then
-    (cd "$REPO/rust" && cargo build --release -q -p logs-ingestion --bin logs-ingestion-bench)
+    if [ -f "$REPO/rust/logs-ingestion/Cargo.toml" ]; then
+        run_rust=1
+        (cd "$REPO/rust" && cargo build --release -q -p logs-ingestion --bin logs-ingestion-bench)
+    else
+        echo "rust/logs-ingestion is not in this checkout, so only the Node consumers run." >&2
+    fi
 fi
 results=()
 for round in $(seq 1 "$ROUNDS"); do
@@ -48,7 +54,7 @@ for round in $(seq 1 "$ROUNDS"); do
             bench run "$impl" "$workload" "$result" "$PASSES" "$WARMUP"
             results+=("$result")
         done
-        if [ -z "${SKIP_RUST:-}" ]; then
+        if [ -n "$run_rust" ]; then
             result="$OUT/results/$name.rust.r$round.json"
             "$REPO/rust/target/release/logs-ingestion-bench" "$workload" "$PASSES" "$WARMUP" >"$result"
             results+=("$result")

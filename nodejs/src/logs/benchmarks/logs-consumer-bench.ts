@@ -42,27 +42,14 @@ type BaselineModule = {
     TracesIngestionConsumer: ParityConsumerClasses['traces']
 }
 
-/** Only the buckets the consumers write, so a run never clears other data in Redis. */
-const BENCH_REDIS_KEY_PATTERNS = [
-    '@posthog*/logs-rate-limiter/*',
-    '@posthog*/traces-rate-limiter/*',
-    '@posthog*/logs-sampling-rate/*',
-]
+/** A logical database of its own, so a run never resets limiter or sampling state that a local consumer or test suite keeps. */
+const BENCH_REDIS_URL = 'redis://127.0.0.1:6379/9'
 
-async function clearBenchRedisKeys(): Promise<void> {
+async function clearBenchRedis(): Promise<void> {
     // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-    const redis = new Redis('redis://127.0.0.1:6379')
+    const redis = new Redis(BENCH_REDIS_URL)
     try {
-        for (const pattern of BENCH_REDIS_KEY_PATTERNS) {
-            let cursor = '0'
-            do {
-                const [next, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 1000)
-                if (keys.length > 0) {
-                    await redis.del(...keys)
-                }
-                cursor = next
-            } while (cursor !== '0')
-        }
+        await redis.flushdb()
     } finally {
         await redis.quit()
     }
@@ -85,7 +72,8 @@ async function loadClasses(implementation: string): Promise<ParityConsumerClasse
 
 async function run(implementation: string, workloadPath: string, passes: number, warmup: number): Promise<BenchResult> {
     const scenario = parseJSON(readFileSync(workloadPath, 'utf8')) as ParityScenario
-    await clearBenchRedisKeys()
+    scenario.config = { ...scenario.config, LOGS_REDIS_HOST: BENCH_REDIS_URL, TRACES_REDIS_HOST: BENCH_REDIS_URL }
+    await clearBenchRedis()
 
     const { consumer, outputs } = buildParityConsumer(scenario, {
         classes: await loadClasses(implementation),

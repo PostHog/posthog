@@ -213,14 +213,25 @@ function compareCanonical(a: unknown, b: unknown): number {
     return left < right ? -1 : left > right ? 1 : 0
 }
 
-/** Data point order follows message completion, which is not a contract because messages process concurrently. */
+/** These follow concurrent message completion, so they are sorted. A histogram's bucket arrays are positional and keep their order. */
+const UNORDERED_METRIC_ARRAYS = new Set([
+    'resourceMetrics',
+    'scopeMetrics',
+    'metrics',
+    'dataPoints',
+    'attributes',
+    'exemplars',
+    'filteredAttributes',
+])
+
 function canonicalizeMetricPayload(payload: unknown): unknown {
-    const sortArrays = (value: unknown): unknown => {
+    const sortArrays = (value: unknown, key?: string): unknown => {
         if (Array.isArray(value)) {
-            return value.map(sortArrays).sort(compareCanonical)
+            const items = value.map((item) => sortArrays(item))
+            return key !== undefined && UNORDERED_METRIC_ARRAYS.has(key) ? items.sort(compareCanonical) : items
         }
         if (value !== null && typeof value === 'object') {
-            return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sortArrays(v)]))
+            return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, sortArrays(v, k)]))
         }
         return value
     }
@@ -305,7 +316,9 @@ export function buildParityConsumer(
             return Promise.resolve(teamsByToken.get(token) ?? null)
         },
         setTeamsIngestedData: (ids: number[]) => {
-            teamsIngested.push([...ids])
+            if (!options.discard) {
+                teamsIngested.push([...ids])
+            }
             return Promise.resolve()
         },
     }
@@ -314,13 +327,18 @@ export function buildParityConsumer(
         teamManager: teamManager as unknown as LogsIngestionConsumerDeps['teamManager'],
         quotaLimiting: {
             isTeamTokenQuotaLimited: (token: string, resource: string) => {
-                quotaChecks.add(JSON.stringify([token, resource]))
+                if (!options.discard) {
+                    quotaChecks.add(JSON.stringify([token, resource]))
+                }
                 return Promise.resolve(scenario.quota_limited_tokens.includes(token))
             },
         } as unknown as LogsIngestionConsumerDeps['quotaLimiting'],
         outputs: outputs as unknown as LogsIngestionConsumerDeps['outputs'],
         usageBatch: {
             add: (teamId: number, metric: string, recordId: string, quantity = 1, unit?: string) => {
+                if (options.discard) {
+                    return
+                }
                 usageRecords.push({
                     batch: outputs.currentBatch,
                     team_id: teamId,
@@ -369,7 +387,9 @@ export function buildParityConsumer(
                 if (scenario.metric_emit_faults.includes(teamId)) {
                     return Promise.reject(new Error('metric emit failed'))
                 }
-                metricEmits.push({ token, team_id: teamId, payload })
+                if (!options.discard) {
+                    metricEmits.push({ token, team_id: teamId, payload })
+                }
                 return Promise.resolve(true)
             },
         } as unknown as LogsIngestionConsumerDeps['metricsEmitter'],
