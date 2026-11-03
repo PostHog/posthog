@@ -11,9 +11,6 @@ import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhou
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PersonHogClient } from '~/common/personhog/client'
-import { createIdentityClients } from '~/common/personhog/identity-clients'
-import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -36,15 +33,8 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
-import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import {
-    RoutingPersonsStore,
-    assertPersonsStoreModeConfig,
-    parsePersonsStoreMode,
-} from '~/ingestion/common/persons/routing-persons-store'
+import { buildPersonsStore } from '~/ingestion/common/persons/persons-store-factory'
 import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
@@ -149,14 +139,13 @@ export class IngestionApiServer implements NodeServer {
     private featureFlagCalledDedupRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
-    private personsStore?: BatchWritingPersonsStore
     /**
      * The store the pipeline was handed. Shutdown goes through this so the
      * routing store's own lifecycle rules run: in shadow, a personhog
      * fault must not fail process cleanup.
      */
-    private pipelinePersonsStore?: PersonsStore
-    private personhogClientClosers: Array<() => void> = []
+    private personsStore?: PersonsStore
+    private closePersonsStore: () => void = () => {}
     private groupStore?: BatchWritingGroupStore
     // Held so shutdown cleanup can produce ClickHouse messages returned by a
     // bare groupStore.flush() — the store itself no longer holds outputs
@@ -340,67 +329,10 @@ export class IngestionApiServer implements NodeServer {
                     this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
             }).start()
 
-        this.personsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
-            dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-            useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
-            maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
-            mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
-            mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
-            mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
-            mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
-            mergeNoopMappingEmissionEnabled: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED,
-            mergeNoopMappingEmissionCacheSize: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE,
-            mergeNoopMappingEmissionTtlMs: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS,
-        })
-        // Which backend person writes land in, deployment-wide: pg (the
-        // default) builds nothing new; the other modes construct the
-        // personhog store, shadow keeping pg authoritative.
-        const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
-        assertPersonsStoreModeConfig(personsStoreMode, {
-            routerAddr: this.config.PERSONHOG_ADDR,
-            identityAddr: this.config.PERSONHOG_IDENTITY_ADDR,
-        })
-        let personsStore: PersonsStore = this.personsStore
-        if (personsStoreMode !== 'pg') {
-            const routerClient = PersonHogClient.fromConfig({
-                addr: this.config.PERSONHOG_ADDR,
-                useTls: this.config.PERSONHOG_TLS,
-                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
-                readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
-                writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
-                clientName: 'ingestion-persons-store',
-                initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
-                initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
-            })
-            const identityClients = createIdentityClients(
-                {
-                    addr: this.config.PERSONHOG_IDENTITY_ADDR,
-                    useTls: this.config.PERSONHOG_TLS,
-                    timeoutMs: this.config.PERSONHOG_IDENTITY_TIMEOUT_MS,
-                    clientName: 'ingestion-persons-store',
-                    initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
-                    initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
-                },
-                { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
-            )
-            this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
-            const writeRepository = new PersonHogPersonWriteRepository(
-                routerClient,
-                identityClients.identity,
-                'ingestion-persons-store'
-            )
-            const personhogStore = new PersonhogPersonsStore(writeRepository, {
-                maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
-                updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
-                syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
-                requestTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
-            })
-            personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)
-        }
-        this.pipelinePersonsStore = personsStore
+        const builtPersonsStore = buildPersonsStore(this.config, personRepository, ingestionOutputs)
+        const personsStore = builtPersonsStore.personsStore
+        this.personsStore = personsStore
+        this.closePersonsStore = builtPersonsStore.close
 
         this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
@@ -543,7 +475,7 @@ export class IngestionApiServer implements NodeServer {
     /** Drains both stores even when one fails, then rethrows the first failure. */
     private async drainStores(): Promise<void> {
         const results = await Promise.allSettled([this.drainPersonsStore(), this.drainGroupStore()])
-        this.personhogClientClosers.forEach((close) => close())
+        this.closePersonsStore()
         const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
         if (failed) {
             throw failed.reason
@@ -552,7 +484,7 @@ export class IngestionApiServer implements NodeServer {
 
     private async drainPersonsStore(): Promise<void> {
         // In shadow mode the pipeline's store is the routing store, so both backends write the pending updates.
-        const personsStore = this.pipelinePersonsStore ?? this.personsStore
+        const personsStore = this.personsStore
         if (!personsStore) {
             return
         }

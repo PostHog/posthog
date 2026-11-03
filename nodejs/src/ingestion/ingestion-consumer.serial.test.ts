@@ -19,6 +19,7 @@ import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { COOKIELESS_MODE_FLAG_PROPERTY } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { RoutingPersonsStore } from '~/ingestion/common/persons/routing-persons-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -214,6 +215,18 @@ describe('IngestionConsumer', () => {
             expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
             expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
             expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
+        })
+
+        it('builds the persons store PERSONS_STORE_MODE asks for, as the ingestion api server does', async () => {
+            infra.config.PERSONS_STORE_MODE = 'shadow'
+            infra.config.PERSONHOG_ADDR = 'router.invalid:1'
+            infra.config.PERSONHOG_IDENTITY_ADDR = 'identity.invalid:1'
+            const shadowIngester = await createIngestionConsumer(infra)
+            try {
+                expect(shadowIngester['personsStore']).toBeInstanceOf(RoutingPersonsStore)
+            } finally {
+                await shadowIngester.stop()
+            }
         })
 
         it('should process a standard event', async () => {
