@@ -29,7 +29,9 @@ PAGE_SIZE = 100
 class OptimizelyResumeConfig:
     # What the framework handed the resume hook: the next `Link` URL of a list endpoint, or the
     # finished and in-progress projects of a project fan-out. Stored unchanged.
-    paginator_state: dict[str, Any]
+    paginator_state: dict[str, Any] | None = None
+    # The last page of a list endpoint is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 _SKIP_INACCESSIBLE: list[ResponseAction] = [
@@ -182,6 +184,8 @@ def _resume_hook(manager: ResumableSourceManager[OptimizelyResumeConfig]) -> Cal
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state:
             manager.save_state(OptimizelyResumeConfig(paginator_state=state))
+        elif state is None:
+            manager.save_state(OptimizelyResumeConfig(completed=True))
 
     return save_checkpoint
 
@@ -194,6 +198,8 @@ def optimizely_source(
     resumable_source_manager: ResumableSourceManager[OptimizelyResumeConfig],
 ) -> SourceResponse:
     config = OPTIMIZELY_ENDPOINTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed = resume is not None and resume.completed
 
     if config.project_scoped:
         resource = _fan_out_source(api_token, endpoint, config, team_id, job_id, resumable_source_manager)
@@ -203,7 +209,7 @@ def optimizely_source(
     return SourceResponse(
         name=endpoint,
         on_complete=resumable_source_manager.clear_state,
-        items=lambda: resource,
+        items=lambda: [] if completed else resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

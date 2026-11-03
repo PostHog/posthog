@@ -3072,7 +3072,7 @@ async def test_worker_shutdown_desc_sort_order(team):
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday.get_rows",
+            "products.warehouse_sources.sources.monday.monday.get_rows",
             mock_get_rows,
         ),
     ):

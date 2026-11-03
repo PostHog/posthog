@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from products.warehouse_sources.sources.coda.settings import CODA_ENDPOINTS
@@ -24,7 +24,9 @@ ROWS_PAGE_SIZE = 200
 class CodaResumeConfig:
     # What the framework handed the resume hook: the next page token of a list endpoint, or the
     # finished and in-progress parents of a fan-out. Stored unchanged.
-    paginator_state: dict[str, Any]
+    paginator_state: dict[str, Any] | None = None
+    # The last page of a list endpoint is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 # The docs list also returns docs the token user only opened (shared or published docs from other
@@ -334,6 +336,8 @@ def coda_source(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state:
             resumable_source_manager.save_state(CodaResumeConfig(paginator_state=state))
+        elif state is None:
+            resumable_source_manager.save_state(CodaResumeConfig(completed=True))
 
     # The framework resumes a fan-out with one dependent level only. Rows and columns chain two
     # levels, so they read every doc and table again after a resume.
@@ -346,11 +350,15 @@ def coda_source(
         initial_paginator_state=resume.paginator_state if resume is not None else None,
     )
     resource = next(r for r in resources if r.name == endpoint)
+    completed = resume is not None and resume.completed
+
+    def items() -> Iterable[Any]:
+        return [] if completed else resource
 
     return SourceResponse(
         name=endpoint,
         on_complete=resumable_source_manager.clear_state,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

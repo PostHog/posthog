@@ -169,6 +169,20 @@ class TestKandjiTransport:
         assert result.urls == expected_urls
         assert len(result.rows) == 1
 
+    def test_list_endpoint_marks_completion_before_its_last_page(self) -> None:
+        driver = SourceDriver(KandjiSource(), KandjiSourceConfig(api_token="tok", subdomain="accuhive", region="us"))
+
+        result = driver.run("users", [ScriptedResponse(json={"results": [{"id": "u1"}], "next": None})])
+
+        assert result.raised is None
+        assert result.saved_states[-1] == KandjiResumeConfig(completed=True)
+
+        resumed = driver.run("users", [], resume_state=KandjiResumeConfig(completed=True))
+
+        assert resumed.raised is None
+        assert resumed.urls == []
+        assert resumed.rows == []
+
 
 class TestKandjiNextLinkPaginator:
     def test_copies_next_query_onto_original_request(self) -> None:

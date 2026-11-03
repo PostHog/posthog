@@ -137,6 +137,18 @@ class TestResume:
         assert result.urls == expected_urls
         assert [row["id"] for row in result.rows] == expected_ids
 
+    def test_list_endpoint_marks_completion_before_its_last_page(self) -> None:
+        result = _driver().run("projects", route({"/v2/projects": [_response([{"id": 1}])]}))
+
+        assert result.raised is None
+        assert result.saved_states[-1] == OptimizelyResumeConfig(completed=True)
+
+        resumed = _driver().run("projects", route({}), resume_state=OptimizelyResumeConfig(completed=True))
+
+        assert resumed.raised is None
+        assert resumed.urls == []
+        assert resumed.rows == []
+
 
 class TestPerParentResults:
     @parameterized.expand(

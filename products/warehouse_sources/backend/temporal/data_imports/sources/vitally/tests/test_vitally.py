@@ -153,7 +153,7 @@ class TestResume:
             ),
             pytest.param(
                 "Messages",
-                VitallyResumeConfig(cursor="cursor-2", conversations_done=1),
+                VitallyResumeConfig(cursor="cursor-2", conversations_done=["c1"]),
                 [
                     ScriptedResponse(json={"results": [{"id": "c1"}, {"id": "c2"}], "next": None}),
                     ScriptedResponse(json={"messages": [{"id": "m2"}]}),
@@ -162,6 +162,28 @@ class TestResume:
                 ["cursor-2", None],
                 ["m2"],
                 id="messages_skip_conversations_already_handed_on",
+            ),
+            pytest.param(
+                "Messages",
+                VitallyResumeConfig(cursor=None, conversations_done=["c1"]),
+                [
+                    ScriptedResponse(json={"results": [{"id": "c3"}, {"id": "c1"}, {"id": "c2"}], "next": None}),
+                    ScriptedResponse(json={"messages": [{"id": "m3"}]}),
+                    ScriptedResponse(json={"messages": [{"id": "m2"}]}),
+                ],
+                ["/resources/conversations", "/resources/conversations/c3", "/resources/conversations/c2"],
+                [None, None, None],
+                ["m3", "m2"],
+                id="messages_read_a_conversation_that_moved_ahead_of_finished_ones",
+            ),
+            pytest.param(
+                "Organizations",
+                VitallyResumeConfig(completed=True),
+                [],
+                [],
+                [],
+                [],
+                id="list_endpoint_reads_nothing_after_its_last_page",
             ),
         ],
     )
@@ -205,9 +227,9 @@ class TestResume:
         assert result.raised is None
         assert result.items == [[{"id": "m1", "conversation_updated_at": None}]]
         assert result.saved_states == [
-            VitallyResumeConfig(cursor=None, conversations_done=0),
-            VitallyResumeConfig(cursor=None, conversations_done=1),
-            VitallyResumeConfig(cursor=None, conversations_done=2),
+            VitallyResumeConfig(cursor=None, conversations_done=[]),
+            VitallyResumeConfig(cursor=None, conversations_done=["c1"]),
+            VitallyResumeConfig(cursor=None, conversations_done=["c1", "c2"]),
             VitallyResumeConfig(cursor="cursor-2"),
         ]
 

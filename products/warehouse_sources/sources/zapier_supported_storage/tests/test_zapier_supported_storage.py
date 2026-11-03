@@ -76,6 +76,12 @@ class TestGetRows:
         assert result.raised is None
         assert [row["key"] for table in result.items for row in table.to_pylist()] == expected_keys
 
+    def test_final_batch_stages_its_last_key(self) -> None:
+        result = _driver().run("records", [ScriptedResponse(json={"c": 3, "a": 1, "b": 2})])
+
+        assert result.raised is None
+        assert result.saved_states == [ZapierSupportedStorageResumeConfig(last_key="c")]
+
 
 class TestFetchStore:
     @pytest.mark.parametrize("status", [429, 500, 502, 503])

@@ -117,14 +117,14 @@ def get_rows(
     store = _fetch_store(session, secret, logger)
     resume = manager.load_state() if manager.can_resume() else None
     keys = sorted(key for key in store if resume is None or key > resume.last_key)
-    for index, key in enumerate(keys):
+    for key in keys:
         batcher.batch({"key": key, "value": _stringify_value(store[key])})
         if batcher.should_yield():
-            if index + 1 < len(keys):
-                manager.save_state(ZapierSupportedStorageResumeConfig(last_key=key))
+            manager.save_state(ZapierSupportedStorageResumeConfig(last_key=key))
             yield batcher.get_table()
 
     if batcher.should_yield(include_incomplete_chunk=True):
+        manager.save_state(ZapierSupportedStorageResumeConfig(last_key=keys[-1]))
         yield batcher.get_table()
 
 

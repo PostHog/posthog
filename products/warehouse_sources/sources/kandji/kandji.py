@@ -33,7 +33,9 @@ from products.warehouse_sources.sources.sdk import (
 class KandjiResumeConfig:
     # What the framework handed the resume hook: the next offset or `next` query of a list endpoint,
     # or the device listing position and finished devices of a fan-out. Stored unchanged.
-    paginator_state: dict[str, Any]
+    paginator_state: dict[str, Any] | None = None
+    # The last page of a list endpoint is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 REGION_TEMPLATES = {
@@ -212,6 +214,8 @@ def kandji_source(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state:
             resumable_source_manager.save_state(KandjiResumeConfig(paginator_state=state))
+        elif state is None:
+            resumable_source_manager.save_state(KandjiResumeConfig(completed=True))
 
     if config.fanout is not None:
         parent_config = KANDJI_ENDPOINTS[config.fanout.parent_name]
@@ -256,4 +260,5 @@ def kandji_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    return _make_source_response(config, lambda: resource, resumable_source_manager)
+    completed = resume is not None and resume.completed
+    return _make_source_response(config, lambda: [] if completed else resource, resumable_source_manager)

@@ -199,6 +199,18 @@ class TestGetRows:
         assert result.params("pageToken") == expected_tokens
         assert [row["id"] for row in result.rows] == expected_ids
 
+    def test_list_endpoint_marks_completion_before_its_last_page(self) -> None:
+        result = _driver().run("docs", [_response([{"id": "doc1"}])])
+
+        assert result.raised is None
+        assert result.saved_states[-1] == CodaResumeConfig(completed=True)
+
+        resumed = _driver().run("docs", [], resume_state=CodaResumeConfig(completed=True))
+
+        assert resumed.raised is None
+        assert resumed.paths == []
+        assert resumed.rows == []
+
     def test_table_without_id_fails_fast_in_rows(self) -> None:
         result = _driver().run("rows", [_response([{"id": "doc1"}]), _response([{"name": "broken"}])])
 

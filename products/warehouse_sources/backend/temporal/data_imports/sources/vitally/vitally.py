@@ -1,5 +1,6 @@
 import base64
 from collections.abc import Iterable, Iterator
+from dataclasses import field
 from datetime import datetime
 from typing import Any, Optional
 
@@ -26,8 +27,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vitally.se
 class VitallyResumeConfig:
     # The `from` cursor of the page to read. None is the first page.
     cursor: str | None = None
-    # Messages only: how many conversations of that page are already handed on.
-    conversations_done: int = 0
+    # Messages only: the ids of that page's conversations already handed on. Ids, not a count, because
+    # a conversation updated between attempts moves within the `updatedAt` order.
+    conversations_done: list[str] = field(default_factory=list)
+    # List endpoints only: the last page is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
@@ -458,7 +462,7 @@ def get_messages(
 
     resume = manager.load_state() if manager.can_resume() else None
     page_cursor = resume.cursor if resume is not None else None
-    skip = resume.conversations_done if resume is not None else 0
+    done = list(resume.conversations_done) if resume is not None else []
     if page_cursor is not None:
         paginator.set_resume_state({"cursor": page_cursor})
 
@@ -467,7 +471,7 @@ def get_messages(
     with make_tracked_session() as session:
         while paginator.has_next_page:
             # Every conversation before this point is handed on, so an empty page can end the run here.
-            manager.save_state(VitallyResumeConfig(cursor=page_cursor, conversations_done=skip))
+            manager.save_state(VitallyResumeConfig(cursor=page_cursor, conversations_done=list(done)))
             manager.safe_point()
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)
@@ -477,18 +481,20 @@ def get_messages(
             response.raise_for_status()
             results = response.json().get("results") or []
 
-            for index, conversation in enumerate(results):
+            for conversation in results:
                 # A resumed page is read again from its start, so skip the conversations already handed on.
-                if index < skip:
+                conversation_id = str(conversation.get("id"))
+                if conversation_id in done:
                     continue
                 messages = _conversation_messages(session, conversation, region, subdomain, basic_token, logger)
-                manager.save_state(VitallyResumeConfig(cursor=page_cursor, conversations_done=index + 1))
+                done.append(conversation_id)
+                manager.save_state(VitallyResumeConfig(cursor=page_cursor, conversations_done=list(done)))
                 if messages:
                     # One list per conversation, so its messages and the cursor past it commit together.
                     yield messages
                 else:
                     manager.safe_point()
-            skip = 0
+            done = []
 
             paginator.update_state(response)
             next_state = paginator.get_resume_state()
@@ -604,6 +610,11 @@ def vitally_source(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state and state.get("cursor"):
             resumable_source_manager.save_state(VitallyResumeConfig(cursor=str(state["cursor"])))
+        elif state is None:
+            resumable_source_manager.save_state(VitallyResumeConfig(completed=True))
+
+    if resume is not None and resume.completed:
+        return []
 
     # Returned, not wrapped, so the framework reaches a safe point after each page.
     return rest_api_resource(
