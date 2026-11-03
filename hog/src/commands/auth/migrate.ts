@@ -1,10 +1,12 @@
 import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
-import { PersonalApiKey } from '@/posthog/credential'
-import { parseJson, trimHost, type StoreChoice } from '@/posthog/credential-store'
+import { PersonalAPIKey } from '@/posthog/access-key'
+import { parseJson } from '@/posthog/credential-store/helpers'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 import { checkApiKey, checkHost, checkProjectId, DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
-import { saveLogin } from '@/posthog/login'
+import { trimHost } from '@/posthog/host'
+import { saveLogin } from '@/posthog/login/flow'
 
 type MigrateResult =
     | {
@@ -54,7 +56,16 @@ export default defineCommand({
                 'Run `hog auth login` to log in instead.'
             )
         }
-        const loggedIn = await saveLogin(runtime, new PersonalApiKey(host, projectId, apiKey))
+        const key = new PersonalAPIKey({ host, projectId, apiKey })
+        // A key someone deleted would only fail later, at the first command that uses it.
+        if (!(await key.lookup(runtime.fetch))) {
+            throw new HogError(
+                'legacy_key_rejected',
+                `PostHog rejected the personal API key in ${legacyFile}. Someone may have deleted it.`,
+                'Run `hog auth login` to log in instead.'
+            )
+        }
+        const loggedIn = await saveLogin(runtime, key)
         const { store, credentialsPath, keychainProblem } = loggedIn
         return { status: 'migrated', host, projectId, store, credentialsPath, keychainProblem, legacyFile }
     },
