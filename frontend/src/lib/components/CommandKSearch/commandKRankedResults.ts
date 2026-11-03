@@ -116,12 +116,11 @@ function tierBoostFor(item: SearchItem, groupKey: string, query: string): number
     return uncuratedAccount && !isIdentityQuery(query) ? -UNCURATED_ACCOUNT_TIER_PENALTY : 0
 }
 
-function candidateFor(item: SearchItem, groupKey: string, query: string, picks: Map<string, number>): RankCandidate {
+function candidateFor(item: SearchItem, groupKey: string, query: string): RankCandidate {
     const common = {
         name: displayName(item),
         typePrior: typePriorFor(groupKey, query),
         identity: item.identityFields,
-        picked: picks.get(item.id),
     }
     if (item.category !== 'results') {
         return {
@@ -142,15 +141,10 @@ function candidateFor(item: SearchItem, groupKey: string, query: string, picks: 
     }
 }
 
-function rankUnified(
-    items: SearchItem[],
-    query: string,
-    groupKey: (item: SearchItem) => string,
-    picks: Map<string, number>
-): RankedItem[] {
+function rankUnified(items: SearchItem[], query: string, groupKey: (item: SearchItem) => string): RankedItem[] {
     return items.flatMap((item) => {
         const key = groupKey(item)
-        const ranked = rankCandidate(query, candidateFor(item, key, query, picks))
+        const ranked = rankCandidate(query, candidateFor(item, key, query))
         if (!ranked) {
             return item.rankKey ? [{ item, rank: item.rankKey, groupKey: key }] : []
         }
@@ -268,7 +262,6 @@ interface RankedResultsInput {
     state: CommandKSection['state']
     scoped: boolean
     unifiedRanking?: boolean
-    picks?: Map<string, number>
 }
 
 export function buildRankedResults({
@@ -282,16 +275,15 @@ export function buildRankedResults({
     state,
     scoped,
     unifiedRanking = false,
-    picks = new Map(),
 }: RankedResultsInput): CommandKSection[] {
     const candidates: RankedItem[] = (
         unifiedRanking
             ? [
-                  ...rankUnified(results, query, groupKeyFor, picks),
-                  ...rankUnified(products, query, () => 'products', picks),
-                  ...rankUnified(persons, query, () => 'persons', picks),
-                  ...rankUnified(settings, query, () => 'settings', picks),
-                  ...rankUnified(accounts, query, () => 'accounts', picks),
+                  ...rankUnified(results, query, groupKeyFor),
+                  ...rankUnified(products, query, () => 'products'),
+                  ...rankUnified(persons, query, () => 'persons'),
+                  ...rankUnified(settings, query, () => 'settings'),
+                  ...rankUnified(accounts, query, () => 'accounts'),
               ]
             : [
                   ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),

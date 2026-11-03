@@ -297,15 +297,6 @@ describe('buildRankedResults', () => {
             expected: ['Results: Replay vision, Replay, Session replay'],
         },
         {
-            name: 'with unified ranking, a result the person picked for this search before ranks first',
-            query: 'replay',
-            results: [result('1', 'Replay', 'notebook', [-1, 0, 0, 0, -1, 0, 0, 0, -1])],
-            products: [product('Session replay'), product('Replay vision')],
-            unifiedRanking: true,
-            picks: new Map([['product-Session replay', 1]]),
-            expected: ['Results: Session replay, Replay vision, Replay'],
-        },
-        {
             name: 'with unified ranking, an exact name ranks above an exact search keyword',
             query: 'metrics',
             results: [],
@@ -313,25 +304,21 @@ describe('buildRankedResults', () => {
             unifiedRanking: true,
             expected: ['Results: Metrics, Data catalog'],
         },
-    ])(
-        '$name',
-        ({ query, results, products, persons = [], accounts = [], unifiedRanking = false, picks, expected }) => {
-            expect(
-                summary(
-                    buildRankedResults({
-                        query,
-                        highlightWords: query.split(' '),
-                        results,
-                        products,
-                        persons,
-                        accounts,
-                        state: 'ready',
-                        scoped: false,
-                        unifiedRanking,
-                        picks,
-                    })
-                )
-            ).toEqual(expected)
-        }
-    )
+    ])('$name', ({ query, results, products, persons = [], accounts = [], unifiedRanking = false, expected }) => {
+        expect(
+            summary(
+                buildRankedResults({
+                    query,
+                    highlightWords: query.split(' '),
+                    results,
+                    products,
+                    persons,
+                    accounts,
+                    state: 'ready',
+                    scoped: false,
+                    unifiedRanking,
+                })
+            )
+        ).toEqual(expected)
+    })
 })

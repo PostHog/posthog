@@ -1,5 +1,3 @@
-import { PICKED_THRESHOLD } from './commandKPickMemory'
-
 const WORD = /[\p{L}\p{N}_]+/gu
 
 export type RankKey = number[]
@@ -250,7 +248,6 @@ export interface RankCandidate {
     indirect?: boolean
     matchesQuery?: boolean
     tierBoost?: number
-    picked?: number
 }
 
 interface CandidateRank {
@@ -416,7 +413,6 @@ export function rankCandidate(query: string, candidate: RankCandidate): Candidat
         rank: [
             -found.length,
             found.reduce((sum, hit) => sum + hit.typos, 0),
-            Number((candidate.picked ?? 0) < PICKED_THRESHOLD),
             Math.max(matchTier(normalizedQuery, hits, candidate) - (candidate.tierBoost ?? 0), 0),
             usageTier(frecency),
             proximityOf(positions),
