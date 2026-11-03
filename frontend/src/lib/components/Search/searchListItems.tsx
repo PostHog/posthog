@@ -1,14 +1,6 @@
 import { router } from 'kea-router'
 
-import {
-    IconBell,
-    IconClock,
-    IconDownload,
-    IconLeave,
-    IconNotification,
-    IconSupport,
-    IconTerminal,
-} from '@posthog/icons'
+import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, IconTerminal } from '@posthog/icons'
 
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
@@ -195,6 +187,16 @@ const APP_PRODUCT_ITEMS = [
         sceneKey: 'Subscriptions',
         record: { type: 'subscriptions' },
     }),
+    // The user's own tickets with PostHog. The Support product holds tickets from their customers.
+    fixedItem('misc-my-tickets', 'Your tickets', 'tools', {
+        productCategory: 'PostHog support',
+        href: urls.myTickets(),
+        icon: <IconSupport />,
+        itemType: 'my_tickets',
+        searchKeywords: ['my tickets', 'support tickets', 'posthog support', 'contact support', 'support', 'help'],
+        sceneKey: 'MyTickets',
+        record: { type: 'my_tickets' },
+    }),
 ]
 
 // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
@@ -234,31 +236,15 @@ const HEALTH_ITEMS = [
 ]
 
 const terminalItem = (toggleTerminal: () => void): FixedSearchItem =>
-    fixedItem('misc-toggle-terminal', 'Toggle terminal', 'misc', {
+    fixedItem('misc-toggle-terminal', 'Toggle terminal', 'actions', {
         icon: <IconTerminal />,
         searchKeywords: ['terminal', 'shell', 'console'],
         onSelect: toggleTerminal,
         record: { type: 'terminal' },
     })
 
-const MISC_ITEMS = [
-    fixedItem('misc-alerts', 'Alerts', 'misc', {
-        href: urls.alerts(),
-        icon: <IconBell />,
-        sceneKey: 'SavedInsights',
-        record: { type: 'alerts' },
-    }),
-    // The user's own tickets with PostHog. The Support product holds tickets from their customers.
-    fixedItem('misc-my-tickets', 'Your tickets', 'misc', {
-        productCategory: 'PostHog support',
-        href: urls.myTickets(),
-        icon: <IconSupport />,
-        itemType: 'my_tickets',
-        searchKeywords: ['my tickets', 'support tickets', 'posthog support', 'contact support', 'support', 'help'],
-        sceneKey: 'MyTickets',
-        record: { type: 'my_tickets' },
-    }),
-    fixedItem('misc-logout', 'Log out', 'misc', {
+const ACTION_ITEMS = [
+    fixedItem('misc-logout', 'Log out', 'actions', {
         icon: <IconLeave />,
         searchKeywords: ['logout', 'log out', 'sign out', 'signout', 'exit'],
         onSelect: () => userLogic.actions.logout(),
@@ -347,10 +333,10 @@ export const peopleSearchItems = (groupItems: FileSystemImport[], sceneViews: Sc
 export const healthSearchItems = (sceneViews: SceneViews): SearchItem[] =>
     HEALTH_ITEMS.map((item) => withLastViewed(item, sceneViews))
 
-export const miscSearchItems = (sceneViews: SceneViews, toggleTerminal: (() => void) | null): SearchItem[] =>
-    [...(toggleTerminal ? [terminalItem(toggleTerminal)] : []), ...MISC_ITEMS].map((item) =>
-        withLastViewed(item, sceneViews)
-    )
+export const actionSearchItems = (toggleTerminal: (() => void) | null): SearchItem[] => [
+    ...(toggleTerminal ? [terminalItem(toggleTerminal)] : []),
+    ...ACTION_ITEMS,
+]
 
 /**
  * Lean projection of SETTINGS_MAP for search. The full map statically imports every

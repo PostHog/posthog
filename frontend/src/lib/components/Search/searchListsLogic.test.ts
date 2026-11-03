@@ -18,6 +18,7 @@ const TOP_LEVEL_DESTINATIONS: [DestinationList, string, string][] = [
     ['productsItems', 'Activity', urls.activity(ActivityTab.ExploreEvents)],
     ['productsItems', 'Subscriptions', urls.subscriptions()],
     ['productsItems', 'Exports', urls.exports()],
+    ['productsItems', 'Your tickets', urls.myTickets()],
     ['productsItems', 'Product analytics', urls.insights()],
     ['productsItems', 'Dashboards', urls.dashboards()],
     ['productsItems', 'Notebooks', urls.notebooks()],
@@ -85,9 +86,26 @@ describe('searchListsLogic', () => {
     })
 
     it.each(['support', 'tickets', 'contact support', 'help'])('finds Your tickets when searching "%s"', (query) => {
-        const matches = filterSearchItems(logic.values.miscItems, query)
+        const matches = filterSearchItems(logic.values.productsItems, query)
 
         expect(matches.find((item) => item.id === 'misc-my-tickets')?.href).toBe(urls.myTickets())
+    })
+
+    it('lists Alerts only as a Product analytics tab', () => {
+        const lists = [
+            logic.values.productsItems,
+            logic.values.dataManagementItems,
+            logic.values.peopleItems,
+            logic.values.healthItems,
+            logic.values.actionItems,
+        ]
+
+        expect(
+            lists
+                .flat()
+                .filter((item) => item.href === urls.alerts())
+                .map((item) => ({ displayName: item.displayName, parentName: item.parentName }))
+        ).toEqual([{ displayName: 'Alerts', parentName: 'Product analytics' }])
     })
 
     it('shows only the Inbox Scouts destination', () => {
@@ -100,13 +118,20 @@ describe('searchListsLogic', () => {
         ).toEqual([{ href: urls.inbox('scouts'), parentName: 'Self-driving inbox' }])
     })
 
-    it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {
+    it.each([
+        [false, ['Log out']],
+        [true, ['Toggle terminal', 'Log out']],
+    ])('lists the Actions section with the terminal enabled=%s', (enabled, names) => {
         logic.unmount()
         logic = searchListsLogic({ commandPalette: true })
         logic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: enabled })
 
-        const toggle = logic.values.miscItems.find((item) => item.id === 'misc-toggle-terminal')
+        expect(logic.values.actionItems.map((item) => [item.displayName, item.category])).toEqual(
+            names.map((name) => [name, 'actions'])
+        )
+        expect(filterSearchItems(logic.values.actionItems, 'log out').map((item) => item.id)).toEqual(['misc-logout'])
+        const toggle = logic.values.actionItems.find((item) => item.id === 'misc-toggle-terminal')
         expect(!!toggle).toBe(enabled)
         expect(terminalDockLogic.values.dockOpen).toBe(false)
         if (toggle) {
@@ -117,7 +142,7 @@ describe('searchListsLogic', () => {
             toggle.onSelect?.()
             featureFlagLogic.actions.setFeatureFlags([], {})
             expect(terminalDockLogic.values.dockOpen).toBe(false)
-            expect(logic.values.miscItems.some((item) => item.id === 'misc-toggle-terminal')).toBe(false)
+            expect(logic.values.actionItems.some((item) => item.id === 'misc-toggle-terminal')).toBe(false)
         }
         featureFlagLogic.actions.setFeatureFlags([], {})
         terminalDockLogic.actions.toggleTerminal()
