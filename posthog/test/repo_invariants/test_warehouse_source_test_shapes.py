@@ -22,10 +22,15 @@ from pathlib import Path
 import pytest
 
 from posthog.test.repo_invariants.ratchet import enforce_baseline
+from posthog.test.repo_invariants.repo_invariant_scan_scope import ScanScope
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+# Vendor directories live in the product and in the `products/warehouse_sources/sources/` tree.
+SOURCE_ROOTS = (
+    REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources",
+    REPO_ROOT / "products/warehouse_sources/sources",
+)
 SKIPPED_DIRS = {"common", "tests", "test", "__pycache__", "generated_configs"}
 REGENERATE = "PYTHONPATH=. python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py"
 
@@ -41,6 +46,10 @@ DICT_READ_CALL = re.compile(
 MATCH_CALLS = {"any", "error_message_matches"}
 
 Check = Callable[[ast.Module], bool]
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return ScanScope.from_environment().walk(REPO_ROOT, SOURCE_ROOTS, pattern)
 
 
 def _terminal_name(node: ast.AST) -> str | None:
@@ -152,7 +161,7 @@ CHECKS: dict[str, tuple[Check, tuple[str, ...], str, str]] = {
         "source_test_hand_written_status_error_baseline.txt",
         "A '+' line is a test file that matches a hand-written HTTP status error against "
         "`get_non_retryable_errors()`. The string proves only that the test and the dict agree. "
-        "`sources/tests/test_source_error_contract.py` checks the real 401, 403, 429, 500 and timeout "
+        "`products/warehouse_sources/sources/tests/test_source_error_contract.py` checks the real 401, 403, 429, 500 and timeout "
         "errors of every source it can drive. For another error, drive the real response. ",
     ),
     "patched_session": (
@@ -177,8 +186,8 @@ def test_every_check_has_a_blocking_date() -> None:
 
 def collect(check: Check, words: tuple[str, ...]) -> list[str]:
     found: list[str] = []
-    for path in SOURCES_ROOT.rglob("test_*.py"):
-        relative = path.relative_to(SOURCES_ROOT)
+    for root, path in _source_files("test_*.py"):
+        relative = path.relative_to(root)
         if (
             len(relative.parts) < 2
             or relative.parts[0] in SKIPPED_DIRS
@@ -209,7 +218,11 @@ HAND_WRITTEN_MATCH = (
 # A baseline test cannot catch a detection regression on its own: a file that stops being
 # detected leaves as a '-' line, which reads as a file someone fixed.
 DETECTION_CASES = [
-    ("private_shared_patch", "target = 'sources.common.rest_source._private_helper'\n", True),
+    (
+        "private_shared_patch",
+        "target = 'products.warehouse_sources.sources.common.rest_source._private_helper'\n",
+        True,
+    ),
     ("private_shared_patch", "target = 'sources.common.rest_source.public_helper'\n", False),
     ("mocked_resume_manager", "manager = mock.MagicMock(spec=ResumableSourceManager)\n", True),
     ("mocked_resume_manager", "manager = MagicMock(spec=OtherManager)\n", False),
@@ -234,7 +247,8 @@ def read_baseline(file_name: str) -> list[str]:
 def test_source_test_files_match_the_baseline(check: str) -> None:
     collector, words, file_name, explanation = CHECKS[check]
     scanned = collect(collector, words)
-    recorded = read_baseline(file_name)
+    scope = ScanScope.from_environment()
+    recorded = [line for line in read_baseline(file_name) if scope.covers(line)]
     if scanned == recorded:
         return
 
