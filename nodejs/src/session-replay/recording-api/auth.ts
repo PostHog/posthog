@@ -50,12 +50,16 @@ function pathTeamId(req: Request): number {
  * malformed-but-truthy value (e.g. ',') counts as "no JWT configured".
  */
 export function assertRecordingApiAuthConfigured(opts: { isProd: boolean; jwtSecret: string }): void {
-    if (opts.isProd && !hasJwtKeys(opts.jwtSecret || '')) {
+    if (hasJwtKeys(opts.jwtSecret || '')) {
+        return
+    }
+    if (opts.isProd) {
         throw new Error(
             'recording-api has no auth configured in production: set RECORDING_API_JWT_SECRET ' +
                 '(hobby installs: run bin/upgrade-hobby)'
         )
     }
+    logger.warn('recording-api has no RECORDING_API_JWT_SECRET: recording routes accept every request')
 }
 
 export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOptions) {
