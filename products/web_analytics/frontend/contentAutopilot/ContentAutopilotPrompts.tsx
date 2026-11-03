@@ -21,6 +21,7 @@ import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActi
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { engineLabel } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
@@ -73,6 +74,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 text, use the API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog
                 MCP tools. A text change adds a new version of the prompt.
             </p>
+            <ContentAutopilotPromptsOverview />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonSelect
                     size="small"

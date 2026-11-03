@@ -12,6 +12,7 @@ import type {
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
+    AEOPromptSetOverviewApi,
     AEOPromptStatsApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
@@ -20,6 +21,7 @@ import type {
     AcknowledgeCelebrationResponseApi,
     AeoPromptsChecksParams,
     AeoPromptsListParams,
+    AeoPromptsOverviewParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -278,6 +280,37 @@ export const aeoPromptsBulkImport = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsOverviewParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/overview/`
+}
+
+/**
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * @summary Get the AEO prompt set overview
+ */
+export const aeoPromptsOverview = async (
+    projectId: string,
+    params?: AeoPromptsOverviewParams,
+    options?: RequestInit
+): Promise<AEOPromptSetOverviewApi> => {
+    return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
