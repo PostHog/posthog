@@ -442,7 +442,7 @@ class TestCursorTransport:
         assert body["startDate"] == window_start
         assert body["page"] == 4
 
-    def test_windowed_saves_state_after_each_batch(self):
+    def test_windowed_stages_state_before_each_batch(self):
         now_ms = 1_700_000_000_000
         manager = _manager()
         pages = [
@@ -481,12 +481,8 @@ class TestCursorTransport:
 
             first_batch = next(iterator)
             assert first_batch[0]["id"]  # synthetic primary key was added
-            # The generator is suspended at the yield — nothing saved until the consumer has
-            # taken the batch and pulls the next one, so a crash mid-batch re-fetches it.
-            assert manager.save_state.call_count == 0
-
-            next(iterator)
-            # Resuming past the first yield saved a bookmark at page 2 of the same window.
+            # The pipeline commits the staged cursor with the batch, so page 2 is staged before the yield.
+            assert manager.save_state.call_count == 1
             saved = manager.save_state.call_args.args[0]
             assert saved.page == 2
             assert saved.window_start is not None
