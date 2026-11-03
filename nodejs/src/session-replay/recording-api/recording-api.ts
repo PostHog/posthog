@@ -28,7 +28,6 @@ import {
 } from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor, RecordingEncryptor } from './types'
 
-// A Redis stall must not hold up a listing that already has its blocks.
 const DELETION_CHECK_TIMEOUT_MS = 1000
 
 function sendRecordingDeleted(res: express.Response, deletion: RecordingDeletedResult): void {
@@ -342,7 +341,7 @@ export class RecordingApi {
         }
     }
 
-    // The listing only reports a deletion early. A key store outage must not stop it, because getBlock still returns 410.
+    // The listing only reports a deletion early, so a key store outage or stall must not stop it: getBlock still returns 410.
     private async deletionOrNull(
         service: RecordingService,
         sessionId: string,
