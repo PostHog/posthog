@@ -52562,6 +52562,7 @@ export namespace Schemas {
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
+     * * `posthog_survey` - posthog_survey
      * * `task_skills` - task_skills
      * * `replay_vision_scan` - replay_vision_scan
      */
@@ -52590,6 +52591,7 @@ export namespace Schemas {
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
+      PosthogSurvey: 'posthog_survey',
       TaskSkills: 'task_skills',
       ReplayVisionScan: 'replay_vision_scan',
     } as const;
@@ -131039,7 +131041,7 @@ export namespace Schemas {
      */
     refresh?: boolean;
     /**
-     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.
      * @minimum 0
      * @maximum 30
      */

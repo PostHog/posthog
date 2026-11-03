@@ -214,8 +214,10 @@ class TestUserAccessControl(BaseUserAccessControlTest):
 
         assert self.user_access_control.access_level_for_object(self.team) == "admin"
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
-        assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
-        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
+        # A plain member gets the same answer as effective_membership_level, not the "admin" default
+        assert self.other_user_access_control.access_level_for_object(self.team) == "member"
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "member") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is False
         resource_access = self.user_access_control.access_level_for_resource("project")
         assert resource_access and resource_access.access_level == "admin"
         resource_access = self.other_user_access_control.access_level_for_resource("project")
