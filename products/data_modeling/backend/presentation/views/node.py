@@ -35,7 +35,11 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import (
+    DELETE_DENIED,
+    EDIT_DENIED,
+    MetricNodeVisibilityMixin,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -366,8 +370,14 @@ class NodeViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
 
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_warehouse_access(level="editor", message=EDIT_DENIED)
+        self._require_view_edit_access(cast(Node, serializer.instance).saved_query)
+        serializer.save()
+
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        self._require_view_edit_access(instance.saved_query)
         if instance.belongs_to_managed_viewset:
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
         if _feeds_a_managed_view(instance):
@@ -564,9 +574,10 @@ class NodeViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Publishes the same rows as a DAG run of this node, so it needs the same check as `run`.
+        # Publishes the same rows as a DAG run of this node, so it needs the same checks as `run`.
         # A DB constraint guarantees non-table nodes have a saved query, so the None branch never
         # skips the check for a real node; it exists because the FK is typed as nullable.
+        self._require_view_edit_access(node.saved_query)
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
 
@@ -586,6 +597,9 @@ class NodeViewSet(
         # Resuming puts a model back on the materialization schedule, so it needs write access.
         self._require_warehouse_access(level="editor", message="Resuming a node requires data warehouse write access.")
 
-        resumed = unsuspend_nodes([self.get_object()], by="api")
+        node = self.get_object()
+        self._require_view_edit_access(node.saved_query)
+
+        resumed = unsuspend_nodes([node], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

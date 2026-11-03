@@ -1,7 +1,8 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconSidePanel, IconSparkles } from '@posthog/icons'
+import { IconChevronDown, IconSidePanel, IconSparkles } from '@posthog/icons'
 import { Badge, Button } from '@posthog/quill'
 
 import { PaneTab, PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
@@ -30,8 +31,8 @@ export function WatchPanelTabs({
     observations?: ObservationsTab
     debug: boolean
 }): JSX.Element {
-    const { watchPanelTab } = useValues(playerSettingsLogic)
-    const { setWatchPanelTab, setWatchDebugDock } = useActions(playerSettingsLogic)
+    const { watchPanelTab, watchPanelCollapsed } = useValues(playerSettingsLogic)
+    const { setWatchPanelTab, setWatchPanelCollapsed, setWatchDebugDock } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
 
@@ -80,6 +81,16 @@ export function WatchPanelTabs({
             data-attr="watch-panel-tabs"
         >
             <PaneTabBar tabs={tabs} activeKey={tab} onChange={select}>
+                <Button
+                    size="icon"
+                    onClick={() => setWatchPanelCollapsed(!watchPanelCollapsed)}
+                    tooltip={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+                    aria-label={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+                    className="rounded-none"
+                    data-attr="watch-panel-collapse"
+                >
+                    <IconChevronDown className={watchPanelCollapsed ? undefined : 'rotate-180'} />
+                </Button>
                 {debug && (
                     <Button
                         size="icon"
@@ -93,19 +104,28 @@ export function WatchPanelTabs({
                     </Button>
                 )}
             </PaneTabBar>
-            {tab === 'overview' ? (
-                <RecordingOverviewPanels />
-            ) : tab === 'observations' ? (
-                observations?.content
-            ) : (
-                <div
-                    data-not-quill
-                    className="flex flex-col min-w-0 overflow-hidden h-[calc(45cqh-1.5rem)] min-h-48"
-                    data-attr="watch-panel-debug"
-                >
-                    <PlayerSidebarTab tab={tab} />
+            <div
+                className={clsx(
+                    'grid motion-safe:transition-[grid-template-rows] motion-safe:duration-200',
+                    watchPanelCollapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'
+                )}
+            >
+                <div className="min-h-0 overflow-hidden">
+                    {tab === 'overview' ? (
+                        <RecordingOverviewPanels />
+                    ) : tab === 'observations' ? (
+                        observations?.content
+                    ) : (
+                        <div
+                            data-not-quill
+                            className="SessionRecordingPlayerWrapper__dock-in flex flex-col min-w-0 overflow-hidden h-[calc(45cqh-1.5rem)] min-h-48"
+                            data-attr="watch-panel-debug"
+                        >
+                            <PlayerSidebarTab tab={tab} />
+                        </div>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     )
 }

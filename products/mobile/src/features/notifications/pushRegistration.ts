@@ -4,6 +4,7 @@ import { Platform } from 'react-native'
 
 import { ApiError } from '@/api/client'
 import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
+import { TransportError } from '@/api/transport'
 import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { track } from '@/lib/analytics'
@@ -39,7 +40,7 @@ function registrationFailure(error: unknown, gotToken: boolean): RegistrationFai
     if (error instanceof ApiError) {
         return 'api_error'
     }
-    return error instanceof TypeError ? 'network' : 'unknown'
+    return error instanceof TransportError ? 'network' : 'unknown'
 }
 
 export function configureNotifications(): void {

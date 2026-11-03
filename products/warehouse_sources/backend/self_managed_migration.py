@@ -103,7 +103,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
     UploadedFileFormat,
     read_format,
 )
-from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -461,7 +461,7 @@ def _latest_jobs(schemas: Iterable[ExternalDataSchema]) -> dict[str, ExternalDat
 def _idle_reason(schema: ExternalDataSchema) -> str:
     if schema.should_sync:
         return "syncing is on; waiting for the first sync"
-    if SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type)).syncs_on_demand:
+    if SourceRegistry.get_source(schema.source.source_type).syncs_on_demand:
         return "waiting for the next upload of the file"
     return "syncing is off"
 
