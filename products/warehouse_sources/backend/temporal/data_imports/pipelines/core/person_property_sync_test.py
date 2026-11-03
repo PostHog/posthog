@@ -635,6 +635,29 @@ class TestSnapshotCompaction:
         assert not merge.complete
 
     @pytest.mark.asyncio
+    async def test_read_relists_after_concurrent_compaction_instead_of_resending_everything(self):
+        fake = _FakeS3()
+        prefix = pps._snapshot_prefix(1, _SCHEMA, "src")
+        with _fake_s3_patch(fake):
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "h1"})
+            await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"b": "h2"})
+            original_cat_file = fake._cat_file
+            compacted = False
+
+            async def _cat_with_one_concurrent_compaction(path):
+                nonlocal compacted
+                if not compacted:
+                    compacted = True
+                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
+                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
+                return await original_cat_file(path)
+
+            with patch.object(fake, "_cat_file", _cat_with_one_concurrent_compaction):
+                hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
+
+        assert hashes == {"a": "h1", "b": "h2"}
+
+    @pytest.mark.asyncio
     async def test_current_deliveries_win_when_snapshot_timestamps_tie(self):
         fake = _FakeS3()
         prefix = pps._snapshot_prefix(1, _SCHEMA, "src")

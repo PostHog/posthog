@@ -92,6 +92,10 @@ _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 # worker) keeps what it delivered, and the next run's diff resumes from there instead of from zero.
 _PRODUCE_CHUNK_SIZE = 50_000
 
+# A concurrent compaction writes its merged file before it deletes the old ones, so a fresh listing
+# after a vanished file almost always reads complete. Giving up means re-sending every row.
+_SNAPSHOT_READ_ATTEMPTS = 3
+
 
 @frozen(frozen=False)
 class PerSourceResult:
@@ -295,8 +299,11 @@ async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_
     cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
     prefix = _snapshot_prefix(team_id, binding, source_id)
     async with aget_s3_client() as s3_client:
-        merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
-        return merge.hashes if merge.complete else {}
+        for _ in range(_SNAPSHOT_READ_ATTEMPTS):
+            merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+            if merge.complete:
+                return merge.hashes
+        return {}
 
 
 async def _put_snapshot_file(s3_client, path: str, hashes: dict[str, str]) -> None:
