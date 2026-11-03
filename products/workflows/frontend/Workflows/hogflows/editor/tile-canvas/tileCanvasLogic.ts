@@ -198,6 +198,7 @@ export interface tileCanvasLogicValues {
     fitRequest: number
     fitsNextLayout: boolean
     frameSpecs: PathFrameSpec[]
+    isDraggingNewStep: boolean
     isDraggingStep: boolean
     isHistoryOpen: boolean
     isPanelOpen: boolean
@@ -309,6 +310,9 @@ export interface tileCanvasLogicActions {
     dropAt: (edge: HogFlowEdge) => {
         edge: HogFlowEdge
     }
+    endDraggingNewStep: () => {
+        value: true
+    }
     endDraggingStep: (dropEffect?: string | null) => {
         dropEffect: string | null
     }
@@ -405,6 +409,9 @@ export interface tileCanvasLogicActions {
     }
     setPendingPathFocus: (pendingPathFocus: PendingPathFocus | null) => {
         pendingPathFocus: PendingPathFocus | null
+    }
+    startDraggingNewStep: (step: CreateActionType) => {
+        step: CreateActionType
     }
     startDraggingStep: (actionId: string) => {
         actionId: string
@@ -548,6 +555,8 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
         dropAt: (edge: HogFlowEdge) => ({ edge }),
         startDraggingStep: (actionId: string) => ({ actionId }),
         endDraggingStep: (dropEffect: string | null = null) => ({ dropEffect }),
+        startDraggingNewStep: (step: CreateActionType) => ({ step }),
+        endDraggingNewStep: true,
         selectStep: (actionId: string) => ({ actionId }),
         revealStep: (actionId: string, openPanel: boolean = true) => ({ actionId, openPanel }),
         openPanel: (mode: TileCanvasPanelMode) => ({ mode }),
@@ -604,6 +613,14 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 startDraggingStep: (_, { actionId }) => actionId,
                 endDraggingStep: () => null,
                 cancel: () => null,
+            },
+        ],
+        isDraggingNewStep: [
+            false,
+            {
+                startDraggingNewStep: () => true,
+                endDraggingNewStep: () => false,
+                cancel: () => false,
             },
         ],
         quickAddEdgeKey: [
@@ -912,7 +929,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 dropPendingMoveOrCopy()
                 actions.startMovingNode(node)
                 cache.stepDrag = { stepType: node.data.type, dropped: false }
-                posthog.capture('workflows tile canvas step drag started', { step_type: node.data.type })
+                posthog.capture('workflows tile canvas step drag started', { kind: 'move', step_type: node.data.type })
             },
             endDraggingStep: ({ dropEffect }) => {
                 // A drop that moved the step already ended the move, so only a drag let go elsewhere is still moving.
@@ -926,6 +943,20 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 }
                 cache.stepDrag = null
             },
+            startDraggingNewStep: ({ step }) => {
+                dropPendingMoveOrCopy()
+                actions.setNodeToBeAdded(step)
+                posthog.capture('workflows tile canvas step drag started', { kind: 'add', step_type: step.type })
+            },
+            endDraggingNewStep: () => {
+                // A drop on a + adds the step and clears it, so a step still waiting means the drag let go elsewhere.
+                if (values.nodeToBeAdded) {
+                    actions.setNodeToBeAdded(null)
+                } else {
+                    actions.closeCommandPalette()
+                    actions.closeQuickAdd()
+                }
+            },
             dropAt: ({ edge }) => {
                 const step = values.nodeToBeAdded
                 if (values.isMovingNode) {
@@ -933,6 +964,10 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 } else if (step) {
                     actions.onDrop(undefined, edge)
                     captureStepAdded('drag', 'data' in step ? step.data.type : step.type)
+                    // A drop on the + that opened the add window removes that window, so its dragend never fires.
+                    if (values.isDraggingNewStep) {
+                        actions.endDraggingNewStep()
+                    }
                 }
             },
             placeAt: ({ edge }) => {
