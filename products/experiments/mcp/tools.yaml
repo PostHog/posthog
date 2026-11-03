@@ -940,14 +940,14 @@ tools:
             Returns 404 if the run id does not exist or belongs to a different experiment.
         param_overrides:
             id:
-                cast: string-int
-                description: >-
+                description:
                     The experiment's numeric ID, not the recalculation run UUID. Get it from experiment-get or from the
                     response of experiment-metrics-recalculation-create. The run UUID goes in recalculation_id.
-                uuid_redirect: recalculation_id
+                cast: string-int
                 aliases:
                     - experimentId
                     - experiment_id
+                uuid_redirect: recalculation_id
             recalculation_id:
                 aliases:
                     - run_id
