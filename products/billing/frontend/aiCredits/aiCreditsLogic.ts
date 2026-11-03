@@ -238,11 +238,13 @@ async function saveReloadSettings(
     if (turningOn && !card) {
         throw new Error('Add a card to your billing details before you turn on automatic reload.')
     }
-    if (form.reloadEnabled && card) {
+    // Only turning reload on needs the card, because the consent names it. A save while reload is on keeps
+    // working when the card didn't load.
+    if (form.reloadEnabled) {
         await billingAiCreditsSettingsAutomaticReloadPartialUpdate({
             organization_id: organizationId,
             ...reloadRequest(form),
-            ...(turningOn ? { enabled: true, consent_text: automaticReloadConsent(card, form) } : {}),
+            ...(turningOn && card ? { enabled: true, consent_text: automaticReloadConsent(card, form) } : {}),
         })
     } else if (reload?.enabled) {
         await billingAiCreditsSettingsAutomaticReloadPartialUpdate({ organization_id: organizationId, enabled: false })

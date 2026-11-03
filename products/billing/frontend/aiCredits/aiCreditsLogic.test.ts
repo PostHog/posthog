@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -6,6 +8,17 @@ import { initKeaTests } from '~/test/init'
 import { aiCreditsLogic } from './aiCreditsLogic'
 
 const QUOTE = { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' }
+const RELOAD_ON = {
+    monthly_spend_limit_usd: null,
+    low_balance_threshold_usd: '20.00',
+    automatic_reload: {
+        enabled: true,
+        target_usd: '100.00',
+        monthly_reload_limit_usd: null,
+        disabled_reason: null,
+        disabled_at: null,
+    },
+}
 
 // The current period starts on Oct 18, so each read names its own period.
 function spendFor(periodsAgo: number): Record<string, unknown> {
@@ -121,6 +134,41 @@ describe('aiCreditsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.settingsEditDisabledReason).toEqual("Your settings didn't load. Reload the page.")
+    })
+
+    // The card only matters when the person turns reload on. A failed card read must not turn it off.
+    it.each([
+        [
+            'saves the amounts when the switch stays on',
+            true,
+            { low_balance_threshold_usd: '20.00', target_usd: '150.00', monthly_reload_limit_usd: null },
+        ],
+        ['turns reload off when the person switches it off', false, { enabled: false }],
+    ])('with reload on and no card loaded, %s', async (_, reloadEnabled, expectedChange) => {
+        const reloadSaves: Record<string, unknown>[] = []
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        useMocks({
+            get: {
+                '/api/billing/ai_credits/settings/': () => [200, RELOAD_ON],
+                '/api/billing/ai_credits/card/': () => [500, { detail: 'Billing is down' }],
+            },
+            patch: {
+                '/api/billing/ai_credits/settings/automatic_reload/': async ({ request }) => {
+                    reloadSaves.push((await request.json()) as Record<string, unknown>)
+                    return [200, RELOAD_ON]
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openSettingsModal()
+        logic.actions.setSpendSettingsFormValues({ reloadEnabled, targetUsd: 150 })
+        logic.actions.submitSpendSettingsForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reloadSaves).toEqual([{ organization_id: MOCK_DEFAULT_ORGANIZATION.id, ...expectedChange }])
     })
 
     it('shows the chosen billing period, and keeps the balance and reloads on the current one', async () => {
