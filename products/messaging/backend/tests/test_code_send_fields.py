@@ -56,6 +56,11 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 "attachments__0__content_id",
             ),
             ("attachment_that_is_not_an_object", {"attachments": ["invoice.pdf"]}, "attachments__0"),
+            (
+                "attachment_with_a_camel_case_key",
+                {"attachments": [_attachment(contentId="logo")]},
+                "attachments__0__contentId",
+            ),
             ("too_many_attachments", {"attachments": [_attachment()] * 11}, "attachments"),
             (
                 "attachments_too_large",

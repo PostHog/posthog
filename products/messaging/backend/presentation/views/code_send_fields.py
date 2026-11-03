@@ -1,5 +1,6 @@
 import re
 import base64
+from collections.abc import Mapping
 from typing import Any
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -100,6 +101,15 @@ class EmailAttachmentSerializer(serializers.Serializer):
         help_text="Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as "
         "`logo`. Without `<` or `>`.",
     )
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, Mapping):
+            if unknown := next((key for key in sorted(data) if key not in self.fields), None):
+                raise serializers.ValidationError(
+                    {unknown: "An attachment takes `filename`, `content`, `content_type` and `content_id`."},
+                    code="unknown_attachment_field",
+                )
+        return super().to_internal_value(data)
 
     def validate_filename(self, filename: str) -> str:
         if "/" in filename or "\\" in filename or CONTROL_CHARACTERS.search(filename):
