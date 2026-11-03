@@ -40,7 +40,7 @@ import type { UserTheme } from '~/types'
 
 import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
 import { SearchItem } from './searchItems'
-import { STARRED_LIMIT } from './searchListsLogic'
+import { STARRED_LIMIT } from './searchListItems'
 import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
