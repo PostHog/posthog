@@ -6463,13 +6463,29 @@
         "feature_flag": "warehouse-multi-destination"
     },
     "external-data-destinations-connect-link": {
-        "description": "First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure Blob). Returns a browser link where the user enters the credentials in PostHog, plus the next steps in `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'. Never ask the user to paste passwords, keys or tokens into the chat.",
+        "description": "First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure Blob). Returns a browser link where the user enters the credentials in PostHog, a connect_token, and the next steps in `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'. After you share the link, poll external-data-destinations-connect-link-status with the connect_token to get the saved integration id. Never ask the user to paste passwords, keys or tokens into the chat.",
         "category": "Warehouse destinations",
         "feature": "warehouse_sources",
         "summary": "Get a secure connect link for a destination",
         "title": "Get a secure connect link for a destination",
         "required_scopes": ["external_data_source:read"],
         "api_operations": ["GET /api/projects/{project_id}/external_data_destinations/connect_link/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-multi-destination"
+    },
+    "external-data-destinations-connect-link-status": {
+        "description": "Read whether the user saved a connection through a link from external-data-destinations-connect-link. Pass the connect_token from that call. After you give the user the link, call this every few seconds until status is 'connected' or 'expired'. 'pending' means the user has not saved yet. 'connected' returns integration_id and display_name: confirm display_name with the user, then pass integration_id to external-data-destinations-create. 'expired' means the link is too old or was made for another user: get a new link. Never returns credentials.",
+        "category": "Warehouse destinations",
+        "feature": "warehouse_sources",
+        "summary": "Check a destination connect link",
+        "title": "Check a destination connect link",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/external_data_destinations/connect_link_status/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -16587,7 +16603,7 @@
         "requires_ai_consent": true
     },
     "vision-scanners-estimate": {
-        "description": "Preview how many observations a proposed scanner would generate, and what they would cost, before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner, pass `experiment` with the same `experiment_id` and `variants` you will save, so the estimate counts only exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the current period, so prorate them by the days left between `period_start` and `period_end` before comparing.",
+        "description": "Preview how many observations a proposed scanner would generate, and what they would cost, before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored, because the estimate counts a recent window, `window_days` in the response, and scales it to 30 days) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner, pass `experiment` with the same `experiment_id` and `variants` you will save, so the estimate counts only exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the current period, so prorate them by the days left between `period_start` and `period_end` before comparing.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Estimate replay vision scanner volume",
@@ -16831,7 +16847,7 @@
         }
     },
     "vision-scanners-update": {
-        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate` or `sampling_mode`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query`, raise `sampling_rate`, loosen `sampling_mode`, or move to a pricier `model`, re-check projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change, except `query`: it replaces the stored filter as a whole, so read it with `vision-scanners-get` and send it back in full with your changes. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate` or `sampling_mode`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query`, raise `sampling_rate`, loosen `sampling_mode`, or move to a pricier `model`, re-check projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Update replay vision scanner",
