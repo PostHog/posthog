@@ -24,7 +24,10 @@ export function TraceTree({
     matchStepCount = 0,
 }: TraceTreeProps): JSX.Element {
     return (
-        <ul aria-label="Trace steps" className="m-0 list-none rounded border border-primary bg-surface-primary p-1">
+        <ul
+            aria-label="Trace steps"
+            className="m-0 max-h-full list-none overflow-y-auto rounded border border-primary bg-surface-primary p-1"
+        >
             {nodes.map((node) => (
                 <TraceTreeRow
                     key={node.id}

@@ -10,7 +10,7 @@
 use std::borrow::Cow;
 
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
-use posthog_replay_anonymizer::v4_image_refs::URL_UNCHECKED_MARKER;
+use replay_core_v4::v4_image_refs::URL_UNCHECKED_MARKER;
 
 /// Which URL tokens the scrub replaces.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

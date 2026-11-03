@@ -92,6 +92,12 @@ class TestResolveAwsCredentials(BaseTest):
             resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
         assume.assert_not_called()
 
+    def test_unknown_selection_is_refused_even_with_keys(self) -> None:
+        auth = Auth(selection="Role", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="example-secret")
+
+        with self.assertRaises(AwsAuthError):
+            resolve_aws_credentials(auth, self.team.id)
+
     @parameterized.expand(["other_team", "s3_compatible", "github", "deleted"])
     def test_connection_the_source_cannot_use_is_not_found(self, case: str) -> None:
         if case == "other_team":
@@ -181,7 +187,8 @@ class TestResolveAwsCredentials(BaseTest):
         with patch(ASSUME_ROLE, assume):
             credentials = resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
             first = credentials.get_frozen_credentials()
-            second = credentials.get_frozen_credentials()
+            with self.assertNoLogs("botocore.credentials", level="WARNING"):
+                second = credentials.get_frozen_credentials()
 
         assert first.access_key == second.access_key == "ASIAFIRST"
         assert assume.call_count == 2
@@ -227,7 +234,7 @@ def test_every_source_with_the_aws_auth_field_lifts_it_and_keeps_its_own_credent
         if not any(field.name == AWS_AUTH_FIELD_NAME for field in source.get_source_config.fields):
             continue
         if AWS_AUTH_FIELD_NAME not in source.flat_stored_selects:
-            problems.append(f"{source_type.value} does not set flat_stored_selects")
+            problems.append(f"{source_type} does not set flat_stored_selects")
         if source.credential_kind == "aws-s3" and source_type != ExternalDataSourceType.AMAZONS3:
-            problems.append(f"{source_type.value} inherits the aws-s3 credential kind")
+            problems.append(f"{source_type} inherits the aws-s3 credential kind")
     assert problems == []

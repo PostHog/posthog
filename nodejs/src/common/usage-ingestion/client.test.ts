@@ -51,7 +51,7 @@ describe('UsageIngestionClient', () => {
     ])('counts what the service accepted for $name', async ({ teams, accepted, sent, rejected }) => {
         acceptedRecordIds = accepted.map((teamId) => `record-${teamId}`)
 
-        await client.ingest(teams.map(record))
+        expect(await client.ingest(teams.map(record))).toEqual(teams.map(record))
 
         expect(await counted('usage_ingestion_records_sent_total')).toEqual(
             sent === 0 ? [] : [expect.objectContaining({ value: sent })]
@@ -92,7 +92,7 @@ describe('UsageIngestionClient', () => {
             },
         }
 
-        await client.ingest([record(7), record(8)])
+        expect(await client.ingest([record(7), record(8)])).toEqual([])
 
         expect(calls).toBe(expected)
         expect(await counted('usage_ingestion_records_failed_total')).toEqual([
@@ -117,7 +117,7 @@ describe('UsageIngestionClient', () => {
             },
         }
 
-        await client.ingest([record(7)])
+        expect(await client.ingest([record(7)])).toEqual([record(7)])
 
         expect(calls).toBe(3)
         expect(await counted('usage_ingestion_records_sent_total')).toEqual([expect.objectContaining({ value: 1 })])
