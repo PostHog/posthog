@@ -254,6 +254,14 @@ class SuggestedReviewerEntry(BaseModel):
         default=False,
         description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
     )
+    is_default_owner: bool = Field(
+        default=False,
+        description=(
+            "True when no evidence selected anyone and the report fell back to the project's default owner. "
+            "The entry routes the report, but it is not ownership evidence: removing it is not a routing "
+            "correction, and it never selects the autostart task identity."
+        ),
+    )
     source_skill: str | None = Field(
         default=None,
         description=(
@@ -796,6 +804,11 @@ class NoteArtefact(BaseModel):
         return v
 
 
+class CheckAuthoringStatus(BaseModel):
+    status: Literal["succeeded", "failed"]
+    reason: str = Field(min_length=1)
+
+
 class TitleChange(BaseModel):
     """Content schema for a `title_change` artefact: a record of an edit to the report's title.
 
@@ -1253,7 +1266,8 @@ class ImpactMeasurementPlan(BaseModel):
 
 
 StatusArtefactContent = (
-    SafetyJudgment
+    CheckAuthoringStatus
+    | SafetyJudgment
     | ActionabilityAssessment
     | PriorityAssessment
     | RepoSelectionResult
@@ -1310,6 +1324,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "check_authoring": CheckAuthoringStatus,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
@@ -1370,6 +1385,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_result",
         "check_observation",
         "check_scheduled",
+        "check_authoring",
         "check_expired",
         "check_cancelled",
         "report_link",

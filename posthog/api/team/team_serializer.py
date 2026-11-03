@@ -183,6 +183,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
+        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
 
         return representation
 

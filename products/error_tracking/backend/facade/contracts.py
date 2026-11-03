@@ -106,11 +106,42 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearStatusSyncJob:
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The ticket's identifier first, then any identifiers it had before it moved between Linear teams.
+    identifiers: tuple[str, ...]
+    # The workflow state the ticket left. The task reads its category to tell a reopen from a move
+    # between two open states.
+    previous_state_id: str
+
+    def __post_init__(self) -> None:
+        if not self.identifiers:
+            raise ValueError("Provide at least one Linear issue identifier.")
+
+
+@dataclass(frozen=True)
 class ErrorTrackingFingerprint:
     id: UUID
     fingerprint: str
     issue_id: UUID
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueImpact:
+    id: UUID
+    name: str | None
+    description: str | None
+    severity: str | None
+    is_assigned: bool
+    source: str | None
+    first_seen: datetime
+    last_seen: datetime
+    occurrences: int
+    users: int
+    sessions: int
+    daily_occurrences: tuple[int, ...]
 
 
 @dataclass(frozen=True)

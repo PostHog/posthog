@@ -1,3 +1,5 @@
+import * as Crypto from 'expo-crypto'
+
 import type { PendingAttachment } from './attachments/types'
 import {
     canDrain,
@@ -21,6 +23,11 @@ const IDLE: SendGate = { phase: 'idle', sending: false, decisionPending: false }
 function file(name: string): PendingAttachment {
     return { id: name, uri: `file:///picked/${name}`, name, size: 1, contentType: 'text/plain', isImage: false }
 }
+
+let nextQueueId = 0
+jest.spyOn(Crypto, 'randomUUID').mockImplementation(
+    () => `00000000-0000-4000-8000-${String(++nextQueueId).padStart(12, '0')}`
+)
 
 describe('message queue', () => {
     test.each<[string, QueueAction[], QueueState['hold']]>([
@@ -79,6 +86,24 @@ describe('message queue', () => {
         const held = apply(queueActions.enqueue('a'), queueActions.hold('cancelled'))
         expect(canDrain(IDLE, held)).toBe(false)
         expect(shouldQueue(IDLE, held)).toBe(true)
+    })
+
+    test.each(['unconfirmed', 'cancelled'] as const)(
+        'acknowledgment preserves a %s hold only when Stop requires it',
+        (hold) => {
+            const first = apply(queueActions.enqueue('First'))
+            const queued = queueReducer(queueReducer(first, queueActions.enqueue('Second')), queueActions.hold(hold))
+            const confirmed = queueReducer(queued, { type: 'delivered', ids: first.rows.map((row) => row.id) })
+            expect(confirmed.rows.map((row) => row.text)).toEqual(['Second'])
+            expect(confirmed.hold).toBe(hold === 'cancelled' ? 'cancelled' : null)
+        }
+    )
+
+    it('does not auto-send recovered text that is missing its files', () => {
+        const queued = apply(queueActions.enqueue('With a file'))
+        const row = queued.rows[0]
+        if (!row) throw new Error('Expected queued row')
+        expect(canDrain(IDLE, { ...queued, rows: [{ ...row, missingAttachments: 1 }] })).toBe(false)
     })
 
     test.each<[string, Parameters<typeof sendNowState>[0], ReturnType<typeof sendNowState>]>([

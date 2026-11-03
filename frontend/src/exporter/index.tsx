@@ -1,6 +1,8 @@
 import '~/styles'
 import './Exporter.scss'
 
+import '~/taxonomy/registerCoreFilterDefinitions'
+
 import { createRoot } from 'react-dom/client'
 
 import { polyfillCountryFlags } from 'lib/countryFlagEmojiPolyfill'

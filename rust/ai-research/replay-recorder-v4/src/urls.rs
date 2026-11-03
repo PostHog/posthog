@@ -1,11 +1,12 @@
 //! Fetch jobs for the remote images a flush's blocks referenced, in the v3 fetch topic's job shape.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use metrics::counter;
+use posthog_replay_anonymizer::v4_image_refs::image_url_ref;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId};
-use replay_core_v4::refs::{image_url_ref, reference_hash};
+use replay_core_v4::refs::reference_hash;
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{
     is_public_host, is_tracking_beacon, try_canonicalize, CanonicalUrl, Decline,
@@ -22,39 +23,94 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 /// How many redirects a job may follow, as in v3.
 const REMAINING_HOPS: u32 = 10;
 
-/// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
-/// in the stats paired with it. `already_sent` names references this process sent today.
+/// The remote image URLs of a flush's blocks that the URL policy accepts. The flush holds these until it builds its
+/// jobs, so a reference is held once, and only while this process had not sent it today when the flush started.
+pub struct FlushImages {
+    unsent: Vec<(CanonicalUrl, String)>,
+    blocks: Vec<BlockImages>,
+}
+
+#[derive(Default)]
+struct BlockImages {
+    accepted: u32,
+    unsent: Vec<usize>,
+}
+
+impl FlushImages {
+    pub fn new<'b>(
+        blocks: impl IntoIterator<Item = &'b Block>,
+        keys: &FlushKeys,
+        key_month: &str,
+        already_sent: &dyn Fn(&str) -> bool,
+    ) -> Self {
+        let mut unsent = Vec::new();
+        let mut positions: HashMap<String, usize> = HashMap::new();
+        let blocks = blocks
+            .into_iter()
+            .map(|block| {
+                let mut images = BlockImages::default();
+                for (url, reference) in remote_images(block, keys, key_month) {
+                    images.accepted += 1;
+                    if already_sent(&reference) {
+                        continue;
+                    }
+                    let position = *positions.entry(reference.clone()).or_insert_with(|| {
+                        unsent.push((url, reference));
+                        unsent.len() - 1
+                    });
+                    images.unsent.push(position);
+                }
+                images
+            })
+            .collect();
+        Self { unsent, blocks }
+    }
+
+    pub fn unsent_references(&self) -> impl Iterator<Item = &String> {
+        self.unsent.iter().map(|(_, reference)| reference)
+    }
+}
+
+/// Empty when the flush has no keys for the block's session.
+fn remote_images(block: &Block, keys: &FlushKeys, key_month: &str) -> Vec<(CanonicalUrl, String)> {
+    let id = SessionId {
+        team_id: block.session.team_id,
+        session_id: block.session.session_id.clone(),
+    };
+    let (Some(_), Some(team_key)) = (
+        keys.sessions.get(&id),
+        keys.team_months.get(&block.session.team_id),
+    ) else {
+        return Vec::new();
+    };
+    let url_key = image_url_key(team_key);
+    block
+        .image_urls
+        .iter()
+        .filter_map(|raw| url_reference(raw, block.session.team_id, key_month, &url_key).ok())
+        .collect()
+}
+
+/// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts the URLs of each
+/// block in the stats paired with it. `index` is the block's position in the blocks that `images` was built from.
+/// `already_sent` names references this process sent or found fresh today.
 pub fn fetch_jobs<'b>(
-    blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
-    keys: &FlushKeys,
-    key_month: &str,
+    images: &FlushImages,
+    blocks: impl IntoIterator<Item = (usize, &'b Block, &'b mut BlockStats)>,
     now_ms: i64,
     already_sent: &dyn Fn(&str) -> bool,
 ) -> BTreeMap<String, Vec<Value>> {
     let mut jobs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-    let mut seen = HashSet::new();
-    for (block, stats) in blocks {
-        let id = SessionId {
-            team_id: block.session.team_id,
-            session_id: block.session.session_id.clone(),
-        };
-        let (Some(_), Some(team_key)) = (
-            keys.sessions.get(&id),
-            keys.team_months.get(&block.session.team_id),
-        ) else {
-            continue;
-        };
-        let url_key = image_url_key(team_key);
-        for raw in &block.image_urls {
-            let Ok((url, reference)) =
-                url_reference(raw, block.session.team_id, key_month, &url_key)
-            else {
-                continue;
-            };
-            stats.image_urls += 1;
-            if already_sent(&reference) || !seen.insert(reference.clone()) {
+    let mut seen = vec![false; images.unsent.len()];
+    for (index, block, stats) in blocks {
+        let block_images = &images.blocks[index];
+        stats.image_urls += block_images.accepted;
+        for &position in &block_images.unsent {
+            let (url, reference) = &images.unsent[position];
+            if seen[position] || already_sent(reference) {
                 continue;
             }
+            seen[position] = true;
             jobs.entry(url.domain.clone()).or_default().push(json!({
                 "sessionId": block.session.session_id,
                 "originalRef": reference,
@@ -177,20 +233,11 @@ mod tests {
         assert!((0..100).all(|i| sent.contains_key(&mark(1, i))));
     }
 
-    #[test]
-    fn sends_each_new_public_image_url_once_by_domain() {
-        let urls = [
-            "https://cdn.example.com/a.png",
-            "https://cdn.example.com/a.png",
-            "https://img2.cdn.example.com/b.png",
-            "https://cdn.example.com/sent.png",
-            "http://localhost/private.png",
-            "https://bat.bing.com/action/0",
-        ];
-        let block = Block {
+    fn block(session_id: &str, urls: &[&str]) -> Block {
+        Block {
             session: SessionKey {
                 team_id: 7,
-                session_id: "s".to_owned(),
+                session_id: session_id.to_owned(),
             },
             origin: Origin {
                 tp: Tp {
@@ -208,22 +255,44 @@ mod tests {
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
+            css_rewrites: Vec::new(),
             visited_urls: Vec::new(),
             captured_at_ms: None,
-        };
-        let mut stats = BlockStats::default();
+        }
+    }
+
+    fn keys(session_ids: &[&str]) -> FlushKeys {
         let mut keys = FlushKeys::default();
-        keys.sessions.insert(
-            SessionId {
-                team_id: 7,
-                session_id: "s".to_owned(),
-            },
-            Key {
-                key: [1; 32],
-                key_month: "2026-10".to_owned(),
-            },
-        );
+        for session_id in session_ids {
+            keys.sessions.insert(
+                SessionId {
+                    team_id: 7,
+                    session_id: (*session_id).to_owned(),
+                },
+                Key {
+                    key: [1; 32],
+                    key_month: "2026-10".to_owned(),
+                },
+            );
+        }
         keys.team_months.insert(7, [2; 32]);
+        keys
+    }
+
+    #[test]
+    fn sends_each_new_public_image_url_once_by_domain() {
+        let block = block(
+            "s",
+            &[
+                "https://cdn.example.com/a.png",
+                "https://cdn.example.com/a.png",
+                "https://img2.cdn.example.com/b.png",
+                "https://cdn.example.com/sent.png",
+                "http://localhost/private.png",
+                "https://bat.bing.com/action/0",
+            ],
+        );
+        let mut stats = BlockStats::default();
         let sent_hash = reference_hash(
             &image_url_key(&[2; 32]),
             try_canonicalize("https://cdn.example.com/sent.png")
@@ -232,14 +301,10 @@ mod tests {
                 .as_bytes(),
         );
         let sent = image_url_ref(7, "2026-10", &sent_hash);
+        let already_sent = |reference: &str| reference == sent;
 
-        let jobs = fetch_jobs(
-            [(&block, &mut stats)],
-            &keys,
-            "2026-10",
-            1_000,
-            &|reference| reference == sent,
-        );
+        let images = FlushImages::new([&block], &keys(&["s"]), "2026-10", &already_sent);
+        let jobs = fetch_jobs(&images, [(0, &block, &mut stats)], 1_000, &already_sent);
         let domains: Vec<_> = jobs.keys().cloned().collect();
         assert_eq!(domains, ["example.com"]);
         let fetched: Vec<_> = jobs["example.com"]
@@ -264,6 +329,41 @@ mod tests {
         );
         // Every public URL the block referenced counts, sent before or not.
         assert_eq!(stats.image_urls, 4);
+    }
+
+    #[test]
+    fn holds_each_unsent_reference_once_and_sends_it_for_the_first_kept_block() {
+        let shared = "https://cdn.example.com/shared.png";
+        let blocks = [
+            block("dropped", &[shared]),
+            block(
+                "first",
+                &[shared, shared, "https://cdn.example.com/own.png"],
+            ),
+            block("second", &[shared]),
+        ];
+        let images = FlushImages::new(
+            &blocks,
+            &keys(&["dropped", "first", "second"]),
+            "2026-10",
+            &|_| false,
+        );
+        assert_eq!(images.unsent_references().count(), 2);
+
+        let mut stats = [BlockStats::default(), BlockStats::default()];
+        let [first_stats, second_stats] = &mut stats;
+        let jobs = fetch_jobs(
+            &images,
+            [(1, &blocks[1], first_stats), (2, &blocks[2], second_stats)],
+            1_000,
+            &|_| false,
+        );
+        let sessions: Vec<_> = jobs["example.com"]
+            .iter()
+            .map(|job| job["sessionId"].as_str().unwrap())
+            .collect();
+        assert_eq!(sessions, ["first", "first"]);
+        assert_eq!((stats[0].image_urls, stats[1].image_urls), (3, 1));
     }
 
     #[test]
