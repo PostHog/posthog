@@ -82,7 +82,8 @@ export function isIndividualInsightPath(pathname: string): boolean {
 
 export const COHORTS_PER_PAGE = 100
 
-export const MAX_COHORTS_FOR_FULL_LIST = 2000
+// The cohort list returns at most 1000 rows per request, so a full-list load reads every page.
+const COHORTS_FULL_LIST_PAGE_SIZE = 1000
 
 export interface CohortFilters {
     search?: string
@@ -92,6 +93,24 @@ export interface CohortFilters {
 export const DEFAULT_COHORT_FILTERS: CohortFilters = {
     search: undefined,
     page: 1,
+}
+
+async function loadAllCohortPages<T>(
+    loadPage: (params: {
+        limit: number
+        offset: number
+    }) => Promise<{ count: number; next?: string | null; results: T[] }>
+): Promise<CountedPaginatedResponse<T>> {
+    const results: T[] = []
+    let count = 0
+    let hasNextPage = true
+    while (hasNextPage) {
+        const page = await loadPage({ limit: COHORTS_FULL_LIST_PAGE_SIZE, offset: results.length })
+        results.push(...page.results)
+        count = page.count
+        hasNextPage = !!page.next && page.results.length > 0
+    }
+    return { count, results }
 }
 
 export function processCohort(cohort: CohortType): CohortType {
@@ -236,16 +255,10 @@ export interface cohortsModelActions {
         errorObject?: any
     }
     loadAllCohortsSuccess: (
-        allCohorts: {
-            count: number
-            results: CohortType[]
-        },
+        allCohorts: CountedPaginatedResponse<CohortType>,
         payload?: any
     ) => {
-        allCohorts: {
-            count: number
-            results: CohortType[]
-        }
+        allCohorts: CountedPaginatedResponse<CohortType>
         payload?: any
     }
     loadCohorts: () => any
@@ -278,16 +291,10 @@ export interface cohortsModelActions {
         errorObject?: any
     }
     loadCohortsSuccess: (
-        cohorts: {
-            count: number
-            results: CohortType[]
-        },
+        cohorts: CountedPaginatedResponse<CohortType>,
         payload?: any
     ) => {
-        cohorts: {
-            count: number
-            results: CohortType[]
-        }
+        cohorts: CountedPaginatedResponse<CohortType>
         payload?: any
     }
     setPollTimeout: (pollTimeout: number | null) => {
@@ -331,13 +338,16 @@ export const cohortsModel = kea<cohortsModelType>([
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
-                    limit: MAX_COHORTS_FOR_FULL_LIST,
-                })
+                if (!isAuthenticatedTeam(values.currentTeam)) {
+                    return values.cohorts
+                }
+                const projectId = String(values.currentTeam.project_id)
+                const response = await loadAllCohortPages((params) => cohortsApi.cohortsList(projectId, params))
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
                 return {
                     count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
+                    // The shared cache still exposes the legacy shape to its consumers.
+                    results: response.results.map((cohort) => processCohort(cohort as unknown as CohortType)),
                 }
             },
         },
@@ -385,21 +395,25 @@ export const cohortsModel = kea<cohortsModelType>([
                 cache.fullListRequested = true
                 // `allCohorts` feeds `cohortsById`, mostly id + name lookups, so request the
                 // basic payload that drops the legacy `groups`/`query` JSON. Fetching the full
-                // payload for up to 2,000 cohorts on this hot path was slow enough to hit the
+                // payload for every cohort on this hot path was slow enough to hit the
                 // gateway timeout on cohort-heavy teams. `filters` stays in the basic payload:
                 // the feature-flag intent warning reads it off `cohortsById` (see
                 // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
                 // what that check expects, so no `processCohort` normalization is needed here.
-                const response = await api.cohorts.listBasic({
-                    limit: MAX_COHORTS_FOR_FULL_LIST,
-                })
-                const listedIds = new Set(response.results.map(({ id }) => id))
+                if (!isAuthenticatedTeam(values.currentTeam)) {
+                    return values.allCohorts
+                }
+                const projectId = String(values.currentTeam.project_id)
+                const response = await loadAllCohortPages((params) =>
+                    cohortsApi.cohortsList(projectId, { ...params, basic: true })
+                )
+                const listedIds = new Set<CohortType['id']>(response.results.map(({ id }) => id))
                 return {
                     count: response.count,
                     // `groups` is dropped from the basic payload but required on CohortType, so
                     // add the empty default back — nothing reading `cohortsById` uses `groups`.
                     results: [
-                        ...response.results.map((cohort): CohortType => ({ ...cohort, groups: [] })),
+                        ...response.results.map((cohort) => ({ ...(cohort as unknown as CohortType), groups: [] })),
                         ...values.allCohorts.results.filter(
                             ({ id }) => !listedIds.has(id) && cache.referencedCohortIds?.has(id)
                         ),
