@@ -5,7 +5,7 @@ from posthog.migration_helpers import ValidateConstraint
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1421_oauth_device_grant"),
+        ("posthog", "1422_oauth_device_grant"),
     ]
 
     operations = [
