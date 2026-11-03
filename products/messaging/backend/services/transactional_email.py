@@ -31,6 +31,7 @@ from products.messaging.backend.facade.contracts import (
     IdempotencyKeyReused,
     InvalidIdempotencyKey,
     InvalidRecipient,
+    InvalidRequest,
     MarketingTemplate,
     QueuedEmail,
     QuotaLimited,
@@ -168,6 +169,11 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "so the email would bounce. Check the address for a typo.",
     ),
     "not_sendable": (TransactionalEmailPaused, "This email's workflow isn't active. Turn it back on to send."),
+    "invalid_request": (
+        InvalidRequest,
+        "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
+        "fields, then send it again.",
+    ),
 }
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
@@ -196,6 +202,10 @@ def check_sendable(team_id: int, *, template_type: str, content: dict, message_c
 SENDER_ADDRESS_MAX_LENGTH = 254
 # Matches the send path, which ignores a custom address that fails these checks and sends from the sender's own.
 SENDER_ADDRESS_PATTERN = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+PIPELINE_ADDRESS_PATTERN = re.compile(
+    r"[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+"
+)
 
 
 def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
@@ -573,17 +583,20 @@ def _queue(
     if response.status_code != 202:
         refusal_code = _refusal_code(response)
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
-        if refusal is not None:
-            error_class, message = refusal
-            raise error_class(message)
-        logger.error(
-            "transactional_email_queue_rejected",
-            team_id=team_id,
-            hog_flow_id=str(hog_flow_id),
-            status_code=response.status_code,
-            refusal_code=refusal_code,
-        )
-        raise DeliveryUnavailable()
+        if refusal is None and response.status_code == 400:
+            refusal = PIPELINE_REFUSALS["invalid_request"]
+        if refusal is None or refusal[0] is InvalidRequest:
+            logger.error(
+                "transactional_email_queue_rejected",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+                status_code=response.status_code,
+                refusal_code=refusal_code,
+            )
+        if refusal is None:
+            raise DeliveryUnavailable()
+        error_class, message = refusal
+        raise error_class(message)
 
     body = response.json()
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
