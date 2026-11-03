@@ -384,6 +384,7 @@ pub fn for_each_escaped_match(
                 let character = match char::from_u32(ch) {
                     Some('\t' | '\n' | '\r') => None,
                     Some('\\') => Some('/'),
+                    Some('\0') if css => Some(char::REPLACEMENT_CHARACTER),
                     Some(character) => Some(character),
                     None => Some(char::REPLACEMENT_CHARACTER),
                 };
