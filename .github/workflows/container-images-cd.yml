@@ -742,6 +742,7 @@ jobs:
                         - bin/temporal-django-worker
 
             - name: Trigger PostHog Cloud deployment from Charts
+              id: dispatch-charts
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -1449,20 +1450,22 @@ jobs:
                         "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
 
-            # A failed build or boot check dispatches nothing, so no deploy carries this commit.
-            # Nothing else reports that; the Slack post is the only signal a person gets.
+            # A failure before the charts dispatch leaves the commit undeployed. The
+            # posthog-image-build event above records it, but no person is alerted by it.
             - name: Alert Slack that the cloud image build failed
-              if: failure()
+              if: failure() && github.ref == 'refs/heads/master' && steps.dispatch-charts.outcome != 'success'
               continue-on-error: true
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              env:
+                  SLACK_CHANNEL: 'C0C3FBES5ST'
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   errors: true
                   payload: |
-                      channel: "C0C3FBES5ST"
+                      channel: "${{ env.SLACK_CHANNEL }}"
                       unfurl_links: false
-                      text: ":red_circle: The cloud image build failed on master, so this commit is not deploying: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      text: ":red_circle: The cloud image build failed before the deploy dispatch, so master is not deploying: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
     # Main image plus the inbox-ranking dependency group, for the inbox ranking training code
     # location. Nothing depends on this job, and continue-on-error keeps the run green, so a
