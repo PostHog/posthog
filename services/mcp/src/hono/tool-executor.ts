@@ -107,6 +107,7 @@ interface ExecMetricState {
     skillLookupMissKind: SkillLookupMissKind | undefined
     resultEmpty: boolean
     noDataNotice: { mode: NoDataNoticeMode; text: string } | undefined
+    innerCall: { toolName: string; input: Record<string, unknown>; result: unknown } | undefined
 }
 
 /**
@@ -347,7 +348,7 @@ export class ToolExecutor {
             if (state.viaMcpStore) {
                 return { content: [{ type: 'text', text: 'Tool exec not found' }], isError: true }
             }
-            return this.callExecTool(callParams, state, analyticsMeta)
+            return this.callExecTool(callParams, state, analyticsMeta, tasksRequested)
         }
 
         if (toolName === 'render-ui') {
@@ -579,13 +580,7 @@ export class ToolExecutor {
             })
 
             const task = options?.tasksRequested
-                ? await this.createTaskIfPending(tool.name, validation.data, handlerResult, state).catch(
-                      (error: unknown) => {
-                          // The job runs already, so a failed task write must not hide the run this call started.
-                          console.error('[ToolExecutor] Task creation failed:', error)
-                          return undefined
-                      }
-                  )
+                ? await this.startTask(tool.name, validation.data, handlerResult, state)
                 : undefined
             return task ?? response
         } catch (error: unknown) {
@@ -687,6 +682,21 @@ export class ToolExecutor {
         })
     }
 
+    private async startTask(
+        toolName: string,
+        args: Record<string, unknown>,
+        handlerResult: unknown,
+        state: ResolvedState
+    ): Promise<Record<string, unknown> | undefined> {
+        try {
+            return await this.createTaskIfPending(toolName, args, handlerResult, state)
+        } catch (error: unknown) {
+            // The job runs already, so a failed task write must not hide the run this call started.
+            console.error('[ToolExecutor] Task creation failed:', error)
+            return undefined
+        }
+    }
+
     private async createTaskIfPending(
         toolName: string,
         args: Record<string, unknown>,
@@ -780,15 +790,17 @@ export class ToolExecutor {
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta?: ToolCallAnalyticsMeta,
+        tasksRequested = false
     ): Promise<unknown> {
-        return this.runExecTool(params, state, analyticsMeta)
+        return this.runExecTool(params, state, analyticsMeta, tasksRequested)
     }
 
     private async runExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta?: ToolCallAnalyticsMeta,
+        tasksRequested = false
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
@@ -797,6 +809,7 @@ export class ToolExecutor {
             skillLookupMissKind: undefined,
             resultEmpty: false,
             noDataNotice: undefined,
+            innerCall: undefined,
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -903,6 +916,14 @@ export class ToolExecutor {
                 this.servedToolDescription(execToolName())
             )
 
+            const innerCall = execMetrics.innerCall
+            const task =
+                tasksRequested && innerCall
+                    ? await this.startTask(innerCall.toolName, innerCall.input, innerCall.result, state)
+                    : undefined
+            if (task) {
+                return task
+            }
             return execMetrics.noDataNotice ? prependNoDataNotice(response, execMetrics.noDataNotice.text) : response
         } catch (error: unknown) {
             const metricTool = execToolName()
@@ -1153,6 +1174,9 @@ export class ToolExecutor {
                         throw new NoDataInstallNoticeError(toolName, noDataNotice.text)
                     }
                     execMetrics.noDataNotice = noDataNotice
+                },
+                afterValidatedCall: (toolName, input, result) => {
+                    execMetrics.innerCall = { toolName, input, result }
                 },
             }
         )

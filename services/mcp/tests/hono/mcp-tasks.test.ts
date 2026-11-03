@@ -14,6 +14,10 @@ const TOKEN = 'phx_tasks_test_token'
 const OTHER_USER_TOKEN = 'phx_tasks_other_user_token'
 const RUN_ID = '0190a5d3-0000-7000-8000-000000000001'
 const START_TOOL = 'experiment-metrics-recalculation-create'
+const START_CALLS = [
+    { mode: 'tools', call: { name: START_TOOL, arguments: { id: 7 } } },
+    { mode: 'cli', call: { name: 'exec', arguments: { command: `call ${START_TOOL} {"id": 7}` } } },
+] as const
 
 const usersMe = JSON.parse(
     readFileSync(resolve(__dirname, '../workers/fixtures/api_users__me.json'), 'utf-8')
@@ -70,7 +74,8 @@ async function rpc(
         declareTasks = false,
         token = TOKEN,
         path = '/mcp',
-    }: { declareTasks?: boolean; token?: string; path?: string } = {}
+        mode = 'tools',
+    }: { declareTasks?: boolean; token?: string; path?: string; mode?: 'tools' | 'cli' } = {}
 ): Promise<{ result?: Record<string, any>; error?: { code: number; message: string } }> {
     const response = await app.request(path, {
         method: 'POST',
@@ -78,7 +83,7 @@ async function rpc(
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
-            'x-posthog-mcp-mode': 'tools',
+            'x-posthog-mcp-mode': mode,
             'MCP-Protocol-Version': '2026-07-28',
             'Mcp-Method': method,
             ...(typeof params.name === 'string' ? { 'Mcp-Name': params.name } : {}),
@@ -121,31 +126,37 @@ describe('MCP Tasks extension', () => {
         statusChecks = 0
     })
 
-    it('runs a queued recalculation as a task and returns the status tool result when it finishes', async () => {
-        const discover = await rpc('server/discover', {})
-        expect(discover.result?.capabilities.extensions).toHaveProperty([TASKS_EXTENSION_ID])
+    it.each(START_CALLS)(
+        'runs a queued recalculation as a task in $mode mode and returns the status tool result when it finishes',
+        async ({ mode, call }) => {
+            const discover = await rpc('server/discover', {}, { mode })
+            expect(discover.result?.capabilities.extensions).toHaveProperty([TASKS_EXTENSION_ID])
 
-        const started = await rpc('tools/call', { name: START_TOOL, arguments: { id: 7 } }, { declareTasks: true })
-        expect(started.result).toMatchObject({ resultType: 'task', status: 'working', pollIntervalMs: 5000 })
-        const taskId = started.result?.taskId
+            const started = await rpc('tools/call', call, { declareTasks: true, mode })
+            expect(started.result).toMatchObject({ resultType: 'task', status: 'working', pollIntervalMs: 5000 })
+            const taskId = started.result?.taskId
 
-        const running = await rpc('tasks/get', { taskId }, { declareTasks: true })
-        expect(running.result).toMatchObject({ taskId, status: 'working', statusMessage: '1 of 2 metrics done' })
-        expect(running.result).not.toHaveProperty('result')
+            const running = await rpc('tasks/get', { taskId }, { declareTasks: true, mode })
+            expect(running.result).toMatchObject({ taskId, status: 'working', statusMessage: '1 of 2 metrics done' })
+            expect(running.result).not.toHaveProperty('result')
 
-        const finished = await rpc('tasks/get', { taskId }, { declareTasks: true })
-        expect(finished.result).toMatchObject({ taskId, status: 'completed' })
-        expect(finished.result?.result.isError).toBeFalsy()
-        expect(JSON.stringify(finished.result?.result.content)).toContain('0.913')
-    })
+            const finished = await rpc('tasks/get', { taskId }, { declareTasks: true, mode })
+            expect(finished.result).toMatchObject({ taskId, status: 'completed' })
+            expect(finished.result?.result.isError).toBeFalsy()
+            expect(JSON.stringify(finished.result?.result.content)).toContain('0.913')
+        }
+    )
 
-    it('answers synchronously when the request does not declare the extension', async () => {
-        const response = await rpc('tools/call', { name: START_TOOL, arguments: { id: 7 } })
+    it.each(START_CALLS)(
+        'answers synchronously in $mode mode when the request does not declare the extension',
+        async ({ mode, call }) => {
+            const response = await rpc('tools/call', call, { mode })
 
-        expect(response.result).toMatchObject({ resultType: 'complete' })
-        expect(response.result).not.toHaveProperty('taskId')
-        expect(JSON.stringify(response.result?.content)).toContain(RUN_ID)
-    })
+            expect(response.result).toMatchObject({ resultType: 'complete' })
+            expect(response.result).not.toHaveProperty('taskId')
+            expect(JSON.stringify(response.result?.content)).toContain(RUN_ID)
+        }
+    )
 
     it.each([
         { caller: 'a different user', options: { declareTasks: true, token: OTHER_USER_TOKEN }, code: -32602 },

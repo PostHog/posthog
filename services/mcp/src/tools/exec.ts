@@ -288,6 +288,8 @@ export interface ExecToolOptions {
      */
     heldTools?: ReadonlySet<string>
     beforeValidatedCall?: (toolName: string, input: Record<string, unknown>) => Promise<void>
+    /** Receives the raw result of a successful `call` before exec serializes it into text for the agent. */
+    afterValidatedCall?: (toolName: string, input: Record<string, unknown>, result: unknown) => void
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -1967,7 +1969,10 @@ export function createExecTool(
                             ? undefined
                             : `No tool is named "${fallbackFrom}". These are the closest matches by its words.`
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                        const catalogHint = catalogDiscoveryHint(
+                            allTools,
+                            namesMatchingSearch(matchedNames, searchTerm)
+                        )
                         return JSON.stringify({
                             matches,
                             truncated: true,
@@ -2237,6 +2242,7 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    options.afterValidatedCall?.(tool.name, input, result)
                     // The text path below builds no payload, so emptiness is reported from here.
                     const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
                     const formattedOverride =
