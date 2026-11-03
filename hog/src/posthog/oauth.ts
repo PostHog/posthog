@@ -15,7 +15,6 @@ export const HOG_CLIENT_ID = 'https://posthog.com/.well-known/oauth/hog/client-m
 
 const REQUEST_TIMEOUT_MS = 30_000
 // Refresh this long before the access token expires, so it doesn't expire during a command.
-// A command resolves its credentials once, so the margin also covers a command that runs for minutes.
 const REFRESH_MARGIN_MS = 10 * 60_000
 
 export interface TokenResponse {
@@ -26,7 +25,6 @@ export interface TokenResponse {
     scoped_teams?: number[]
 }
 
-// OAuth endpoints take form-encoded requests, unlike the rest of PostHog's API.
 export function oauthPost(
     runtime: Runtime,
     host: string,

@@ -122,8 +122,6 @@ export async function apiConnection(
     }
 }
 
-// Runs `call` with the command's connection, through the session, so an OAuth token PostHog
-// rejects is renewed and `call` runs once more.
 export async function withApiConnection<T>(
     ctx: Context,
     scope: { projectId?: string | undefined; organizationId?: string | undefined },

@@ -3,9 +3,9 @@ import type { Runtime } from '@/core/runtime'
 import type { AccessKey } from './access-key'
 import type { Credentials } from './credentials'
 
-// The key every request of one command sends. A command can outlive an OAuth access token, so each
-// request renews it first when it is about to expire, and renews it and sends once more when PostHog
-// answers 401. PostHog checks the token before it does any work, so the second send is safe for a POST too.
+// A command can outlive an OAuth access token, so each request renews it first when it is about to
+// expire, and renews it and sends once more when PostHog answers 401. PostHog checks the token
+// before it does any work, so the second send is safe for a POST too.
 export class KeySession {
     private key: AccessKey
 
