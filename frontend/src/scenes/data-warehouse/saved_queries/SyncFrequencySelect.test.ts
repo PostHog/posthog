@@ -1,3 +1,5 @@
+import { DataModelingSyncInterval } from '~/types'
+
 import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import {
@@ -6,6 +8,7 @@ import {
     defaultCadenceWithin,
     inheritedCadence,
     modeDisabledReason,
+    needsPin,
     pinNote,
     SyncFrequencyValue,
     unpinnedCadence,
@@ -15,6 +18,9 @@ import {
 
 describe('SyncFrequencySelect', () => {
     const blocker = (name: string): { id: string; name: string } => ({ id: `id-${name}`, name })
+
+    type PinOptions = NonNullable<Parameters<typeof buildOptions>[1]>
+    const pinning = (options: PinOptions): PinOptions => options
 
     const bounds = (overrides: Partial<SyncFrequencyBoundsApi> = {}): SyncFrequencyBoundsApi =>
         ({
@@ -39,23 +45,37 @@ describe('SyncFrequencySelect', () => {
     })
 
     it.each([
-        ['without pinning', {}, 'Too slow for downstream view daily_revenue', 'Every 1 day'],
+        ['without pinning', pinning({}), 'Too slow for downstream view daily_revenue', 'Every 1 day'],
         [
             'with pinning, a too-slow cadence names the views the pin delays',
-            { canPin: true, pinDelays: { '24hour': [blocker('daily_revenue'), blocker('mrr')] } },
+            pinning({
+                canPin: true,
+                unpinnedBy: { '24hour': '6hour' },
+                pinDelays: { '24hour': [blocker('daily_revenue'), blocker('mrr')] },
+            }),
             undefined,
             'Pin this view to every 1 day. Downstream views daily_revenue, mrr refresh more often and will read older data from it.',
         ],
         [
             'with pinning, a too-slow cadence falls back to the view that caps it',
-            { canPin: true },
+            pinning({ canPin: true, unpinnedBy: { '24hour': '6hour' } }),
             undefined,
             'Pin this view to every 1 day. Downstream view daily_revenue refreshes more often and will read older data from it.',
         ],
         [
             'with pinning, a pin that strands a downstream view stays off',
-            { canPin: true, pinBlockedBy: { '24hour': blocker('maps') } },
+            pinning({ canPin: true, unpinnedBy: { '24hour': '6hour' }, pinBlockedBy: { '24hour': blocker('maps') } }),
             "Can't pin: downstream view maps reads fresh data only through this view",
+            'Every 1 day',
+        ],
+        [
+            'with pinning, a pin that strands a view the caller cannot read is still refused',
+            pinning({
+                canPin: true,
+                unpinnedBy: { '24hour': '6hour' },
+                pinBlockedBy: { '24hour': { id: null, name: null } },
+            }),
+            "Can't pin: a downstream view reads fresh data only through this view",
             'Every 1 day',
         ],
     ])(
@@ -94,6 +114,36 @@ describe('SyncFrequencySelect', () => {
         })
 
         expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(reason)
+    })
+
+    describe('needsPin', () => {
+        it.each([
+            ['a downstream view asks for fresher data than the cadence', '24hour', { '24hour': '15min' }, true],
+            ['nothing downstream asks for fresher data', '24hour', { '24hour': '24hour' }, false],
+            ['the source floor holds the view back instead', '15min', { '15min': '1hour' }, false],
+            ['the cadence is not in the bounds', '24hour', {}, false],
+            ['the view is paused', 'never', { '24hour': '15min' }, false],
+        ])('is decided from the node bounds when %s', (_case, cadence, unpinnedBy, expected) => {
+            expect(
+                needsPin(unpinnedBy as Partial<Record<string, DataModelingSyncInterval>>, cadence as SyncFrequencyValue)
+            ).toBe(expected)
+        })
+
+        it('asks a pinned view for a pin on a slower cadence, which the saved-query bounds no longer refuse', () => {
+            const options = buildOptions(
+                bounds({
+                    options: [
+                        { cadence: '6hour', allowed: true, blocked_by: null, blocker: null },
+                        { cadence: '24hour', allowed: true, blocked_by: null, blocker: null },
+                    ],
+                } as Partial<SyncFrequencyBoundsApi>),
+                { canPin: true, unpinnedBy: { '24hour': '15min' } }
+            )
+
+            expect(options.find((option) => option.value === '24hour')?.tooltip).toContain(
+                'Pin this view to every 1 day.'
+            )
+        })
     })
 
     describe('pinNote', () => {

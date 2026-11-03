@@ -66262,6 +66262,13 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface NodePinBlocker {
+      /** Node id of the downstream view that stops the pin, or null when the caller may not read it. */
+      id: string | null;
+      /** Name of the downstream view that stops the pin, or null when the caller may not read it. */
+      name: string | null;
+    }
+
     export interface NodeFrequencyOption {
       /** A cadence the view could refresh at.
        *
@@ -66277,7 +66284,7 @@ export namespace Schemas {
       /** Downstream views and endpoints that refresh more often than this cadence. If this view were pinned to it, they would read data older than their own cadence. */
       delays_if_pinned: NodePinDelay[];
       /** The downstream view that stops a pin at this cadence. It reads fresh data only through this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null when this cadence can be pinned. */
-      pin_blocked_by: NodePinDelay | null;
+      pin_blocked_by: NodePinBlocker | null;
       /** The cadence the view would run at if it held this cadence without a pin. Finer than this cadence when a downstream view needs fresher data than the pin allows.
        *
        * * `15min` - 15min

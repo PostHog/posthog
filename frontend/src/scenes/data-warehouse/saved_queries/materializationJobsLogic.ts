@@ -945,7 +945,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         },
         setSyncFrequencyDraft: ({ frequency }) => {
             // A cadence slower than a downstream view needs is only valid pinned, so the pick carries the pin.
-            if (values.nodeFrequency && needsPin(values.savedQuery?.sync_frequency_bounds, frequency)) {
+            if (values.cadencePin && needsPin(values.cadencePin.unpinnedBy, frequency)) {
                 actions.setPinDraft(true)
             } else if (values.pinDraft) {
                 actions.setPinDraft(null)

@@ -1195,7 +1195,7 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         options = {option["cadence"]: option for option in response.json()["options"]}
-        self.assertEqual(options["24hour"]["pin_blocked_by"], {"id": "", "name": "a downstream view"})
+        self.assertEqual(options["24hour"]["pin_blocked_by"], {"id": None, "name": None})
         self.assertEqual(options["24hour"]["delays_if_pinned"], [])
         self.assertNotIn("hidden_consumer", response.content.decode())
         self.assertNotIn(str(consumer.id), response.content.decode())

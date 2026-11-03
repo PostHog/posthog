@@ -9,7 +9,7 @@ typed column.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import timedelta
 from typing import Any
 
@@ -19,7 +19,9 @@ from products.data_modeling.backend.facade.contracts import SavedQueryNodeState,
 from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
+    ClampedCadence,
     TargetBounds,
+    TargetOption,
     all_source_floors,
     ancestors_of,
     clamp_to_source_floor,
@@ -29,6 +31,7 @@ from products.data_modeling.backend.logic.freshness import (
     descendants_of,
     intersect_target_bounds,
     max_data_age,
+    nodes_below_source_floor,
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
@@ -139,7 +142,6 @@ def node_states_by_saved_query(
     return {
         query_id: SavedQueryNodeState(
             declared_target=targets.get(query_id),
-            pinned=any(get_declared_pin(node) for node in nodes),
             suspended={
                 engine: SuspensionMarker(at=marker["at"], reason=marker["reason"], job_id=marker["job_id"])
                 for engine, marker in merged_suspension_state(nodes).items()
@@ -342,12 +344,6 @@ class SavedQueryFrequencyBounds:
     max_data_age: timedelta
     speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
     pinned: bool
-    # cadence -> downstream nodes that would read data older than their own cadence if this were pinned to it
-    delays_if_pinned: dict[timedelta, set[str]]
-    # cadence -> downstream nodes whose own target a pin at that cadence would put out of reach
-    pin_blocked_by: dict[timedelta, set[str]]
-    # cadence -> the cadence this view would run at if it held that target without a pin
-    unpinned_cadence: dict[timedelta, timedelta]
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -368,9 +364,6 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
-    delays_if_pinned: dict[timedelta, set[str]] = {}
-    pin_blocked_by: dict[timedelta, set[str]] = {}
-    unpinned_cadence: dict[timedelta, timedelta] = {}
     data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
@@ -396,21 +389,6 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         candidates = [option.value for option in per_dag[-1].options if option.allowed]
         for cadence, sped_up in _speeds_up_by_cadence(team_id, str(node.id), graph, ancestors, candidates).items():
             speeds_up.setdefault(cadence, set()).update(sped_up)
-        for cadence, delayed in _delays_if_pinned_by_cadence(str(node.id), graph, per_dag[-1]).items():
-            delays_if_pinned.setdefault(cadence, set()).update(delayed)
-        for option in per_dag[-1].options:
-            stranded = descendants_broken_by_pin(
-                node_id=str(node.id),
-                target=option.value,
-                edges=graph.edges,
-                declared_targets=graph.declared_targets,
-                source_intervals=graph.source_intervals,
-                pinned=graph.pinned,
-            )
-            pin_blocked_by.setdefault(option.value, set()).update(invalid.node_id for invalid in stranded)
-        for cadence, runs_at in _unpinned_cadence_by_cadence(str(node.id), graph, per_dag[-1]).items():
-            # A saved query with nodes in several DAGs runs at the finest cadence any of them asks for
-            unpinned_cadence[cadence] = min(runs_at, unpinned_cadence.get(cadence, runs_at))
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
@@ -421,9 +399,68 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         max_data_age=max(data_ages),
         speeds_up=speeds_up,
         pinned=any(get_declared_pin(node) for node in nodes),
-        delays_if_pinned=delays_if_pinned,
-        pin_blocked_by=pin_blocked_by,
-        unpinned_cadence=unpinned_cadence,
+    )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class SavedQueryPinPreview:
+    """What pinning a saved query to each cadence would do, for the one endpoint that shows it."""
+
+    # cadence -> downstream nodes that would read data older than their own cadence if this were pinned to it
+    delays_if_pinned: dict[timedelta, set[str]]
+    # cadence -> downstream nodes whose own target a pin at that cadence would put out of reach
+    pin_blocked_by: dict[timedelta, set[str]]
+    # cadence -> the cadence this view would run at if it held that target without a pin
+    unpinned_cadence: dict[timedelta, timedelta]
+
+
+def saved_query_pin_preview(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryPinPreview:
+    """The pin preview for every cadence the saved query's nodes offer, folded across their DAGs.
+
+    Kept apart from `saved_query_target_bounds` because it costs a full-graph pass per cadence and
+    only the node frequency endpoint reads it.
+    """
+    delays_if_pinned: dict[timedelta, set[str]] = {}
+    pin_blocked_by: dict[timedelta, set[str]] = {}
+    unpinned_cadence: dict[timedelta, timedelta] = {}
+    graphs: dict[str, FrequencyGraph] = {}
+    for node in Node.objects.filter(team_id=team_id, saved_query_id=saved_query_id).select_related("dag"):
+        dag_key = str(node.dag_id)
+        if dag_key not in graphs:
+            graphs[dag_key] = build_frequency_graph(node.dag)
+        graph = graphs[dag_key]
+        node_id = str(node.id)
+        options = compute_target_bounds(
+            node_id=node_id,
+            edges=graph.edges,
+            declared_targets=graph.declared_targets,
+            source_intervals=graph.source_intervals,
+            pinned=graph.pinned,
+        ).options
+        for cadence, delayed in _delays_if_pinned_by_cadence(node_id, graph, options).items():
+            delays_if_pinned.setdefault(cadence, set()).update(delayed)
+        below_floor = nodes_below_source_floor(
+            edges=graph.edges,
+            declared_targets=graph.declared_targets,
+            source_intervals=graph.source_intervals,
+            pinned=graph.pinned - {node_id},
+        )
+        for option in options:
+            stranded = descendants_broken_by_pin(
+                node_id=node_id,
+                target=option.value,
+                edges=graph.edges,
+                declared_targets=graph.declared_targets,
+                source_intervals=graph.source_intervals,
+                pinned=graph.pinned,
+                already_below_floor=below_floor,
+            )
+            pin_blocked_by.setdefault(option.value, set()).update(invalid.node_id for invalid in stranded)
+        for cadence, runs_at in _unpinned_cadence_by_cadence(node_id, graph, options).items():
+            # A saved query with nodes in several DAGs runs at the finest cadence any of them asks for
+            unpinned_cadence[cadence] = min(runs_at, unpinned_cadence.get(cadence, runs_at))
+    return SavedQueryPinPreview(
+        delays_if_pinned=delays_if_pinned, pin_blocked_by=pin_blocked_by, unpinned_cadence=unpinned_cadence
     )
 
 
@@ -438,12 +475,7 @@ def _speeds_up_by_cadence(
     """
 
     def run(declared_targets: dict[str, timedelta]) -> dict[str, timedelta | None]:
-        effective = compute_effective_cadences(
-            nodes=graph.nodes, edges=graph.edges, declared_targets=declared_targets, pinned=graph.pinned
-        )
-        return clamp_to_source_floor(
-            effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=graph.pinned
-        )[0]
+        return scheduled_cadences(graph, declared_targets=declared_targets)[0]
 
     upstream = ancestors & graph.nodes
     ephemeral = {
@@ -470,7 +502,7 @@ def _speeds_up_by_cadence(
 
 
 def _delays_if_pinned_by_cadence(
-    node_id: str, graph: FrequencyGraph, bounds: TargetBounds
+    node_id: str, graph: FrequencyGraph, options: Iterable[TargetOption]
 ) -> dict[timedelta, set[str]]:
     """The downstream views that would read data older than their own cadence if `node_id` were pinned to each option.
 
@@ -487,12 +519,12 @@ def _delays_if_pinned_by_cadence(
             for descendant in descendants
             if (cadence := effective.get(descendant)) is not None and cadence < option.value
         }
-        for option in bounds.options
+        for option in options
     }
 
 
 def _unpinned_cadence_by_cadence(
-    node_id: str, graph: FrequencyGraph, bounds: TargetBounds
+    node_id: str, graph: FrequencyGraph, options: Iterable[TargetOption]
 ) -> dict[timedelta, timedelta]:
     """The cadence `node_id` would run at for each option if it held that target without a pin.
 
@@ -501,18 +533,29 @@ def _unpinned_cadence_by_cadence(
     """
     others = graph.pinned - {node_id}
     result: dict[timedelta, timedelta] = {}
-    for option in bounds.options:
-        effective = compute_effective_cadences(
-            nodes=graph.nodes,
-            edges=graph.edges,
-            declared_targets={**graph.declared_targets, node_id: option.value},
-            pinned=others,
-        )
-        clamped = clamp_to_source_floor(
-            effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=others
-        )[0]
-        result[option.value] = clamped.get(node_id) or option.value
+    for option in options:
+        runs_at = scheduled_cadences(
+            graph, declared_targets={**graph.declared_targets, node_id: option.value}, pinned=others
+        )[0].get(node_id)
+        result[option.value] = runs_at or option.value
     return result
+
+
+def scheduled_cadences(
+    graph: FrequencyGraph,
+    *,
+    declared_targets: Mapping[str, timedelta] | None = None,
+    pinned: Collection[str] | None = None,
+) -> tuple[dict[str, timedelta | None], list[ClampedCadence]]:
+    """The cadence the scheduler runs each node at: effective cadences, then the source-floor clamp.
+
+    The one place this pair is spelled out, so the scheduler, the tier reports and the pickers can't
+    disagree about pins. `declared_targets` and `pinned` override the graph's own for what-if reads.
+    """
+    declared = dict(graph.declared_targets if declared_targets is None else declared_targets)
+    pins = graph.pinned if pinned is None else pinned
+    effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared, pinned=pins)
+    return clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=pins)
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:

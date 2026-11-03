@@ -52,8 +52,6 @@ from products.data_modeling.backend.logic.freshness import (
     ClampedCadence,
     InvalidTarget,
     UnsupportedFrequencyTargetError,
-    clamp_to_source_floor,
-    compute_effective_cadences,
     find_invalid_targets,
     format_cadence,
     validate_declared_target,
@@ -65,6 +63,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_pin,
     get_declared_target,
     persist_seed_targets,
+    scheduled_cadences,
     seed_targets,
     set_declared_anchor,
     set_declared_pin,
@@ -301,12 +300,7 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets, pinned=graph.pinned
-    )
-    effective, _clamped = clamp_to_source_floor(
-        effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=graph.pinned
-    )
+    effective, _clamped = scheduled_cadences(graph)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     _apply_reconciliation(
         dag_id=str(dag.id),
@@ -358,12 +352,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     """
     graph = build_frequency_graph(dag)
     declared = {**seed_targets(dag), **graph.declared_targets} if seed else graph.declared_targets
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=declared, pinned=graph.pinned
-    )
-    effective, clamped = clamp_to_source_floor(
-        effective, edges=graph.edges, source_intervals=graph.source_intervals, pinned=graph.pinned
-    )
+    effective, clamped = scheduled_cadences(graph, declared_targets=declared)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     existing_ids = list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)

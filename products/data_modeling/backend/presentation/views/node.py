@@ -15,7 +15,7 @@ from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.data_modeling.backend.facade.api import (
@@ -26,11 +26,14 @@ from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     apply_saved_query_frequency_target,
+    cadence_changes,
+    clear_legacy_sync_interval,
     delete_node,
     endpoint_link,
     get_declared_target,
     is_declared_pin,
     run_related_node_materializations,
+    saved_query_pin_preview,
     saved_query_target_bounds,
     suspension_state,
     unsuspend_nodes,
@@ -39,6 +42,7 @@ from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
     DataModelingJobEngine,
+    DataWarehouseSavedQuery,
     Edge,
     LineageIssueKind,
     Node,
@@ -124,6 +128,17 @@ class NodePinDelaySerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the downstream view or endpoint.")
 
 
+class NodePinBlockerSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        allow_null=True,
+        help_text="Node id of the downstream view that stops the pin, or null when the caller may not read it.",
+    )
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the downstream view that stops the pin, or null when the caller may not read it.",
+    )
+
+
 class NodeFrequencyOptionSerializer(serializers.Serializer):
     cadence = serializers.ChoiceField(choices=CADENCE_CHOICES[1:], help_text="A cadence the view could refresh at.")
     delays_if_pinned = NodePinDelaySerializer(
@@ -131,7 +146,7 @@ class NodeFrequencyOptionSerializer(serializers.Serializer):
         help_text="Downstream views and endpoints that refresh more often than this cadence. If this view "
         "were pinned to it, they would read data older than their own cadence.",
     )
-    pin_blocked_by = NodePinDelaySerializer(
+    pin_blocked_by = NodePinBlockerSerializer(
         allow_null=True,
         help_text="The downstream view that stops a pin at this cadence. It reads fresh data only through "
         "this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null "
@@ -381,11 +396,8 @@ def _write_cadence(
             raise
         # The cadence was cleared between the read above and the write, so there is nothing to pin.
         raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
-    if frequency is not None and saved_query.sync_frequency_interval is not None:
-        # The node target is the only store of frequency intent, so a stale legacy interval must not
-        # answer for a cadence the user just set or cleared. Same as the saved-query editor.
-        type(saved_query).objects.filter(pk=saved_query.pk).update(sync_frequency_interval=None)
-        saved_query.sync_frequency_interval = None
+    if frequency is not None:
+        clear_legacy_sync_interval(saved_query)
     node.refresh_from_db(fields=["properties"])
     _log_cadence_change(
         request,
@@ -397,22 +409,11 @@ def _write_cadence(
 
 def _log_cadence_change(
     request: request.Request,
-    saved_query: Any,
+    saved_query: DataWarehouseSavedQuery,
     targets: tuple[timedelta | None, timedelta | None],
     pins: tuple[bool, bool],
 ) -> None:
-    def render(target: timedelta | None) -> str | None:
-        return str(target) if target is not None else None
-
-    # Same scope and field names as the saved-query editor, so both write paths read alike in the activity log.
-    changes = [
-        Change(type="DataWarehouseSavedQuery", action="changed", field=field, before=before, after=after)
-        for field, before, after in (
-            ("sync_frequency_interval", render(targets[0]), render(targets[1])),
-            ("sync_frequency_pinned", pins[0], pins[1]),
-        )
-        if before != after
-    ]
+    changes = cadence_changes(targets, pins)
     if not changes:
         return
     log_activity(
@@ -567,27 +568,29 @@ class NodeViewSet(
         if resolved is None:
             return response.Response({"pinned": False, "options": []})
         names = self._visible_names_around(node, resolved)
+        assert node.saved_query_id is not None
+        preview = saved_query_pin_preview(self.team_id, node.saved_query_id)
 
-        def pin_blocker(cadence: timedelta) -> dict[str, str] | None:
-            stranded = sorted(resolved.pin_blocked_by.get(cadence, ()))
+        def pin_blocker(cadence: timedelta) -> dict[str, str | None] | None:
+            stranded = sorted(preview.pin_blocked_by.get(cadence, ()))
             if not stranded:
                 return None
             # Name a view the caller can see when there is one. Otherwise the pin is still refused, but
             # neither the id nor the name of a view the caller may not read goes out with the refusal.
             node_id = next((node_id for node_id in stranded if node_id in names), None)
-            return {"id": node_id, "name": names[node_id]} if node_id else {"id": "", "name": "a downstream view"}
+            return {"id": node_id, "name": names[node_id]} if node_id else {"id": None, "name": None}
 
         options = [
             {
                 "cadence": sync_frequency_interval_to_sync_frequency(option.value),
                 "delays_if_pinned": [
                     {"id": node_id, "name": names[node_id]}
-                    for node_id in sorted(resolved.delays_if_pinned.get(option.value, ()))
+                    for node_id in sorted(preview.delays_if_pinned.get(option.value, ()))
                     if node_id in names
                 ],
                 "pin_blocked_by": pin_blocker(option.value),
                 "unpinned_cadence": sync_frequency_interval_to_sync_frequency(
-                    resolved.unpinned_cadence.get(option.value, option.value)
+                    preview.unpinned_cadence.get(option.value, option.value)
                 ),
             }
             for option in resolved.bounds.options

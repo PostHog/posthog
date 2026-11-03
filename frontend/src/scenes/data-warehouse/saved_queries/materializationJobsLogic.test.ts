@@ -741,9 +741,11 @@ describe('materializationJobsLogic', () => {
         function pinMocks({
             pinned,
             patchStatus = 200,
+            nodeOptions = [{ cadence: '24hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' }],
         }: {
             pinned: boolean
             patchStatus?: number
+            nodeOptions?: Record<string, unknown>[]
         }): Parameters<typeof useMocks>[0] {
             const mocks = apiMocks({ isMaterialized: true, savedQueryExtras: { sync_frequency_bounds: TIERED_BOUNDS } })
             mocks.get!['/api/projects/:team_id/data_modeling_nodes/:id/'] = (req) =>
@@ -752,10 +754,7 @@ describe('materializationJobsLogic', () => {
                     : [404, { detail: 'Not found' }]
             mocks.get!['/api/projects/:team_id/data_modeling_nodes/:id/frequency_bounds/'] = [
                 200,
-                {
-                    pinned,
-                    options: [{ cadence: '24hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' }],
-                },
+                { pinned, options: nodeOptions },
             ]
             mocks.patch = {
                 '/api/projects/:team_id/data_modeling_nodes/:id/': async ({ request, params }) => {
@@ -823,6 +822,30 @@ describe('materializationJobsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pinDraft).toBeNull()
             expect(logic.values.hasMaterializationChanges).toBe(false)
+        })
+
+        it('pins again when a slower cadence is picked after unpinning', async () => {
+            savedSyncFrequency = '24hour'
+            useMocks(
+                pinMocks({
+                    pinned: true,
+                    nodeOptions: [
+                        { cadence: '12hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' },
+                        { cadence: '24hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' },
+                    ],
+                })
+            )
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadNodeFrequencySuccess'])
+
+            logic.actions.setPinDraft(false)
+            expect(logic.values.cadencePin?.pinned).toBe(false)
+            logic.actions.setSyncFrequencyDraft('12hour')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.pinDraft).toBe(true)
+            expect(logic.values.cadencePin?.pinned).toBe(true)
         })
 
         it('addresses the node API by the active environment, not the project', async () => {

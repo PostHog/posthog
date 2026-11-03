@@ -681,6 +681,37 @@ def find_invalid_targets(
     return invalid
 
 
+def _below_source_floor(
+    *,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+) -> dict[str, InvalidTarget]:
+    return {
+        invalid.node_id: invalid
+        for invalid in find_invalid_targets(
+            edges=edges, declared_targets=dict(declared_targets), source_intervals=source_intervals, pinned=pinned
+        )
+        if is_finer_than(invalid.declared, invalid.source_floor)
+    }
+
+
+def nodes_below_source_floor(
+    *,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+) -> set[str]:
+    """The nodes whose declared target is finer than their sources can deliver."""
+    return set(
+        _below_source_floor(
+            edges=edges, declared_targets=declared_targets, source_intervals=source_intervals, pinned=pinned
+        )
+    )
+
+
 def descendants_broken_by_pin(
     *,
     node_id: str,
@@ -689,6 +720,7 @@ def descendants_broken_by_pin(
     declared_targets: Mapping[str, timedelta],
     source_intervals: dict[str, timedelta],
     pinned: Collection[str],
+    already_below_floor: Collection[str] | None = None,
 ) -> list[InvalidTarget]:
     """The downstream targets that pinning `node_id` to `target` would put out of reach.
 
@@ -697,27 +729,22 @@ def descendants_broken_by_pin(
     its own target. Targets that were already out of reach of their source floor without the pin
     don't count against it. A target that only broke its consumer ceiling still counts, because
     the node can meet it at runtime and the pin's floor would take that away.
+
+    `already_below_floor` is `nodes_below_source_floor` without this pin. It does not depend on
+    `target`, so a caller checking many targets computes it once and passes it in.
     """
     targets = {**declared_targets, node_id: target}
     others = set(pinned) - {node_id}
-
-    def below_source_floor(pins: Collection[str]) -> dict[str, InvalidTarget]:
-        return {
-            invalid.node_id: invalid
-            for invalid in find_invalid_targets(
-                edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=pins
-            )
-            if is_finer_than(invalid.declared, invalid.source_floor)
-        }
-
-    before = below_source_floor(others)
+    if already_below_floor is None:
+        already_below_floor = nodes_below_source_floor(
+            edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others
+        )
     descendants = descendants_of(node_id, edges)
+    broken = _below_source_floor(
+        edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others | {node_id}
+    )
     return sorted(
-        (
-            invalid
-            for invalid in below_source_floor(others | {node_id}).values()
-            if invalid.node_id in descendants and invalid.node_id not in before
-        ),
+        (invalid for node, invalid in broken.items() if node in descendants and node not in already_below_floor),
         key=lambda invalid: invalid.node_id,
     )
 

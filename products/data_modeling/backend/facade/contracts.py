@@ -98,7 +98,6 @@ class SavedQueryNodeState:
     """What a saved query's DAG nodes record about its schedule."""
 
     declared_target: timedelta | None
-    pinned: bool  # holds the declared target instead of following its consumers
     suspended: dict[str, SuspensionMarker]
 
 
