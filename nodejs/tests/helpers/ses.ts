@@ -1,6 +1,5 @@
-import { SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { Body, MessageHeader, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { IncomingMessage, Server, ServerResponse, createServer } from 'node:http'
-import { AddressInfo } from 'node:net'
 import { isNativeError } from 'node:util/types'
 import { z } from 'zod'
 
@@ -21,6 +20,50 @@ const storedEmailSchema = z.object({
 export type LocalSesEmail = z.infer<typeof storedEmailSchema>
 export type LocalSesError = 'TooManyRequestsException' | 'LimitExceededException' | 'SendingPausedException'
 
+export class SesEmailRequest {
+    readonly input: SendEmailCommandInput
+
+    constructor(sendSpy: jest.SpyInstance) {
+        const command: unknown = sendSpy.mock.calls[0]?.[0]
+        if (!(command instanceof SendEmailCommand)) {
+            throw new Error('The first SES request is not a SendEmailCommand')
+        }
+        this.input = command.input
+    }
+
+    get body(): Body {
+        const body = this.input.Content?.Simple?.Body
+        if (!body) {
+            throw new Error('SES request has no simple email body')
+        }
+        return body
+    }
+
+    get html(): string | undefined {
+        return this.body.Html?.Data
+    }
+
+    get headers(): MessageHeader[] {
+        const headers = this.input.Content?.Simple?.Headers
+        if (!headers) {
+            throw new Error('SES request has no simple email headers')
+        }
+        return headers
+    }
+}
+
+// Replaced through jest, so the suite's jest.restoreAllMocks() puts the real environment back.
+export function useLocalSesAwsEnvironment(): void {
+    jest.replaceProperty(process, 'env', {
+        ...process.env,
+        AWS_ACCESS_KEY_ID: 'local-ses-test',
+        AWS_SECRET_ACCESS_KEY: 'local-ses-test',
+        AWS_MAX_ATTEMPTS: '1',
+    })
+    delete process.env.AWS_SESSION_TOKEN
+    delete process.env.AWS_PROFILE
+}
+
 export class LocalSes {
     readonly requests: SendEmailCommandInput[] = []
     private readonly messageIds = new Set<string>()
@@ -37,7 +80,11 @@ export class LocalSes {
     }
 
     get endpoint(): string {
-        return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`
+        const address = this.server.address()
+        if (!address || typeof address === 'string') {
+            throw new Error('Start the local SES proxy before reading its endpoint')
+        }
+        return `http://127.0.0.1:${address.port}`
     }
 
     async start(): Promise<void> {
