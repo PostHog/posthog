@@ -5750,7 +5750,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         removeTileGroup: ({ groupKey }) => {
             // A tile moved in after the menu opened would keep a group key with no settings.
-            if (values.tiles.some((tile) => tile.group_key === groupKey)) {
+            // A tile staged out of the group is still in it on the server, and returns to it on Cancel.
+            if (
+                values.layoutEditMode ||
+                values.tiles.some((tile) => tile.group_key === groupKey) ||
+                Object.values(values.savedTilePlacements).some((placement) => placement.group_key === groupKey)
+            ) {
                 return
             }
             const { [groupKey]: _removed, ...groups } = values.dashboard?.customization?.groups ?? {}

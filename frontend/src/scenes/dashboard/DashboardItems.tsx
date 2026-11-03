@@ -281,7 +281,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
     const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
-    const onRemoveTileGroup = canEditDashboard && isEditablePlacement ? removeTileGroup : undefined
+    // A layout edit only stages tile moves, but a delete saves at once, so Cancel would bring tiles back to a lost group.
+    const onRemoveTileGroup = canEditDashboard && isEditablePlacement && !layoutEditMode ? removeTileGroup : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 

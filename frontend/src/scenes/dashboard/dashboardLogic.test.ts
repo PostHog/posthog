@@ -471,6 +471,18 @@ describe('dashboardLogic', () => {
                 dispatch: () => logic.actions.removeTileGroup('other'),
                 expectedKeys: null,
             },
+            {
+                name: 'keeps a group whose last tile moved out only in an unsaved layout edit',
+                dispatch: () => {
+                    logic.actions.setDashboardEditing(
+                        { filters: true, layout: true },
+                        DashboardEventSource.SceneCommonButtons
+                    )
+                    logic.actions.setTileProperty(dashboards[5].tiles[1].id, { group_key: null })
+                    logic.actions.removeTileGroup('other')
+                },
+                expectedKeys: null,
+            },
         ])('$name', async ({ dispatch, expectedKeys }) => {
             groupTiles({ target: { collapsed: true }, other: { collapsed: false }, empty: { collapsed: false } })
             await mountDashboard()
