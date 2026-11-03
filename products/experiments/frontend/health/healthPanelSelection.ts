@@ -6,6 +6,11 @@ export type HealthPanelSelection =
     | { kind: 'finding'; key: string }
     | { kind: 'check'; key: ListedHealthCheck['key'] }
 
+export type ResolvedHealthPanelSelection =
+    | { kind: 'summary' }
+    | { kind: 'finding'; key: string; finding: HealthPanelFinding }
+    | { kind: 'check'; key: ListedHealthCheck['key']; check: ListedHealthCheck }
+
 export function healthFindingKey(finding: HealthPanelFinding): string {
     return `${finding.code}:${finding.subcode ?? ''}`
 }
@@ -15,20 +20,26 @@ export function resolveHealthPanelSelection(
     picked: HealthPanelSelection | null,
     findings: HealthPanelFinding[],
     checks: ListedHealthCheck[]
-): HealthPanelSelection {
+): ResolvedHealthPanelSelection {
     switch (picked?.kind) {
-        case 'finding':
-            if (findings.some((finding) => healthFindingKey(finding) === picked.key)) {
-                return picked
+        case 'finding': {
+            const finding = findings.find((candidate) => healthFindingKey(candidate) === picked.key)
+            if (finding) {
+                return { ...picked, finding }
             }
             break
-        case 'check':
-            if (checks.some((check) => check.key === picked.key)) {
-                return picked
+        }
+        case 'check': {
+            const check = checks.find((candidate) => candidate.key === picked.key)
+            if (check) {
+                return { ...picked, check }
             }
             break
+        }
     }
     // A note states a fact and needs no action, so only an issue opens without a click.
     const [firstIssue] = healthIssues(findings)
-    return firstIssue ? { kind: 'finding', key: healthFindingKey(firstIssue) } : { kind: 'summary' }
+    return firstIssue
+        ? { kind: 'finding', key: healthFindingKey(firstIssue), finding: firstIssue }
+        : { kind: 'summary' }
 }

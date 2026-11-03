@@ -38,11 +38,6 @@ export function HealthChecksOverview({
     const listedChecks = listedHealthChecks(checks)
     const issueCount = healthIssues(findings).length
     const selection = resolveHealthPanelSelection(pickedSelection, findings, listedChecks)
-    const selectedFinding =
-        selection.kind === 'finding'
-            ? findings.find((finding) => healthFindingKey(finding) === selection.key)
-            : undefined
-    const selectedCheck = selection.kind === 'check' ? listedChecks.find(({ key }) => key === selection.key) : undefined
 
     const select = (next: HealthPanelSelection): void => {
         setPickedSelection(next)
@@ -115,10 +110,10 @@ export function HealthChecksOverview({
                     >
                         All checks
                     </LemonButton>
-                    {selectedFinding ? (
-                        <HealthFindingDetail finding={selectedFinding} onActedOn={onFindingActedOn} />
-                    ) : selectedCheck ? (
-                        <HealthCheckDetail check={selectedCheck} />
+                    {selection.kind === 'finding' ? (
+                        <HealthFindingDetail finding={selection.finding} onActedOn={onFindingActedOn} />
+                    ) : selection.kind === 'check' ? (
+                        <HealthCheckDetail check={selection.check} />
                     ) : (
                         <HealthChecksSummaryDetail checks={checks} issueCount={issueCount} />
                     )}
