@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -9,6 +10,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.schema import QueryStatus
+
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
@@ -17,10 +20,102 @@ from posthog.week_start_day import WeekStartDay
 from products.access_control.backend.facade.testing import create_access_control
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend import insight_series
-from products.product_analytics.backend.facade.api import get_insight_series
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext
+from products.product_analytics.backend.facade.api import get_insight_series, viewable_insight_definitions
+from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
 from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
+
+
+class TestBoundedInsightQuery(SimpleTestCase):
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_query_status_is_scoped_and_does_not_prepare_the_query(self, complete: bool, error: bool) -> None:
+        with (
+            patch.object(
+                insight_series,
+                "get_query_status",
+                return_value=QueryStatus(id="q", team_id=7, complete=complete, error=error),
+            ) as status,
+            patch("posthog.api.services.query.process_query_dict") as prepare,
+        ):
+            if error:
+                with self.assertRaises(ValueError):
+                    insight_series.query_complete(team=cast(Team, SimpleNamespace(pk=7)), query_id="q")
+            else:
+                self.assertEqual(
+                    insight_series.query_complete(team=cast(Team, SimpleNamespace(pk=7)), query_id="q"), complete
+                )
+        status.assert_called_once_with(team_id=7, query_id="q")
+        prepare.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("pending", {"query_status": {"id": "q", "complete": False}}, InsightSeriesNotReady),
+            ("error", {"query_status": {"id": "q", "error": True}}, ValueError),
+            ("empty", {"results": []}, None),
+            ("top_level_error", {"results": None, "error": "Invalid query"}, ValueError),
+            ("missing_status", {"results": None}, ValueError),
+        ]
+    )
+    def test_pending_is_distinct_from_empty_and_error(
+        self, _name: str, response: dict[str, Any], error: type[Exception] | None
+    ) -> None:
+        with patch("posthog.api.services.query.process_query_dict", return_value=response):
+            if error:
+                with self.assertRaises(error):
+                    insight_series._run(cast(Team, None), cast(User, None), {}, None, None, raise_on_pending=True)
+            else:
+                self.assertEqual(
+                    insight_series._run(cast(Team, None), cast(User, None), {}, None, None, raise_on_pending=True),
+                    response,
+                )
+
+    @parameterized.expand(
+        [
+            ("cached", True, False, False, 0.0, 0),
+            ("finishes", False, True, False, 0.0, 1),
+            ("fails", False, True, True, 0.0, 1),
+            ("still_running", False, False, False, 0.0, 3),
+            ("starts_near_deadline", False, False, False, 0.5, 1),
+            ("already_expired", False, False, False, 0.6, 0),
+        ]
+    )
+    def test_wait_returns_results_or_stops_at_the_shared_deadline(
+        self, _name: str, cached: bool, complete: bool, error: bool, start: float, polls: int
+    ) -> None:
+        clock = [start]
+        results = {"results": [_result("signed up")]}
+        pending = {"query_status": {"id": "query-1", "complete": False}}
+
+        def advance(seconds: float) -> None:
+            clock[0] += seconds
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", return_value=results if cached else pending) as run,
+            patch.object(insight_series, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(insight_series, "sleep", side_effect=advance),
+            patch.object(
+                insight_series,
+                "get_query_status",
+                return_value=QueryStatus(
+                    id="query-1", team_id=1, complete=complete, error=error, results=results if complete else None
+                ),
+            ) as status,
+        ):
+            found = insight_series.insight_series(
+                cast(Team, SimpleNamespace(pk=1)),
+                cast(User, None),
+                short_id="abc",
+                name="Sign-ups",
+                query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+                dashboard=None,
+                blocking=True,
+                wait_until=0.6,
+            )
+
+        self.assertEqual(found is not None and bool(found.series), cached or (complete and not error))
+        self.assertEqual(status.call_count, polls)
+        self.assertLessEqual(clock[0], 0.6)
+        self.assertEqual(run.call_args.kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 
 class TestVisibleResults(SimpleTestCase):
@@ -502,7 +597,8 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual((found, enqueue.call_count), (None, 1))
 
-    def test_an_insight_the_person_cannot_view_returns_none(self) -> None:
+    @parameterized.expand([False, True])
+    def test_an_insight_the_person_cannot_view_returns_none(self, from_child_environment: bool) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -512,5 +608,24 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             team_id=self.team.id, resource="insight", resource_id=str(insight.id), access_level="none"
         )
         reader = self._create_user("reader@example.com")
+        requesting_team = (
+            Team.objects.create(
+                organization=self.organization,
+                project_id=self.team.project_id,
+                parent_team=self.team,
+                name="Other environment",
+            )
+            if from_child_environment
+            else self.team
+        )
 
-        self.assertIsNone(get_insight_series(team=self.team, user=reader, short_id=insight.short_id))
+        self.assertIsNone(get_insight_series(team=requesting_team, user=reader, short_id=insight.short_id))
+        self.assertEqual(
+            viewable_insight_definitions(team=requesting_team, user=reader, short_ids=[insight.short_id]), {}
+        )
+        self.assertEqual(
+            viewable_insight_definitions(team=requesting_team, user=self.user, short_ids=[insight.short_id])[
+                insight.short_id
+            ].name,
+            insight.name or insight.derived_name,
+        )

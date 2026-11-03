@@ -90,6 +90,10 @@ DATABASE_SCHEMA_DETAIL = (
     "The Snowflake database or schema does not exist or the role cannot use it. "
     "Check the database and schema and grant the role access, then run the sync again."
 )
+ACCOUNT_SUSPENDED_DETAIL = (
+    "The Snowflake account is suspended, usually for a missing payment method. "
+    "Resolve it with Snowflake, then run the sync again."
+)
 
 
 def _configuration_error_detail(err: Exception) -> str | None:
@@ -108,6 +112,8 @@ def _configuration_error_detail(err: Exception) -> str | None:
             return PRIVILEGES_DETAIL
         if err.errno == 2043:
             return DATABASE_SCHEMA_DETAIL
+        if err.errno == 666:
+            return ACCOUNT_SUSPENDED_DETAIL
     return None
 
 

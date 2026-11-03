@@ -2,12 +2,13 @@ import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
 import { eventWithTime } from 'posthog-js/rrweb-types'
-import { ReactNode } from 'react'
+import { ComponentType, ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
+import type { Describer } from 'lib/components/ActivityLog/humanizeActivity'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -30,11 +31,11 @@ import {
     TeamMembershipLevel,
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
@@ -120,7 +121,7 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
+import { InferredSelector } from './toolbar/shared/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',
@@ -253,6 +254,7 @@ export enum AvailableFeature {
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
     MEMBER_GOVERNANCE = 'member_governance',
+    SSF = 'ssf',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
@@ -355,6 +357,7 @@ export enum AccessControlResourceType {
     WarehouseTable = 'warehouse_table',
     WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
+    MarketingAnalytics = 'marketing_analytics',
     ActivityLog = 'activity_log',
     BusinessKnowledge = 'business_knowledge',
     ErrorTracking = 'error_tracking',
@@ -442,6 +445,8 @@ export interface UserType extends UserBaseType {
     onboarding_delegated_to_organization_id?: string | null
     onboarding_delegation_accepted_at?: string | null
     is_organization_first_user?: boolean
+    /** How many personal API keys this user may hold, from the `personal_api_keys` entitlement. */
+    personal_api_keys_limit?: number
     pending_invites?: PendingInviteForCurrentUser[]
 }
 
@@ -947,6 +952,8 @@ export interface WorkflowsConfig {
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
+    // Null skips a capped marketing message at once instead of holding it for a free slot.
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface ProductIntentType {
@@ -1628,8 +1635,8 @@ export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface LegacyRecordingFilters {
     date_from?: string | null
     date_to?: string | null
-    events?: FilterType['events']
-    actions?: FilterType['actions']
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
     properties?: AnyPropertyFilter[]
     session_recording_duration?: RecordingDurationFilter
     duration_type_filter?: DurationType
@@ -1647,6 +1654,7 @@ export interface RecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
     session_ids?: string[]
+    person_uuid?: string
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
@@ -1681,14 +1689,6 @@ export type ErrorClusterResponse = ErrorCluster[] | null
 
 export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity' | 'groups'
 
-export interface Entity {
-    id: string | number | null
-    name: string
-    custom_name?: string
-    order: number
-    type: EntityType
-}
-
 export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
@@ -1696,65 +1696,35 @@ export enum EntityTypes {
     GROUPS = 'groups',
 }
 
-export type EntityFilter = {
-    type?: EntityType
-    id: Entity['id'] | null
+export interface ActionFilter {
+    type: EntityType
+    id: string | number | null
     name?: string | null
     custom_name?: string | null
     index?: number
     order?: number
     optionalInFunnel?: boolean
-}
-
-export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string | null
     math_property_type?: TaxonomicFilterGroupType | null
     math_group_type_index?: integer | null
     math_hogql?: string | null
     properties?: AnyPropertyFilter[]
-    type: EntityType
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
-    nestedFilters?: EntityFilter[] | null
+    nestedFilters?:
+        | {
+              type?: EntityType
+              id: string | number | null
+              name?: string | null
+              custom_name?: string | null
+              index?: number
+              order?: number
+              optionalInFunnel?: boolean
+          }[]
+        | null
     /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
     negation?: boolean
-}
-
-export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
-
-export type AnyDataWarehouseFilter =
-    | TrendsDataWarehouseFilter
-    | FunnelDatawarehouseFilter
-    | LifecycleDatawarehouseFilter
-
-export interface TrendsDataWarehouseFilter extends ActionFilter {
-    table_name: string
-    id_field: string
-    timestamp_field: string
-    distinct_id_field: string
-}
-
-export interface FunnelDatawarehouseFilter extends ActionFilter {
-    table_name: string
-    id_field: string
-    timestamp_field: string
-    aggregation_target_field: string
-}
-
-export interface LifecycleDatawarehouseFilter extends ActionFilter {
-    table_name: string
-    timestamp_field: string
-    aggregation_target_field: string
-    created_at_field: string
-}
-
-export const isDataWarehouseFilter = (filter: EntityFilter): filter is AnyDataWarehouseFilter =>
-    filter.type === EntityTypes.DATA_WAREHOUSE
-
-export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
-    funnel_from_step: number
-    funnel_to_step: number
 }
 
 export interface PersonType {
@@ -2692,9 +2662,8 @@ export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<
     created_by: UserBasicType | null
     is_sample: boolean
     /**
-     * @deprecated Write-only. Session responses omit it, so read membership with
-     * `liveDashboardIds(insight.dashboard_tiles)`. Send it to place a new insight on dashboards, or to
-     * replace a saved insight's whole membership.
+     * @deprecated Session responses omit it, so read membership with `liveDashboardIds(insight.dashboard_tiles)`.
+     * The app never sends it: on an unsaved insight it holds the dashboards to place the saved insight on.
      */
     dashboards?: number[]
     dashboard_tiles: DashboardTileBasicType[] | null
@@ -2955,6 +2924,7 @@ export interface OrganizationInviteType {
     level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
+    email_suppressed: boolean
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -3272,17 +3242,6 @@ export interface FilterType {
      */
     explicit_date?: boolean | string | null
 
-    events?: Record<string, any>[]
-    actions?: Record<string, any>[]
-    data_warehouse?: Record<string, any>[]
-    new_entity?: Record<string, any>[]
-    groups?: Record<string, any>[]
-
-    // persons modal
-    entity_id?: string | number
-    entity_type?: EntityType
-    entity_math?: string
-
     // used by trends and stickiness
     interval?: IntervalType
     // TODO: extract into TrendsFunnelsCommonFilterType
@@ -3369,7 +3328,6 @@ export interface FunnelsFilterType extends FilterType {
     funnel_window_interval_unit?: FunnelConversionWindowTimeUnit // minutes, days, weeks, etc. for conversion window
     funnel_window_interval?: number | undefined // length of conversion window
     funnel_order_type?: StepOrderValue
-    exclusions?: FunnelExclusionLegacy[] // used in funnel exclusion filters
     funnel_aggregate_by_hogql?: string | null
 
     // frontend only
@@ -3392,7 +3350,6 @@ export interface PathsFilterType extends FilterType {
     end_point?: string
     path_groupings?: string[]
     funnel_paths?: FunnelPathType
-    funnel_filter?: Record<string, any> // Funnel Filter used in Paths
     exclude_events?: string[] // Paths Exclusion type
     /** @asType integer */
     step_limit?: number // Paths Step Limit
@@ -3446,8 +3403,6 @@ export interface RetentionFilterType extends FilterType {
      * @asType integer
      */
     total_intervals?: number
-    returning_entity?: RetentionEntity
-    target_entity?: RetentionEntity
     period?: RetentionPeriod
     cumulative?: boolean
 
@@ -3466,15 +3421,6 @@ export interface LifecycleFilterType extends FilterType {
 }
 
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
-export type AnyFilterType =
-    | TrendsFilterType
-    | StickinessFilterType
-    | FunnelsFilterType
-    | PathsFilterType
-    | RetentionFilterType
-    | LifecycleFilterType
-    | FilterType
-
 export type AnyPartialFilterType =
     | Partial<TrendsFilterType>
     | Partial<StickinessFilterType>
@@ -3581,9 +3527,6 @@ export interface TrendAPIResponse<ResultType = TrendResult[]> {
 }
 
 export interface TrendResult {
-    /** Series entity. `null` for formula results, which aren't backed by a single entity. */
-    action: ActionFilter | null
-    actions?: ActionFilter[]
     count: number
     data: number[]
     days: string[]
@@ -3597,10 +3540,8 @@ export interface TrendResult {
     compare?: boolean
     persons_urls?: { url: string }[]
     persons?: Person
-    filter?: TrendsFilterType
-    /** Series order set by the query runner: the action order for plain series, or the
-     * formula index for formula results (uniform across a formula's breakdown rows).
-     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    /** Series order set by the query runner: the series index for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows). */
     order?: number
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
@@ -3614,7 +3555,6 @@ interface Person {
 
 export interface FunnelStep {
     // The type returned from the API.
-    action_id: string
     average_conversion_time: number | null
     median_conversion_time: number | null
     count: number
@@ -3622,7 +3562,6 @@ export interface FunnelStep {
     custom_name?: string | null
     order: number
     people?: string[]
-    type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: BreakdownKeyType[]
@@ -5357,6 +5296,8 @@ export interface AppContext {
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
      */
     persisted_feature_flags?: string[] | Record<string, string | boolean>
+    /** Whether the server's access gate gives this user PostHog AI 2.0. Absent when no user is signed in. */
+    posthog_ai_access?: boolean
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
@@ -5480,7 +5421,6 @@ export type GraphDataset = Partial<
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'
-        | 'filter'
     >
 > & {
     /** Used in filtering out visibility of datasets. Set internally by chart.js */
@@ -6240,6 +6180,7 @@ export enum ActivityScope {
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    TICKET_MACRO = 'TicketMacro',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',
@@ -6293,6 +6234,8 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential | null
     external_data_source?: ExternalDataSource
     external_schema?: SimpleExternalDataSourceSchema
+    /** The managed source that will import this self-managed table on its first sync, if one is linked. */
+    pending_source_id?: string | null
     options?: { csv_allow_double_quotes?: boolean | null }
     user_access_level?: AccessControlLevel
 }
@@ -6519,6 +6462,8 @@ export interface ExternalDataSource {
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
+    /** The name of the file a file upload source imports. */
+    file_name?: string | null
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
@@ -6703,6 +6648,10 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    /** The live table the schema syncs into, also before its first sync when the schema already names one. */
+    table_id?: string | null
+    /** The schema is linked to a self-managed table that its first sync will import. */
+    pending_self_managed_table?: boolean
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     sync_time_of_day: string | null
@@ -6718,6 +6667,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     should_sync_default?: boolean
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
+    /** The history table's name, or `null` when the table keeps no history. Older history tables end in `_cdc`. */
+    history_table_name?: string | null
     /**
      * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
      * failure is current. A later run that succeeds, or fails for another reason, clears it.
@@ -6754,6 +6705,8 @@ export interface ExternalDataSchemaSourceSummary {
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
+    /** The name of the file a file upload source imports. */
+    file_name?: string | null
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null
@@ -7414,7 +7367,7 @@ export type CyclotronJobMasking = {
     bytecode?: any
 }
 
-// subset of EntityFilter
+// subset of ActionFilter
 export interface CyclotronJobFilterBase {
     id: string
     name?: string | null
@@ -7899,6 +7852,8 @@ export interface FileSystemType {
     href?: (ref: string) => string
     // The product's own list page, which Library opens for this type instead of its generic table
     listHref?: () => string
+    // The URL param the list page reads its search text from, so Command K's "View all" row can carry the search over
+    listSearchParam?: 'search'
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled
@@ -7955,6 +7910,10 @@ export interface ProductManifest {
      * request after login (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
+    /** Aggregated into `productActivityDescribers`, which loads each one on demand. */
+    activityDescribers?: Partial<Record<ActivityScope, () => Promise<Describer>>>
+    /** Aggregated into `productGlobalModals`. Each one renders on every logged-in page and owns its open state. */
+    globalModals?: Record<string, () => Promise<ComponentType>>
 }
 
 export interface ProjectTreeRef {

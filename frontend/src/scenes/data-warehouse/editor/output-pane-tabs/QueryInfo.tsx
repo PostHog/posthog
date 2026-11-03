@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconExternal, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
@@ -45,8 +45,8 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
     // Mounting it loads the lineage for the view being edited.
     const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
     useMountedLogic(infoLogic)
-    const { activeSection, lineageVisited } = useValues(infoLogic)
-    const { setActiveSection } = useActions(infoLogic)
+    const { activeSection, lineageVisited, lineageNodePositions } = useValues(infoLogic)
+    const { setActiveSection, lineageNodeDragStopped, resetLineageNodePositions } = useActions(infoLogic)
     const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
     // The loaded lineage is shared across views, so only use it when it was loaded for this one.
     const upstream = loadedUpstream && targetView && loadedUpstream.modelId === targetView.id ? loadedUpstream : null
@@ -288,13 +288,22 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                         variant="full"
                                         fitViewOptions={tabbed ? { maxZoom: 1 } : undefined}
                                         interactive
+                                        nodesDraggable
+                                        nodePositions={lineageNodePositions}
+                                        onNodeDragStop={(node, position) => lineageNodeDragStopped(node.id, position)}
+                                        onResetNodePositions={resetLineageNodePositions}
                                         showControls
                                         showMinimap
                                         panels={
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"
-                                                to={urls.models('lineage')}
+                                                to={
+                                                    combineUrl(urls.models('lineage'), {
+                                                        search: `+${targetView.name}+`,
+                                                        node_id: currentNodeId,
+                                                    }).url
+                                                }
                                                 targetBlank
                                                 tooltip="Open the full graph"
                                                 aria-label="Open the full graph"

@@ -4,6 +4,8 @@ import posthog from 'posthog-js'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as todayApi from 'products/today/frontend/generated/api'
+
 import { HIGHLIGHTS_POLL_MS, todayHighlightsLogic } from './todayHighlightsLogic'
 import { makeHighlightItem, makeHighlights, makePulseMetric } from './todayTestFixtures'
 
@@ -31,9 +33,8 @@ describe('todayHighlightsLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('records which pulse metric was opened, why it was shown and the ranking variant', async () => {
+    it('records which pulse metric was opened and why it was shown', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-        jest.spyOn(posthog, 'getFeatureFlag').mockReturnValue('frecency')
         const logic = todayHighlightsLogic()
         logic.mount()
 
@@ -43,7 +44,6 @@ describe('todayHighlightsLogic', () => {
             kind: 'insight',
             reason: 'dashboard',
             position: 2,
-            pulse_ranking: 'frecency',
         })
     })
 
@@ -62,6 +62,26 @@ describe('todayHighlightsLogic', () => {
         ])
     })
 
+    it('hides a pulse metric in this project only, fills its place with the next suggestion, and undoes the hide', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const pulse = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [[200, makeHighlights({ pulse })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
+
+        logic.actions.setHiddenPulseMetrics({ '1:insight:a': true })
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+
+        logic.actions.hidePulseMetric(pulse[1], 1)
+        expect(shown()).toEqual(['insight:a', 'insight:c', 'insight:d', 'insight:e'])
+        expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
+
+        logic.actions.unhidePulseMetric(pulse[1], 1)
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+    })
+
     it.each([
         { status: 404, failed: false },
         { status: 500, failed: true },
@@ -75,7 +95,7 @@ describe('todayHighlightsLogic', () => {
             .toMatchValues({ highlights: null, highlightsFailed: failed, highlightsPending: false })
     })
 
-    it('shows the skeleton until there is content, keeps the last ready content while new highlights compute, and polls until they are ready', async () => {
+    it('shows the skeleton until there is content, keeps the pulse skeleton while an older result without tiles is replaced, and polls until ready', async () => {
         jest.useFakeTimers()
         const item = makeHighlightItem()
         highlightResponses = [
@@ -86,17 +106,19 @@ describe('todayHighlightsLogic', () => {
         const logic = todayHighlightsLogic()
         logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess']).toMatchValues({ highlightsPending: true })
+        await expectLogic(logic)
+            .toDispatchActions(['loadHighlightsSuccess'])
+            .toMatchValues({ highlightsPending: true, pulsePending: true })
         await expectLogic(logic, () => {
             jest.advanceTimersByTime(HIGHLIGHTS_POLL_MS)
         })
             .toDispatchActions(['loadHighlights', 'loadHighlightsSuccess'])
-            .toMatchValues({ highlightsPending: false, forYouHighlights: [item] })
+            .toMatchValues({ highlightsPending: false, pulsePending: true, forYouHighlights: [item] })
         await expectLogic(logic, () => {
             jest.advanceTimersByTime(HIGHLIGHTS_POLL_MS)
         })
             .toDispatchActions(['loadHighlights', 'loadHighlightsSuccess'])
-            .toMatchValues({ highlights: makeHighlights({ items: [item] }) })
+            .toMatchValues({ highlights: makeHighlights({ items: [item] }), pulsePending: false })
 
         await jest.advanceTimersByTimeAsync(HIGHLIGHTS_POLL_MS * 3)
         expect(highlightCalls).toBe(3)
@@ -303,5 +325,88 @@ describe('todayHighlightsLogic', () => {
             })
         )
         logic.actions.pulseViewUnmounted()
+    })
+    it('shows titles in stable order and measures only visible ready numbers', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const metrics = ['slow', 'fast', 'empty', 'error'].map((key) => makePulseMetric({ key, name: key }))
+        const slots = metrics.map((metric) => ({
+            key: metric.key,
+            name: metric.name,
+            url: metric.url,
+            interval: metric.interval,
+            status: 'pending' as const,
+        }))
+        const pending = makeHighlights({ status: 'computing', pulse: [], pulse_slots: slots })
+        highlightResponses = [[200, pending]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.pulseViewMounted(false)
+        logic.actions.pulseViewUpdated()
+        expect(logic.values.pulsePending).toBe(false)
+        expect(logic.values.pulseSlots.map((slot) => slot.name)).toEqual(['slow', 'fast', 'empty', 'error'])
+        expect(logic.values.pulseTiles).toEqual([])
+        expect(capture.mock.calls.some(([event]) => event === 'today pulse first number shown')).toBe(false)
+        logic.actions.loadHighlightsSuccess({
+            ...pending,
+            pulse: [metrics[1]],
+            pulse_slots: slots.map((slot, i) => ({ ...slot, status: i === 1 ? 'ready' : 'pending' })),
+        })
+        logic.actions.pulseViewUpdated()
+        expect(logic.values.pulseSlots.map((slot) => slot.key)).toEqual(['slow', 'fast', 'empty', 'error'])
+        expect(logic.values.pulseTiles).toEqual([metrics[1]])
+        expect(capture).toHaveBeenCalledWith(
+            'today pulse first number shown',
+            expect.objectContaining({
+                number_count: 1,
+                first_card_duration_ms: expect.any(Number),
+                loading_mode: 'progressive',
+            })
+        )
+        logic.actions.pulseViewUnmounted()
+    })
+
+    it('keeps ready values and stops pending loaders when a poll fails', async () => {
+        const metric = makePulseMetric()
+        const partial = makeHighlights({
+            status: 'computing',
+            pulse: [metric],
+            pulse_slots: [
+                { key: metric.key, name: metric.name, status: 'ready', url: metric.url, interval: metric.interval },
+                { key: 'slow', name: 'Slow number', status: 'pending', url: null, interval: null },
+            ],
+        })
+        highlightResponses = [[200, partial]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadHighlightsFailure('Request failed')
+        expect(logic.values.pulseTiles).toEqual([metric])
+        expect(logic.values.pulseSlots[1].status).toBe('error')
+        expect(logic.values.pulsePending).toBe(false)
+    })
+    it('sends only one refresh when retry is selected twice', async () => {
+        const failed = makeHighlights({
+            pulse: [],
+            pulse_slots: [{ key: 'failed', name: 'Failed number', status: 'error', url: null, interval: null }],
+        })
+        highlightResponses = [[200, failed]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        let finish: (value: typeof failed) => void = () => undefined
+        const request = jest.spyOn(todayApi, 'todayHighlightsRetrieve').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+        )
+        logic.actions.retryPulse()
+        logic.actions.retryPulse()
+        expect(request).toHaveBeenCalledTimes(1)
+        expect(request).toHaveBeenCalledWith(String(logic.values.currentProjectId), { refresh: true })
+        finish(failed)
+        await expectLogic(logic).toFinishAllListeners()
+        request.mockRestore()
     })
 })

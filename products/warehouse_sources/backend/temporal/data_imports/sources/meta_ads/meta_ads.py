@@ -19,7 +19,8 @@ from requests.exceptions import (
 )
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -145,7 +146,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
+def _fetch_integration_row(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -156,13 +157,16 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
     to be stale (and, after a failed query marks one unusable, drops it), so each attempt runs on a
     fresh connection; the short backoff also gives a saturated pool time to drain rather than
     retrying straight back into the same wait timeout. This read is idempotent, so it is safe to
-    repeat. ``Integration.DoesNotExist`` is left to propagate.
+    repeat. A missing row raises ``IntegrationNotFound`` with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.meta_ads.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
@@ -179,7 +183,7 @@ class MetaAdsTokenRefreshError(Exception):
     """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
 
 
-def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
+def get_integration_by_id(integration_id: int, team_id: int) -> IntegrationRecord:
     """Get a Meta Ads integration by row id, with a freshly refreshed access token."""
     integration = _fetch_integration_row(integration_id, team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
@@ -191,7 +195,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     return meta_ads_integration.integration
 
 
-def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
+def get_integration(config: MetaAdsSourceConfig, team_id: int) -> IntegrationRecord:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
@@ -212,7 +216,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
-    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`), or
+    # heavy fields that can make even the smallest page too much data. Both read them back per row.
     refusable_fields: tuple[str, ...] = ()
 
 
@@ -467,15 +472,17 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 # scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
-# Meta error code 100 with one of these subcodes: Meta validates a creative again when it serves the
-# creative-backed fields of an ad or an ad creative, and refuses one it can no longer render.
+# Meta error code 100 with one of these subcodes: Meta refuses to serve a field it cannot compute
+# for one row of a page, rejecting the whole page unless we ask again without it.
 #   2446211: an Advantage+ ("degrees of freedom") creative whose asset feed spec no longer matches
 #            its object story spec.
 #   1443048: a creative whose object story spec is malformed, for example one with no Page.
+#   1885649: an adset's budget fields, when the adset belongs to a Campaign Budget Optimization
+#            campaign and so carries no budget of its own — the campaign does instead.
 # Meta refuses the whole page for one such row, so without a fallback every sync of the table stops
 # at that row. The schema's `refusable_fields` name the fields to drop from the page request and then
 # read again per row (see `_restore_refusable_fields`).
-META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
+META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048, 1885649})
 
 # Meta's batch endpoint (see `_fetch_refusable_fields`) accepts at most 50 subrequests per call.
 # https://developers.facebook.com/docs/graph-api/batch-requests
@@ -733,7 +740,7 @@ def _get_ad_account_page(session: Session, url: str, access_token: str, params: 
         raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE) from e
 
 
-def list_ad_accounts(integration: Integration) -> list[dict]:
+def list_ad_accounts(integration: IntegrationRecord) -> list[dict]:
     """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
     # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query
@@ -808,19 +815,23 @@ def _is_transient_batch_subresponse_error(sub_response: typing.Any, error: typin
     )
 
 
-def _fetch_refusable_fields(
+def _fetch_fields_for_nodes(
     node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
-) -> dict[str, dict]:
-    """Read ``fields`` for each node in ``ids``, keyed by id, skipping a node Meta refuses to serve.
+) -> tuple[dict[str, dict], list[str]]:
+    """Read ``fields`` together for each node in ``ids``, keyed by id.
 
     Uses Meta's batch endpoint (``POST`` with a ``batch`` parameter,
     https://developers.facebook.com/docs/graph-api/batch-requests) rather than the root multi-id
     lookup (``GET /?ids=...``), which Meta deprecated in v26.0+. Each subrequest carries its own
     status, so one refused node doesn't need the rest of its batch retried or bisected, and up to
     ``META_BATCH_MAX_SUBREQUESTS`` ids are read per request rather than one request per id.
+
+    Returns the successful nodes plus the ids Meta refused the combined ``fields`` request for, so
+    the caller can retry those narrower (see ``_fetch_refusable_fields``).
     """
     fields_param = ",".join(fields)
     nodes: dict[str, dict] = {}
+    refused_ids: list[str] = []
     for start in range(0, len(ids), META_BATCH_MAX_SUBREQUESTS):
         chunk = ids[start : start + META_BATCH_MAX_SUBREQUESTS]
         data = {
@@ -878,16 +889,41 @@ def _fetch_refusable_fields(
             if sub_response.get("code") == 200 and isinstance(body, dict):
                 nodes[node_id] = body
             elif _is_refused_batch_subresponse(error):
-                logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
+                refused_ids.append(node_id)
             else:
                 raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error or body)}")
+    return nodes, refused_ids
+
+
+def _fetch_refusable_fields(
+    node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
+) -> dict[str, dict]:
+    """Read ``fields`` for each node in ``ids``, keyed by id, skipping a field Meta refuses to serve.
+
+    A node refused for the combined ``fields`` request is retried with each field requested on its
+    own. Meta can refuse one field of several for reasons specific to that field alone (e.g. an
+    adset's budget under Campaign Budget Optimization) while happily serving the rest, so asking only
+    once for all of them together would otherwise blank sibling fields Meta never actually refused.
+    """
+    nodes, refused_ids = _fetch_fields_for_nodes(node_lookup_url, ids, fields, access_token)
+    if not refused_ids:
+        return nodes
+    if len(fields) == 1:
+        logger.warning("meta_ads_refused_fields_for_node", node_ids=refused_ids, fields=fields)
+        return nodes
+    for field in fields:
+        field_nodes, still_refused = _fetch_fields_for_nodes(node_lookup_url, refused_ids, (field,), access_token)
+        for node_id, body in field_nodes.items():
+            nodes.setdefault(node_id, {}).update(body)
+        if still_refused:
+            logger.warning("meta_ads_refused_fields_for_node", node_ids=still_refused, fields=(field,))
     return nodes
 
 
 def _restore_refusable_fields(
     rows: list[dict], node_lookup_url: str, fields: tuple[str, ...], access_token: str
 ) -> list[dict]:
-    """Add ``fields`` back to rows fetched without them, as ``None`` for a row Meta refuses them for."""
+    """Add ``fields`` back to rows fetched without them, as ``None`` for a field Meta refuses for that row."""
     ids = [str(row["id"]) for row in rows if row.get("id")]
     nodes = _fetch_refusable_fields(node_lookup_url, ids, fields, access_token)
     return [{**row, **{field: nodes.get(str(row.get("id")), {}).get(field) for field in fields}} for row in rows]
@@ -918,9 +954,10 @@ def _iter_simple_pagination(
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
 
     When Meta refuses a page for one row's ``refusable_fields`` (see
-    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
-    again without those fields, and the fields are read back per row from
-    ``node_lookup_url``. The next page asks for every field again.
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), or the smallest page is still
+    too much data, the same page is fetched again without those fields, and
+    the fields are read back per row from ``node_lookup_url``. The next page
+    asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -974,6 +1011,12 @@ def _iter_simple_pagination(
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
                     current_limit = smaller
+                    response = _issue()
+                    continue
+                # A Meta refusal that persists at the smallest page is the same request every time, so
+                # backoff alone never clears it when a few rows carry very large heavy fields.
+                if refusable_fields and node_lookup_url is not None and not without_refusable_fields:
+                    without_refusable_fields = True
                     response = _issue()
                     continue
                 if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:

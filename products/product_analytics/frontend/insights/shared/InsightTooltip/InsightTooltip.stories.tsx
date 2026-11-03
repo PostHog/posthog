@@ -6,7 +6,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, InsightType } from '~/types'
+import { BaseMathType } from '~/types'
 
 import { InsightTooltip } from './InsightTooltip'
 import { InsightTooltipProps } from './insightTooltipUtils'
@@ -106,17 +106,6 @@ export const Columns: Story = {
                 label: '$autocapture - Safari',
                 color: '#42827e',
                 count: 0,
-                filter: {
-                    insight: InsightType.TRENDS,
-                    properties: [],
-                    filter_test_accounts: true,
-                    date_to: '2025-06-05T23:59:59.999999Z',
-                    date_from: '2025-05-29T00:00:00Z',
-                    entity_type: 'events',
-                    interval: 'day',
-                    breakdown: '$browser',
-                    breakdown_type: 'event',
-                },
             },
             {
                 id: 1,
@@ -140,17 +129,6 @@ export const Columns: Story = {
                 label: '$pageview - Chrome',
                 color: '#1d4aff',
                 count: 0,
-                filter: {
-                    insight: InsightType.TRENDS,
-                    properties: [],
-                    filter_test_accounts: true,
-                    date_to: '2025-06-05T23:59:59.999999Z',
-                    date_from: '2025-05-29T00:00:00Z',
-                    entity_type: 'events',
-                    interval: 'day',
-                    breakdown: '$browser',
-                    breakdown_type: 'event',
-                },
             },
             {
                 id: 2,
@@ -174,17 +152,6 @@ export const Columns: Story = {
                 label: '$pageview - Safari',
                 color: '#621da6',
                 count: 0,
-                filter: {
-                    insight: InsightType.TRENDS,
-                    properties: [],
-                    filter_test_accounts: true,
-                    date_to: '2025-06-05T23:59:59.999999Z',
-                    date_from: '2025-05-29T00:00:00Z',
-                    entity_type: 'events',
-                    interval: 'day',
-                    breakdown: '$browser',
-                    breakdown_type: 'event',
-                },
             },
         ],
     },

@@ -26,16 +26,9 @@ import {
 } from '~/queries/nodes/DataTable/exportTransformers'
 import { defaultDataTableColumns, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
+import { isActorsQuery, isHogQLQuery, isPersonsNode } from '~/queries/schema/node-guards'
 import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
-import {
-    isActorsQuery,
-    isEventsQuery,
-    isGroupsQuery,
-    isHogQLQuery,
-    isMarketingAnalyticsTableQuery,
-    isPersonsNode,
-    isSessionsQuery,
-} from '~/queries/utils'
+import { isEventsQuery, isGroupsQuery, isMarketingAnalyticsTableQuery, isSessionsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, ExportContext, ExporterFormat } from '~/types'
 
 import { DataTableExportColumnsModal } from './DataTableExportColumnsModal'

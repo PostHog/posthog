@@ -49,10 +49,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
@@ -72,6 +69,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -5418,10 +5416,7 @@ class TestExperimentService(APIBaseTest):
             ),
         )
 
-        def fake_feature_enabled(key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=flag_enabled):
             cohort = service.create_exposure_cohort(experiment)
 
         assert cohort.filters is not None
@@ -5430,6 +5425,36 @@ class TestExperimentService(APIBaseTest):
         for criterion in criteria:
             assert criterion["event_type"] == "events"
             assert criterion["event_filters"] == [flag_filter]
+
+    @parameterized.expand(
+        [
+            # (name, legacy custom_exposure_filter, expected exposure event)
+            ("empty_actions_string", {"actions": "", "events": [{"id": "signed_up", "order": 0}]}, "signed_up"),
+            (
+                "string_and_int_zero_order",
+                {"events": [{"id": "first_event", "order": "0"}, {"id": "second_event", "order": 0}]},
+                "first_event",
+            ),
+        ]
+    )
+    def test_create_exposure_cohort_reads_legacy_custom_exposure_filter(
+        self, name: str, custom_exposure_filter: dict, expected_event: str
+    ) -> None:
+        flag_key = f"cohort-legacy-{name}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Legacy {name}",
+            feature_flag_key=flag_key,
+            start_date=timezone.now(),
+            parameters={"custom_exposure_filter": custom_exposure_filter},
+        )
+
+        cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.filters is not None
+        criteria = cohort.filters["properties"]["values"][0]["values"]
+        assert [criterion["key"] for criterion in criteria] == [expected_event]
 
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")

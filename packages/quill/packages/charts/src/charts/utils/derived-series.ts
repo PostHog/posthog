@@ -69,6 +69,8 @@ export interface BuildTrendLineSeriesInput<Meta = unknown> {
      *  trend is extrapolated across the full data range. Useful for excluding an
      *  in-progress tail so the partial bucket doesn't drag the slope. */
     fitUpTo?: number
+    /** Each value's x position, such as its time. Defaults to the index. */
+    xs?: number[]
     excluded?: boolean
 }
 
@@ -79,8 +81,13 @@ export interface BuildTrendLineSeriesInput<Meta = unknown> {
  *  `applyComparisonDimming`). */
 export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeriesInput<Meta>): Series<Meta> {
     const { sourceSeries, kind, fitUpTo } = input
+    // Epoch milliseconds are too large for the regression and cancel to NaN, so fit relative to the first x.
+    const origin = input.xs?.find((x) => isFinite(x)) ?? 0
+    const xs = input.xs?.map((x) => x - origin)
     const data =
-        kind === 'exponential' ? exponentialTrend(sourceSeries.data, fitUpTo) : trendLine(sourceSeries.data, fitUpTo)
+        kind === 'exponential'
+            ? exponentialTrend(sourceSeries.data, fitUpTo, xs)
+            : trendLine(sourceSeries.data, fitUpTo, xs)
     const baseColor = sourceSeries.color
     return {
         key: `${sourceSeries.key}__trendline`,
@@ -95,10 +102,11 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
     }
 }
 
-function exponentialTrend(values: number[], fitUpTo?: number): number[] {
+function exponentialTrend(values: number[], fitUpTo?: number, xs?: number[]): number[] {
     const n = values.length
+    const xAt = (i: number): number => xs?.[i] ?? i
     if (n < 2) {
-        return trendLine(values, fitUpTo)
+        return trendLine(values, fitUpTo, xs)
     }
     const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
     // Single pass: build the log-space coords and bail on the first non-positive value.
@@ -108,10 +116,10 @@ function exponentialTrend(values: number[], fitUpTo?: number): number[] {
     for (let x = 0; x < fitEnd; x++) {
         const y = values[x]
         if (y <= 0) {
-            return trendLine(values, fitUpTo)
+            return trendLine(values, fitUpTo, xs)
         }
-        coords.push([x, Math.log(y)])
+        coords.push([xAt(x), Math.log(y)])
     }
     const { m, b } = linearRegression(coords)
-    return values.map((_, x) => Math.exp(m * x + b))
+    return values.map((_, i) => Math.exp(m * xAt(i) + b))
 }

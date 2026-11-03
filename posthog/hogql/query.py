@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast, query_stats
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -506,7 +507,8 @@ class HogQLQueryExecutor:
                 context=direct_context,
                 dialect=dialect,
                 pretty=self.pretty if self.pretty is not None else True,
-            )
+            ),
+            dialect=dialect,
         )
         self.direct_context = direct_context
         self.direct_values = direct_context.values
@@ -590,7 +592,7 @@ class HogQLQueryExecutor:
 
         self.hogql = transpiled.hogql
         self.print_columns = list(transpiled.print_columns)
-        self.direct_sql = ensure_single_direct_statement(transpiled.sql)
+        self.direct_sql = ensure_single_direct_statement(transpiled.sql, dialect="trino")
         self.direct_values = transpiled.values
         self.direct_source_id = str(source.id)
         self.direct_dialect = "trino"
@@ -878,6 +880,7 @@ class HogQLQueryExecutor:
         self._evaluate_prompt_jev()
         return self.select_query, self._prompt_jev_tables
 
+    @bounded_compilation
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.clear_reads()
         self._parse_query()

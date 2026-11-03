@@ -11,6 +11,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import AvailableFeature
+from posthog.paging import PageRequest
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -100,15 +101,14 @@ class TestCustomerTasksHogqlAccess(NonAtomicBaseTest):
         active_rows = execute_hogql_query(
             "SELECT name FROM system.customer_tasks WHERE archived_at IS NULL", team=self.team, user=viewer
         ).results
-        tasks, count = api.list_customer_tasks(
+        tasks = api.list_customer_tasks(
             team_id=self.team.id,
             user_access_control=UserAccessControl(user=viewer, team=self.team),
             filters=contracts.CustomerTaskListFilters(),
-            offset=0,
-            limit=100,
+            page=PageRequest(limit=100),
         )
-        assert {row[0] for row in active_rows} == {task.name for task in tasks} == expected_active_task_names
-        assert count == len(expected_active_task_names)
+        assert {row[0] for row in active_rows} == {task.name for task in tasks.results} == expected_active_task_names
+        assert tasks.count == len(expected_active_task_names)
 
         materialization_database = Database.create_for(
             team=self.team,

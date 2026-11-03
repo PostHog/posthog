@@ -17,12 +17,7 @@ from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-
-
-# A source sends a replace scope (see `ReplaceScope`) only while this flag is on for the schema. The
-# flag stays off until the loaders that apply a scope are live, because an older loader ignores the
-# scope and fails the keyless batch.
-REPLACE_ROWS_BY_FILE_FLAG = "warehouse-replace-rows-by-file"
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
@@ -32,10 +27,25 @@ def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     released to a single table — set a release condition `schema_id = <id>` to dogfood a feature
     on one schema before rolling out by team/org/project.
     """
+    return _is_team_flag_enabled(
+        schema.team_id,
+        flag,
+        {"schema_id": str(schema.id), "team_id": str(schema.team_id), "source_type": schema.source.source_type},
+    )
+
+
+def is_source_flag_enabled(source: ExternalDataSource, flag: str) -> bool:
+    """Evaluate a rollout flag for a whole source, for a decision made before its schemas exist."""
+    return _is_team_flag_enabled(
+        source.team_id, flag, {"team_id": str(source.team_id), "source_type": source.source_type}
+    )
+
+
+def _is_team_flag_enabled(team_id: int, flag: str, person_properties: dict[str, str]) -> bool:
     from posthog.models import Team  # noqa: PLC0415 — keeps this module importable before app registry setup
 
     try:
-        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=schema.team_id))
+        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=team_id))
     except Team.DoesNotExist:
         return False
     except (OperationalError, InterfaceError) as e:
@@ -51,11 +61,7 @@ def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
                 flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
-                person_properties={
-                    "schema_id": str(schema.id),
-                    "team_id": str(schema.team_id),
-                    "source_type": schema.source.source_type,
-                },
+                person_properties=person_properties,
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
                     "project": {"id": str(team.id)},

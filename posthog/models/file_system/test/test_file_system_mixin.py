@@ -4,7 +4,7 @@ from posthog.models import FileSystem, Organization, Team, User
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment, update_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -85,16 +85,17 @@ class TestFileSystemSyncMixin(TestCase):
         (If your model doesn't have a 'deleted' field, this just ensures it's created.)
         """
         ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
-        exp = Experiment.objects.create(team=self.team, name="Exp #1", created_by=self.user, feature_flag=ff)
-        fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
+        experiment_id = create_experiment(
+            team_id=self.team.id, name="Exp #1", created_by_id=self.user.id, feature_flag_id=ff.id
+        )
+        fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(experiment_id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
         self.assertEqual(fs_entry.shortcut, False)
 
         # If we manually add a field `deleted=True` (if it existed),
         # the DSL says ignore. We'll simulate that:
-        exp.name = "Exp #1 Updated"
-        exp.save()
+        update_experiment(team_id=self.team.id, experiment_id=experiment_id, name="Exp #1 Updated")
 
         # Should remain in the FileSystem
         fs_entry.refresh_from_db()
