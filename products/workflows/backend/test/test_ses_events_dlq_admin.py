@@ -81,7 +81,7 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
 
         with patch(
             "products.workflows.backend.tasks.ses_events_dlq.sqs_client",
-            return_value=FakeSqs([sns_message("a", "Bounce"), sns_message("b", "Click")]),
+            return_value=FakeSqs([sns_message("a", "Bounce"), sns_message("b", "Click")], refuse_release={"b"}),
         ):
             replay_ses_events_dlq_task(
                 run_id=run_id,
@@ -93,7 +93,12 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
             )
 
         [run] = recent_runs()
-        assert (run["status"], run["report"]["totals"]) == ("finished", {"would_replay": 2})
+        assert (run["status"], run["report"]["totals"], run["report"]["unreleased"]) == (
+            "finished",
+            {"would_replay": 2},
+            1,
+        )
+        assert "did not release 1" in run["error"]
         assert start_run(DlqQueue(url=QUEUE.url), options, "staff@example.com") is not None
 
     def test_a_task_that_starts_after_another_run_took_its_queue_reads_nothing(self) -> None:

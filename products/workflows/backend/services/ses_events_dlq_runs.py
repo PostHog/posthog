@@ -101,8 +101,15 @@ def update_run(run_id: str, *, status: RunStatus, report: ReplayReport | None = 
     redis.set(_run_key(run_id), json.dumps(run), ex=RUN_TTL_SECONDS)
 
 
-def finish_run(run_id: str, queue: DlqQueue, *, status: RunStatus, error: str | None = None) -> None:
-    update_run(run_id, status=status, error=error)
+def finish_run(
+    run_id: str,
+    queue: DlqQueue,
+    *,
+    status: RunStatus,
+    report: ReplayReport | None = None,
+    error: str | None = None,
+) -> None:
+    update_run(run_id, status=status, report=report, error=error)
     get_client().eval(_RELEASE_LOCK, 1, _lock_key(queue), run_id)
 
 

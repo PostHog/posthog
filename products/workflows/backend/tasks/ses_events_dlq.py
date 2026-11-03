@@ -37,9 +37,16 @@ def replay_ses_events_dlq_task(
             raise QueueLockLost("Another run took this queue")
 
     try:
-        replay_queue(queue, options, sqs=sqs_client(queue), triggered_by=triggered_by, on_progress=on_progress)
+        report = replay_queue(queue, options, sqs=sqs_client(queue), triggered_by=triggered_by, on_progress=on_progress)
     except Exception as error:
         logger.exception("ses_events_dlq.replay_failed", run_id=run_id, queue=queue_name)
         finish_run(run_id, queue, status="failed", error=f"{type(error).__name__}: {error}")
         return
-    finish_run(run_id, queue, status="finished")
+    hidden_error = None
+    if report.unreleased:
+        logger.error("ses_events_dlq.messages_not_released", run_id=run_id, queue=queue_name, count=report.unreleased)
+        hidden_error = (
+            f"SQS did not release {report.unreleased} kept messages. "
+            "They return to the queue when their visibility timeout ends."
+        )
+    finish_run(run_id, queue, status="finished", report=report, error=hidden_error)
