@@ -96,12 +96,18 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             format="json",
         )
 
-    @parameterized.expand([False, True])
-    def test_widget_query_supports_display_names_filters_search_sort_and_pages(self, materialized_cte: bool) -> None:
-        self.enterContext(self.settings(HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte))
+    @parameterized.expand([(False, None), (True, 120)])
+    def test_widget_query_supports_display_names_filters_search_sort_and_pages(
+        self, materialized_cte: bool, max_threads: int | None
+    ) -> None:
+        self.enterContext(
+            self.settings(
+                HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte, CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS=max_threads
+            )
+        )
         with patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query) as execute_query:
             response = self._run_widget_query(limit=1)
-        assert execute_query.call_args.kwargs["settings"].max_threads == 120
+        assert execute_query.call_args.kwargs["settings"].max_threads == max_threads
         assert response.status_code == 200, response.content
         page = response.json()
         assert page["results"][0][0] == {"display_name": "first@example.com", "id": str(self.first.uuid)}

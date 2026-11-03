@@ -137,7 +137,8 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def get_actors_query_settings(self) -> HogQLGlobalSettings:
         return HogQLGlobalSettings(
-            max_threads=120, enable_materialized_cte=True if settings.HOGQL_MATERIALIZED_CTE_SUPPORTED else None
+            max_threads=settings.CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS,
+            enable_materialized_cte=True if settings.HOGQL_MATERIALIZED_CTE_SUPPORTED else None,
         )
 
     def _calculate(self) -> HogQLQueryResponse:
