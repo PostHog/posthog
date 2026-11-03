@@ -37,10 +37,8 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization.save()
 
     def test_team_effective_membership_level(self):
-        # When no AccessControl rows exist, the default project access level is "admin"
-        # so all org members get ADMIN effective membership level
         with self.assertNumQueries(3):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -119,20 +117,11 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
     def test_team_effective_membership_level_new_access_control_non_private_team(self):
-        """Test that all organization members have access to a non-private team with the new access control system.
-        When no AccessControl rows exist, the default project access level is "admin",
-        so all org members get ADMIN effective membership level."""
-
-        # Set up team with new access control system
-        # Team is not private (no AccessControl objects), default access level is admin
-
-        # Set up user as a member
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        # Check effective membership level - defaults to ADMIN when no access controls exist
         with self.assertNumQueries(3):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_new_access_control_private_team_admin(self):
         """Test that organization admins have access to a private team with the new access control system"""
@@ -647,7 +636,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
         self._grant_project_access_via_new_role("none")
 
-        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     @parameterized.expand([("member_specific", True), ("role_based", False)])
     def test_team_denied_by_explicit_rule_is_not_visible(self, _name, via_member):
