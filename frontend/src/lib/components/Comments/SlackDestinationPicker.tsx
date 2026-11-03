@@ -11,9 +11,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 export type SlackDestinationPickerProps = {
     integrationId: number | null
     /** The SlackChannelPicker's composite `CHANNEL_ID|#name` value. */
-    channel: string | null
+    channel?: string | null
     onIntegrationChange: (integrationId: number | null) => void
-    onChannelChange: (channel: string | null) => void
+    /** Omit to pick only the workspace, as linking an existing thread does: its link names the channel. */
+    onChannelChange?: (channel: string | null) => void
     /** Extra classes for the picker container; not applied to the loading/not-configured states. */
     className?: string
     /** Replaces the lead sentence of the banner shown when the project has no Slack workspace. */
@@ -21,7 +22,7 @@ export type SlackDestinationPickerProps = {
     onConnectClick?: () => void
 }
 
-/** Slack workspace + channel picker shared by the comment composer, the send-to-Slack modal and PostHog AI cards. */
+/** Slack workspace + channel picker shared by the comment composer, the Slack discussion modals and PostHog AI cards. */
 export function SlackDestinationPicker({
     integrationId,
     channel,
@@ -63,7 +64,7 @@ export function SlackDestinationPicker({
                     onChange={onIntegrationChange}
                 />
             </div>
-            {selectedIntegration ? (
+            {selectedIntegration && onChannelChange ? (
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Channel</LemonLabel>
                     <SlackChannelPicker

@@ -437,3 +437,53 @@ describe('commentsLogic', () => {
         expect(logic.values.composerDrafts['footer']).toEqual(DRAFT_CONTENT)
     })
 })
+
+describe('commentsLogic unlinkSlackThread', () => {
+    let logic: ReturnType<typeof commentsLogic.build>
+    let unlinkedId: string | null
+
+    beforeEach(() => {
+        unlinkedId = null
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': {
+                    results: [makeComment('linked-root'), makeComment('reply', 'linked-root'), makeComment('other')],
+                },
+                '/api/organizations/@current/members/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team_id/comments/:id/unlink_slack_thread': ({ params }) => {
+                    unlinkedId = params.id as string
+                    return [204]
+                },
+            },
+        })
+        logic = commentsLogic({ scope: ActivityScope.INSIGHT, item_id: '1' })
+        logic.mount()
+    })
+
+    it('removes the linked thread and its replies in place, leaving the reader where they were', async () => {
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+        const root = logic.values.comments!.find((c) => c.id === 'linked-root')!
+
+        await expectLogic(logic, () => logic.actions.unlinkSlackThread(root))
+            .toDispatchActions(['unlinkSlackThreadSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+
+        expect(unlinkedId).toBe('linked-root')
+        expect(logic.values.comments?.map((c) => c.id)).toEqual(['other'])
+    })
+
+    it('closes a reply or an edit that was on the unlinked thread', async () => {
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+        const root = logic.values.comments!.find((c) => c.id === 'linked-root')!
+        const reply = logic.values.comments!.find((c) => c.id === 'reply')!
+        logic.actions.setReplyingComment('linked-root')
+        logic.actions.setEditingComment(reply)
+
+        await expectLogic(logic, () => logic.actions.unlinkSlackThread(root))
+            .toDispatchActions(['unlinkSlackThreadSuccess'])
+            .toMatchValues({ replyingCommentId: null, editingComment: null })
+    })
+})

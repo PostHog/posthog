@@ -5,7 +5,7 @@ import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEdit
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope } from '~/types'
+import { ActivityScope, CommentType } from '~/types'
 
 export interface RecordingLinkInfo {
     recordingId: string
@@ -40,6 +40,19 @@ const SCOPES_WITHOUT_SLACK_SYNC: ReadonlySet<string> = new Set([ActivityScope.RE
 export function scopeSyncsToSlack(scope: string): boolean {
     return !SCOPES_WITHOUT_SLACK_SYNC.has(scope)
 }
+
+/**
+ * A discussion started by linking a Slack thread that already existed: its opening comment came from
+ * Slack and syncs back there. One written here and sent to Slack has an opening comment not from Slack.
+ */
+export function isLinkedSlackThread(
+    comment: Pick<CommentType, 'source_comment' | 'item_context' | 'slack_thread'>
+): boolean {
+    return !comment.source_comment && !!comment.item_context?.from_slack && !!comment.slack_thread
+}
+
+/** How far PostHog got copying a linked thread's earlier replies, kept on its opening comment. */
+export type LinkedSlackThreadImport = 'pending' | 'done' | 'truncated' | 'failed'
 
 export function getCommentText(comment: { content?: string | null; rich_content?: JSONContent | null }): string {
     // This is only temporary until all comments are backfilled to rich content
