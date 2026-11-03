@@ -234,7 +234,7 @@ def test_every_source_with_the_aws_auth_field_lifts_it_and_keeps_its_own_credent
         if not any(field.name == AWS_AUTH_FIELD_NAME for field in source.get_source_config.fields):
             continue
         if AWS_AUTH_FIELD_NAME not in source.flat_stored_selects:
-            problems.append(f"{source_type.value} does not set flat_stored_selects")
+            problems.append(f"{source_type} does not set flat_stored_selects")
         if source.credential_kind == "aws-s3" and source_type != ExternalDataSourceType.AMAZONS3:
-            problems.append(f"{source_type.value} inherits the aws-s3 credential kind")
+            problems.append(f"{source_type} inherits the aws-s3 credential kind")
     assert problems == []

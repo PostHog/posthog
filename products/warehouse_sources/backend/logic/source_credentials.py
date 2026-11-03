@@ -415,11 +415,10 @@ def same_connection_fields(first: Mapping[str, Any], second: Mapping[str, Any]) 
 def comparable_connection_fields(source_type: str, fields: Mapping[str, Any]) -> dict[str, Any]:
     """The fields with each select branch in its container. A row written before a source moved its
     fields into a select holds them at the top level, and they still name the same connection."""
-    # noqa below: the source registry loads only when a write or a compare needs it, as in `_connection_fields`.
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (  # noqa: PLC0415 — keeps the registry off the store import path
         nest_flat_select_containers,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415 — as above
         SourceRegistry,
     )
 
