@@ -151,6 +151,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
             ("missing_condition_claim", {"ref": None}, {}, "workload_no_matching_policy"),
             ("empty_condition_claim", {"ref": ""}, {}, "workload_no_matching_policy"),
             ("condition_claim_not_a_string", {"ref": ["refs/heads/main"]}, {}, "workload_no_matching_policy"),
+            ("condition_claim_with_a_nul_character", {"ref": "refs/heads/main\x00"}, {}, "workload_no_matching_policy"),
             ("empty_subject", {"repository_id": ""}, {}, "workload_token_invalid"),
             ("missing_subject_name", {"repository": None}, {}, "workload_token_invalid"),
             (
