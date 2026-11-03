@@ -33,6 +33,8 @@ enum Slot {
     FontFace(&'static str),
     ImageSet,
     StyleRule,
+    StyleChange,
+    StyleObjectChange,
 }
 
 const SLOTS: &[Slot] = &[
@@ -44,6 +46,8 @@ const SLOTS: &[Slot] = &[
     Slot::FontFace("Roboto"),
     Slot::ImageSet,
     Slot::StyleRule,
+    Slot::StyleChange,
+    Slot::StyleObjectChange,
 ];
 
 impl Slot {
@@ -56,6 +60,7 @@ impl Slot {
 struct Placed {
     slot: Slot,
     written: String,
+    escaped: bool,
     copies: Vec<String>,
 }
 
@@ -101,16 +106,39 @@ fn css_escaped(tc: &TestCase, url: &str) -> String {
     out
 }
 
-/// The CSS `url()` of `written`, quoted or not. A comment can follow a quoted string. One before it makes a bad URL,
-/// which a browser never loads.
+/// The CSS `url()` of `written`, quoted or not, under any spelling of its name. A comment can follow a quoted string.
+/// One before it makes a bad URL, which a browser never loads.
 fn url_function(tc: &TestCase, written: &str) -> String {
+    let name = ["url", "URL", "\\75 rl", "u\\72l"][draw_index(tc, 4)];
     let comment = if tc.draw(gs::booleans()) { "/*c*/" } else { "" };
     let space = if tc.draw(gs::booleans()) { " " } else { "" };
     match draw_index(tc, 3) {
-        0 if !written.contains([' ', '(', ')', '"', '\'', '\\']) => format!("url({written})"),
-        1 => format!("url({space}\"{written}\"{comment})"),
-        _ => format!("url({space}'{written}'{comment})"),
+        0 if !written.contains([' ', '(', ')', '"', '\'', '\\']) => format!("{name}({written})"),
+        1 => format!("{name}({space}\"{written}\"{comment})"),
+        _ => format!("{name}({space}'{written}'{comment})"),
     }
+}
+
+/// `data` as posthog-js sends a compressed snapshot: gzip bytes, one per character.
+fn compressed(data: &Value) -> String {
+    replay_core_v4::compression::gzip(data.to_string().as_bytes())
+        .unwrap()
+        .iter()
+        .map(|&byte| char::from(byte))
+        .collect()
+}
+
+/// `json` with some of its slashes written as `\/`, which JSON reads as a slash. Every slash here is inside a string.
+fn with_escaped_slashes(tc: &TestCase, json: &str) -> String {
+    json.chars()
+        .map(|ch| {
+            if ch == '/' && draw_index(tc, 4) == 0 {
+                "\\/".to_owned()
+            } else {
+                ch.to_string()
+            }
+        })
+        .collect()
 }
 
 fn draw_placed(tc: &TestCase, index: usize, refused: bool) -> Placed {
@@ -121,6 +149,7 @@ fn draw_placed(tc: &TestCase, index: usize, refused: bool) -> Placed {
     } else {
         url.clone()
     };
+    let escaped = written != url;
     let copies = if refused {
         tc.draw(gs::vecs(gs::sampled_from(vec![url, written.clone()])).max_size(2))
     } else {
@@ -129,6 +158,7 @@ fn draw_placed(tc: &TestCase, index: usize, refused: bool) -> Placed {
     Placed {
         slot,
         written,
+        escaped,
         copies,
     }
 }
@@ -148,6 +178,7 @@ fn events(tc: &TestCase, placed: &[Placed]) -> String {
         slot,
         written,
         copies,
+        ..
     } in placed
     {
         let function = || url_function(tc, written);
@@ -180,6 +211,16 @@ fn events(tc: &TestCase, placed: &[Placed]) -> String {
             )),
             Slot::StyleRule => rules.push(json!({"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3,
                 "replaceSync": format!(".r{{background:{}}}", function())}})),
+            Slot::StyleChange => {
+                nodes.push(element(&mut id, "div", json!({})));
+                rules.push(json!({"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                    "attributes": [{"id": id, "attributes": {"style": format!("background-image:{}", function())}}]}}));
+            }
+            Slot::StyleObjectChange => {
+                nodes.push(element(&mut id, "div", json!({})));
+                rules.push(json!({"type": 3, "timestamp": 2, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                    "attributes": [{"id": id, "attributes": {"style": {"background-image": function()}}}]}}));
+            }
         }
         for copy in copies {
             if tc.draw(gs::booleans()) {
@@ -192,9 +233,14 @@ fn events(tc: &TestCase, placed: &[Placed]) -> String {
     }
     let mut events =
         vec![json!({"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/page"}})];
-    events.push(json!({"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}));
+    let snapshot = json!({"node": {"type": 0, "id": 1, "childNodes": nodes}});
+    events.push(if tc.draw(gs::booleans()) {
+        json!({"type": 2, "timestamp": 1, "cv": "2024-10", "data": compressed(&snapshot)})
+    } else {
+        json!({"type": 2, "timestamp": 1, "data": snapshot})
+    });
     events.extend(rules);
-    Value::Array(events).to_string()
+    with_escaped_slashes(tc, &Value::Array(events).to_string())
 }
 
 fn block_of(events: &str) -> Block {
@@ -240,31 +286,33 @@ fn block_of(events: &str) -> Block {
 }
 
 /// The stored lines, or `None` when the writer drops the block.
-fn stored(events: &str) -> Option<String> {
+fn stored(tc: &TestCase, events: &str) -> Option<String> {
     let block = block_of(events);
     let (lines, _, counts): (Vec<u8>, _, WriterCounts) =
         write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
+    tc.event(counts.dropped.unwrap_or("stored"));
     counts
         .dropped
         .is_none()
         .then(|| String::from_utf8(lines).unwrap())
 }
 
-fn draw_page(tc: &TestCase) -> String {
+fn draw_page(tc: &TestCase) -> (Vec<Placed>, String) {
     let refused = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
     let accepted = tc.draw(gs::integers::<usize>().min_value(0).max_value(2));
     let placed: Vec<Placed> = (0..refused)
         .map(|index| draw_placed(tc, index, true))
         .chain((0..accepted).map(|index| draw_placed(tc, index, false)))
         .collect();
-    events(tc, &placed)
+    let events = events(tc, &placed);
+    (placed, events)
 }
 
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn a_stored_block_holds_no_refused_url(tc: TestCase) {
-    let events = draw_page(&tc);
-    if let Some(lines) = stored(&events) {
+    let (_, events) = draw_page(&tc);
+    if let Some(lines) = stored(&tc, &events) {
         assert!(!lines.contains(SECRET), "{events}\n---\n{lines}");
     }
 }
@@ -272,8 +320,8 @@ fn a_stored_block_holds_no_refused_url(tc: TestCase) {
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn each_stored_line_is_a_window_and_an_event(tc: TestCase) {
-    let events = draw_page(&tc);
-    if let Some(lines) = stored(&events) {
+    let (_, events) = draw_page(&tc);
+    if let Some(lines) = stored(&tc, &events) {
         for line in lines.lines() {
             let parsed: Value = serde_json::from_str(line)
                 .unwrap_or_else(|error| panic!("{error}: {line}\n---\n{events}"));
@@ -288,8 +336,20 @@ fn each_stored_line_is_a_window_and_an_event(tc: TestCase) {
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
 fn a_stored_block_holds_no_accepted_url_in_an_image_slot(tc: TestCase) {
-    let events = draw_page(&tc);
-    if let Some(lines) = stored(&events) {
+    let (_, events) = draw_page(&tc);
+    if let Some(lines) = stored(&tc, &events) {
         assert!(!lines.contains(ACCEPTED), "{events}\n---\n{lines}");
+    }
+}
+
+#[hegel::test]
+#[ignore = "a search for bugs, run on demand"]
+fn drops_a_block_only_for_an_escaped_image_set_candidate(tc: TestCase) {
+    let (placed, events) = draw_page(&tc);
+    let reason = placed
+        .iter()
+        .any(|placed| matches!(placed.slot, Slot::ImageSet) && placed.escaped);
+    if !reason {
+        assert!(stored(&tc, &events).is_some(), "{events}");
     }
 }
