@@ -396,6 +396,21 @@ describe('buildRankedResults', () => {
             ],
         },
         {
+            name: 'every product shows when products are the only match, past the flat list cap',
+            query: 'pricing',
+            results: [],
+            products: Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => product(`Pricing ${n}`)),
+            expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
+        },
+        {
+            name: 'with unified ranking, every product shows when products are the only match, past the flat list cap',
+            query: 'pricing',
+            results: [],
+            unifiedRanking: true,
+            products: Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => product(`Pricing ${n}`)),
+            expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
+        },
+        {
             name: 'a broad query that matches one type only renders a bounded flat list',
             query: 'project settings',
             results: [],

@@ -371,27 +371,27 @@ export function buildRankedResults({
     const pool = collapseSameName(matching)
     const groupCount = new Set(pool.map((entry) => entry.groupKey)).size
     if (pool.length <= FLAT_LIST_LIMIT || groupCount === 1) {
+        const hasContinuation = pool[0].groupKey === 'settings' || !LOCAL_GROUPS.includes(pool[0].groupKey)
+        const shownPool = groupCount === 1 && !hasContinuation ? pool : pool.slice(0, RESULTS_LIMIT)
         return [
             ...notices,
             {
                 key: 'best-matches',
                 label: 'Results',
                 rows: [
-                    ...pool
-                        .slice(0, RESULTS_LIMIT)
-                        .map((entry) =>
-                            itemRow(
-                                'flat',
-                                entry.item,
-                                highlightWords,
-                                entry.duplicates,
-                                entry.duplicates > 0,
-                                groupCount > 1
-                            )
-                        ),
+                    ...shownPool.map((entry) =>
+                        itemRow(
+                            'flat',
+                            entry.item,
+                            highlightWords,
+                            entry.duplicates,
+                            entry.duplicates > 0,
+                            groupCount > 1
+                        )
+                    ),
                     ...settingsSeeAll(
                         pool.filter((entry) => entry.groupKey === 'settings').length + unrankedSettingsCount,
-                        pool.slice(0, RESULTS_LIMIT).filter((entry) => entry.groupKey === 'settings').length,
+                        shownPool.filter((entry) => entry.groupKey === 'settings').length,
                         query,
                         'flat'
                     ),
@@ -402,7 +402,7 @@ export function buildRankedResults({
                                   pool[0].item.searchMatch?.typeCount ?? 0,
                                   pool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
                               ),
-                              pool.slice(0, RESULTS_LIMIT).reduce((sum, entry) => sum + 1 + entry.duplicates, 0),
+                              shownPool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0),
                               capped,
                               'flat'
                           )
