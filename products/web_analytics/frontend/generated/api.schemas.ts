@@ -1975,6 +1975,7 @@ export type AeoPromptsListParams = {
     include_archived?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1997,6 +1998,7 @@ export type AeoPromptsChecksParams = {
     engine?: string
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

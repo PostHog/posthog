@@ -3088,6 +3088,11 @@ export type HogFlowTemplatesLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -3115,6 +3120,7 @@ export type HogFlowsListParams = {
     latest_send_first?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3324,6 +3330,11 @@ export type HogFlowsLogsRetrieveParams = {
      */
     limit?: number
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -3523,6 +3534,7 @@ export const HogFlowsMetricsVersionRetrieveInterval = {
 export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3547,6 +3559,7 @@ export const HogFlowsProposalsListStatus = {
 export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**

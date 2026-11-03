@@ -1149,6 +1149,9 @@ devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback
         description: Send feedback about the dev experience to the devex team (humans and agents)
+    git:signing-key:
+        click: hogli_commands.git_signing:signing_key
+        description: Set up commit signing with a Secure Enclave key (macOS 26 or later) and register it on GitHub
     agent:usage:
         click: hogli_commands.agent_usage:cmd_agent_usage
         description: Show agent LLM token spend per pull request, from engineering analytics
@@ -1173,10 +1176,10 @@ utilities:
         description: Clear out unused Claude Code / Codex / PostHog Desktop / phw worktrees by age
     pr:upload-image:
         click: hogli_commands.upload_image:upload_image
-        description: Upload screenshot(s) to the public PostHog/pr-assets repo and print embeddable PR markdown
+        description: Attach screenshot(s) to the PR description, or upload to PostHog/pr-assets and print markdown
     pr:upload-video:
         click: hogli_commands.upload_video:upload_video
-        description: Upload demo video(s) to the public PostHog/pr-assets repo and print link markdown
+        description: Attach demo video(s) to the PR description, or upload to PostHog/pr-assets and print a link
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
