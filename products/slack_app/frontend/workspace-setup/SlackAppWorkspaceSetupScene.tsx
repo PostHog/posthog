@@ -10,18 +10,21 @@ import { urls } from 'scenes/urls'
 import { SlackAppWorkspaceSetupDone } from './SlackAppWorkspaceSetupDone'
 import { slackAppWorkspaceSetupLogic, SlackAppWorkspaceSetupLogicProps } from './slackAppWorkspaceSetupLogic'
 import { SlackAppWorkspaceSetupStep } from './SlackAppWorkspaceSetupStep'
+import { parseSlackSetupReturnTarget, SLACK_SETUP_RETURN_PARAM } from './slackSetupReturn'
 
 export const scene: SceneExport<SlackAppWorkspaceSetupLogicProps> = {
     component: SlackAppWorkspaceSetupScene,
     logic: slackAppWorkspaceSetupLogic,
-    paramsToProps: ({ params: { integrationId }, searchParams: { entry } }) => ({
+    paramsToProps: ({ params: { integrationId }, searchParams }) => ({
         integrationId: Number(integrationId),
-        entry: entry === 'slack_page' ? 'slack_page' : 'other',
+        entry: searchParams.entry === 'slack_page' ? 'slack_page' : 'other',
+        returnTo: parseSlackSetupReturnTarget(searchParams[SLACK_SETUP_RETURN_PARAM]),
     }),
 }
 
 export function SlackAppWorkspaceSetupScene(): JSX.Element {
-    const { setup, setupLoading, steps, currentStep, currentStepNumber } = useValues(slackAppWorkspaceSetupLogic)
+    const { setup, setupLoading, steps, currentStep, currentStepNumber, returnLink } =
+        useValues(slackAppWorkspaceSetupLogic)
 
     return (
         <div className="flex flex-col items-center justify-center min-h-full w-full p-4">
@@ -52,9 +55,12 @@ export function SlackAppWorkspaceSetupScene(): JSX.Element {
                 )}
             </div>
 
-            <Link to={urls.projectHomepage()} className="flex items-center gap-1 mt-6 text-secondary">
+            <Link
+                to={returnLink?.url ?? urls.projectHomepage()}
+                className="flex items-center gap-1 mt-6 text-secondary"
+            >
                 <IconArrowLeft />
-                Back to PostHog
+                {returnLink?.label ?? 'Back to PostHog'}
             </Link>
         </div>
     )
