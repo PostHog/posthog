@@ -409,8 +409,6 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 api_key_label=personal_api_key_object.label,
             )
 
-            # Views that override `permission_classes` can omit `IPRestrictionsPermission`, so the
-            # bearer path enforces the check here too.
             from posthog.ip_restrictions import enforce_ip_restrictions
 
             enforce_ip_restrictions(request, personal_api_key_object.user, self)
@@ -568,6 +566,11 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
         self.project_secret_api_key = psak
 
+        from posthog.ip_restrictions import enforce_ip_restrictions
+
+        user = ProjectSecretAPIKeyUser(psak)
+        enforce_ip_restrictions(request, user, self)
+
         tag_authentication(
             user_id=None,
             team_id=psak.team_id,
@@ -577,7 +580,7 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
         )
         self.record_activity_actor(None, psak.id)
 
-        return (ProjectSecretAPIKeyUser(psak), None)
+        return (user, None)
 
     @classmethod
     def authenticate_header(cls, request) -> str:
@@ -1082,8 +1085,6 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
         )
 
-        # Views that override `permission_classes` can omit `IPRestrictionsPermission`, so the bearer
-        # path enforces the check here too. A delegated token without a signed end-user IP is exempt.
         from posthog.ip_restrictions import enforce_ip_restrictions
 
         enforce_ip_restrictions(request, user, self)

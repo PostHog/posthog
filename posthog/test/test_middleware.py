@@ -142,6 +142,22 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         self.assertEqual(data["ip"], "198.51.100.7")
         self.assertIn("198.51.100.7", data["detail"])
 
+    @parameterized.expand(
+        [
+            (operation, ip, expected)
+            for operation in ("get_or_set", "get", "set")
+            for ip, expected in (
+                ("203.0.113.7", status.HTTP_200_OK),
+                ("198.51.100.7", status.HTTP_403_FORBIDDEN),
+            )
+        ]
+    )
+    def test_cache_failures_use_authoritative_policies(self, operation: str, ip: str, expected: int) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        with patch(f"posthog.ip_restrictions.cache.{operation}", side_effect=RuntimeError("cache unavailable")):
+            response = self.client.get("/api/organizations/@current/", REMOTE_ADDR=ip)
+        self.assertEqual(response.status_code, expected)
+
     def test_impersonated_sessions_are_not_blocked(self):
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         session = self.client.session

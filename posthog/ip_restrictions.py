@@ -3,9 +3,10 @@ from ipaddress import ip_address, ip_network
 from typing import Any, ParamSpec, TypeVar
 from uuid import uuid4
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.http import HttpRequest
 
+import structlog
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
 
@@ -20,12 +21,15 @@ __all__ = [
     "is_ip_allowed",
     "is_ip_restriction_exempt",
     "ip_restrictions_exempt",
+    "ip_restrictions_runtime_exempt",
     "validate_ip_restrictions",
 ]
 
 _CACHE_KEY_PREFIX = "ip_restrictions:v2:principal"
 _CACHE_TTL_SECONDS = 60 * 5
 _CACHE_MISS = object()
+cache = caches["organization_access"]
+logger = structlog.get_logger(__name__)
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -36,31 +40,34 @@ def ip_restrictions_exempt(view: Callable[P, R]) -> Callable[P, R]:
     return view
 
 
-def is_ip_restriction_exempt(request: HttpRequest) -> bool:
+def ip_restrictions_runtime_exempt(view: Callable[P, R]) -> Callable[P, R]:
+    setattr(view, "ip_restrictions_exempt", frozenset({"project_secret_key", "team_secret_token"}))  # noqa: B010
+    return view
+
+
+def is_ip_restriction_exempt(request: HttpRequest, credential_type: str | None = None) -> bool:
     match = request.resolver_match
     if match is None:
         return False
     callback = match.func
-    if getattr(callback, "ip_restrictions_exempt", False):
-        return True
-
-    # Viewsets also serve management actions, so only this request's action can opt out.
-    method = "get" if request.method == "HEAD" else (request.method or "").lower()
-    action = getattr(callback, "actions", {}).get(method)
-    if action is None:
-        return False
-    handler = getattr(getattr(callback, "cls", None), action, None)
-    return bool(getattr(handler, "ip_restrictions_exempt", False))
+    exemption = getattr(callback, "ip_restrictions_exempt", False)
+    if not exemption:
+        method = "get" if request.method == "HEAD" else (request.method or "").lower()
+        action = getattr(callback, "actions", {}).get(method)
+        handler = getattr(getattr(callback, "cls", None), action, None) if action else None
+        exemption = getattr(handler, "ip_restrictions_exempt", False)
+    if isinstance(exemption, frozenset):
+        # Middleware defers to DRF so a blocked session cookie cannot prevent SDK authentication.
+        return credential_type is None or credential_type in exemption
+    return bool(exemption)
 
 
 # Credentials PostHog's own infrastructure uses to serve a request on the user's behalf. They
 # originate from our network, not the member's, so an organization's allowlist cannot judge them and
-# blocking them would break the feature without adding security. `session` is here because
-# `IPRestrictionsMiddleware` already checked it. A delegated credential is handled separately: it
+# blocking them would break the feature without adding security. A delegated credential is handled separately: it
 # only represents a person when the MCP server forwards the signed end-user IP.
 _INTERNAL_CREDENTIAL_TYPES = frozenset(
     {
-        "session",
         "internal_jwt",
         "export_renderer",
         "service_jwt",
@@ -105,7 +112,6 @@ def is_ip_allowed(ip: str, restrictions: Iterable[str]) -> bool:
             if parsed_ip in ip_network(restriction, strict=False):
                 return True
         except (TypeError, ValueError):
-            # A malformed stored entry must not open access for anyone.
             continue
     return False
 
@@ -114,8 +120,8 @@ def _user_cache_key(user_id: int) -> str:
     return f"{_CACHE_KEY_PREFIX}:user:{user_id}"
 
 
-def _team_cache_key(team_id: int) -> str:
-    return f"{_CACHE_KEY_PREFIX}:team:{team_id}"
+def _team_cache_key(team_id: int, organization_id: str) -> str:
+    return f"{_CACHE_KEY_PREFIX}:team:{team_id}:organization:{organization_id}"
 
 
 def _internal_org_cache_key(organization_id: Any) -> str:
@@ -128,7 +134,7 @@ def _principal_cache_key(user: Any) -> str | None:
         return _user_cache_key(user_id) if user_id else None
     team = getattr(user, "team", None)
     if team is not None:
-        return _team_cache_key(team.id)
+        return _team_cache_key(team.id, str(team.organization_id))
     organization_id = getattr(user, "current_organization_id", None)
     return _internal_org_cache_key(organization_id) if organization_id else None
 
@@ -162,22 +168,29 @@ def get_ip_restrictions_for_principal(user: Any) -> list[tuple[str, list[str]]]:
     if cache_key is not None:
         # Invalidation removes the generation, so readers spanning a commit can only populate
         # an obsolete key. Random generations also prevent reuse after cache eviction.
-        generation = cache.get_or_set(cache_key, str(uuid4()), _CACHE_TTL_SECONDS)
-        cache_key = f"{cache_key}:{generation}"
-        cached = cache.get(cache_key, _CACHE_MISS)
-        if cached is not _CACHE_MISS:
-            return [(row["organization_id"], row["ip_restrictions"]) for row in cached]
+        try:
+            generation = cache.get_or_set(cache_key, str(uuid4()), _CACHE_TTL_SECONDS)
+            cache_key = f"{cache_key}:{generation}"
+            cached = cache.get(cache_key, _CACHE_MISS)
+            if cached is not _CACHE_MISS:
+                return [(row["organization_id"], row["ip_restrictions"]) for row in cached]
+        except Exception:
+            logger.warning("ip_restrictions_cache_read_failed", exc_info=True)
+            cache_key = None
 
     restrictions = _load_ip_restrictions_for_principal(user)
     if cache_key is not None:
-        cache.set(
-            cache_key,
-            [
-                {"organization_id": organization_id, "ip_restrictions": ip_restrictions}
-                for organization_id, ip_restrictions in restrictions
-            ],
-            _CACHE_TTL_SECONDS,
-        )
+        try:
+            cache.set(
+                cache_key,
+                [
+                    {"organization_id": organization_id, "ip_restrictions": ip_restrictions}
+                    for organization_id, ip_restrictions in restrictions
+                ],
+                _CACHE_TTL_SECONDS,
+            )
+        except Exception:
+            logger.warning("ip_restrictions_cache_write_failed", exc_info=True)
     return restrictions
 
 
@@ -206,7 +219,7 @@ def invalidate_ip_restrictions_for_organization(organization_id: Any) -> None:
         )
     )
     cache_keys.extend(
-        _team_cache_key(team_id)
+        _team_cache_key(team_id, str(organization_id))
         for team_id in Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
     )
     cache.delete_many(cache_keys)
@@ -241,14 +254,17 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     from loginas.utils import is_impersonated_session
 
     django_request = getattr(request, "_request", request)
-    if is_ip_restriction_exempt(django_request):
+    credential_type = getattr(authenticator, "activity_credential_type", None)
+    if is_ip_restriction_exempt(django_request, credential_type):
         return
 
     if user is None or not getattr(user, "is_authenticated", False):
         return
 
-    credential_type = getattr(authenticator, "activity_credential_type", None)
     if credential_type in _INTERNAL_CREDENTIAL_TYPES:
+        return
+
+    if credential_type == "session" and not is_ip_restriction_exempt(django_request):
         return
 
     if is_impersonated_session(django_request):

@@ -13,6 +13,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models import Organization, ProxyRecord
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 
 from products.surveys.backend.models import Survey
 
@@ -304,7 +305,9 @@ class TestExternalSurveys(APIBaseTest):
         """Test that a valid external survey renders correctly"""
         survey = self.create_external_survey()
 
-        response = self.client.get(f"/external_surveys/{survey.id}/")
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.get(f"/external_surveys/{survey.id}/", REMOTE_ADDR="198.51.100.7")
         assert response.status_code == 200
 
         # Check that essential elements are present

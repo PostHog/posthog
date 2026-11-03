@@ -238,7 +238,6 @@ MIDDLEWARE = [
     # Must stay after AutoProjectMiddleware, which switches the user into the organization a
     # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
     "posthog.middleware.ActiveOrganizationMiddleware",
-    # Must run after authentication and AutoProjectMiddleware, which sets the user's current organization.
     "posthog.middleware.IPRestrictionsMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",

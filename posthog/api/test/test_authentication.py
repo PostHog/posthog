@@ -30,7 +30,7 @@ from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
 from rest_framework import authentication, status
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -71,6 +71,7 @@ from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
@@ -2799,6 +2800,28 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
         self.assertEqual(user.project_secret_api_key.pk, self.psak.pk)
         self.assertEqual(authenticator.project_secret_api_key.pk, self.psak.pk)
+
+    @parameterized.expand([("203.0.113.7", True), ("198.51.100.7", False)])
+    def test_authenticate_checks_organization_ip_policy(self, ip: str, allowed: bool) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        request = self._request_with_header(self.token)
+        request.META["REMOTE_ADDR"] = ip
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        if allowed:
+            self.assertIsNotNone(authenticator.authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                authenticator.authenticate(request)
+
+    def test_authenticate_uses_destination_policy_after_team_transfer(self) -> None:
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        self.assertIsNotNone(authenticator.authenticate(self._request_with_header(self.token)))
+        destination = Organization.objects.create(name="Destination organization")
+        OrganizationIPRestrictions.objects.create(organization=destination, ip_restrictions=["203.0.113.0/24"])
+        self.team.organization = destination
+        self.team.save(update_fields=["organization"])
+        with self.assertRaises(PermissionDenied):
+            authenticator.authenticate(self._request_with_header(self.token))
 
     def test_authenticate_tags_queries_with_psak_access_method(self):
         authenticator = ProjectSecretAPIKeyAuthentication()

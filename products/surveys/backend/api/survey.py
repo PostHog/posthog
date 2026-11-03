@@ -57,6 +57,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.proxy_record import ProxyRecord
@@ -3992,6 +3993,7 @@ def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey)
 
 @csrf_exempt
 @axes_dispatch
+@ip_restrictions_exempt
 def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     """
     Server-side rendered public survey page with security and performance optimizations
