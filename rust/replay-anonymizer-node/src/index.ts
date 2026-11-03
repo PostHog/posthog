@@ -323,3 +323,19 @@ export function canonicalizeUrl(url: string): CanonicalUrl | null {
 export function compressBrotli(data: Buffer, quality: number): Promise<Buffer> {
     return native.compressBrotli(data, quality)
 }
+
+/** The owner and kind of a v3 object, as `replay_core_v4::envelope::Context` names them. */
+export interface FrameContext {
+    teamId: number
+    sessionId?: string
+    sessionMonth?: string
+    organizationId?: string
+    kind: string
+    codec: 'none' | 'brotli'
+    ref?: string
+}
+
+/** One v3 AISR03 frame of `body` under `key`, with a random nonce. */
+export function sealFrame(key: Buffer, context: FrameContext, body: Buffer): Buffer {
+    return native.sealFrame(key, context, body)
+}

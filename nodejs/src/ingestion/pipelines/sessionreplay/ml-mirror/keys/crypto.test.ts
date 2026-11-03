@@ -187,6 +187,19 @@ describe('ML payload encryption', () => {
             }).length
         ).toBeLessThan(image.length + 1024)
     })
+
+    it('stops the pod at startup when index.node has no frame sealer', () => {
+        const nativePath = require.resolve('@posthog/replay-anonymizer/index.node')
+        jest.isolateModules(() => {
+            jest.doMock(nativePath, () => {
+                const { sealFrame: _sealFrame, ...stale } = jest.requireActual(nativePath)
+                return stale
+            })
+            const { assertFrameSealerLoaded } = require('./crypto')
+            expect(() => assertFrameSealerLoaded()).toThrow('rebuild index.node')
+        })
+        jest.dontMock(nativePath)
+    })
 })
 
 describe('sealing a session key under its team month key', () => {

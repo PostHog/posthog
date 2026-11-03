@@ -18,6 +18,7 @@ import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mir
 import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { assertFrameSealerLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
@@ -123,6 +124,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         // The addon's scrub runs on the libuv threadpool (UV_THREADPOOL_SIZE, default 4) shared
         // with the recorder's snappy compression — size it for the deployment if scrub backs up.
         await assertAnonymizerHealthy(anonymizer)
+        assertFrameSealerLoaded()
         logger.info('🦀', 'ml_mirror_rust_anonymizer_initialized')
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.

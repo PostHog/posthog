@@ -4,6 +4,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:cr
 import pLimit from 'p-limit'
 
 import { MlKeyRequest, MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
+import { getRustAnonymizer } from '~/ingestion/pipelines/sessionreplay/ml-mirror/rust-anonymizer'
 
 import { MlKeyIdentity, wrappingContext } from './schema'
 
@@ -185,7 +186,6 @@ export class MlKeyEncryption {
 export type MlEnvelopeCodec = 'none' | 'brotli'
 
 const ENVELOPE_MAGIC = Buffer.from('AISR03')
-const AAD_LENGTH_BYTES = 2
 
 /**
  * Frames the ciphertext as raw bytes rather than base64 in JSON, which stores a quarter fewer bytes for the same payload.
@@ -198,18 +198,29 @@ export function encryptEnvelope(
     body: Buffer,
     options: { ref?: string; codec: MlEnvelopeCodec }
 ): Buffer {
-    const context = { ...key.identity, kind, codec: options.codec, ...(options.ref ? { ref: options.ref } : {}) }
-    const aad = Buffer.from(canonicalJson({ v: 3, context }))
-    if (aad.length > 0xffff) {
-        throw new Error('ML envelope context is too long to frame')
+    const { teamId, sessionId, sessionMonth, organizationId } = key.identity
+    return getRustAnonymizer().sealFrame(
+        key.plaintext,
+        { teamId, sessionId, sessionMonth, organizationId, kind, codec: options.codec, ref: options.ref || undefined },
+        body
+    )
+}
+
+/** Seals one probe frame, so a stale `index.node` stops the pod at startup rather than at its first write. */
+export function assertFrameSealerLoaded(): void {
+    let frame: Buffer | undefined
+    try {
+        frame = getRustAnonymizer().sealFrame(
+            Buffer.alloc(32),
+            { teamId: 1, kind: 'probe', codec: 'none' },
+            Buffer.alloc(0)
+        )
+    } catch {
+        frame = undefined
     }
-    const nonce = randomBytes(NONCE_BYTES)
-    const cipher = createCipheriv('aes-256-gcm', key.plaintext, nonce, { authTagLength: TAG_BYTES })
-    cipher.setAAD(aad)
-    const ciphertext = Buffer.concat([cipher.update(body), cipher.final(), cipher.getAuthTag()])
-    const header = Buffer.allocUnsafe(AAD_LENGTH_BYTES)
-    header.writeUInt16BE(aad.length)
-    return Buffer.concat([ENVELOPE_MAGIC, header, aad, nonce, ciphertext])
+    if (!frame?.subarray(0, ENVELOPE_MAGIC.length).equals(ENVELOPE_MAGIC)) {
+        throw new Error('the replay-anonymizer addon cannot seal a frame: rebuild index.node')
+    }
 }
 
 /** Base64 in JSON, for the parquet columns that hold a value rather than an object body. */

@@ -11021,6 +11021,7 @@ dependencies = [
  "lru",
  "neon",
  "posthog-replay-anonymizer",
+ "replay-core-v4",
  "resvg",
  "roxmltree",
  "serde",

@@ -61,6 +61,7 @@ A reader must also bound the frame before it slices, because the magic and the l
 In the v2 dataset, a parquet column holds a value and not an object body, so `metadata` and `replay-index` stay JSON with `v`, `context`, `nonce` (12 bytes, base64) and `ciphertext` (the sealed bytes followed by the 16-byte tag, base64). A reader there knows the shape from the column and inspects no magic bytes.
 The v3 dataset does not seal its metadata or its replay index. Both are plain Parquet columns, described in [Data layout and readers](#data-layout-and-readers).
 The `frame` block in `nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json` pins one frame with a brotli body, so a reader in another language can check its own bytes. It carries the whole frame and also each part on its own: the additional authenticated data as text, the nonce, the sealed bytes, the tag, the brotli body, and the decompressed data.
+The mirror and the image scrubber seal frames with `replay_core_v4::envelope` through `@posthog/replay-anonymizer`, the same code the v4 recorder seals with.
 The framed context names a `codec`, which tells a reader how to expand the plaintext.
 An `rrweb` block uses `brotli` at quality 9. Each lane declares its own codec, so this lane never produces snappy. It reads a block rarely and keeps it for months, so it stores fewer bytes instead.
 An image object uses `none`, because an image already arrives compressed.

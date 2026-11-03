@@ -10,6 +10,7 @@ import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirr
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
+import { assertFrameSealerLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import {
@@ -93,6 +94,7 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             throw new Error('ML key manager-enabled image scrubber requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
         }
         if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
+            assertFrameSealerLoaded()
             this.keyManager = new MlKeyManager(this.config)
             await this.keyManager.start()
         }

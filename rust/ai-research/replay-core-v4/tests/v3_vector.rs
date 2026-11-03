@@ -5,7 +5,7 @@ use replay_core_v4::envelope::{
 };
 use serde_json::Value;
 
-// The Node writer's pinned output. Both languages read this one file, so a drift on either side fails here.
+// The pinned v3 frame. The mirror seals through this crate and the Node tests open the same file, so a drift on either side fails here.
 const VECTOR: &str = include_str!("../../../../nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector.json");
 
 fn vector() -> Value {

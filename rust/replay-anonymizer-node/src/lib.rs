@@ -30,6 +30,7 @@ use posthog_replay_anonymizer::{
     is_public_host, politeness_key, snapshot, try_canonicalize, AllowLists, FailKind,
     ImageCollection, PhaseTimings, UrlCollection,
 };
+use replay_core_v4::envelope::{seal_frame, Codec, Context as FrameContext, Version};
 use serde::Deserialize;
 
 // The fail-closed contract depends on `catch_unwind` containing panics on untrusted input. Under
@@ -631,6 +632,59 @@ fn compress_brotli_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
+/// Seals one v3 AISR03 frame. A context field that is undefined is left out of the authenticated data.
+fn seal_frame_ffi(mut cx: FunctionContext) -> JsResult<JsBuffer> {
+    let key = cx.argument::<JsBuffer>(0)?;
+    let Ok(key) = <[u8; 32]>::try_from(key.as_slice(&cx)) else {
+        return cx.throw_range_error("an ML data key is 32 bytes");
+    };
+    let fields = cx.argument::<JsObject>(1)?;
+    let team_id = fields
+        .get::<JsNumber, _, _>(&mut cx, "teamId")?
+        .value(&mut cx);
+    if team_id.fract() != 0.0 || team_id.abs() > 9_007_199_254_740_991.0 {
+        return cx.throw_range_error(format!("teamId must be an integer, got {team_id}"));
+    }
+    let codec = match fields
+        .get::<JsString, _, _>(&mut cx, "codec")?
+        .value(&mut cx)
+        .as_str()
+    {
+        "none" => Codec::None,
+        "brotli" => Codec::Brotli,
+        other => return cx.throw_range_error(format!("unknown frame codec {other}")),
+    };
+    let context = FrameContext {
+        team_id: team_id as i64,
+        session_id: optional_string(&mut cx, fields, "sessionId")?,
+        key_month: None,
+        session_month: optional_string(&mut cx, fields, "sessionMonth")?,
+        organization_id: optional_string(&mut cx, fields, "organizationId")?,
+        kind: fields
+            .get::<JsString, _, _>(&mut cx, "kind")?
+            .value(&mut cx),
+        codec: Some(codec),
+        reference: optional_string(&mut cx, fields, "ref")?,
+    };
+    let body = cx.argument::<JsBuffer>(2)?;
+    match seal_frame(&key, Version::V3, &context, body.as_slice(&cx)) {
+        Ok(frame) => Ok(JsBuffer::external(&mut cx, frame)),
+        Err(error) => cx.throw_error(error.to_string()),
+    }
+}
+
+fn optional_string(
+    cx: &mut FunctionContext,
+    fields: Handle<JsObject>,
+    name: &str,
+) -> NeonResult<Option<String>> {
+    let value = fields.get_value(cx, name)?;
+    if value.is_a::<JsUndefined, _>(cx) {
+        return Ok(None);
+    }
+    Ok(Some(value.downcast_or_throw::<JsString, _>(cx)?.value(cx)))
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
@@ -642,6 +696,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("rgbToNormalizedChw", rgb_to_normalized_chw_ffi)?;
     cx.export_function("rgbToRgba", rgb_to_rgba_ffi)?;
     cx.export_function("rasterizeSvg", rasterize_svg_ffi)?;
+    cx.export_function("sealFrame", seal_frame_ffi)?;
     cx.export_function("refDedupCacheNew", ref_dedup_cache_new)?;
     cx.export_function("refDedupCacheClaimRefs", ref_dedup_cache_claim_refs)?;
     cx.export_function("refDedupCacheReleaseRefs", ref_dedup_cache_release_refs)?;
