@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { handleToolError } from '@/lib/errors'
 import { getResultsHandler } from '@/tools/experiments/getResults'
 
 // The experiment query runners keep results for 24 hours. `blocking` serves that cache while it is
@@ -91,6 +92,19 @@ describe('experiment-results-get refresh', () => {
             expect(error.message).toContain('at most once a minute')
             expect(error.message).toContain('next_allowed_client_refresh')
             expect(error.message).toContain('without refresh')
+        })
+
+        // handleToolError returns the inner recoverable error's message, not the
+        // wrapper's, so the hint must survive that unwrap to reach the agent.
+        it('carries the hint through to the agent-facing tool error', async () => {
+            const error = await run(true)
+
+            const toolResult = handleToolError(error, 'experiment-results-get', undefined, undefined, true)
+            const text = (toolResult.content[0] as { text: string }).text
+            expect(toolResult.isError).toBe(true)
+            expect(text).toContain('Retry after 3600')
+            expect(text).toContain('next_allowed_client_refresh')
+            expect(text).toContain('without refresh')
         })
 
         it('leaves the plain 429 message alone when refresh was not forced', async () => {

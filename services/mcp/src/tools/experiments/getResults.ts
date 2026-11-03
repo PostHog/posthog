@@ -41,8 +41,12 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
         // (next_allowed_client_refresh), so the fix is to stop forcing refreshes,
         // not to retry sooner.
         if (params.refresh && apiError instanceof PostHogApiError && apiError.status === 429) {
-            message +=
+            const refreshFloorHint =
                 ' The server recomputes results at most once a minute per query (next_allowed_client_refresh), so rapid refresh=true polling is rate limited. Call again without refresh to read the latest computed results, or wait at least a minute between refreshes.'
+            // handleToolError returns the recoverable (inner) error's message to the
+            // agent, not this wrapper's, so the hint must live on the API error itself.
+            apiError.message += refreshFloorHint
+            message += refreshFloorHint
         }
         const isOwnQueryBug =
             apiError instanceof PostHogValidationError ||
