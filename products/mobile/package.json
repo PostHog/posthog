@@ -33,7 +33,8 @@
     "expo": {
         "autolinking": {
             "buildFromSource": [
-                "react-native-worklets"
+                "react-native-worklets",
+                "expo-notifications"
             ]
         },
         "install": {

@@ -48,7 +48,9 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
             findTask,
         })
         const currentAuth = useAuthStore.getState()
+        const pending = getPendingNotificationTap()
         if (
+            (pending !== undefined && pending?.identifier !== id) ||
             currentAuth.status !== 'signed_in' ||
             currentAuth.host !== auth.host ||
             currentAuth.user?.uuid !== auth.user?.uuid
@@ -133,18 +135,20 @@ export function useNotificationRouting(): void {
                 openFromNotification(tap, () => navigation.getCurrentRoute()?.name === 'chat')
             ).catch(() => undefined)
         }
-        const fromResponse = (response: Notifications.NotificationResponse): void =>
-            open({
-                identifier: response.notification.request.identifier,
-                data: response.notification.request.content.data,
-            })
-        const pending = getPendingNotificationTap()
-        const last = Notifications.getLastNotificationResponse()
-        if (pending) {
-            open(pending)
-        } else if (last) {
-            fromResponse(last)
+        const fromResponse = (response?: Notifications.NotificationResponse): void => {
+            const pending = getPendingNotificationTap()
+            if (pending !== undefined) {
+                if (pending) {
+                    open(pending)
+                }
+            } else if (response) {
+                open({
+                    identifier: response.notification.request.identifier,
+                    data: response.notification.request.content.data,
+                })
+            }
         }
+        fromResponse(Notifications.getLastNotificationResponse() ?? undefined)
         const subscription = Notifications.addNotificationResponseReceivedListener(fromResponse)
         return () => subscription.remove()
     }, [navigationReady, signedIn, navigation])

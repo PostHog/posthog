@@ -1,25 +1,45 @@
 package com.posthog.mobile.notifications
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.notifications.notifications.NotificationManager
+import expo.modules.notifications.notifications.model.NotificationResponse
+import expo.modules.notifications.service.NotificationsService
 import org.json.JSONObject
 
 object NotificationIntentStore {
     private fun preferences(context: Context) =
-        context.getSharedPreferences("posthog_notification_intents", Context.MODE_PRIVATE)
+        context.getSharedPreferences("posthog_notification_intents_v2", Context.MODE_PRIVATE)
 
     private val routingKeys = listOf("type", "report_id", "project_id", "taskId", "projectId", "notificationKind")
 
+    fun handleIntent(context: Context, intent: Intent, initial: Boolean) {
+        if (intent.component?.className == "com.posthog.mobile.notifications.NotificationTapActivity") {
+            val response = NotificationsService.getNotificationResponseFromOpenIntent(intent)
+            if (capture(context, intent, initial, response)) {
+                if (response != null) {
+                    NotificationManager.onNotificationResponseReceived(response)
+                } else {
+                    intent.extras?.let { NotificationManager.onNotificationResponseFromExtras(Bundle(it)) }
+                }
+            }
+        }
+        intent.removeExtra("google.message_id")
+    }
+
     // Android restores the original launch intent even after a newer tap has replaced it in the activity.
     @Synchronized
-    fun capture(context: Context, extras: Bundle, initial: Boolean): Boolean {
-        val id = extras.getString("google.message_id") ?: return false
+    private fun capture(context: Context, intent: Intent, initial: Boolean, response: NotificationResponse?): Boolean {
+        val extras = intent.extras ?: return false
+        val remoteId = extras.getString("google.message_id")
+        val id = remoteId ?: response?.notification?.notificationRequest?.identifier ?: return false
         val preferences = preferences(context)
         if (preferences.getString("initial_message_id", null) == id) return false
-        val source = try {
+        val source = response?.notification?.notificationRequest?.content?.body ?: try {
             JSONObject(extras.getString("body") ?: "")
         } catch (_: org.json.JSONException) {
             JSONObject().apply {

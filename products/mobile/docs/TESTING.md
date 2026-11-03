@@ -155,21 +155,17 @@ On a development build with notifications enabled:
 
 Use a rebuilt Android development client. Keep the app's task in Recents when killing its
 process; force-stop and removing the task test different startup paths.
-FCM launch intents can be synthesized without sending a push:
+Send test pushes as described in [Push notifications](PUSH.md#testing) and tap them in the
+system tray. Use different reports in a project the test account can access. To kill the process
+without removing the task, substitute the installed variant's package in these commands.
 
 ```sh
 adb shell input keyevent KEYCODE_HOME
 adb shell am kill com.posthog.mobile
 adb shell pidof com.posthog.mobile # must print nothing
-adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \
-  -f 0x14000000 -n com.posthog.mobile/.MainActivity \
-  --es google.message_id 'notification-check-1' \
-  --es body "'{\"type\":\"report\",\"report_id\":\"<target report UUID>\",\"project_id\":2}'"
 ```
 
-Use the package for the installed variant and a report/project the test account can access.
-A debugger can keep `am kill` from terminating a development build; disconnect it and confirm
-that `pidof` prints nothing before continuing. Use a new message ID for each new notification.
+Disconnect the debugger if it keeps the development build alive.
 
 Verify these sequences against both base and proposed builds:
 
@@ -183,10 +179,11 @@ Verify these sequences against both base and proposed builds:
    Reopen from Recents without another tap. The pending target must open once.
    Repeat while signed out, kill and reopen, then sign in. The pending target must still open.
 6. Background the app and tap a local snooze reminder, then open a report deep link.
-   Both must still reach their targets. Repeat signed out, then sign in.
+   Both must still reach their targets.
+7. While routing is waiting for sign-in, tap a push for A and then a snooze reminder for B.
+   Sign in and verify only B opens. Repeat with the tap order reversed and verify only A opens.
 
 Also perform real push delivery checks on physical Android and iOS devices before marking the PR ready.
-The intent checks exercise native tap delivery and routing, not FCM transport or notification presentation.
 
 ## Demo walkthrough on the iOS simulator
 

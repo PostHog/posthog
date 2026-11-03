@@ -4,13 +4,7 @@ const { withMainActivity } = require('expo/config-plugins')
 // notification queue before that delegate can drop them: https://github.com/expo/expo/issues/49254.
 const INTENT_HANDLER = `
   override fun onNewIntent(intent: android.content.Intent) {
-    val extras = intent.extras
-    if (extras?.containsKey("google.message_id") == true) {
-      if (com.posthog.mobile.notifications.NotificationIntentStore.capture(this, extras, false)) {
-        expo.modules.notifications.notifications.NotificationManager.onNotificationResponseFromExtras(Bundle(extras))
-      }
-      intent.removeExtra("google.message_id")
-    }
+    com.posthog.mobile.notifications.NotificationIntentStore.handleIntent(this, intent, false)
     setIntent(intent)
     super.onNewIntent(intent)
   }
@@ -18,11 +12,7 @@ const INTENT_HANDLER = `
 
 // Replay suppression and the pending tap have separate lifetimes: routing acknowledges only the pending tap.
 const INITIAL_INTENT = `
-    intent.extras?.let { extras ->
-      if (!com.posthog.mobile.notifications.NotificationIntentStore.capture(this, extras, true)) {
-        intent.removeExtra("google.message_id")
-      }
-    }
+    com.posthog.mobile.notifications.NotificationIntentStore.handleIntent(this, intent, true)
 `
 
 const CREATE_ANCHOR = 'super.onCreate(null)'
@@ -47,10 +37,7 @@ module.exports = function withAndroidNotificationIntents(config) {
         }
         cfg.modResults.contents = contents
             .replace(CLASS_ANCHOR, `${CLASS_ANCHOR}\n  ${MARKER}\n${INTENT_HANDLER}`)
-            .replace(
-                CREATE_ANCHOR,
-                `${INITIAL_INTENT}\n    ${CREATE_ANCHOR}\n    intent.removeExtra("google.message_id")`
-            )
+            .replace(CREATE_ANCHOR, `${INITIAL_INTENT}\n    ${CREATE_ANCHOR}`)
         return cfg
     })
 }

@@ -13,3 +13,8 @@ android {
     versionName '1.0.0'
   }
 }
+
+dependencies {
+  implementation project(':expo-notifications')
+  implementation 'com.google.firebase:firebase-messaging:25.0.1'
+}

@@ -54,7 +54,7 @@ function notification(identifier: string): Notifications.Notification {
 beforeEach(() => {
     jest.clearAllMocks()
     jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(null)
-    jest.mocked(getPendingNotificationTap).mockReturnValue(null)
+    jest.mocked(getPendingNotificationTap).mockReturnValue(undefined)
     jest.mocked(usePathname).mockReturnValue('/inbox')
     mockNavigation.getCurrentRoute.mockReturnValue({ name: 'inbox' })
     setViewedNotificationTask(null)
@@ -126,24 +126,83 @@ test('opens a standalone task chat from a notification', async () => {
     await waitFor(() => expect(router.push).toHaveBeenCalledWith('/chat?taskId=task-1&from=push'))
 })
 
-test.each([false, true])('acknowledges a task tap only after routing, account changed: %s', async (accountChanged) => {
-    let resolveLookup!: (value: { found: true; reportId: null }) => void
-    jest.mocked(findTask).mockReturnValue(
-        new Promise((resolve) => {
-            resolveLookup = resolve
+test.each(['same-account', 'changed-account', 'newer-tap'] as const)(
+    'acknowledges a task tap only after routing: %s',
+    async (scenario) => {
+        let resolveLookup!: (value: { found: true; reportId: null }) => void
+        jest.mocked(findTask).mockReturnValue(
+            new Promise((resolve) => {
+                resolveLookup = resolve
+            })
+        )
+        const response = { notification: notification(`changed-account-${scenario}`), actionIdentifier: 'default' }
+        response.notification.request.content.data = { taskId: 'task-1', projectId: 2 }
+        jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(response)
+        renderHook(useNotificationRouting)
+        expect(acknowledgeNotificationTap).not.toHaveBeenCalled()
+        expect(Notifications.clearLastNotificationResponse).not.toHaveBeenCalled()
+        if (scenario === 'changed-account') {
+            act(() => useAuthStore.setState({ host: 'https://another.example.com' }))
+        } else if (scenario === 'newer-tap') {
+            jest.mocked(getPendingNotificationTap).mockReturnValue({ identifier: 'newer-tap', data: reportData })
+        }
+        await act(async () => resolveLookup({ found: true, reportId: null }))
+        expect(router.push).toHaveBeenCalledTimes(scenario === 'same-account' ? 1 : 0)
+        expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(scenario === 'same-account' ? 1 : 0)
+        expect(router.replace).not.toHaveBeenCalled()
+    }
+)
+
+test.each(['before', 'after'] as const)(
+    'ignores older Expo replay %s the newest response across sign-in',
+    async (replayOrder) => {
+        const older = { notification: notification(`older-${replayOrder}`), actionIdentifier: 'default' }
+        older.notification.request.content.data = { ...reportData, report_id: 'older-report' }
+        const latest = { notification: notification(`latest-${replayOrder}`), actionIdentifier: 'default' }
+        latest.notification.request.content.data = { ...reportData, report_id: 'latest-report' }
+        const latestId = latest.notification.request.identifier
+        jest.mocked(getPendingNotificationTap).mockReturnValue({
+            identifier: latestId,
+            data: latest.notification.request.content.data,
         })
-    )
-    const response = { notification: notification(`changed-account-${accountChanged}`), actionIdentifier: 'default' }
-    response.notification.request.content.data = { taskId: 'task-1', projectId: 2 }
+        jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(
+            replayOrder === 'before' ? older : latest
+        )
+        useAuthStore.setState({ status: 'signed_out' })
+        renderHook(useNotificationRouting)
+        expect(router.push).not.toHaveBeenCalled()
+
+        act(() => useAuthStore.setState({ status: 'signed_in' }))
+        const listener = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0]?.[0]
+        if (!listener) {
+            throw new Error('Notification tap listener was not registered')
+        }
+        act(() => {
+            if (replayOrder === 'before') {
+                listener(older)
+            }
+            listener(latest)
+            if (replayOrder === 'after') {
+                listener(older)
+            }
+        })
+        await waitFor(() => expect(router.push).toHaveBeenCalledWith('/report/latest-report?from=push'))
+        act(() => listener(older))
+        expect(router.push).toHaveBeenCalledTimes(1)
+        expect(acknowledgeNotificationTap).not.toHaveBeenCalledWith(older.notification.request.identifier)
+    }
+)
+
+test('ignores Expo responses when the supported native tap store is empty', async () => {
+    const response = { notification: notification('untrusted-expo'), actionIdentifier: 'default' }
+    jest.mocked(getPendingNotificationTap).mockReturnValue(null)
     jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(response)
     renderHook(useNotificationRouting)
-    expect(acknowledgeNotificationTap).not.toHaveBeenCalled()
-    expect(Notifications.clearLastNotificationResponse).not.toHaveBeenCalled()
-    if (accountChanged) {
-        act(() => useAuthStore.setState({ host: 'https://another.example.com' }))
+    const listener = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0]?.[0]
+    if (!listener) {
+        throw new Error('Notification tap listener was not registered')
     }
-    await act(async () => resolveLookup({ found: true, reportId: null }))
-    expect(router.push).toHaveBeenCalledTimes(accountChanged ? 0 : 1)
-    expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(accountChanged ? 0 : 1)
-    expect(router.replace).not.toHaveBeenCalled()
+    await act(async () => listener(response))
+    expect(router.push).not.toHaveBeenCalled()
+    expect(acknowledgeNotificationTap).not.toHaveBeenCalled()
 })

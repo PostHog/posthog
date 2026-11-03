@@ -12,8 +12,11 @@ interface NotificationIntentsNativeModule {
 
 const native = requireOptionalNativeModule<NotificationIntentsNativeModule>('NotificationIntents')
 
-export function getPendingNotificationTap(): NotificationTap | null {
-    const pending = native?.getPending()
+export function getPendingNotificationTap(): NotificationTap | null | undefined {
+    if (!native) {
+        return undefined
+    }
+    const pending = native.getPending()
     return pending ? { identifier: pending.identifier, data: JSON.parse(pending.data) } : null
 }
 
