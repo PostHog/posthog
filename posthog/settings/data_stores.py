@@ -701,12 +701,6 @@ TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
-HOGQL_LANGUAGE_SERVICE_URL = get_from_env(
-    "HOGQL_LANGUAGE_SERVICE_URL", "http://localhost:8091" if DEBUG and not TEST else ""
-)
-HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS = get_list(
-    get_from_env("HOGQL_LANGUAGE_SERVICE_SIGNING_KEYS", "local-development-key" if DEBUG and not TEST else "")
-)
 
 MCP_SERVER_URL: str = get_from_env("MCP_SERVER_URL", "http://localhost:8787/mcp" if DEBUG and not TEST else "")
 

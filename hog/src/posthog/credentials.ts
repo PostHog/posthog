@@ -85,6 +85,9 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
     }
 }
 
+const NO_HOME_HINT =
+    'Set HOG_HOME to a folder hog can write to, or set HOG_API_KEY and HOG_PROJECT_ID to skip logging in.'
+
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.HOG_HOME) {
         return env.HOG_HOME
@@ -98,7 +101,7 @@ export function posthogFile(runtime: Runtime, name: string): string {
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to store credentials in.",
-            'Set HOG_HOME to the folder to use.'
+            NO_HOME_HINT
         )
     }
     return join(home, name)
@@ -195,7 +198,17 @@ export async function resolveCredentials(
     }
 
     if (!options.skipStore) {
-        const settings = await readSettings(runtime)
+        const settings = await readSettings(runtime).catch((error: unknown) => {
+            // Without a home folder hog has no logins, so the way in is the environment.
+            if (error instanceof HogError && error.code === 'no_home_directory') {
+                throw new HogError(
+                    'not_authenticated',
+                    "hog couldn't find PostHog credentials or a home folder to read them from.",
+                    `${error.hint} Or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID to skip logging in.`
+                )
+            }
+            throw error
+        })
         const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
         for (const host of new Set(hosts)) {
             const login = host === undefined ? undefined : await readLogin(runtime, settings, host)
