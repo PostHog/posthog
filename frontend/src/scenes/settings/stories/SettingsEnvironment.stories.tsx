@@ -234,13 +234,14 @@ export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-m
 
 export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
 
-const accessControlDetailDecorators: Story['decorators'] = [
+const accessControlDetailDecorators = (features: AvailableFeature[]): Story['decorators'] => [
     (Story) => {
-        useAvailableFeatures([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS])
+        useAvailableFeatures(features)
         return <Story />
     },
     mswDecorator({
         get: {
+            '/api/billing/': billingJson,
             '/api/projects/:id/access_control_defaults': {
                 available_project_levels: ['none', 'member', 'admin'],
                 available_resource_levels: ['none', 'viewer', 'editor', 'manager'],
@@ -283,9 +284,17 @@ const accessControlDetailDecorators: Story['decorators'] = [
 
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
 
+const checkAccessControlUpsell: Story['play'] = async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole('heading', { name: 'Access control', level: 2 })
+    if (canvas.queryByRole('table') || canvas.queryByRole('button', { name: 'Add rule' })) {
+        throw new Error('Access rules must be hidden without the access control entitlement.')
+    }
+}
+
 export const SettingsEnvironmentObjectAccessControl: Story = {
     args: { sectionId: 'environment-object-access-control' },
-    decorators: accessControlDetailDecorators,
+    decorators: accessControlDetailDecorators([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const table = within(await canvas.findByRole('table'))
@@ -295,9 +304,15 @@ export const SettingsEnvironmentObjectAccessControl: Story = {
     },
 }
 
+export const SettingsEnvironmentObjectAccessControlWithoutEntitlement: Story = {
+    args: { sectionId: 'environment-object-access-control' },
+    decorators: accessControlDetailDecorators([]),
+    play: checkAccessControlUpsell,
+}
+
 export const SettingsEnvironmentPropertyAccessControl: Story = {
     args: { sectionId: 'environment-property-access-control' },
-    decorators: accessControlDetailDecorators,
+    decorators: accessControlDetailDecorators([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         const table = within(await canvas.findByRole('table'))
@@ -306,6 +321,12 @@ export const SettingsEnvironmentPropertyAccessControl: Story = {
         await table.findByText('Read only', { exact: true })
         await canvas.findByRole('button', { name: 'Add rule' })
     },
+}
+
+export const SettingsEnvironmentPropertyAccessControlWithoutEntitlement: Story = {
+    args: { sectionId: 'environment-property-access-control' },
+    decorators: accessControlDetailDecorators([]),
+    play: checkAccessControlUpsell,
 }
 
 export const SettingsEnvironmentActivityLogs: Story = {
