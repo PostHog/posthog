@@ -6,6 +6,11 @@ on:
 
 name: Security
 
+concurrency:
+    # Every master commit needs its own scan, even while a previous scan is pending.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
 
