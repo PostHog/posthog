@@ -295,12 +295,12 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
             ),
             *(
                 (
-                    f"sample_{value}",
+                    f"sample_{name}",
                     f"SELECT count() FROM events SAMPLE {value} WHERE {MIXED}",
                     ["events"],
                     ["it uses SAMPLE"],
                 )
-                for value in ("inf", "nan")
+                for name, value in (("inf", "inf"), ("nan", "nan"), ("oversized_integer", "9" * 400))
             ),
             (
                 "sample_with_offset",

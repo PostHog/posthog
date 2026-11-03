@@ -671,7 +671,10 @@ def ratio_sample_fraction(sample: ast.SampleExpr) -> Fraction | None:
     ratio = sample.sample_value
     constants = [ratio.left, ratio.right or ast.Constant(value=1)]
     if not all(
-        isinstance(c.value, int | float) and not isinstance(c.value, bool) and isfinite(c.value) for c in constants
+        isinstance(c.value, int | float)
+        and not isinstance(c.value, bool)
+        and (isinstance(c.value, int) or isfinite(c.value))
+        for c in constants
     ):
         return None
     numerator, denominator = (Fraction(str(c.value)) for c in constants)
