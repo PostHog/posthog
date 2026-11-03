@@ -73,8 +73,11 @@ def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
     snapshot = get_source_config(team_id=team_id, source_product=source_product, source_type=source_type)
     if snapshot is None:
         return AlertScope.INVESTIGATED_ONLY
+    raw_scope = snapshot.config.get(ALERT_SCOPE_KEY, AlertScope.INVESTIGATED_ONLY)
+    if not isinstance(raw_scope, str):
+        return AlertScope.INVESTIGATED_ONLY
     try:
-        scope = AlertScope(snapshot.config.get(ALERT_SCOPE_KEY, AlertScope.INVESTIGATED_ONLY))
+        scope = AlertScope(raw_scope)
     except ValueError:
         return AlertScope.INVESTIGATED_ONLY
     if scope == AlertScope.INVESTIGATED_ONLY or not _analytics_all_alerts_enabled(team_id):
