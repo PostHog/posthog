@@ -1,40 +1,32 @@
-"""Resolve the `recommended` inbox sort to a ranker, and give each row a coarse merge key.
+"""Resolve the `recommended` inbox sort to an arm, and give each row a merge key.
 
-A multivariate flag keyed by the requesting user picks the ranker. The variants `open`, `action` and `fix` order
-by the served outcome of the same name first. `control`, an unknown variant, or a flag that is off or fails to evaluate
-gives the priority order. The EU instance gives the priority order without evaluating the flag.
+A multivariate flag keyed by the requesting user picks the arm. An arm is a ranker and a pill setting:
 
-The merge key lets a client merge rows from different rankers without the raw score. It is the score
-decile then the priority rank, so it never says more about the score than one decimal place. Each
-head ranker sorts by the same decile, so the row order does not say more either. The database
-computes the decile with `score_decile`, and `inbox_merge_key` reads that value.
+| Variant        | Ranker   | Pill |
+|----------------|----------|------|
+| `control`      | priority | no   |
+| `pills`        | priority | yes  |
+| `action_pills` | action   | yes  |
+
+An unknown variant, or a flag that is off or fails to evaluate, gives `control`.
+
+A head ranker sorts by the served score of its outcome, highest first, then in priority order. Unscored and stale
+reports come after every scored report, in priority order. The merge key follows the same order, so a client can merge
+rows from different state requests: `1 - score` for a scored report, `2 + priority rank` for an unscored report, and
+the priority rank alone for the priority ranker.
 """
 
 from typing import Literal, get_args
 
-from django.contrib.postgres.fields import ArrayField
-from django.db.models import (
-    Case,
-    CharField,
-    F,
-    FloatField,
-    Func,
-    IntegerField,
-    JSONField,
-    OuterRef,
-    Subquery,
-    Value,
-    When,
-)
-from django.db.models.expressions import Combinable
+from django.db.models import Case, CharField, F, FloatField, Func, JSONField, OuterRef, Subquery, Value, When
 from django.db.models.functions import Cast
 
 import structlog
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.utils import get_instance_region
 
 from products.signals.backend.models import AutonomyPriority, SignalReportArtefact
 from products.signals.backend.ranking.public_outcomes import PublicOutcomeName
@@ -42,7 +34,7 @@ from products.signals.backend.ranking.staleness import annotate_stale_score
 
 logger = structlog.get_logger(__name__)
 
-RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-recommended-sort"
+RECOMMENDED_INBOX_SORT_FLAG = "signals-inbox-ranking-pills"
 
 HeadRanker = PublicOutcomeName
 InboxRanker = Literal["priority", HeadRanker]
@@ -55,18 +47,28 @@ RANKER_ORDERINGS: dict[InboxRanker, str] = {
     **{head: f"-ranking_{head},{PRIORITY_ORDERING}" for head in HEAD_RANKERS},
 }
 
-_DECILES = 10
 _PRIORITY_SLOTS = len(AutonomyPriority.values) + 1
+_UNSCORED_MERGE_KEY_BASE = 2.0
 
 
-def resolve_recommended_ranker(team: Team, user: User, *, send_feature_flag_events: bool = True) -> InboxRanker:
+@frozen
+class RecommendedArm:
+    ranker: InboxRanker
+    ranking_pill: bool
+
+
+CONTROL_ARM = RecommendedArm(ranker="priority", ranking_pill=False)
+RECOMMENDED_ARMS: dict[str, RecommendedArm] = {
+    "control": CONTROL_ARM,
+    "pills": RecommendedArm(ranker="priority", ranking_pill=True),
+    "action_pills": RecommendedArm(ranker="action", ranking_pill=True),
+}
+
+
+def resolve_recommended_arm(team: Team, user: User, *, send_feature_flag_events: bool = True) -> RecommendedArm:
     """`send_feature_flag_events=False` reads the variant without an exposure, for a caller that does not show the inbox."""
     if not user.distinct_id:
-        return "priority"
-    # EU reports have no ranking scores, so a head variant there sorts the same as `control`. Evaluating the
-    # flag would still log an exposure, and those no-difference exposures would dilute the US experiment.
-    if get_instance_region() == "EU":
-        return "priority"
+        return CONTROL_ARM
     try:
         variant = posthoganalytics.get_feature_flag(
             RECOMMENDED_INBOX_SORT_FLAG,
@@ -79,11 +81,8 @@ def resolve_recommended_ranker(team: Team, user: User, *, send_feature_flag_even
         )
     except Exception:
         logger.exception("signals.inbox_sort.flag_failed", team_id=team.id, user_id=user.id)
-        return "priority"
-    for head in HEAD_RANKERS:
-        if variant == head:
-            return head
-    return "priority"
+        return CONTROL_ARM
+    return RECOMMENDED_ARMS.get(variant, CONTROL_ARM) if isinstance(variant, str) else CONTROL_ARM
 
 
 def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
@@ -137,18 +136,15 @@ def latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery
     )
 
 
-def score_decile(score: Combinable) -> Func:
-    """The score decile, 0 to 9. A score below 0 gives 0, a score of 0.9 or more gives 9, and NULL stays NULL.
-
-    `width_bucket` reads the score once. A CASE repeats the score in each branch, so when the score is a
-    correlated subquery, Postgres runs the subquery once per branch.
-    """
-    thresholds = Value([float(bound) for bound in range(1, _DECILES)], output_field=ArrayField(FloatField()))
-    return Func(score * _DECILES, thresholds, function="width_bucket", output_field=IntegerField())
+def _clamped_priority_rank(priority_rank: int | None) -> int:
+    return _PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1)
 
 
-def inbox_merge_key(decile: int | None, priority_rank: int | None) -> int:
-    """Lower keys rank first. A report without a score sorts after every scored report."""
-    decile_rank = _DECILES if decile is None else _DECILES - 1 - decile
-    priority = _PRIORITY_SLOTS - 1 if priority_rank is None else min(max(priority_rank, 0), _PRIORITY_SLOTS - 1)
-    return decile_rank * _PRIORITY_SLOTS + priority
+def inbox_merge_key(ranker: InboxRanker, score: float | None, priority_rank: int | None) -> float:
+    """Lower keys rank first. For a head ranker, a report without a score sorts after every scored report."""
+    priority = _clamped_priority_rank(priority_rank)
+    if ranker == "priority":
+        return float(priority)
+    if score is None:
+        return _UNSCORED_MERGE_KEY_BASE + priority
+    return 1.0 - min(max(score, 0.0), 1.0)
