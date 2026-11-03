@@ -152,8 +152,8 @@ const roleBasedAccess = feature(
 const scim = feature('scim', 'SCIM', 'Automatically sync users and roles from your identity provider to PostHog.')
 const xaaAuthentication = feature(
     AvailableFeature.XAA_AUTHENTICATION,
-    'Cross App Access (XAA)',
-    'Automate API and MCP access to PostHog.'
+    'XAA authentication',
+    'Let tools automatically provision API and MCP access for your users via the XAA protocol.'
 )
 const dedicatedSupport = feature(
     'dedicated_support',
@@ -234,6 +234,7 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     organizationInviteSettings,
     organizationSecuritySettings,
     memberGovernance,
+    xaaAuthentication,
     sessionReplayDataRetention(12),
     highFrequencyAlerts,
     realTimeAlerts,
