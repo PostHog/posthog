@@ -4775,6 +4775,7 @@ export namespace Schemas {
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
+        description: string | null;
         displayType: DisplayType | null;
         excludeFromTotal: boolean | null;
         label: string | null;

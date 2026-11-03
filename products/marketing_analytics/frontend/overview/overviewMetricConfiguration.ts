@@ -2,49 +2,68 @@ import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/Overvi
 
 import { adPerformanceMetricKey } from '../adPerformanceMetrics'
 
-export type OverviewMetricGroup = 'platforms' | 'posthog'
+export type OverviewMetricSource = 'platforms' | 'posthog'
 
-export interface OverviewMetricGroupConfiguration {
-    hidden: string[]
-    order: string[]
-    collapsed: boolean
-}
+export const MAX_OVERVIEW_METRICS = 5
 
-export type OverviewMetricConfiguration = Record<OverviewMetricGroup, OverviewMetricGroupConfiguration>
+const DEFAULT_POSTHOG_METRICS = 2
 
-export const OVERVIEW_METRIC_GROUPS: { key: OverviewMetricGroup; label: string; description: string }[] = [
-    { key: 'platforms', label: 'Ad platforms', description: 'Metrics reported by your connected ad platforms' },
-    { key: 'posthog', label: 'PostHog', description: 'Your conversion goals and cost per result' },
+export const OVERVIEW_METRIC_SOURCES: { key: OverviewMetricSource; label: string }[] = [
+    { key: 'platforms', label: 'Ad platforms' },
+    { key: 'posthog', label: 'PostHog' },
 ]
 
-export function defaultOverviewMetricConfiguration(): OverviewMetricConfiguration {
-    return {
-        platforms: { hidden: [], order: [], collapsed: false },
-        posthog: { hidden: [], order: [], collapsed: false },
-    }
+export function overviewMetricSource(key: string): OverviewMetricSource {
+    return adPerformanceMetricKey(key) ? 'platforms' : 'posthog'
 }
 
-export type OverviewHiddenGroups = 'none' | OverviewMetricGroup | 'both'
+export function defaultOverviewMetricSelection(items: OverviewMetricCardItem[]): string[] {
+    const platforms = items.filter((item) => overviewMetricSource(item.key) === 'platforms').map((item) => item.key)
+    const posthog = items
+        .filter((item) => overviewMetricSource(item.key) === 'posthog')
+        .slice(0, DEFAULT_POSTHOG_METRICS)
+        .map((item) => item.key)
+    return [...platforms.slice(0, MAX_OVERVIEW_METRICS - posthog.length), ...posthog]
+}
 
-export function hiddenOverviewMetricGroups(configuration: OverviewMetricConfiguration): OverviewHiddenGroups {
-    const platforms = configuration.platforms.hidden.length > 0
-    const posthog = configuration.posthog.hidden.length > 0
+export function shownOverviewMetrics(
+    items: OverviewMetricCardItem[],
+    selection: string[] | null
+): OverviewMetricCardItem[] {
+    const byKey = new Map(items.map((item) => [item.key, item]))
+    const saved = (selection ?? []).flatMap((key) => byKey.get(key) ?? [])
+    if (saved.length > 0) {
+        return saved.slice(0, MAX_OVERVIEW_METRICS)
+    }
+    return defaultOverviewMetricSelection(items).flatMap((key) => byKey.get(key) ?? [])
+}
+
+export function toggleOverviewMetric(selection: string[], key: string): string[] {
+    if (selection.includes(key)) {
+        return selection.filter((selected) => selected !== key)
+    }
+    return selection.length < MAX_OVERVIEW_METRICS ? [...selection, key] : selection
+}
+
+export function moveOverviewMetric(selection: string[], key: string, direction: -1 | 1): string[] {
+    const index = selection.indexOf(key)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= selection.length) {
+        return selection
+    }
+    const next = [...selection]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    return next
+}
+
+export type OverviewHiddenSources = 'none' | OverviewMetricSource | 'both'
+
+export function hiddenOverviewMetricSources(selection: string[]): OverviewHiddenSources {
+    const shown = new Set(selection.map(overviewMetricSource))
+    const platforms = !shown.has('platforms')
+    const posthog = !shown.has('posthog')
     if (platforms && posthog) {
         return 'both'
     }
     return platforms ? 'platforms' : posthog ? 'posthog' : 'none'
-}
-
-export function overviewMetricsForGroup(
-    items: OverviewMetricCardItem[],
-    group: OverviewMetricGroup,
-    configuration: OverviewMetricConfiguration
-): OverviewMetricCardItem[] {
-    const metrics = items.filter((item) => !!adPerformanceMetricKey(item.key) === (group === 'platforms'))
-    const byKey = new Map(metrics.map((item) => [item.key, item]))
-    const keys = [...new Set([...configuration[group].order, ...metrics.map((item) => item.key)])]
-    return keys.flatMap((key) => {
-        const item = byKey.get(key)
-        return item ? [item] : []
-    })
 }
