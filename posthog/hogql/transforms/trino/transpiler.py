@@ -35,6 +35,7 @@ class TrinoTranspilerInput:
     stack: tuple[ast.SelectQuery, ...] = ()
     settings: HogQLGlobalSettings | None = None
     pretty: bool = False
+    allow_routines: bool = False
 
 
 @frozen
@@ -43,6 +44,7 @@ class TrinoTranspilerResult:
     values: dict[str, Any]
     prepared_node: ast.AST
     node: ast.AST
+    routines: frozenset[str] = frozenset()
 
 
 def transpile_prepared_hogql_to_trino(transpiler_input: TrinoTranspilerInput) -> TrinoTranspilerResult:
@@ -64,6 +66,7 @@ def transpile_prepared_hogql_to_trino(transpiler_input: TrinoTranspilerInput) ->
         values=dict(transpiler_input.values),
         timezone=transpiler_input.timezone,
         week_start_day=transpiler_input.week_start_day,
+        trino_routines=set() if transpiler_input.allow_routines else None,
     )
     node = normalize_trino_ast(clone_expr(transpiler_input.node), context)
     node = lower_property_access(node, context)
@@ -75,4 +78,10 @@ def transpile_prepared_hogql_to_trino(transpiler_input: TrinoTranspilerInput) ->
         settings=transpiler_input.settings,
         pretty=transpiler_input.pretty,
     ).visit(node)
-    return TrinoTranspilerResult(sql=sql, values=dict(context.values), prepared_node=prepared_node, node=node)
+    return TrinoTranspilerResult(
+        sql=sql,
+        values=dict(context.values),
+        prepared_node=prepared_node,
+        node=node,
+        routines=frozenset(context.trino_routines or ()),
+    )

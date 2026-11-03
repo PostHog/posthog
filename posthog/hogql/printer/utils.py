@@ -153,10 +153,13 @@ def prepare_and_print_ast(
                         stack=tuple(stack or []),
                         settings=settings,
                         pretty=pretty,
+                        allow_routines=context.trino_routines is not None,
                     )
                 )
             context.values.clear()
             context.values.update(transpiled.values)
+            if context.trino_routines is not None:
+                context.trino_routines.update(transpiled.routines)
             prepared_ast = cast(_T_AST, transpiled.node)
             printed = transpiled.sql
             collect_hogql_type_coverage(transpiled.prepared_node, context.type_observability, context)

@@ -77,6 +77,9 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # Query-scoped mappings preserve resolved logical tables through Trino lowering.
     trino_table_locators: Mapping[str, tuple[str, str, str]] = field(default_factory=dict)
+    # Trino inline routines (`WITH FUNCTION`) the printed SQL calls. None means the caller cannot put a
+    # routine block in front of its statement, so the printer refuses functions that need one.
+    trino_routines: set[str] | None = field(default=None, compare=False)
     # Detached printer stages snapshot these values so they do not retain the schema database.
     timezone: Optional[str] = None
     week_start_day: Optional[WeekStartDay] = None

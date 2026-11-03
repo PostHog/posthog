@@ -236,6 +236,7 @@ def compile_hogql_to_trino_sql(
     select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
     | None = None,
     preserve_clickhouse_output_names: bool = False,
+    allow_trino_routines: bool = False,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
@@ -270,6 +271,7 @@ def compile_hogql_to_trino_sql(
     from posthog.hogql.printer.trino_hogql import (
         TrinoHogQLPrinter,  # noqa: PLC0415 -- keeps compiler imports off Django startup
     )
+    from posthog.hogql.printer.trino_routines import trino_routines_prefix  # noqa: PLC0415
     from posthog.hogql.printer.utils import prepare_and_print_ast, prepare_ast_for_printing  # noqa: PLC0415
     from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
@@ -370,6 +372,7 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         database=database,
         trino_table_locators=trino_table_locators,
+        trino_routines=set() if allow_trino_routines else None,
     )
     hogql_ast = clone_expr(parsed) if include_hogql else None
 
@@ -464,6 +467,7 @@ def compile_hogql_to_trino_sql(
         values=dict(trino_context.values),
         hogql=hogql_pretty,
         needs_row_type_probe=needs_row_type_probe,
+        routine_prefix=trino_routines_prefix(trino_context.trino_routines or ()),
     )
 
 

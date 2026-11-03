@@ -389,6 +389,8 @@ class TrinoCompiledQuery:
 
     False only when every output column resolved to a type without a tuple or an unknown part.
     """
+    routine_prefix: str = ""
+    """A `WITH FUNCTION ...` block that must start every statement that runs ``sql``, or "" when none is needed."""
 
 
 @frozen

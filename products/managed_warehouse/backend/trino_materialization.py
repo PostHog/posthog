@@ -79,7 +79,9 @@ def execute_trino_shadow_materialization(
                 compiled = _compile(team, hogql_query, None)
             sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
             if compiled.needs_row_type_probe:
-                sql = _name_anonymous_row_fields(cursor, control, sql, parameters)
+                sql = _name_anonymous_row_fields(cursor, control, compiled.routine_prefix, sql, parameters)
+            # Inline routines must start the statement, so they go before the query, not inside a wrapper.
+            sql = compiled.routine_prefix + sql
             if merge:
                 assert incremental is not None
                 stage = f"{schema}.{escape_trino_identifier(table_name + STAGE_SUFFIX)}"
@@ -125,6 +127,7 @@ def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite |
         expansion_mode=TrinoExpansionMode.DJANGO,
         select_transform=select_transform,
         preserve_clickhouse_output_names=True,
+        allow_trino_routines=True,
     )
 
 
@@ -199,7 +202,7 @@ _ROW_TYPE_SUFFIXES = frozenset({"", "with time zone", "without time zone", "day 
 
 
 def _name_anonymous_row_fields(
-    cursor: Cursor, control: TrinoQueryControl | None, sql: str, parameters: list[object]
+    cursor: Cursor, control: TrinoQueryControl | None, routine_prefix: str, sql: str, parameters: list[object]
 ) -> str:
     """Cast every anonymous ROW field in the output to a named one.
 
@@ -207,7 +210,7 @@ def _name_anonymous_row_fields(
     out the type, so the output types are read from a zero-row run of the query. Fields are named
     "1", "2", ... as ClickHouse names unnamed tuple elements, so both builds store the same struct.
     """
-    _fetch(cursor, control, f"SELECT * FROM ({sql}) LIMIT 0", parameters)
+    _fetch(cursor, control, f"{routine_prefix}SELECT * FROM ({sql}) LIMIT 0", parameters)
     projections: list[str] = []
     renamed = False
     for column in cursor.description or []:

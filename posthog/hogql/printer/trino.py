@@ -34,6 +34,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_VECTOR_REWRITES,
     TRINO_WINDOW_ONLY_FUNCTIONS,
 )
+from posthog.hogql.printer.trino_routines import CITY_HASH_64_ROUTINE, INT_HASH_64_ROUTINE
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer
@@ -908,11 +909,7 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         if name == "cityhash64":
-            self._unsupported(
-                "TRINO_FUNCTION_UNSUPPORTED",
-                f"{node.name} has no semantics-preserving Trino implementation.",
-                node,
-            )
+            return self._visit_city_hash_64(node)
         if name == "totypename":
             self._unsupported(
                 "TRINO_FUNCTION_UNSUPPORTED",
@@ -2772,6 +2769,24 @@ class TrinoPrinter(PostgresPrinter):
         if len(node.args) == 2 and isinstance(node.args[0], ast.Lambda):
             return self._visit_lambda_array_call(node, "transform")
         return self._visit_unary_arg(node)
+
+    def _visit_city_hash_64(self, node: ast.Call) -> str:
+        routines = self.context.trino_routines
+        if routines is None:
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                f"{node.name} needs a Trino routine, which this query path cannot declare.",
+                node,
+            )
+        value = self._visit_unary_arg(node)
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(value_type, ast.StringType):
+            routines.add(CITY_HASH_64_ROUTINE)
+            return f"{CITY_HASH_64_ROUTINE}(to_utf8({value}))"
+        if isinstance(value_type, ast.IntegerType):
+            routines.add(INT_HASH_64_ROUTINE)
+            return f"{INT_HASH_64_ROUTINE}(CAST({value} AS DECIMAL(38, 0)))"
+        self._invalid_function_arguments(node, "cityHash64 in Trino mode supports only a String or integer argument.")
 
     def _visit_unary_arg(self, node: ast.Call) -> str:
         if len(node.args) != 1:

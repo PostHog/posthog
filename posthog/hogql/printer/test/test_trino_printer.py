@@ -650,6 +650,35 @@ def test_rejects_unsupported_printer_function_variants(expression: str, feature_
     assert error.value.feature_code == feature_code
 
 
+@pytest.mark.parametrize(
+    "expression, call, routine",
+    [
+        ("cityHash64(user_id) % 10", 'hogql_city_hash_64(to_utf8("users"."user_id"))', "hogql_city_hash_64"),
+        ("cityHash64(toString(id))", "hogql_city_hash_64(to_utf8(", "hogql_city_hash_64"),
+        ("cityHash64(id)", 'hogql_city_hash_64_int(CAST("users"."id" AS DECIMAL(38, 0)))', "hogql_city_hash_64_int"),
+    ],
+)
+def test_city_hash_64_calls_a_routine_the_caller_declares(expression: str, call: str, routine: str) -> None:
+    context = _context_with_trino_table()
+    context.trino_routines = set()
+
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), context, "trino")
+
+    assert call in sql
+    assert context.trino_routines == {routine}
+
+
+@pytest.mark.parametrize("expression", ["cityHash64(uuid)", "cityHash64(created_at)", "cityHash64(user_id, id)"])
+def test_city_hash_64_rejects_inputs_without_an_exact_routine(expression: str) -> None:
+    context = _context_with_trino_table()
+    context.trino_routines = set()
+
+    with pytest.raises(TrinoLoweringError) as error:
+        prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), context, "trino")
+
+    assert error.value.feature_code == "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"
+
+
 def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars() -> None:
     context = _context_with_trino_table()
     sql, _ = prepare_and_print_ast(

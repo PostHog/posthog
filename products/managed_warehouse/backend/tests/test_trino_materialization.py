@@ -95,6 +95,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             expansion_mode=TrinoExpansionMode.DJANGO,
             select_transform=ANY,
             preserve_clickhouse_output_names=True,
+            allow_trino_routines=True,
         )
         connect.assert_called_once_with(
             str(self.organization.pk),
@@ -542,6 +543,40 @@ class TestTrinoIncrementalMaterialization(BaseTest):
                 f'CREATE OR REPLACE TABLE {table} AS SELECT CAST("__ph_output"."tag" AS {named}) AS "tag", '
                 '"__ph_output"."id" AS "id" FROM (SELECT id, ts FROM orders) AS "__ph_output"'
             )
+
+    @parameterized.expand([("full_build", False), ("merge", True)])
+    def test_declares_routines_at_the_start_of_every_statement_that_runs_the_query(
+        self, _name: str, merge: bool
+    ) -> None:
+        routines = "WITH\nFUNCTION f(x bigint) RETURNS bigint RETURN x\n"
+        cursor = _ScriptedCursor(table_exists=merge, staged=1, output_types=[("tag", "row(bigint)")])
+        compiled = TrinoCompiledQuery(sql="SELECT f(id) AS tag FROM orders", values={}, routine_prefix=routines)
+        connection = MagicMock(catalog="cat")
+        connection.cursor.return_value = cursor
+        with (
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
+                return_value=compiled,
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+            ) as connect,
+        ):
+            connect.return_value.__enter__.return_value = connection
+            execute_trino_model_statements(
+                organization_id=str(self.organization.pk),
+                team_id=self.team.pk,
+                saved_query_id=self.saved_query_id,
+                source_query=self.query,
+                incremental=TrinoIncrementalWrite(incremental_key="ts", unique_key=("id",), since=self.since)
+                if merge
+                else None,
+            )
+
+        probe, write = [statement for statement, _ in cursor.statements if "f(id)" in statement]
+        assert probe.startswith(routines + "SELECT * FROM (SELECT f(id)")
+        assert write.startswith("CREATE OR REPLACE TABLE ")
+        assert " AS " + routines + 'SELECT CAST("__ph_output"."tag"' in write
 
     def test_skips_the_zero_row_run_when_no_output_can_be_a_row(self) -> None:
         cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("tag", "row(bigint)")])
