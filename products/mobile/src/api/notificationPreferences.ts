@@ -21,11 +21,13 @@ export async function getNotificationPreferences(signal?: AbortSignal): Promise<
 
 export async function setNotificationPreference(
     key: NotificationPreferenceKey,
-    enabled: boolean
+    enabled: boolean,
+    actionId?: string
 ): Promise<NotificationPreferences> {
     const user = await apiJson<UserNotificationSettings>('/api/users/@me/', {
         method: 'PATCH',
         json: { notification_settings: { [key]: enabled } },
+        headers: actionId ? { 'X-PostHog-Client-Action-Id': actionId } : undefined,
     })
     return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...user.notification_settings }
 }

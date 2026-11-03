@@ -1,10 +1,7 @@
+import type { TeamBasicApi } from '../../../../frontend/src/generated/core/api.schemas'
 import { apiJson } from './client'
 
-export interface TeamApi {
-    id: number
-    name: string
-    project_id?: number
-}
+export type TeamApi = Pick<TeamBasicApi, 'id' | 'name'> & Partial<Pick<TeamBasicApi, 'project_id' | 'uuid'>>
 
 export interface OrganizationApi {
     id: string

@@ -58,7 +58,7 @@ export function useItemSelection(options: ItemSelectionOptions): ItemSelection {
         ) => {
             const context = latest.current.trackingContext
             if (context) {
-                track(event, { ...properties, context })
+                track(event, { ...properties, ...(typeof context === 'string' ? { context } : context) })
             }
         },
         []

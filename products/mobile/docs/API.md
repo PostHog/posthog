@@ -1,7 +1,7 @@
 # API
 
 Every request goes through `src/api/client.ts`: it prefixes the host, adds the bearer token,
-sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and represents HTTP failures
+sets mobile attribution headers, refreshes the token once on a 401, and represents HTTP failures
 as `ApiError` with the server's `code` and `detail`.
 `projectPath('signals/reports/')` builds `/api/projects/{projectId}/signals/reports/`.
 Streams use `apiStream` (expo's fetch, so the body streams on native) and `src/api/sse.ts`.
@@ -117,3 +117,31 @@ needs `session_recording:write`, so opening a session on the phone does not mark
 A 403 that names a missing scope goes to `reportScopeError(error, 'replay')`, and the screen shows `ViewsReauthState`.
 The timeline's queries spend the `replay` budget family (`runQuery({ budgetFamily: 'replay' })`, the same buckets as
 `query`), not the Views `query` family, so Views refreshes and a session screen never block each other.
+
+## Attribution
+
+Every JSON and streaming request sends `X-PostHog-Client-Platform: mobile`, `X-PostHog-Client-OS`,
+`X-PostHog-Client-Action-Id`, app version/build, update ID when available, the analytics session ID
+when enabled, and the `posthog/mobile.hog.dev` User-Agent. A 401 replay keeps these identifiers.
+Chat creation, run start, commands, report verdicts, priority/reviewer changes, archive and notification
+preferences reuse the initiating event's action ID, so accepted server actions can be joined to the tap.
+
+Client events share `client_surface: mobile`, `client_os`, project/organization IDs and `$groups`
+(organization UUID and project UUID when the account response supplies it), build/update context,
+`data_mode`, and the active screen/entity IDs. Demo actions have no live project groups. Async result
+events retain their initiating project/screen/session and are discarded after the account session changes.
+The lifecycle `Application Opened` event removes the raw launch URL and records only `deep_link_kind`;
+OAuth codes, prompts and URL queries must not enter analytics.
+
+Request context is attribution metadata, never authorization. Backend events distinguish
+`task_created_surface`, `run_started_surface` and the surface of the current command or report action.
+A mobile-created task resumed on the web keeps its mobile creation origin, while the new run and
+command record the web context. Background run events use `client_surface: backend` with separate
+`initiating_surface`, `initiating_session_id` and `initiating_action_id`. Historical missing values
+remain unknown; inherited operational `client_platform` is not evidence that a later action was mobile.
+Report artefacts retain nullable client context alongside their existing human/task/agent attribution.
+
+External-link `*_opened` events mean the operating system accepted the launch, with
+`launch_result: accepted`; they do not prove a browser page or another app finished loading. Failed
+launches emit `mobile_link_launch_failed` with the event kind, never the destination URL. Older
+link events have no `launch_result`; filter for `accepted` when counting confirmed launches.

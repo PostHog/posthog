@@ -1,7 +1,8 @@
 import { fetch as streamingFetch } from 'expo/fetch'
-
+import { randomUUID } from 'expo-crypto'
 import { abortError } from '@/lib/abort'
 import { withAppReloadBlocked } from '@/lib/appReload'
+import { clientRequestHeaders } from '@/lib/clientMetadata'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
@@ -121,13 +122,17 @@ export function projectWebUrl(path: string): string | undefined {
     }
 }
 
-function buildInit(init: ApiInit, accessToken: string, accept: string): RequestInit {
+function buildInit(
+    init: ApiInit,
+    accessToken: string,
+    accept: string,
+    clientHeaders: Record<string, string>
+): RequestInit {
     const { json, query: _query, budgetFamily: _budgetFamily, headers, ...rest } = init
     const merged: Record<string, string> = {
         Accept: accept,
         Authorization: `Bearer ${accessToken}`,
-        // The tasks API reads this to skip warm-sandbox reuse and to label PRs opened from the app.
-        'X-PostHog-Client-Platform': 'mobile',
+        ...clientHeaders,
         ...headers,
     }
     let body = rest.body
@@ -157,11 +162,12 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         throw new BudgetExceededError(family)
     }
     const sent = auth.accessToken as string
+    const clientHeaders = clientRequestHeaders(randomUUID())
     const fetchResponse = (token: string): Promise<Response> => {
         if (init.signal?.aborted) {
             throw abortError()
         }
-        const options = buildInit(init, token, accept)
+        const options = buildInit(init, token, accept, clientHeaders)
         return transport(() => fetcher(url, options))
     }
     let response = await fetchResponse(sent)

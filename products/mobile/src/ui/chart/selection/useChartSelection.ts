@@ -90,7 +90,7 @@ export function useChartSelection(options: SelectionOptions): ChartSelection {
         ): void => {
             const context = latest.current.trackingContext
             if (context) {
-                track(event, { ...properties, context })
+                track(event, { ...properties, ...(typeof context === 'string' ? { context } : context) })
             }
         },
         [latest]

@@ -401,7 +401,7 @@ export const useAuthStore = create<AuthState>()(
                         return
                     }
                     set({ projectId, projectName: project.name })
-                    track('mobile_project_switched', { from })
+                    track('mobile_project_switched', { from, previous_project_id: current, project_id: projectId })
                     // Every cached query belongs to the previous project. Reset drops the data, so no
                     // screen shows the old project's reports, and refetches what is on screen.
                     void queryClient.resetQueries()

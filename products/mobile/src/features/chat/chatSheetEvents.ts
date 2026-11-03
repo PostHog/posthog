@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-import { track } from '@/lib/analytics'
+import { actionTracker } from '@/lib/analytics'
 import type { ChatOrigin } from '@/model/types'
 
 import { ISSUE_OBJECT_TYPE, RECORDING_OBJECT_TYPE } from './objectContext'
@@ -16,6 +16,8 @@ export const CHAT_SHEET_ENTRIES = [
     'task',
     'issue',
     'replay',
+    'push',
+    'deep_link',
 ] as const
 
 export type ChatSheetEntry = (typeof CHAT_SHEET_ENTRIES)[number]
@@ -34,8 +36,12 @@ export function chatSheetSource(params: {
     reportId?: string
     taskId?: string
     objectType?: string
+    from?: string
 }): ChatSheetSource {
     const origin = CHAT_ORIGINS.find((value) => value === params.origin) ?? null
+    if (params.from === 'push') {
+        return { entry: 'push', origin }
+    }
     const named = CHAT_SHEET_ENTRIES.find((value) => value === params.entry)
     if (named) {
         return { entry: named, origin }
@@ -50,7 +56,7 @@ export function chatSheetSource(params: {
         return { entry: 'replay', origin }
     }
     if (params.taskId) {
-        return { entry: 'task', origin }
+        return { entry: 'deep_link', origin }
     }
     return { entry: 'compose', origin }
 }
@@ -58,6 +64,8 @@ export function chatSheetSource(params: {
 interface ChatSheetOpen extends ChatSheetSource {
     hasContext: boolean
     resumed: boolean
+    taskId?: string | null
+    reportId?: string
 }
 
 /**
@@ -72,6 +80,8 @@ export function useChatSheetEvents(
     const sent = useRef(0)
     const newChats = useRef(0)
     const hadRun = useRef(false)
+    const current = useRef({ taskId: open.taskId, runId })
+    current.current = { taskId: open.taskId, runId }
 
     useEffect(() => {
         if (runId) {
@@ -81,15 +91,26 @@ export function useChatSheetEvents(
 
     useEffect(() => {
         const { entry, origin, hasContext, resumed } = opened.current
+        const record = actionTracker()
         const openedAt = Date.now()
-        track('mobile_chat_sheet_opened', { entry, origin, has_context: hasContext, resumed })
+        record('mobile_chat_sheet_opened', {
+            entry,
+            origin,
+            has_context: hasContext,
+            resumed,
+            task_id: opened.current.taskId,
+            run_id: current.current.runId,
+            report_id: opened.current.reportId,
+        })
         return () => {
-            track('mobile_chat_sheet_closed', {
+            record('mobile_chat_sheet_closed', {
                 entry,
                 messages_sent: sent.current,
                 new_chats: newChats.current,
                 had_run: hadRun.current,
                 dwell_s: Math.round((Date.now() - openedAt) / 1000),
+                task_id: current.current.taskId,
+                run_id: current.current.runId,
             })
         }
     }, [])

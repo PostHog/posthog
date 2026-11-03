@@ -23,6 +23,7 @@ export interface AuthOrganization {
 
 export interface AuthProject {
     id: number
+    uuid?: string
     name: string
     organizationId: string
     organizationName: string
@@ -47,6 +48,7 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
         for (const team of teams) {
             projects.push({
                 id: team.id,
+                uuid: team.uuid,
                 name: team.name,
                 organizationId: organization.id,
                 organizationName: organization.name,

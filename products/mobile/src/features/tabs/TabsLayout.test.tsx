@@ -200,9 +200,9 @@ describe('TabsLayout', () => {
         fireEvent.press(screen.getByTestId('inbox-nav-home'))
 
         expect(capture.mock.calls).toEqual([
-            ['mobile_inbox_opened', undefined],
-            ['mobile_chats_opened', undefined],
-            ['mobile_inbox_opened', undefined],
+            ['mobile_inbox_opened', { client_surface: 'mobile' }],
+            ['mobile_chats_opened', { client_surface: 'mobile' }],
+            ['mobile_inbox_opened', { client_surface: 'mobile' }],
         ])
     })
 
@@ -282,8 +282,11 @@ describe('TabsLayout', () => {
 
         expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
         expect(capture.mock.calls).toEqual([
-            ['mobile_inbox_opened', undefined],
-            ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
+            ['mobile_inbox_opened', { client_surface: 'mobile' }],
+            [
+                'mobile_nav_pin_changed',
+                { pin: 'errors', pinned: false, source: 'list_menu', replaced: false, client_surface: 'mobile' },
+            ],
         ])
     })
 

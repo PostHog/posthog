@@ -1,5 +1,13 @@
 import type { MetricChartProps } from '@/ui/chart/types'
 
+jest.mock('expo-crypto', () => {
+    let next = 0
+    return {
+        ...jest.requireActual('expo-crypto'),
+        randomUUID: (): string => `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`,
+    }
+})
+
 jest.mock('expo-network', () => ({
     ...jest.requireActual<typeof import('expo-network')>('expo-network'),
     addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),

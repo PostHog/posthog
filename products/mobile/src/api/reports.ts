@@ -255,6 +255,10 @@ export function fetchReport(reportId: string, signal?: AbortSignal): Promise<Sig
     return apiJson<SignalReportApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/`), { signal })
 }
 
+export async function markReportViewed(reportId: string): Promise<void> {
+    await apiJson<unknown>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/viewed/`), { method: 'POST' })
+}
+
 export function fetchReportSignals(reportId: string, signal?: AbortSignal): Promise<ReportSignalsApi> {
     return apiJson<ReportSignalsApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/signals/`), {
         signal,
@@ -330,12 +334,14 @@ function postVerdict(
     reportId: string,
     state: 'resolved' | 'suppressed',
     reason: ResolveReason | DismissReason,
-    note = ''
+    note = '',
+    actionId?: string
 ): Promise<SignalReportApi> {
     const trimmed = note.trim().slice(0, VERDICT_NOTE_MAX_LENGTH)
     return apiJson<SignalReportApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/state/`), {
         method: 'POST',
         json: { state, dismissal_reason: reason, ...(trimmed ? { dismissal_note: trimmed } : {}) },
+        headers: actionId ? { 'X-PostHog-Client-Action-Id': actionId } : undefined,
     })
 }
 
@@ -343,23 +349,38 @@ function postVerdict(
  * `POST signals/reports/{id}/state/` with `resolved`: marks the report done and closes its open implementation PR.
  * A 409 means the report's current status cannot move to resolved; its `error` says why.
  */
-export function resolveReport(reportId: string, reason: ResolveReason, note?: string): Promise<SignalReportApi> {
-    return postVerdict(reportId, 'resolved', reason, note)
+export function resolveReport(
+    reportId: string,
+    reason: ResolveReason,
+    note?: string,
+    actionId?: string
+): Promise<SignalReportApi> {
+    return postVerdict(reportId, 'resolved', reason, note, actionId)
 }
 
 /**
  * `POST signals/reports/{id}/state/` with `suppressed`: the report leaves the inbox, and the agent that filed it reads
  * the note on its next run. A 409 means the report's current status cannot move to suppressed; its `error` says why.
  */
-export function dismissReport(reportId: string, reason: DismissReason, note?: string): Promise<SignalReportApi> {
-    return postVerdict(reportId, 'suppressed', reason, note)
+export function dismissReport(
+    reportId: string,
+    reason: DismissReason,
+    note?: string,
+    actionId?: string
+): Promise<SignalReportApi> {
+    return postVerdict(reportId, 'suppressed', reason, note, actionId)
 }
 
 /** `PUT signals/reports/{id}/reviewers/`: replaces the suggested reviewers. Returns the new artefact. */
-export function putReportReviewers(reportId: string, content: SuggestedReviewerWriteApi[]): Promise<ReportArtefactApi> {
+export function putReportReviewers(
+    reportId: string,
+    content: SuggestedReviewerWriteApi[],
+    actionId?: string
+): Promise<ReportArtefactApi> {
     return apiJson<ReportArtefactApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/reviewers/`), {
         method: 'PUT',
         json: { content },
+        headers: actionId ? { 'X-PostHog-Client-Action-Id': actionId } : undefined,
     })
 }
 
@@ -377,10 +398,15 @@ export interface ReportArtefactWriteApi {
 export const MANUAL_PRIORITY_EXPLANATION = 'Priority set by hand from the PostHog mobile app'
 
 /** `POST signals/reports/{id}/artefacts/` with a `priority_judgment`: the newest one is the report's priority. */
-export function postPriorityJudgment(reportId: string, priority: ReportPriority): Promise<ReportArtefactWriteApi> {
+export function postPriorityJudgment(
+    reportId: string,
+    priority: ReportPriority,
+    actionId?: string
+): Promise<ReportArtefactWriteApi> {
     return apiJson<ReportArtefactWriteApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`), {
         method: 'POST',
         json: { artefact_type: 'priority_judgment', content: { priority, explanation: MANUAL_PRIORITY_EXPLANATION } },
+        headers: actionId ? { 'X-PostHog-Client-Action-Id': actionId } : undefined,
     })
 }
 

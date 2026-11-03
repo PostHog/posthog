@@ -285,11 +285,17 @@ export async function finalizeArtifactUpload(
 }
 
 /** `PATCH tasks/{id}/`. The server stamps `archived_at` and leaves an archived task out of the default list. */
-export async function setTaskArchived(taskId: string, archived: boolean, signal?: AbortSignal): Promise<void> {
+export async function setTaskArchived(
+    taskId: string,
+    archived: boolean,
+    signal?: AbortSignal,
+    actionId?: string
+): Promise<void> {
     await apiJson<unknown>(projectPath(`tasks/${encodeURIComponent(taskId)}/`), {
         method: 'PATCH',
         json: { archived },
         signal,
+        headers: actionId ? { 'X-PostHog-Client-Action-Id': actionId } : undefined,
     })
 }
 
@@ -386,6 +392,7 @@ export function sendTaskRunCommand(
                 ...('params' in command ? { params: command.params } : {}),
             },
             signal: options.signal,
+            headers: { 'X-PostHog-Client-Action-Id': options.id },
         }
     )
 }
