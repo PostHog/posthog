@@ -17,6 +17,7 @@ from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
@@ -84,6 +85,38 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert session_ids == ["expiring-soon"]
         # count + get_session_ids + recount share a single cached scan
         assert mock_query.call_count == 1
+
+    @parameterized.expand([("90d", 90), ("1y", 365)])
+    def test_expiring_playlist_finds_recordings_at_the_end_of_the_retention_window(
+        self, retention_period: str, retention_days: int
+    ) -> None:
+        cache.clear()
+        self.team.session_recording_retention_period = retention_period
+        self.team.save()
+
+        expiring_session_id = str(uuid7())
+        recent_session_id = str(uuid7())
+        started_near_expiry = now() - timedelta(days=retention_days - 5)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=expiring_session_id,
+            first_timestamp=started_near_expiry,
+            last_timestamp=started_near_expiry + timedelta(minutes=1),
+            retention_period_days=retention_days,
+        )
+        started_recently = now() - timedelta(days=1)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=recent_session_id,
+            first_timestamp=started_recently,
+            last_timestamp=started_recently + timedelta(minutes=1),
+            retention_period_days=retention_days,
+        )
+
+        session_ids = ExpiringPlaylistSource().get_session_ids(self.team, self.user)
+
+        assert expiring_session_id in session_ids
+        assert recent_session_id not in session_ids
 
     def test_retrieve_synthetic_playlist(self) -> None:
         playlist = self._get_synthetic_playlist("synthetic-watch-history")
