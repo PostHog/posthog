@@ -300,7 +300,12 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                     ["events"],
                     ["it uses SAMPLE"],
                 )
-                for name, value in (("inf", "inf"), ("nan", "nan"), ("oversized_integer", "9" * 400))
+                for name, value in (
+                    ("inf", "inf"),
+                    ("nan", "nan"),
+                    ("oversized_integer", "9" * 400),
+                    ("oversized_hex_integer", "0x" + "f" * 5000),
+                )
             ),
             (
                 "sample_with_offset",

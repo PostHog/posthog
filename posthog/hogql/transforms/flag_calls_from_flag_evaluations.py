@@ -677,7 +677,7 @@ def ratio_sample_fraction(sample: ast.SampleExpr) -> Fraction | None:
         for c in constants
     ):
         return None
-    numerator, denominator = (Fraction(str(c.value)) for c in constants)
+    numerator, denominator = (Fraction(c.value if isinstance(c.value, int) else str(c.value)) for c in constants)
     fraction = numerator / denominator if denominator else None
     return fraction if fraction is not None and 0 < fraction < 1 else None
 
