@@ -11,6 +11,7 @@ import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
+import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -3423,6 +3424,104 @@ describe('Hogflow Executor', () => {
             // Verify email_sent metric was emitted
             const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
             expect(emailSentMetrics).toHaveLength(1)
+        })
+
+        it('marks only the team-capped send as capped when a second email follows it in the run', async () => {
+            await insertIntegration(hub.postgres, team.id, {
+                id: integrationId,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'maildev',
+                },
+            })
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-email-routing-test',
+                name: 'Email Routing Test',
+                code: `sendEmail(inputs.email)`,
+                inputs_schema: [
+                    {
+                        type: 'native_email',
+                        key: 'email',
+                        label: 'Email message',
+                        integration: 'email',
+                        required: true,
+                        secret: false,
+                        description: '',
+                        templating: 'liquid',
+                    },
+                ],
+            })
+            const emailAction = (subject: string): SimpleHogFlowRepresentation['actions'][string] => ({
+                type: 'function_email',
+                config: {
+                    template_id: 'template-email-routing-test',
+                    inputs: {
+                        email: {
+                            value: {
+                                to: { email: 'recipient@example.com', name: 'Recipient' },
+                                from: { integrationId, email: 'test@posthog.com' },
+                                subject,
+                                text: 'Test text',
+                                html: '<p>Test html</p>',
+                            },
+                        },
+                    },
+                },
+            })
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: emailAction('First'),
+                        email_2: emailAction('Second'),
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'email_2', type: 'continue' },
+                        { from: 'email_2', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const routed = await executor.execute(createExampleHogFlowInvocation(hogFlow))
+            expect(routed.invocation.queue).toBe('email')
+            // The state a team-cap reschedule of email_1 leaves on the job.
+            routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, teamCapped: true }
+
+            // Stub the provider send: the case reads what each send receives, and real sends would land in the
+            // maildev inbox that the email service suites count while they run in parallel.
+            const sendSpy = jest
+                .spyOn(EmailService.prototype, 'executeSendEmail')
+                .mockImplementation((invocation) => Promise.resolve(createInvocationResult(invocation)))
+            try {
+                let result = await executor.execute(routed.invocation)
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                }
+
+                expect(result.error).toBeUndefined()
+                expect(
+                    sendSpy.mock.calls.map(([invocation]) => [
+                        invocation.queueParameters?.type === 'email' ? invocation.queueParameters.subject : undefined,
+                        invocation.queueMetadata?.teamCapped === true,
+                    ])
+                ).toEqual([
+                    ['First', true],
+                    ['Second', false],
+                ])
+            } finally {
+                sendSpy.mockRestore()
+            }
         })
     })
 })

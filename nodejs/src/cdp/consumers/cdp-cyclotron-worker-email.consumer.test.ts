@@ -253,6 +253,8 @@ describe('CdpCyclotronWorkerEmail', () => {
         afterEach(async () => {
             worker?.emailService.sesV2Client?.destroy()
             await worker?.stop()
+            // The worker does not own the injected pool, and RedisV2 has no close, so quit its one client here.
+            await redis?.useClient({ name: 'email-round-trip-test-close' }, (client) => client.quit())
             await ses?.stop()
             environment?.restore()
             jest.restoreAllMocks()
