@@ -22,7 +22,7 @@ export function AiIncidentNotice({ incident }: { incident: NonNullable<PostHogSt
             style={styles.notice}
             testID="chat-ai-incident"
         >
-            <WarningIcon size={18} color={colors.orange} />
+            <WarningIcon size={18} color={colors[incident.color]} />
             <Text style={styles.text} numberOfLines={2}>
                 {label}
             </Text>

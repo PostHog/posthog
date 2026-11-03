@@ -147,11 +147,11 @@ function TabsChrome(): ReactElement {
 
     return (
         <>
-            <TabsHeader tab={tab} slot={slot} statusUpdate={status.summary} onMore={() => setMenuOpen(true)} />
+            <TabsHeader tab={tab} slot={slot} status={status} onMore={() => setMenuOpen(true)} />
             <NavMenu
                 visible={menuOpen}
                 projectName={viewer.projectName}
-                statusUpdate={status.summary}
+                status={status}
                 onOpenStatus={() => {
                     closeMenu()
                     Linking.openURL(status.pageUrl).catch(() => toasts.show("Couldn't open PostHog status."))

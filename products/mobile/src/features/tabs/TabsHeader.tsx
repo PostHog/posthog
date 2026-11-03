@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-
+import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { INBOX_PANE_WIDTH } from '@/ui/adaptiveLayout'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -48,7 +48,7 @@ interface TabsHeaderProps {
     tab: TabKey
     /** Null until the tab's screen publishes its header state. */
     slot: TabHeaderSlot | null
-    statusUpdate?: string
+    status: PostHogStatus
     onMore: () => void
 }
 
@@ -57,7 +57,12 @@ interface TabsHeaderProps {
  * keep their place and their state across a tab switch. The status line is absolutely positioned, so it never moves
  * the title row, and the refresh hint takes its place while it shows, so every tab's content starts at the same offset.
  */
-export function TabsHeader({ tab, slot, statusUpdate, onMore }: TabsHeaderProps): ReactElement {
+export function TabsHeader({
+    tab,
+    slot,
+    status: { summary: statusUpdate, indicatorColor },
+    onMore,
+}: TabsHeaderProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -143,8 +148,8 @@ export function TabsHeader({ tab, slot, statusUpdate, onMore }: TabsHeaderProps)
                     >
                         <View>
                             <MoreIcon size={22} />
-                            {statusUpdate ? (
-                                <View style={[styles.filterDot, { backgroundColor: colors.orange }]} />
+                            {statusUpdate && indicatorColor ? (
+                                <View style={[styles.filterDot, { backgroundColor: colors[indicatorColor] }]} />
                             ) : null}
                         </View>
                     </Pressable44>

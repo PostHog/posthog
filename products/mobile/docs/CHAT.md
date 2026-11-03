@@ -9,7 +9,7 @@ New chat and the ellipsis share the Inbox's pill control. The composer clears th
 
 An active incident affecting PostHog AI in the selected cloud region appears below the header in new and existing chats.
 The notice shows the published incident title and phase. Tap it to read the update. For other services, open **PostHog status** below the project name in the
-main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance. The menu shows the highest current impact and the number of concurrent incidents. A healthy region shows the status link alone.
+main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance. The menu shows the highest current impact and the number of concurrent incidents. The status row has a green dot for a healthy region, yellow for degraded performance or maintenance, and red for partial or major outages. Chat warnings use the impact on the regional AI component.
 
 The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
 web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.

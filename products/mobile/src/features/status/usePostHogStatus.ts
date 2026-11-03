@@ -41,10 +41,15 @@ interface Summary {
     in_progress_maintenances: StatusEvent[]
 }
 
+function incidentColor(impact: Component['current_status']): 'yellow' | 'diffRed' {
+    return impact === 'partial_outage' || impact === 'full_outage' ? 'diffRed' : 'yellow'
+}
+
 export interface PostHogStatus {
+    indicatorColor?: 'diffGreen' | ReturnType<typeof incidentColor>
     pageUrl: string
     summary?: string
-    aiIncident?: { title: string; url: string; status: IncidentPhase }
+    aiIncident?: { title: string; url: string; status: IncidentPhase; color: ReturnType<typeof incidentColor> }
 }
 
 export function regionalStatus(summary: Summary, region: 'us' | 'eu'): PostHogStatus {
@@ -68,11 +73,13 @@ export function regionalStatus(summary: Summary, region: 'us' | 'eu'): PostHogSt
     const count = incidents.length > 1 ? ` (${incidents.length} incidents)` : ''
     return {
         pageUrl: `${STATUS_PAGE}/${region}`,
+        indicatorColor: incident ? incidentColor(incident.current_worst_impact) : maintenance ? 'yellow' : 'diffGreen',
         summary: incident
             ? `${impact ?? 'Incident'}${count} · ${incident.name}`
             : maintenance && `Maintenance in progress · ${maintenance.name}`,
         aiIncident: ai && {
             title: ai.event.name,
+            color: incidentColor(ai.impact),
             status: ai.event.status,
             url: `${STATUS_PAGE}/incidents/${encodeURIComponent(ai.event.id)}`,
         },

@@ -25,6 +25,7 @@ jest.mock('@/features/status/usePostHogStatus', () => ({
         summary: 'Elevated latency',
         aiIncident: {
             status: 'monitoring',
+            color: 'yellow',
             title: 'Elevated latency',
             url: 'https://www.posthogstatus.com/incidents/example',
         },

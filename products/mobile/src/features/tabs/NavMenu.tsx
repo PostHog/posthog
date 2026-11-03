@@ -2,6 +2,7 @@ import { type ComponentType, type ReactElement, useEffect, useState } from 'reac
 import { Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
+import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
@@ -29,7 +30,7 @@ interface NavMenuProps {
     /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
     navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
     onClose: () => void
-    statusUpdate?: string
+    status: PostHogStatus
     onOpenStatus: () => void
     onSettings: () => void
     onSignOut: () => void
@@ -75,7 +76,7 @@ export function NavMenu({
     navList,
     onClose,
     onSettings,
-    statusUpdate,
+    status: { summary: statusUpdate, indicatorColor },
     onOpenStatus,
     onSignOut,
     confirmingSignOut,
@@ -150,13 +151,25 @@ export function NavMenu({
                     <>
                         <Pressable44
                             accessibilityRole="link"
-                            accessibilityLabel={statusUpdate ? `PostHog status: ${statusUpdate}` : 'PostHog status'}
+                            accessibilityLabel={
+                                statusUpdate
+                                    ? `PostHog status: ${statusUpdate}`
+                                    : indicatorColor
+                                      ? 'PostHog status: All systems operational'
+                                      : 'PostHog status'
+                            }
                             pressedBackground={colors.sunken}
                             style={styles.row}
                             onPress={onOpenStatus}
                             testID="nav-status"
                         >
-                            <GlobeIcon size={iconSizes.control} />
+                            {indicatorColor ? (
+                                <View style={styles.statusIcon}>
+                                    <View style={[styles.statusDot, { backgroundColor: colors[indicatorColor] }]} />
+                                </View>
+                            ) : (
+                                <GlobeIcon size={iconSizes.control} />
+                            )}
                             <View style={styles.statusBody}>
                                 <Text style={styles.statusTitle}>PostHog status</Text>
                                 {statusUpdate ? (
@@ -250,6 +263,8 @@ const useStyles = createStyles(({ colors }) => ({
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
+    statusIcon: { width: iconSizes.control, alignItems: 'center' },
+    statusDot: { width: 10, height: 10, borderRadius: 5 },
     statusBody: { flex: 1 },
     statusTitle: { ...type.menuRow, color: colors.ink },
     statusSummary: { ...type.meta, color: colors.muted },

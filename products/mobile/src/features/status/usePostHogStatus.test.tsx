@@ -22,10 +22,12 @@ const summary = { ongoing_incidents: [incident], in_progress_maintenances: [] }
 test('shows a cross-region incident in both menus but only in the affected AI chat', () => {
     expect(regionalStatus(summary, 'us')).toEqual({
         pageUrl: 'https://www.posthogstatus.com/us',
+        indicatorColor: 'yellow',
         summary: `Degraded performance · ${incident.name}`,
     })
     expect(regionalStatus(summary, 'eu').aiIncident).toEqual({
         title: incident.name,
+        color: 'yellow',
         status: incident.status,
         url: 'https://www.posthogstatus.com/incidents/incident-123',
     })
@@ -38,6 +40,8 @@ test('global incidents and maintenance appear in the menu without implying AI is
     expect(regionalStatus(events, 'us').summary).toBe(`Degraded performance · ${global.name}`)
     expect(regionalStatus(events, 'eu').aiIncident).toBeUndefined()
     const resolved = { ...events, ongoing_incidents: [] }
+    expect(regionalStatus(resolved, 'us').indicatorColor).toBe('diffGreen')
+    expect(regionalStatus(resolved, 'eu').indicatorColor).toBe('yellow')
     expect(regionalStatus(resolved, 'us').summary).toBeUndefined()
     expect(regionalStatus(resolved, 'eu').summary).toBe(`Maintenance in progress · ${maintenance.name}`)
     expect(regionalStatus(resolved, 'eu').aiIncident).toBeUndefined()
@@ -82,11 +86,17 @@ test('ranks the regional outage separately from the AI component and updates as 
         affected_components: [{ ...euAI, current_status: 'partial_outage' as const }],
     }
     const major = { ...incident, id: 'major', name: 'API unavailable', current_worst_impact: 'full_outage' as const }
+    const majorStatus = regionalStatus({ ...summary, ongoing_incidents: [major] }, 'eu')
+    expect(majorStatus.indicatorColor).toBe('diffRed')
+    expect(majorStatus.aiIncident?.color).toBe('yellow')
     const events = { ...summary, ongoing_incidents: [incident, partial, major] }
     expect(regionalStatus(events, 'eu').summary).toBe('Major outage (3 incidents) · API unavailable')
+    expect(regionalStatus(events, 'eu').indicatorColor).toBe('diffRed')
+    expect(regionalStatus(events, 'eu').aiIncident?.color).toBe('diffRed')
     expect(regionalStatus(events, 'eu').aiIncident?.title).toBe(partial.name)
     const monitoring = { ...partial, status: 'monitoring' as const }
     const remaining = { ...summary, ongoing_incidents: [monitoring] }
+    expect(regionalStatus(remaining, 'eu').indicatorColor).toBe('diffRed')
     expect(regionalStatus(remaining, 'eu').summary).toBe('Partial outage · AI requests failing')
     expect(regionalStatus(remaining, 'eu').aiIncident?.status).toBe('monitoring')
     expect(regionalStatus(remaining, 'us').summary).toBeUndefined()
