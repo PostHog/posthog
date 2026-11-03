@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
-import { Linking, Text, View } from 'react-native'
-
+import { Text, View } from 'react-native'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import type { EvidenceBlock } from '@/model/types'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { MonoText } from '@/ui/MonoText'
@@ -22,12 +22,19 @@ export function ReplayRow({ block, reportId }: { block: ReplayBlock; reportId: s
     return (
         <Pressable44
             onPress={() => {
-                track('mobile_report_replay_opened', { report_id: reportId, replay_count: block.count })
                 if (demo) {
                     // Demo sessions exist in no project, so the session screen would have nothing to load.
-                    Linking.openURL(block.url).catch(() => undefined)
+                    void openTrackedUrl(block.url, 'mobile_report_replay_opened', {
+                        report_id: reportId,
+                        replay_count: block.count,
+                    })
                     return
                 }
+                track('mobile_report_replay_opened', {
+                    report_id: reportId,
+                    replay_count: block.count,
+                    destination: 'native',
+                })
                 router.push({
                     pathname: '/replay/[sessionId]',
                     params: {

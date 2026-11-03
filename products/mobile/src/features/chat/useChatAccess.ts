@@ -4,6 +4,7 @@ import { AppState } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { useDataMode } from '@/demo/demoMode'
 import { type AiAccess, currentAiAccess, currentAiIdentity, refreshAiOrganization } from '@/features/ai/aiApproval'
+import { type ActionTracker, actionTracker } from '@/lib/analytics'
 
 import type { ProjectOrganization } from './aiAccess'
 import { aiConsentKey, useAiConsentHydrated, useAiConsentStore } from './aiConsentStore'
@@ -31,23 +32,28 @@ export function useChatAccess(): ChatAccessState {
     } | null>(null)
 
     const verificationVersion = useRef(0)
-    const checkAgain = useCallback((): void => {
-        if (dataMode !== 'live' || !identity) {
-            return
-        }
-        const version = ++verificationVersion.current
-        setVerification({ identity, failed: false, checking: true })
-        void refreshAiOrganization(identity).then(
-            (organization) => {
-                if (currentAiIdentity() === identity && verificationVersion.current === version)
-                    setVerification({ identity, failed: false, checking: false, organization })
-            },
-            () => {
-                if (currentAiIdentity() === identity && verificationVersion.current === version)
-                    setVerification({ identity, failed: true, checking: false })
+    const checkAgain = useCallback(
+        (record?: ActionTracker): void => {
+            if (dataMode !== 'live' || !identity) {
+                return
             }
-        )
-    }, [dataMode, identity])
+            const version = ++verificationVersion.current
+            setVerification({ identity, failed: false, checking: true })
+            void refreshAiOrganization(identity).then(
+                (organization) => {
+                    record?.('mobile_ai_org_rechecked', { success: true })
+                    if (currentAiIdentity() === identity && verificationVersion.current === version)
+                        setVerification({ identity, failed: false, checking: false, organization })
+                },
+                () => {
+                    record?.('mobile_ai_org_rechecked', { success: false })
+                    if (currentAiIdentity() === identity && verificationVersion.current === version)
+                        setVerification({ identity, failed: true, checking: false })
+                }
+            )
+        },
+        [dataMode, identity]
+    )
 
     useEffect(() => {
         checkAgain()
@@ -78,5 +84,10 @@ export function useChatAccess(): ChatAccessState {
         access = { kind: 'checking' }
     else if (verification.failed) access = { kind: 'org_unknown' }
     else access = currentAiAccess(verification.organization)
-    return { access, rechecking: verification?.checking ?? false, accept, checkAgain }
+    return {
+        access,
+        rechecking: verification?.checking ?? false,
+        accept,
+        checkAgain: () => checkAgain(actionTracker()),
+    }
 }

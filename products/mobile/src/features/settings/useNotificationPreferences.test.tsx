@@ -7,6 +7,7 @@ import {
     getNotificationPreferences,
     setNotificationPreference,
 } from '@/api/notificationPreferences'
+import { setAnalyticsClient } from '@/lib/analytics'
 import { useNotificationPreferences } from './useNotificationPreferences'
 
 jest.mock('@/api/notificationPreferences', () => ({
@@ -31,8 +32,11 @@ function setup(): ReturnType<typeof renderHook<ReturnType<typeof useNotification
 }
 
 describe('notification preferences', () => {
+    const capture = jest.fn()
+    afterEach(() => setAnalyticsClient(null))
     beforeEach(() => {
         jest.resetAllMocks()
+        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
         mockMode = 'live'
     })
 
@@ -51,7 +55,16 @@ describe('notification preferences', () => {
         await act(async () => resolveLoad(DEFAULT_NOTIFICATION_PREFERENCES))
         await waitFor(() => expect(result.current.preferences).toEqual(DEFAULT_NOTIFICATION_PREFERENCES))
         await act(async () => result.current.change('mobile_push_tasks_enabled', false))
-        expect(setNotificationPreference).toHaveBeenCalledWith('mobile_push_tasks_enabled', false)
+        expect(setNotificationPreference).toHaveBeenCalledWith('mobile_push_tasks_enabled', false, expect.any(String))
+        expect(capture).toHaveBeenCalledWith(
+            'mobile_notification_preference_changed',
+            expect.objectContaining({
+                preference: 'mobile_push_tasks_enabled',
+                previous_value: true,
+                enabled: false,
+                client_surface: 'mobile',
+            })
+        )
         await waitFor(() => expect(result.current.preferences).toEqual(saved))
     })
 
@@ -79,6 +92,11 @@ describe('notification preferences', () => {
         expect(result.current.preferences).toEqual(DEFAULT_NOTIFICATION_PREFERENCES)
         expect(result.current.saveError).toContain("Couldn't save")
         expect(result.current.saving).toBe(false)
+        expect(capture).toHaveBeenCalledWith(
+            'mobile_notification_preference_failed',
+            expect.objectContaining({ preference: 'mobile_push_enabled' })
+        )
+        expect(capture).not.toHaveBeenCalledWith('mobile_notification_preference_changed', expect.anything())
     })
 
     test('demo changes stay on the device without account requests', async () => {

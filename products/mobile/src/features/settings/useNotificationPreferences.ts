@@ -10,6 +10,7 @@ import {
 } from '@/api/notificationPreferences'
 import { useAuthStore } from '@/auth/authStore'
 import { useDataMode } from '@/demo/demoMode'
+import { actionTracker } from '@/lib/analytics'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 
 export function useNotificationPreferences(): {
@@ -36,15 +37,23 @@ export function useNotificationPreferences(): {
         retry: false,
     })
     const save = useAsyncAction(async (key: NotificationPreferenceKey, enabled: boolean) => {
+        const record = actionTracker({
+            preference: key,
+            previous_value: (mode === 'demo' ? demoPreferences : query.data)?.[key],
+            enabled,
+        })
         setSaveError(null)
         if (mode === 'demo') {
             setDemoPreferences((current) => ({ ...current, [key]: enabled }))
+            record('mobile_notification_preference_changed')
             return
         }
         try {
-            const preferences = await setNotificationPreference(key, enabled)
+            const preferences = await setNotificationPreference(key, enabled, record.actionId)
             queryClient.setQueryData(queryKey, preferences)
+            record('mobile_notification_preference_changed')
         } catch {
+            record('mobile_notification_preference_failed')
             setSaveError("Couldn't save notification preferences. Try again.")
         }
     })

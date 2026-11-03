@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { BudgetFamily } from '@/api/budget'
 import { serverNow } from '@/api/serverClock'
 import { addSessionEndTask } from '@/auth/authStore'
+import { type AnalyticsProperties, actionTracker } from '@/lib/analytics'
 import { sleep } from '@/lib/sleep'
 import { useNow } from '@/lib/useNow'
 import type { Freshness } from '@/model/views'
@@ -36,6 +37,7 @@ export interface RefreshItem {
     /** The freshness key. Items with one key share one cache entry and one request. */
     key: string
     family: BudgetFamily
+    analytics?: AnalyticsProperties
     /** Reads the cached snapshot when called, so a pass sees what an earlier step of the same pass wrote. */
     snapshot: () => Freshness | undefined
     /** Sends one read and writes the result to the cache, also on failure (`readAt`, `refreshFailed`). */
@@ -529,6 +531,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 return false
             }
             const snapshot = item.snapshot()
+            const record = actionTracker({ ...item.analytics, refresh_screen: current.screen, scope: 'item' })
             const mode: RefreshMode =
                 drawable(item) && !blockedFor(current).blocked && isEligible(snapshot)
                     ? 'force_blocking'
@@ -543,6 +546,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 run: item.read,
                 userRetry: true,
             })
+            void job.then((result) =>
+                record('mobile_view_item_refreshed', { status: result.status, forced: mode === 'force_blocking' })
+            )
             itemReads.current.set(item.key, job)
             void job.then((result) => recordEmptyFailure(item.key, result, () => hasGoodValue(item.snapshot())))
             return true
@@ -555,6 +561,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         if (!current.enabled) {
             return
         }
+        actionTracker({ refresh_screen: current.screen })('mobile_view_retried')
         const counters: PassCounters = { jobs: [] }
         if (current.container) {
             // When the dashboard arrives, its tiles are new items, so the open path reads them.

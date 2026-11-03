@@ -7,7 +7,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { demoDecisionMeta } from '@/demo/briefings'
 import { useDemoMode } from '@/demo/demoMode'
 import { useAiApproval } from '@/features/ai/aiApproval'
-import { track } from '@/lib/analytics'
+import { actionTracker } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
 
@@ -67,7 +67,7 @@ export function answerErrorMessage(error: unknown): string {
     return "Couldn't send your answer. Try again."
 }
 
-type Delivery = (signal: AbortSignal) => Promise<DeliveryOutcome>
+type Delivery = (signal: AbortSignal, actionId: string) => Promise<DeliveryOutcome>
 
 export function useHandoffActions(reportId: string): HandoffActions {
     const demo = useDemoMode((state) => state.enabled)
@@ -104,6 +104,12 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 (!current.pending || current.pending.record.requestId === requestId)
             )
         }
+        const record = actionTracker({
+            report_id: reportId,
+            task_id: originatingRun.taskId,
+            run_id: originatingRun.runId,
+            request_id: requestId,
+        })
         const controller = new AbortController()
         const abort = (): void => controller.abort()
         approval.signal.addEventListener('abort', abort, { once: true })
@@ -120,7 +126,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
         store.setNotice(reportId, undefined)
         store.setAnswer(reportId, answer)
         try {
-            const outcome = await send(controller.signal)
+            const outcome = await send(controller.signal, record.actionId)
             if (controller.signal.aborted || !isCurrentRun()) {
                 return
             }
@@ -129,7 +135,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 const activity = handoffEntry(reportId).live?.activity ?? answer.activity
                 store.setAnswer(reportId, { ...answer, delivery: 'delivered', activity })
                 store.setPartial(reportId, undefined)
-                track('mobile_decision_answered', {
+                record('mobile_decision_answered', {
                     report_id: reportId,
                     kind: target.kind,
                     picked_option: Boolean(input.optionId),
@@ -152,6 +158,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
             }
             store.setAnswer(reportId, undefined)
             store.setNotice(reportId, answerErrorMessage(error))
+            record('mobile_decision_failed', { reason: 'delivery_failed' })
         } finally {
             approval.signal.removeEventListener('abort', abort)
             if (deliveries.get(reportId) === controller) {
@@ -163,6 +170,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
     // Hand-off and answer failures show in the action bar, so these actions resolve instead of
     // rejecting: every caller fires them without awaiting the result.
     const handOff = useAsyncAction(async () => {
+        const record = actionTracker({ report_id: reportId })
         if (demo) {
             demoHandOff(reportId)
             useRunOptionsStore.getState().reset()
@@ -181,13 +189,14 @@ export function useHandoffActions(reportId: string): HandoffActions {
             }
             const started = await kickOffReportTask(reportId, {
                 run,
+                actionId: record.actionId,
                 signal: approval.signal,
                 taskId: handoffEntry(reportId).unstartedTaskId,
                 onTaskCreated: (taskId) => useHandoffStore.getState().setUnstartedTask(reportId, taskId),
             })
             useHandoffStore.getState().setStarted(reportId, started)
             useRunOptionsStore.getState().reset()
-            track('mobile_report_handed_off', {
+            record('mobile_report_handed_off', {
                 report_id: reportId,
                 task_id: started.taskId,
                 run_id: started.runId,
@@ -199,7 +208,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
             refreshReport()
         } catch (error) {
             useHandoffStore.getState().setNotice(reportId, handoffErrorMessage(error))
-            track('mobile_handoff_failed', {
+            record('mobile_handoff_failed', {
                 report_id: reportId,
                 agent: 'posthog',
                 reason: handoffFailureReason(error),
@@ -242,8 +251,8 @@ export function useHandoffActions(reportId: string): HandoffActions {
             ) {
                 return
             }
-            await deliverAnswer(question, input, { requestId, kind: live.pending.kind }, (signal) =>
-                deliverPermissionResponse(run, plan.params, { signal })
+            await deliverAnswer(question, input, { requestId, kind: live.pending.kind }, (signal, actionId) =>
+                deliverPermissionResponse(run, plan.params, { signal, id: actionId })
             )
             return
         }

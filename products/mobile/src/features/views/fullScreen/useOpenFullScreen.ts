@@ -11,7 +11,10 @@ export function useOpenFullScreen(): (source: ChartSheetSource, entry: FullScree
     const router = useRouter()
     return useCallback(
         (source: ChartSheetSource, entry: FullScreenEntry) => {
-            trackChartFullScreenOpened({ entry, display: insightDisplay(source.snapshot) })
+            trackChartFullScreenOpened(
+                { entry, display: insightDisplay(source.snapshot) },
+                { insight_id: source.snapshot.insightId, insight_short_id: source.snapshot.shortId }
+            )
             router.push(chartHref(source.snapshot.shortId, source.queryKey))
         },
         [router]

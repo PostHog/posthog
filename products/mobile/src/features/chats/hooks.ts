@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-
 import { NotSignedInError } from '@/api/client'
 import { isMissingFeature, type ProjectScope, retryUnlessMissing, scopeKey } from '@/api/reports'
 import { listMySessions, setTaskArchived, type TaskSummaryApi } from '@/api/tasks'
@@ -8,11 +7,13 @@ import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoChatsQuery } from '@/demo/hooks'
+import { actionTracker } from '@/lib/analytics'
 import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { chatListFromSessions } from '@/model/adapters/chats'
 import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { ChatListItem, QueryState } from '@/model/types'
+import { toChatError } from '../chat/chatErrors'
 
 const CHAT_LIST_STALE_MS = 30_000
 
@@ -121,10 +122,12 @@ export function useChatList(): QueryState<ChatListItem[]> {
 
 export interface ChatArchiveActions {
     /** Hides the row at once and archives the task. A failed request puts the row back and rejects. */
-    archive: (item: Pick<ChatListItem, 'sourceId'>) => Promise<void>
+    archive: (item: ChatArchiveTarget, entry?: 'chats_list' | 'chat_header') => Promise<void>
     /** Puts the row back at once and unarchives the task, for the toast's Undo. */
-    restore: (item: Pick<ChatListItem, 'sourceId'>) => Promise<void>
+    restore: (item: ChatArchiveTarget) => Promise<void>
 }
+
+type ChatArchiveTarget = Pick<ChatListItem, 'sourceId'> & Partial<Pick<ChatListItem, 'origin' | 'status'>>
 
 function useLiveArchiveChat(): ChatArchiveActions {
     const scope = useProjectScope()
@@ -149,11 +152,12 @@ function useLiveArchiveChat(): ChatArchiveActions {
     )
 
     const archive = useCallback(
-        (item: Pick<ChatListItem, 'sourceId'>): Promise<void> => {
+        (item: ChatArchiveTarget, entry = 'chats_list'): Promise<void> => {
             const pending = archivesInFlight.current.get(item.sourceId)
             if (pending) {
                 return pending
             }
+            const record = actionTracker({ task_id: item.sourceId, entry, origin: item.origin, status: item.status })
             const request = (async (): Promise<void> => {
                 if (!scope) {
                     throw new NotSignedInError()
@@ -170,9 +174,11 @@ function useLiveArchiveChat(): ChatArchiveActions {
                     sessions?.filter((entry) => entry.id !== item.sourceId)
                 )
                 try {
-                    await setTaskArchived(item.sourceId, true)
+                    await setTaskArchived(item.sourceId, true, undefined, record.actionId)
+                    record('mobile_chat_archived')
                 } catch (error) {
                     putBack(item.sourceId)
+                    record('mobile_chat_archive_failed', { action: 'archive', code: toChatError(error).kind })
                     throw error
                 }
             })()
@@ -187,15 +193,23 @@ function useLiveArchiveChat(): ChatArchiveActions {
     )
 
     const restore = useCallback(
-        async (item: Pick<ChatListItem, 'sourceId'>): Promise<void> => {
+        async (item: ChatArchiveTarget): Promise<void> => {
             if (!scope) {
                 throw new NotSignedInError()
             }
+            const record = actionTracker({
+                task_id: item.sourceId,
+                entry: 'chats_list',
+                origin: item.origin,
+                status: item.status,
+            })
             putBack(item.sourceId)
             await archivesInFlight.current.get(item.sourceId)?.catch(() => undefined)
             try {
-                await setTaskArchived(item.sourceId, false)
+                await setTaskArchived(item.sourceId, false, undefined, record.actionId)
+                record('mobile_chat_archive_undone')
             } catch (error) {
+                record('mobile_chat_archive_failed', { action: 'restore', code: toChatError(error).kind })
                 queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
                     sessions?.filter((entry) => entry.id !== item.sourceId)
                 )
@@ -216,8 +230,21 @@ function useDemoArchiveChat(): ChatArchiveActions {
     const unarchiveChat = useDemoMode((state) => state.unarchiveChat)
     return useMemo(
         () => ({
-            archive: async (item) => archiveChat(item.sourceId),
-            restore: async (item) => unarchiveChat(item.sourceId),
+            archive: async (item, entry = 'chats_list') => {
+                archiveChat(item.sourceId)
+                actionTracker({ task_id: item.sourceId, entry, origin: item.origin, status: item.status })(
+                    'mobile_chat_archived'
+                )
+            },
+            restore: async (item) => {
+                unarchiveChat(item.sourceId)
+                actionTracker({
+                    task_id: item.sourceId,
+                    entry: 'chats_list',
+                    origin: item.origin,
+                    status: item.status,
+                })('mobile_chat_archive_undone')
+            },
         }),
         [archiveChat, unarchiveChat]
     )

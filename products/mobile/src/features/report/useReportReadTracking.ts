@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { LayoutChangeEvent } from 'react-native'
 import { type SharedValue, useSharedValue } from 'react-native-reanimated'
 
-import { type AnalyticsEvent, track } from '@/lib/analytics'
+import { type AnalyticsEvent, actionTracker } from '@/lib/analytics'
 
 import { useAppActive } from '../handoff/useTaskRun'
 
@@ -47,18 +47,18 @@ export function useReportReadTracking(reportId: string, event: ReadEvent = 'mobi
         }
     }, [visible])
 
-    useEffect(
-        () => () => {
+    useEffect(() => {
+        const record = actionTracker({ report_id: reportId })
+        return () => {
             const openMs = visibleSince.current !== null ? Date.now() - visibleSince.current : 0
             const scrolledToEnd = maxScrollY.value + viewportHeight.current >= contentHeight.current - END_SLACK_PX
-            track(event, {
+            record(event, {
                 report_id: reportId,
                 dwell_s: Math.round((visibleMs.current + openMs) / 1000),
                 scrolled_to_end: scrolledToEnd,
             })
-        },
-        [reportId, event, maxScrollY]
-    )
+        }
+    }, [reportId, event, maxScrollY])
 
     return useMemo(
         () => ({

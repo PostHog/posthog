@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { Linking, ScrollView, Text, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
@@ -11,7 +11,7 @@ import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { fonts, radii, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
-import { trackViewOpenedInWeb } from '../analytics'
+import { openViewInWeb } from '../analytics'
 import { forceAllowedAt, HINT_MS, refreshHintText } from '../freshness'
 import { type ChartSheetSource, useLiveSnapshot } from '../pointSheet/chartSheetSource'
 import { SheetTitle } from '../screen/SheetTitle'
@@ -95,8 +95,7 @@ function AboutBody({
         if (!safe) {
             return
         }
-        trackViewOpenedInWeb({ viewType: 'insight', reason: 'action' })
-        Linking.openURL(safe).catch(() => undefined)
+        openViewInWeb(safe, { viewType: 'insight', reason: 'action' })
     }
 
     return (

@@ -63,6 +63,7 @@ export interface KickoffOptions {
     run: HandoffRunFieldsApi
     taskId?: string
     onTaskCreated?: (taskId: string) => void
+    actionId?: string
     signal?: AbortSignal
     clock?: Clock
 }
@@ -72,6 +73,9 @@ export interface KickoffOptions {
 export async function kickOffReportTask(reportId: string, options: KickoffOptions): Promise<KickoffResult> {
     const report = await fetchReport(reportId, options.signal)
     const prompt = buildCreatePrReportPrompt(report)
+    const actionHeaders: Record<string, string> = options.actionId
+        ? { 'X-PostHog-Client-Action-Id': options.actionId }
+        : {}
     const taskId = report.assignee?.kind === 'task' ? (report.assignee.task_id ?? options.taskId) : options.taskId
     const task = taskId
         ? await getTask(taskId, options.signal)
@@ -85,7 +89,7 @@ export async function kickOffReportTask(reportId: string, options: KickoffOption
                           signal_report: reportId,
                           signal_report_task_relationship: 'implementation',
                       },
-                      { headers, signal: options.signal }
+                      { headers: { ...headers, ...actionHeaders }, signal: options.signal }
                   ),
               options
           )
@@ -108,7 +112,7 @@ export async function kickOffReportTask(reportId: string, options: KickoffOption
                         pending_user_message: prompt,
                         ...options.run,
                     },
-                    { headers, signal: options.signal }
+                    { headers: { ...headers, ...actionHeaders }, signal: options.signal }
                 ),
             options
         )

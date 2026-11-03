@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from 'react'
 
 import type { TaskSummaryApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
+import { setAnalyticsClient } from '@/lib/analytics'
 
 import { useArchiveChat, useChatList } from './hooks'
 
@@ -54,8 +55,11 @@ function renderChats(): RenderHookResult<ChatsHooks, unknown> {
 }
 
 describe('chats hooks', () => {
+    const capture = jest.fn()
+    afterEach(() => setAnalyticsClient(null))
     beforeEach(() => {
         jest.clearAllMocks()
+        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
     })
 
     describe('useChatList', () => {
@@ -118,13 +122,18 @@ describe('chats hooks', () => {
                 void result.current.archive.archive(first).catch(() => undefined)
             })
             await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-2']))
-            expect(mocked.setTaskArchived).toHaveBeenCalledWith('task-1', true)
+            expect(mocked.setTaskArchived).toHaveBeenCalledWith('task-1', true, undefined, expect.any(String))
             expect(mocked.setTaskArchived).toHaveBeenCalledTimes(1)
 
+            expect(capture).not.toHaveBeenCalledWith('mobile_chat_archived', expect.anything())
             await act(async () => {
                 settle?.()
                 await outcome?.catch(() => undefined)
             })
+            expect(capture).toHaveBeenCalledWith(
+                succeeds ? 'mobile_chat_archived' : 'mobile_chat_archive_failed',
+                expect.objectContaining({ task_id: 'task-1', client_surface: 'mobile' })
+            )
             const expected = succeeds ? ['task-2'] : ['task-1', 'task-2']
             await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(expected))
         })
@@ -177,7 +186,14 @@ describe('chats hooks', () => {
                     finishArchive?.()
                     await archiveOutcome
                 })
-                await waitFor(() => expect(mocked.setTaskArchived).toHaveBeenLastCalledWith('task-1', false))
+                await waitFor(() =>
+                    expect(mocked.setTaskArchived).toHaveBeenLastCalledWith(
+                        'task-1',
+                        false,
+                        undefined,
+                        expect.any(String)
+                    )
+                )
                 await act(async () => {
                     finishRestore?.()
                     await restoreOutcome
@@ -192,7 +208,7 @@ describe('chats hooks', () => {
             const { result } = renderChats()
             await waitFor(() => expect(result.current.list.data).toHaveLength(2))
             await act(async () => result.current.archive.archive({ sourceId: 'direct-task' }))
-            expect(mocked.setTaskArchived).toHaveBeenCalledWith('direct-task', true)
+            expect(mocked.setTaskArchived).toHaveBeenCalledWith('direct-task', true, undefined, expect.any(String))
             expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-1', 'task-2'])
         })
     })

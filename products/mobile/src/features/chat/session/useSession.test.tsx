@@ -1047,6 +1047,7 @@ describe('useSession', () => {
                     code: 'upload_failed',
                     new_task: true,
                     client_surface: 'mobile',
+                    client_action_id: expect.any(String),
                 })
             )
         }

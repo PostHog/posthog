@@ -10,7 +10,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useArchiveChat } from '@/features/chats/hooks'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
-import { track } from '@/lib/analytics'
+import { setChatAnalyticsContext, track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
 import { taskWebUrl } from '@/model/adapters/chats'
@@ -120,6 +120,11 @@ export function ChatScreen({
     const conversationEpoch = useRef(0)
     const [visible, setVisible] = useState(true)
     const pathname = usePathname()
+    useEffect(() => {
+        if (pathname === '/chat') {
+            setChatAnalyticsContext(session.taskId, session.runId)
+        }
+    }, [pathname, session.taskId, session.runId])
     const userUuid = useAuthStore((state) => state.user?.uuid)
     useEffect(() => {
         setViewedNotificationTask(
@@ -158,6 +163,8 @@ export function ChatScreen({
             ...source,
             hasContext: draftReportId !== undefined || initialObject !== null,
             resumed: initialTaskId !== undefined,
+            taskId: session.taskId,
+            reportId: initialReportId,
         },
         session.runId
     )
@@ -540,6 +547,7 @@ export function ChatScreen({
     }
     const startNewChat = (): void => {
         if (newChatDisabledReason || (!draftTaskId && (preparingSend.current || delivering.current))) return
+        track('mobile_chat_new_pressed', { task_id: session.taskId, run_id: session.runId, entry: 'chat_header' })
         sheetEvents.countNewChat()
         queueEpoch.current++
         conversationEpoch.current++
@@ -568,7 +576,7 @@ export function ChatScreen({
         if (!taskId) {
             return
         }
-        await archiveActions.archive({ sourceId: taskId })
+        await archiveActions.archive({ sourceId: taskId }, 'chat_header')
         if (activeArchiveTarget.current === taskId) {
             close()
         }

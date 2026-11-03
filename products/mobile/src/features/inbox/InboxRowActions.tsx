@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useState } from 'react'
-import { Linking } from 'react-native'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { track } from '@/lib/analytics'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import type { InboxItem } from '@/model/types'
@@ -155,13 +155,12 @@ function RowActions({ item, anchor, open, onClose }: RowActionsProps): ReactElem
             return
         }
         choose('view_pr')
-        track('mobile_pull_request_opened', {
+        void openTrackedUrl(safePullRequestUrl, 'mobile_pull_request_opened', {
             from: 'inbox_menu',
             report_id: reportId,
             state: report?.work.pullRequest?.state ?? item.pullRequestState,
         })
         close()
-        Linking.openURL(safePullRequestUrl).catch(() => undefined)
     }
     const reassign = (): void => {
         choose('reassign')

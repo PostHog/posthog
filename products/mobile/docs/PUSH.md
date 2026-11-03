@@ -159,3 +159,10 @@ The Settings button captures `mobile_push_enable_pressed` with `action` (`reques
 5. Repeat with `{"taskId":"<task id>","notificationKind":"awaiting"}` for a task linked to a report, and for one without a report (opens its chat).
 6. For real server pushes, trigger a task run started or actively continued in mobile. To test report pushes, also enable `posthog-code-mobile-push` for your user and trigger a new report or report update.
 7. Sign out and check that `POST …/push_tokens/unregister/` ran (server logs or the token row is gone).
+
+## Attribution
+
+`mobile_push_opened` records the notification tap and target project/entity.
+`mobile_push_destination_opened` records the routing outcome (`routed`, `already_open` or
+`unavailable`) using the same action ID. Successful routing is captured after any project switch,
+and the resulting chat entry uses `from: push`. Routing does not imply a successful report fetch.

@@ -1,8 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useIsFocused, useRouter } from 'expo-router'
-import { type ReactElement, useEffect, useState } from 'react'
+import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
+import { markReportViewed } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
@@ -161,6 +162,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const queryClient = useQueryClient()
     const scope = useProjectScope()
     const demo = useDataMode() === 'demo'
+    const focused = useIsFocused()
+    const viewed = useRef<string | null>(null)
+    const loadedReportId = query.data?.id
+    useEffect(() => {
+        if (!demo && focused && loadedReportId === reportId && viewed.current !== reportId) {
+            viewed.current = reportId
+            void markReportViewed(reportId).catch(() => undefined)
+        }
+    }, [demo, focused, loadedReportId, reportId])
 
     // Read in the effect, before this screen's own fetch lands, so `from_cache` shows whether the inbox prefetch hit.
     // biome-ignore lint/correctness/useExhaustiveDependencies: one event per opened report, not per scope or mode change.

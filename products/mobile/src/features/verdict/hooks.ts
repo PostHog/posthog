@@ -4,12 +4,12 @@ import { NotSignedInError } from '@/api/client'
 import { dismissReport, reportKeys, resolveReport } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
-import { type AnalyticsEvent, track } from '@/lib/analytics'
+import { type AnalyticsEvent, actionTracker } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DismissReason, ResolveReason } from '@/model/verdictReasons'
 
 interface VerdictTarget<Reason extends string> {
-    send: (reportId: string, reason: Reason, note: string) => Promise<unknown>
+    send: (reportId: string, reason: Reason, note: string, actionId?: string) => Promise<unknown>
     sendDemo: (reportId: string, reason: Reason) => void
     event: AnalyticsEvent
 }
@@ -22,18 +22,25 @@ function useVerdictAction<Reason extends string>(
     const scope = useProjectScope()
     const queryClient = useQueryClient()
     return useAsyncAction(async (reason: Reason, note: string) => {
+        const record = actionTracker({ report_id: reportId, reason, has_note: note.trim().length > 0 })
         if (demo) {
             sendDemo(reportId, reason)
+            record(event)
             return
         }
         if (!scope) {
             throw new NotSignedInError()
         }
-        await send(reportId, reason, note)
+        try {
+            await send(reportId, reason, note, record.actionId)
+        } catch (error) {
+            record('mobile_report_action_failed', { action: event })
+            throw error
+        }
         void queryClient.invalidateQueries({ queryKey: reportKeys.report(scope, reportId) })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         // The note is free text the person typed, so only its presence is tracked.
-        track(event, { report_id: reportId, reason, has_note: note.trim().length > 0 })
+        record(event)
     })
 }
 

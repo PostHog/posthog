@@ -138,7 +138,11 @@ function FullScreenBody({
                 label={snapshot.name}
                 showSummary
                 selectionId={SELECTION_ID}
-                trackingContext="fullscreen"
+                trackingContext={{
+                    context: 'fullscreen',
+                    insight_id: snapshot.insightId,
+                    insight_short_id: snapshot.shortId,
+                }}
                 accessibilityActions={actions}
                 testID="chart-fullscreen-funnel"
             />
@@ -150,7 +154,11 @@ function FullScreenBody({
                 label={snapshot.name}
                 maxPeriods={Number.POSITIVE_INFINITY}
                 selectionId={SELECTION_ID}
-                trackingContext="fullscreen"
+                trackingContext={{
+                    context: 'fullscreen',
+                    insight_id: snapshot.insightId,
+                    insight_short_id: snapshot.shortId,
+                }}
                 accessibilityActions={actions}
                 testID="chart-fullscreen-retention"
             />
@@ -162,7 +170,11 @@ function FullScreenBody({
                 label={snapshot.name}
                 formatValue={snapshotFormatter(snapshot)}
                 selectionId={SELECTION_ID}
-                trackingContext="fullscreen"
+                trackingContext={{
+                    context: 'fullscreen',
+                    insight_id: snapshot.insightId,
+                    insight_short_id: snapshot.shortId,
+                }}
                 accessibilityActions={actions}
                 testID="chart-fullscreen-bars"
             />
@@ -248,7 +260,11 @@ function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElem
                         dataUntil={model.dataUntil}
                         onPressTooltip={(point) => sheets.openPoint(source, point, 'tooltip')}
                         selectionId={SELECTION_ID}
-                        trackingContext="fullscreen"
+                        trackingContext={{
+                            context: 'fullscreen',
+                            insight_id: snapshot.insightId,
+                            insight_short_id: snapshot.shortId,
+                        }}
                         accessibilitySummary={model.summary}
                         accessibilityActions={actions}
                         testID="chart-fullscreen-chart"

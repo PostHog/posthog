@@ -27,7 +27,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoInboxQuery } from '@/demo/hooks'
-import { track } from '@/lib/analytics'
+import { actionTracker, track } from '@/lib/analytics'
 import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
@@ -392,6 +392,7 @@ function setReportRead(
     if (existing?.read === read) return existing.promise
     const controller = new AbortController()
     readWrites.add(controller)
+    const record = actionTracker({ report_id: reportId, trigger })
     const entry: PendingRead = { read, promise: Promise.resolve(), rollback: [] }
     // A superseded write leaves the cache to the newer write, which shows the newer value.
     const isLatest = (): boolean => writes.get(key) === entry
@@ -413,7 +414,7 @@ function setReportRead(
         try {
             await postReadStates([reportId], read, controller.signal)
             if (generation !== accountGeneration) return
-            track(read ? 'mobile_report_marked_read' : 'mobile_report_marked_unread', { report_id: reportId, trigger })
+            record(read ? 'mobile_report_marked_read' : 'mobile_report_marked_unread')
             if (!isLatest()) return
             await queryClient.cancelQueries(filters)
             if (generation !== accountGeneration || !isLatest()) return

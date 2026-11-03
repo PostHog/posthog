@@ -317,7 +317,11 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                             dataUntil={dataUntil(snapshot)}
                             canvasSlot={{ key: slotKey, index }}
                             selectionId={slotKey}
-                            trackingContext="pin"
+                            trackingContext={{
+                                context: 'pin',
+                                insight_id: snapshot.insightId,
+                                insight_short_id: snapshot.shortId,
+                            }}
                             accessibilitySummary={[
                                 `${snapshot.name}, ${snapshot.chartKind ?? 'line'} chart`,
                                 data.rangeLabel,
