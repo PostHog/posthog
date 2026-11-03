@@ -2449,6 +2449,7 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a field this version does not know', { ...codeSend, priority: 'high' }],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
