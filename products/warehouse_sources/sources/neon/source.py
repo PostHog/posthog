@@ -1,0 +1,141 @@
+from collections.abc import Mapping
+from typing import Any, Optional
+
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceRegistry,
+    detect,
+)
+from products.warehouse_sources.sources.sdk.internals import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    PostgresSource,
+    PostgresSourceConfig,
+)
+
+_NEON_POOLED_HOST_CDC_ERROR = (
+    "This is Neon's pooled endpoint, which doesn't support logical replication. For CDC, use the "
+    "direct host instead — remove the '-pooler' suffix (e.g. "
+    "ep-cool-darkness-123456.us-east-2.aws.neon.tech) — and make sure logical replication is "
+    "enabled in your Neon project settings."
+)
+
+# Each Neon branch has its own databases, and the default one is neondb, not postgres.
+_NEON_DATABASE_NOT_FOUND_ERROR = (
+    "That database doesn't exist on this Neon branch. Copy the database name from the Connect dialog "
+    "in your Neon Console, then try again."
+)
+
+
+def _is_neon_pooled_host(host: str) -> bool:
+    bare = (host or "").strip().lower()
+    return bare.endswith(".neon.tech") and bare.split(".", 1)[0].endswith("-pooler")
+
+
+_NEON_HOST_CAPTION = (
+    "In the Neon Console, open your project and click **Connect** to see your connection "
+    "details. Use the direct host, e.g. `ep-cool-darkness-123456.us-east-2.aws.neon.tech` — "
+    "not the pooled host (the one with `-pooler`). Pooled connections work for standard "
+    "syncs, but **change data capture (CDC)** requires the direct host, and you must enable "
+    "**logical replication** in your Neon project settings first. Neon requires SSL, which "
+    "PostHog uses by default."
+)
+
+
+@SourceRegistry.register
+class NeonSource(PostgresSource):
+    codebase_detection = detect(
+        env=("^NEON_",),
+        npm=("@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"),
+        pypi=("neon-api",),
+    )
+
+    def __init__(self):
+        super().__init__(source_name="Neon")
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.NEON
+
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "neon"
+
+    @staticmethod
+    def _adjust_field(field: FieldType) -> FieldType:
+        if isinstance(field, SourceFieldInputConfig):
+            if field.name == "connection_string":
+                return field.model_copy(
+                    update={
+                        "placeholder": "postgresql://neondb_owner:password@ep-cool-darkness-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"
+                    }
+                )
+            if field.name == "host":
+                return field.model_copy(
+                    update={
+                        "placeholder": "ep-cool-darkness-123456.us-east-2.aws.neon.tech",
+                        "caption": _NEON_HOST_CAPTION,
+                    }
+                )
+            if field.name == "database":
+                return field.model_copy(update={"placeholder": "neondb"})
+            if field.name == "user":
+                return field.model_copy(update={"placeholder": "neondb_owner"})
+        return field
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        fields = [self._adjust_field(field) for field in super().get_source_config.fields]
+
+        return SourceConfig(
+            name=ExternalDataSourceType.NEON,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["serverless postgres", "postgresql"],
+            iconPath="/static/services/neon.png",
+            caption="Enter your Neon credentials to automatically pull your data into the PostHog Data warehouse",
+            docsUrl="https://posthog.com/docs/cdp/sources/neon",
+            fields=fields,
+            releaseStatus=ReleaseStatus.GA,
+        )
+
+    def check_cdc_prerequisites(
+        self,
+        config: PostgresSourceConfig,
+        management_mode: str,
+        tables: list[str],
+        setup: Mapping[str, Any],
+        require_ssl: bool = True,
+        team_id: int | None = None,
+    ) -> list[str]:
+        # The pooled endpoint accepts normal connections, so the generic checks would pass —
+        # but logical replication doesn't work through it. Fail fast without connecting.
+        if _is_neon_pooled_host(config.host or ""):
+            return [_NEON_POOLED_HOST_CDC_ERROR]
+        return super().check_cdc_prerequisites(
+            config,
+            management_mode=management_mode,
+            tables=tables,
+            setup=setup,
+            require_ssl=require_ssl,
+            team_id=team_id,
+        )
+
+    def validate_credentials(
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+        require_ssl: bool = False,
+    ) -> tuple[bool, str | None]:
+        success, error = super().validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
+        if not success and error == _DATABASE_NOT_FOUND_VALIDATION_ERROR:
+            return False, _NEON_DATABASE_NOT_FOUND_ERROR
+        return success, error
