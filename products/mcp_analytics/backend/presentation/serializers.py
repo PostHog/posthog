@@ -457,7 +457,9 @@ class MCPActivityStatsSerializer(serializers.Serializer):
         read_only=True, help_text="Tool calls flagged as errors ($mcp_is_error) in the window."
     )
     missing_capability_reports = serializers.IntegerField(
-        read_only=True, help_text="$mcp_missing_capability events captured in the window."
+        read_only=True,
+        help_text="Missing-capability reports captured in the window: $mcp_missing_capability events and "
+        "$mcp_feedback events of type missing_capability.",
     )
 
 

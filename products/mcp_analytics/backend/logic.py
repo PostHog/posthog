@@ -32,13 +32,9 @@ from posthog.utils import generate_cache_key
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.mcp_analytics.backend import intent_generation, mcp_harness
-from products.mcp_analytics.backend.constants import (
-    MAX_SNAPSHOT_CLUSTERS,
-    MCP_MISSING_CAPABILITY_EVENT,
-    MCP_TOOL_CALL_EVENT,
-)
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade import contracts, enums
-from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
+from products.mcp_analytics.backend.hogql_queries.base import missing_capability_report_expr, shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
@@ -561,7 +557,7 @@ FROM (
 _ACTIVITY_MISSING_CAPABILITY_SQL = """
 SELECT count()
 FROM events
-WHERE event = {missing_capability_event} AND timestamp >= {date_from}
+WHERE ({missing_capability_report}) AND timestamp >= {date_from}
     AND {missing_capability_filters}
 """
 
@@ -811,7 +807,7 @@ def _query_activity_overview(
                 _ACTIVITY_MISSING_CAPABILITY_SQL,
                 "mcp_analytics_activity_missing_capabilities",
                 {
-                    "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+                    "missing_capability_report": missing_capability_report_expr(),
                     "missing_capability_filters": missing_capability_filters,
                     "date_from": date_from,
                 },

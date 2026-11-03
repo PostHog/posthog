@@ -12,19 +12,28 @@ Each report keeps the agent's own description, the MCP client, the person, and t
 From your MCP server's project root, run the MCP analytics Wizard command shown on the **Missing capabilities** tab.
 The setup agent enables missing capability reporting for you.
 
-To configure it manually, turn the option on when you initialize the PostHog MCP SDK:
+To configure it manually in TypeScript or Python, turn on feedback collection when you initialize the PostHog MCP SDK:
 
-- TypeScript: `reportMissing: true`
-- Python: `report_missing=True`
+- TypeScript: `collectFeedback: true`
+- Python: `collect_feedback=True`
+
+This adds a virtual `send_feedback` tool that agents can call to report a missing capability, an issue, or praise.
+Feedback with the `missing_capability` type appears on the **Missing capabilities** tab.
+It is captured as a `$mcp_feedback` event.
+
+The Ruby and Go SDKs use a dedicated missing capability tool instead:
+
 - Ruby: `report_missing: true`
 - Go: `posthogmcpsdk.WithMissingCapabilityTool("get_more_tools")`
 
 This adds a virtual `get_more_tools` tool that agents can call when the available tools cannot complete a task.
-See the [installation page for your language](/docs/mcp-analytics/installation) for a full example.
 The agent's description is captured as a `$mcp_missing_capability` event.
+TypeScript (`reportMissing: true`) and Python (`report_missing=True`) also support this tool, and its reports appear on the same tab.
+
+See the [installation page for your language](/docs/mcp-analytics/installation) for a full example.
 
 Enabling the setting does not create reports by itself.
-A report appears only after an agent calls `get_more_tools`.
+A report appears only after an agent calls the tool.
 
 ## Review reports
 
