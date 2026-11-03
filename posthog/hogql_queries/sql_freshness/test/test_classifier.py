@@ -33,7 +33,7 @@ ACCEPTED_BOUNDS = [
     ("epoch_plus_a_day_across_a_fall_back", "toDateTime(1792836000) + interval 1 day", "Europe/Amsterdam"),
     ("from_unix_timestamp_plus_a_month", "fromUnixTimestamp(1769815800) + interval 1 month", "Europe/Amsterdam"),
     ("day_interval_across_a_fall_back", "toDateTime('2026-10-24 12:00:00') + interval 1 day", "Europe/Amsterdam"),
-    ("hour_interval_across_a_fall_back", "toDateTime('2026-10-25 01:30:00') + interval 2 hour", "Europe/Amsterdam"),
+    ("hour_interval_across_a_fall_back", "toDateTime('2026-10-25 01:30:00') + interval 3 hour", "Europe/Amsterdam"),
     ("month_interval_at_a_month_end", "toDateTime('2026-01-31 12:00:00') + interval 1 month", "Europe/Amsterdam"),
     ("wall_time_in_a_dst_fold", "'2026-10-25 02:30:00'", "Europe/Amsterdam"),
     (
@@ -303,6 +303,12 @@ class TestClassify(BaseTest):
             (
                 "wall_time_in_a_dst_gap",
                 "select count() from events where timestamp >= '2026-03-29 02:30:00'",
+                FreshnessReason.UNSUPPORTED_BOUND,
+                AMSTERDAM,
+            ),
+            (
+                "hour_interval_into_a_repeated_dst_hour",
+                "select count() from events where timestamp >= toDateTime('2026-10-25 01:30:00') + interval 2 hour",
                 FreshnessReason.UNSUPPORTED_BOUND,
                 AMSTERDAM,
             ),

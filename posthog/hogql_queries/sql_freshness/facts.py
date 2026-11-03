@@ -159,6 +159,10 @@ def _wall_time_exists(at: datetime) -> bool:
     return at.astimezone(UTC).astimezone(at.tzinfo).replace(tzinfo=None) == at.replace(tzinfo=None)
 
 
+def _repeats_wall_time(at: datetime, timezone: tzinfo) -> bool:
+    return any(at.astimezone(zone).fold == 1 for zone in (timezone, at.tzinfo))
+
+
 def _shifted(at: datetime, unit: str, amount: int) -> Optional[datetime]:
     if unit in _SUB_DAY_UNITS:
         return (at.astimezone(UTC) + PERIOD_MAP[unit] * amount).astimezone(at.tzinfo)
@@ -289,7 +293,7 @@ def _bound(
     if not _is_events_timestamp(column):
         return None
     at = evaluator.evaluate(value_expr)
-    if at is None:
+    if at is None or _repeats_wall_time(at, evaluator.timezone):
         raise _UnsupportedBound()
     if op == ast.CompareOperationOp.Eq:
         return _Bound(start=at, end=at)
