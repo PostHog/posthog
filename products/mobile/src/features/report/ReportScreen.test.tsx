@@ -6,7 +6,7 @@ import { AppState } from 'react-native'
 import { setAuthProvider } from '@/api/client'
 import { useDemoMode } from '@/demo/demoMode'
 import { reportFixture } from '@/model/adapters/testFixtures'
-
+import { ReportDetailsScreen } from './details/ReportDetailsScreen'
 import { ReportScreen } from './ReportScreen'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
@@ -22,7 +22,7 @@ jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-na
 jest.mock('expo-notifications', () => ({}))
 jest.mock('expo-router', () => ({
     useFocusEffect: (callback: () => void) => require('react').useEffect(callback, [callback]),
-    useIsFocused: () => true,
+    useIsFocused: () => mockFocused,
     useRouter: () => ({ push: jest.fn(), setParams: jest.fn(), canGoBack: () => false, replace: jest.fn() }),
 }))
 jest.mock('@/auth/useProjectScope', () => {
@@ -32,10 +32,44 @@ jest.mock('@/auth/useProjectScope', () => {
 jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 
 const REPORT = reportFixture()
+let mockFocused = true
 const EXISTING = { uuid: 'existing-user', first_name: 'Existing', last_name: 'Reviewer', email: 'existing@example.com' }
 const ADDED = { uuid: 'added-user', first_name: 'Added', last_name: 'Reviewer', email: 'added@example.com' }
 
-describe('ReportScreen reviewers', () => {
+describe('ReportScreen', () => {
+    test.each(['abbreviated', 'full'] as const)('releases canvases when the %s report loses focus', async (kind) => {
+        useDemoMode.getState().setEnabled(true)
+        const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        )
+        const reportScreen = (): ReactElement =>
+            kind === 'abbreviated' ? (
+                <ReportScreen reportId="demo-report-load-time" from="inbox" />
+            ) : (
+                <ReportDetailsScreen reportId="demo-report-load-time" />
+            )
+        const view = render(reportScreen(), { wrapper })
+        try {
+            await waitFor(() => expect(screen.getByTestId('report-chart-load-time-30d-canvas')).toBeTruthy())
+            mockFocused = false
+            view.rerender(reportScreen())
+            expect(screen.queryByTestId('report-chart-load-time-30d-canvas')).toBeNull()
+            expect(
+                screen.getByTestId('report-chart-load-time-30d-canvas-placeholder', { includeHiddenElements: true })
+            ).toBeTruthy()
+            expect(screen.queryByTestId('report-observation-chart')).toBeNull()
+            mockFocused = true
+            view.rerender(reportScreen())
+            expect(screen.getByTestId('report-chart-load-time-30d-canvas')).toBeTruthy()
+        } finally {
+            view.unmount()
+            client.clear()
+            mockFocused = true
+            useDemoMode.getState().setEnabled(false)
+        }
+    })
+
     test.each(['loaded', 'retry'] as const)(
         'keeps an existing reviewer beyond the first activity page when adding another (%s)',
         async (scenario) => {

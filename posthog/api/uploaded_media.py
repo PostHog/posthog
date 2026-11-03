@@ -146,6 +146,11 @@ def download(request, *args, **kwargs) -> HttpResponse:
     if instance.purpose in PRIVATE_MEDIA_PURPOSES:
         return HttpResponse(status=404)
 
+    if instance.serving_disabled_at is not None:
+        statsd.incr("uploaded_media.serving_disabled_blocked", tags={"team_id": instance.team_id})
+        # The success response is cached for years, so tell caches not to keep this one.
+        return HttpResponse(status=404, headers={"Cache-Control": "no-store"})
+
     if instance.media_location is None:
         return HttpResponse(status=404)
     file_bytes = object_storage.read_bytes(instance.media_location, missing_ok=True)
@@ -277,7 +282,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Only library images can be removed. An upload with no purpose (a dashboard text card
             # image, say) was never listed, so there is nothing for this to take it out of.
             return queryset.filter(pending=False, purpose__in=MEDIA_PURPOSES, archived_at__isnull=True)
-        return queryset.filter(pending=False, archived_at__isnull=True).order_by("-created_at", "-id")
+        return queryset.filter(pending=False, archived_at__isnull=True, serving_disabled_at__isnull=True).order_by(
+            "-created_at", "-id"
+        )
 
     @extend_schema(
         description="List images in the media library. Requires a `purpose` filter — the library is scoped per "

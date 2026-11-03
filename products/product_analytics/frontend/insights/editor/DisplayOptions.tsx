@@ -12,7 +12,7 @@ import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isTrendsQuery } from '~/queries/utils'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsPicker } from 'products/product_analytics/frontend/insights/editor/filters/AnnotationsPicker'

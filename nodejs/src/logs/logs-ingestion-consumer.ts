@@ -49,10 +49,11 @@ import {
     sniffJsonLogAttributes,
 } from './log-record-avro'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
+import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
-import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
+import { type BatchTallies, MetricSeriesAdmission, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
@@ -407,6 +408,8 @@ export class LogsIngestionConsumer {
     private readonly billingProrateEnabled: boolean
     private readonly metricRulesEnabledTeamsRaw: string
     private readonly metricRulesKillswitch: boolean
+    private readonly defaultMetricRulesEnabledTeamsRaw: string
+    private readonly metricSeriesAdmission = new MetricSeriesAdmission()
     private readonly transformationsEnabledTeamsRaw: string
     private readonly transformationsKillswitch: boolean
     private readonly retentionEnabledTeamsRaw: string
@@ -465,6 +468,7 @@ export class LogsIngestionConsumer {
         this.billingProrateEnabled = mergedConfig.LOGS_BILLING_PRORATE_ENABLED
         this.metricRulesEnabledTeamsRaw = mergedConfig.LOGS_METRICS_RULES_ENABLED_TEAMS
         this.metricRulesKillswitch = mergedConfig.LOGS_METRICS_RULES_KILLSWITCH
+        this.defaultMetricRulesEnabledTeamsRaw = mergedConfig.LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS
         this.transformationsEnabledTeamsRaw = mergedConfig.LOGS_TRANSFORMATIONS_ENABLED_TEAMS
         this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
@@ -496,11 +500,16 @@ export class LogsIngestionConsumer {
         return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
+    private canEmitMetricRules(): boolean {
+        return !this.metricRulesKillswitch && !!this.deps.metricRulesCache && !!this.deps.metricsEmitter
+    }
+
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
-        if (this.metricRulesKillswitch || !this.deps.metricRulesCache || !this.deps.metricsEmitter) {
-            return false
-        }
-        return teamIdMatchesCsv(this.metricRulesEnabledTeamsRaw, teamId)
+        return this.canEmitMetricRules() && teamIdMatchesCsv(this.metricRulesEnabledTeamsRaw, teamId)
+    }
+
+    private isDefaultMetricRulesEnabledForTeam(teamId: number): boolean {
+        return this.canEmitMetricRules() && teamIdMatchesCsv(this.defaultMetricRulesEnabledTeamsRaw, teamId)
     }
 
     // Transformations write hog_function logs, which could come back here as internal logs and loop.
@@ -969,17 +978,24 @@ export class LogsIngestionConsumer {
         byTeam: MetricTalliesByTeam,
         message: LogsIngestionMessage
     ): Promise<{ token: string; rules: CompiledMetricRule[]; tallies: BatchTallies } | null> {
-        if (!this.appliesTeamLogRules(message) || !this.isMetricRulesEnabledForTeam(message.teamId)) {
+        if (!this.appliesTeamLogRules(message)) {
+            return null
+        }
+        const teamRulesEnabled = this.isMetricRulesEnabledForTeam(message.teamId)
+        const defaultRulesEnabled = this.isDefaultMetricRulesEnabledForTeam(message.teamId)
+        if (!teamRulesEnabled && !defaultRulesEnabled) {
             return null
         }
         let state = byTeam.get(message.teamId)
         if (!state) {
-            let rules: CompiledMetricRule[]
+            let rules: CompiledMetricRule[] = []
             try {
-                const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
-                // Each consumer tallies only its own record source: the logs consumer runs
-                // `logs` rules, the traces consumer runs `spans` rules.
-                rules = all.filter((r) => r.source === this.metricRuleSource)
+                if (teamRulesEnabled) {
+                    const all = await this.deps.metricRulesCache!.getCompiledRules(message.teamId)
+                    // Each consumer tallies only its own record source: the logs consumer runs
+                    // `logs` rules, the traces consumer runs `spans` rules.
+                    rules = all.filter((r) => r.source === this.metricRuleSource)
+                }
             } catch (error) {
                 // Fail open: metric rules are a purely additive side feature, so a rules-fetch
                 // failure (e.g. a Postgres blip) must never DLQ or block the log records —
@@ -989,6 +1005,9 @@ export class LogsIngestionConsumer {
                     error: String(error),
                 })
                 return null
+            }
+            if (defaultRulesEnabled) {
+                rules = withDefaultMetricRules(rules, this.metricRuleSource)
             }
             // Re-check after the await: concurrent messages for the same team race here,
             // and replacing an existing state would silently drop its accumulated tallies.
@@ -1085,11 +1104,19 @@ export class LogsIngestionConsumer {
                             metricRuleState || jsonAttributeKey
                                 ? (records: LogRecord[]) => {
                                       if (metricRuleState) {
+                                          const nowMs = Date.now()
                                           tallyRecords(
                                               metricRuleState.rules,
                                               records,
                                               metricRuleState.tallies,
-                                              Date.now()
+                                              nowMs,
+                                              (ruleId, labelKey) =>
+                                                  this.metricSeriesAdmission.admit(
+                                                      message.teamId,
+                                                      ruleId,
+                                                      labelKey,
+                                                      nowMs
+                                                  )
                                           )
                                       }
                                       if (jsonAttributeKey) {

@@ -6061,6 +6061,7 @@ dependencies = [
     { name = "snowflake-connector-python" },
     { name = "social-auth-app-django" },
     { name = "social-auth-core" },
+    { name = "sqlglot" },
     { name = "sqlparse" },
     { name = "sshtunnel" },
     { name = "statshog" },
@@ -6323,7 +6324,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.80.3" },
+    { name = "posthoganalytics", specifier = "==7.82.2" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6343,7 +6344,7 @@ requires-dist = [
     { name = "python-docx", specifier = "==1.2.0" },
     { name = "python-snappy", specifier = "~=0.7.3" },
     { name = "python3-saml", specifier = "==1.16.0" },
-    { name = "pytz", specifier = "==2023.3" },
+    { name = "pytz", specifier = "==2026.4" },
     { name = "pyyaml", specifier = "~=6.0.2" },
     { name = "rapidfuzz", specifier = "==3.14.5" },
     { name = "redis", specifier = "==5.3.1" },
@@ -6360,6 +6361,7 @@ requires-dist = [
     { name = "snowflake-connector-python", specifier = "==4.7.5" },
     { name = "social-auth-app-django", specifier = "~=5.9.0" },
     { name = "social-auth-core", specifier = "~=4.8.7" },
+    { name = "sqlglot", specifier = "==30.25.0" },
     { name = "sqlparse", specifier = "==0.5.4" },
     { name = "sshtunnel", specifier = "==0.4.0" },
     { name = "statshog", specifier = "==1.0.6" },
@@ -6451,7 +6453,7 @@ dev = [
     { name = "types-paramiko", specifier = "==3.4.0.20240423" },
     { name = "types-pymysql", specifier = "==1.1.0.20240524" },
     { name = "types-python-dateutil", specifier = "~=2.9.0" },
-    { name = "types-pytz", specifier = "==2023.3" },
+    { name = "types-pytz", specifier = "==2026.4.0.20260926" },
     { name = "types-pyyaml", specifier = "==6.0.1" },
     { name = "types-redis", specifier = "==4.6.0.20241004" },
     { name = "types-requests", specifier = "==2.31.0.6" },
@@ -6490,7 +6492,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.80.3"
+version = "7.82.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6498,9 +6500,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b5/22/0a96ed43b5d777c736d6cb1b9099677eef9987776134368c8ad6c89724cf/posthoganalytics-7.80.3.tar.gz", hash = "sha256:adfa0d69e2392558bb5808b68c8e663eefb4b98cb844a82b966c8193352d451c", size = 865348, upload-time = "2026-10-29T14:04:43.998Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/76/55e784ed90ff069f1aa7de6f64e9e19c00de6c9b13b9f63377760ab970e8/posthoganalytics-7.82.2.tar.gz", hash = "sha256:179bc6e7c77e858e1b00bb59b908b63da605503acc00388fe1700a004ce287eb", size = 883123, upload-time = "2026-11-02T20:38:30.04Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/ae/7f25e42a65b295c9643bd651106c2b1f4519512c97aec0219aa5813064ee/posthoganalytics-7.80.3-py3-none-any.whl", hash = "sha256:c4b33c6941e3ed31787ae15f1de693085c0efb88164c566d150c4af870df23da", size = 1011188, upload-time = "2026-10-29T14:04:41.713Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/21/c383da3a9cfd37c08daee48ccd792a3a730355effe098f1773488f023ab9/posthoganalytics-7.82.2-py3-none-any.whl", hash = "sha256:baa9e2585b183a0197390700cafc06aa8cc41e91acd64a94f012a0baaf25e42c", size = 1030024, upload-time = "2026-11-02T20:38:28.044Z" },
 ]
 
 [[package]]
@@ -7445,11 +7447,11 @@ wheels = [
 
 [[package]]
 name = "pytz"
-version = "2023.3"
+version = "2026.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5e/32/12032aa8c673ee16707a9b6cdda2b09c0089131f35af55d443b6a9c69c1d/pytz-2023.3.tar.gz", hash = "sha256:1d8ce29db189191fb55338ee6d0387d82ab59f3d00eac103412d64e0ebd0c588", size = 317095, upload-time = "2023-03-29T04:23:28.655Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/ed/fa23d28713004418bbf2407127f80f385bfb0bf4e677bef02c25c27b00ee/pytz-2026.4.tar.gz", hash = "sha256:464303645bafafd72418898368b2429458f709cf1eb6a15372fbcc396b64da63", size = 318444, upload-time = "2026-09-24T03:58:40.443Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/99/ad6bd37e748257dd70d6f85d916cafe79c0b0f5e2e95b11f7fbc82bf3110/pytz-2023.3-py2.py3-none-any.whl", hash = "sha256:a151b3abb88eda1d4e34a9814df37de2a80e301e68ba0fd856fb9b46bfbbbffb", size = 502345, upload-time = "2023-03-29T04:23:25.307Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/11/e3df59614bebe0ca50c905442603eda64ae7ac19811d4e4f74aa2d51ca85/pytz-2026.4-py2.py3-none-any.whl", hash = "sha256:9d514388fbc89ca0833203464272ac485b8828568ab73532f5020f17e892a0ff", size = 506747, upload-time = "2026-09-24T03:58:38.629Z" },
 ]
 
 [[package]]
@@ -8263,11 +8265,11 @@ wheels = [
 
 [[package]]
 name = "sqlglot"
-version = "28.5.0"
+version = "30.25.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bf/8c/a4d24b6103305467506c1dea9c3ca8dc92773a91bae246c2517c256a0cf9/sqlglot-28.5.0.tar.gz", hash = "sha256:b3213b3e867dcc306074f1c90480aeee89a0e635cf0dfe70eb4a3af7b61972e6", size = 5652688, upload-time = "2025-12-17T23:38:00.121Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/bd/3885516929bfea13c635d5721c468e664defe56a89c073ecf8640f5a5c8a/sqlglot-30.25.0.tar.gz", hash = "sha256:d2d6e4d4865a210b1e33a801b105a6782ef12280cc2b6d0969bdc2634aef427a", size = 6154689, upload-time = "2026-10-26T15:11:29.706Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/f7/6a7effd2526f64bcb0d2264c0dbebc7f8508add3f2c0748540d1448a24a3/sqlglot-28.5.0-py3-none-any.whl", hash = "sha256:5798bfdb6e9bc36c964e6c64d7222624d98b2631cc20f44628a82eba7cf7b4bf", size = 561086, upload-time = "2025-12-17T23:37:57.972Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/44/a510d696c082e245832348bcfca5de9adfefd65829cd96fa5bf39244ca7b/sqlglot-30.25.0-py3-none-any.whl", hash = "sha256:7d5a292d5f61b7fc860e65a8fa41083c726db0e27fb6efb224cca63c3a5980f7", size = 798009, upload-time = "2026-10-26T15:11:27.897Z" },
 ]
 
 [[package]]
@@ -9283,11 +9285,11 @@ wheels = [
 
 [[package]]
 name = "types-pytz"
-version = "2023.3.0.0"
+version = "2026.4.0.20260926"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5f/23/3111adc23d3ceb0fa233853ae3c4837aa9adfc5108ec5eed0c60ffc76992/types-pytz-2023.3.0.0.tar.gz", hash = "sha256:ecdc70d543aaf3616a7e48631543a884f74205f284cefd6649ddf44c6a820aac", size = 4794, upload-time = "2023-03-30T09:16:56.215Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/42/7edb292ada68a506f85adfc22f1e16a8efa6ef736abb11b557a47c8bc149/types_pytz-2026.4.0.20260926.tar.gz", hash = "sha256:2ad5cde113cd6a58dd59c34f3c93f1bce2d126c769bfac15207ca7d7efd65390", size = 11064, upload-time = "2026-09-26T06:45:48.674Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/69/cd7391875e53fe4d108f53417af51fb1720f3a48b30263db524aaf3e8141/types_pytz-2023.3.0.0-py3-none-any.whl", hash = "sha256:4fc2a7fbbc315f0b6630e0b899fd6c743705abe1094d007b0e612d10da15e0f3", size = 4738, upload-time = "2023-03-30T09:16:54.512Z" },
+    { url = "https://files.pythonhosted.org/packages/44/db/e65769c124c55958b337069a02a0684259e7e0408cfd18d7ed2e2ea4092a/types_pytz-2026.4.0.20260926-py3-none-any.whl", hash = "sha256:0d0357ffa7680a4416811fb0e56e7a5c0d6efec3f299390d146ea2675b66c774", size = 10173, upload-time = "2026-09-26T06:45:47.615Z" },
 ]
 
 [[package]]

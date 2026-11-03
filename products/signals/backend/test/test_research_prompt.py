@@ -6,7 +6,6 @@ from typing import Literal
 from xml.etree import ElementTree
 
 import pytest
-from unittest.mock import patch
 
 from pydantic import ValidationError
 
@@ -491,11 +490,9 @@ class TestBuildFixVerificationPrompt:
             * (MAX_ACTIVE_CHECKS_PER_REPORT + 1),
         ],
     )
-    def test_invalid_checks_preserve_prose_without_requesting_reconciliation(
-        self, checks: list[dict[str, object]]
-    ) -> None:
-        with patch("products.signals.backend.report_generation.research.logger.warning") as warning:
-            result = FixVerificationOutput.model_validate(
+    def test_invalid_checks_require_correction(self, checks: list[dict[str, object]]) -> None:
+        with pytest.raises(ValidationError):
+            FixVerificationOutput.model_validate(
                 {
                     "current_state": "Check the current issue.",
                     "outcome": "Check it again after the fix.",
@@ -503,17 +500,6 @@ class TestBuildFixVerificationPrompt:
                 },
                 context={"report_id": "test-report"},
             )
-        assert result.checks is None
-        assert result.to_note().note == (
-            "## Verification plan\n\n### Confirm the current state\n\nCheck the current issue.\n\n"
-            "### Confirm the outcome\n\nCheck it again after the fix."
-        )
-
-        warning.assert_called_once()
-        details = warning.call_args.kwargs["extra"]
-        assert details["report_id"] == "test-report"
-        assert details["validation_rules"]
-        assert "checks" not in details
 
 
 def _make_chart() -> ReportChart:

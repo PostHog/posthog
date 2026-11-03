@@ -10,7 +10,6 @@ from posthog.models.raw_sessions.migrations_v3 import (
 )
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
-    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
     SHARDED_RAW_SESSIONS_TABLE_V3,
     TABLE_BASE_NAME_V3,
     WRITABLE_RAW_SESSIONS_TABLE_V3,
@@ -42,8 +41,7 @@ operations = [
         sharded=True,
         is_alter_on_replicated_table=True,
     ),
-    # hosts and emails were only ever added by hand, so the main-cluster copies never got
-    # them; the recreated view below selects both, so the columns must exist first.
+    # hosts and emails were only ever added by hand, so the main-cluster copies never got them.
     run_sql_with_exceptions(
         ADD_HOSTS.format(table_name=SHARDED_RAW_SESSIONS_TABLE_V3()),
         node_roles=[NodeRole.DATA],
@@ -91,10 +89,6 @@ operations = [
         node_roles=[NodeRole.DATA],
         sharded=True,
         is_alter_on_replicated_table=True,
-    ),
-    run_sql_with_exceptions(
-        RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
-        node_roles=[NodeRole.DATA],
     ),
 ]
 
