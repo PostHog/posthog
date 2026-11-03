@@ -10,10 +10,9 @@ assert spec.loader is not None
 spec.loader.exec_module(proof)
 
 MEMBERS = [".", "frontend", "products/*", "!products/desktop", "packages/quill/apps/*"]
-RELEASE_AGE_EXCLUDE = ["posthog-js", "@posthog/*", "kea@4.0.0-pre.6"]
 WORKSPACE = {
     "allowBuilds": {"esbuild": True, "puppeteer": False},
-    "minimumReleaseAgeExclude": RELEASE_AGE_EXCLUDE,
+    "minimumReleaseAgeExclude": ["posthog-js", "@posthog/*", "kea@4.0.0-pre.6"],
     "trustPolicyExclude": ["semver@5.7.2 || 6.3.1"],
 }
 
@@ -63,13 +62,10 @@ def test_only_the_root_lockfile_and_workspace_manifests_are_proved(files: list[d
         ),
         ({"packageManager": "pnpm@11.0.0"}, {"packageManager": "pnpm@11.0.1"}, True),
         ({"peerDependencies": {"react": "18.3.1"}}, {"peerDependencies": {"react": "18.3.2"}}, True),
-        ({"dependencies": {"posthog-js": "1.0.0"}}, {"dependencies": {"posthog-js": "1.0.1"}}, True),
-        ({"dependencies": {"@posthog/core": "1.0.0"}}, {"dependencies": {"@posthog/core": "1.0.1"}}, True),
-        ({"dependencies": {"kea": "4.0.0"}}, {"dependencies": {"kea": "4.0.1"}}, True),
     ],
 )
 def test_manifests_may_only_bump_registry_versions(before: dict, after: dict, refused: bool) -> None:
-    reason = proof.manifest_change_reason("package.json", before, after, RELEASE_AGE_EXCLUDE)
+    reason = proof.manifest_change_reason("package.json", before, after)
     assert (reason is not None) is refused
 
 
