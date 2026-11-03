@@ -1,16 +1,22 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+from products.warehouse_sources.sources.sdk import (
+    IncrementalField,
+    IncrementalFieldType,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceSchema,
+)
+from products.warehouse_sources.sources.sdk.internals import (
     _HOST_UNREACHABLE_ERROR,
     _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    Any_Source_Errors,
+    ClientDeadlineExceededError,
     PostgresSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
+from products.warehouse_sources.sources.supabase.source import SupabaseSource
 
 
 def _field(name: str) -> SourceFieldInputConfig:
@@ -325,3 +331,12 @@ def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_re
     else:
         assert "realtime.messages" not in friendly
         assert "no longer exists" in friendly.lower()
+
+
+def test_the_deadline_error_is_retryable() -> None:
+    source = SupabaseSource()
+    message = str(ClientDeadlineExceededError(660))
+
+    assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})
+    assert error_message_matches(message, source.get_retryable_errors())
+    assert error_message_matches(message, source.get_retry_exhausted_errors())

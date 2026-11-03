@@ -1,33 +1,26 @@
 import re
 from typing import Optional
 
-from posthog.security.postgres_hosts import (
+from products.warehouse_sources.sources.sdk import (
     SUPABASE_DIRECT_HOST_IPV4_HINT as _SUPABASE_DIRECT_HOST_IPV4_HINT,
     SUPABASE_DIRECT_HOST_RE as _SUPABASE_DIRECT_HOST_RE,
-)
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceRegistry,
     SourceSchema,
+    detect,
     rank_incremental_fields,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
-    PostgresSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+from products.warehouse_sources.sources.sdk.internals import (
     _HOST_UNREACHABLE_ERROR,
     _INVALID_CREDENTIALS_VALIDATION_ERROR,
     PostgresSource,
+    PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # The Supabase dashboard shows `https://<ref>.supabase.co` as the "Project URL" — that's the
 # REST/API endpoint, not a Postgres host. Pasting it (often with the scheme) into the host field
