@@ -1063,11 +1063,32 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
                 "API key missing required scope 'signal_scratchpad_internal:write'",
                 None,
             ),
+            (
+                "step_up_legacy_covered_scope_outside_app_ceiling",
+                True,
+                "GET",
+                f"signals/scout/runs/{uuid4()}/emissions/reports/",
+                "API key missing required scope 'signal_scout:read'",
+                'Bearer error="insufficient_scope", scope="signal_scout:read inbox:read"',
+                "task:read",
+                ["task:read", "signal_scout:read"],
+            ),
         ]
     )
     def test_missing_scope_challenge_names_every_required_scope(
-        self, _name, supports_step_up, method, path, expected_detail, expected_challenge
+        self,
+        _name,
+        supports_step_up,
+        method,
+        path,
+        expected_detail,
+        expected_challenge,
+        token_scope="feature_flag:read",
+        app_scopes=(),
     ):
+        self.oauth_application.scopes = list(app_scopes)
+        self.oauth_application.save()
+        self.access_token.scope = token_scope
         self.access_token.supports_step_up = supports_step_up
         self.access_token.save()
 
