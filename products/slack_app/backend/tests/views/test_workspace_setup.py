@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 
@@ -98,7 +98,8 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_installer_sets_the_workspace_default(self) -> None:
+    @patch("products.slack_app.backend.logic.workspace_setup.capture_slack_event")
+    def test_installer_sets_the_workspace_default(self, mock_capture: MagicMock) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         integration = self._slack_install(self.team, created_by=self.user)
@@ -110,6 +111,14 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
         assert response.json()["steps"] == []
         stored = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id__isnull=True)
         assert stored.default_integration_id == other.id
+        mock_capture.assert_called_once_with(
+            ANY,
+            "slack app workspace default project set",
+            posthog_user=self.user,
+            source="web_setup",
+            default_integration_id=other.id,
+            project_count=2,
+        )
 
     @parameterized.expand([("not_installer_or_admin",), ("project_not_reachable",)])
     def test_default_project_is_refused(self, case: str) -> None:
@@ -148,9 +157,12 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
         }
 
     @parameterized.expand([("quietly", False), ("with_welcome", True)])
+    @patch("products.slack_app.backend.logic.workspace_setup.capture_slack_event")
     @patch("products.slack_app.backend.logic.workspace_setup.join_channel")
     @patch("products.slack_app.backend.logic.workspace_setup.SlackIntegration")
-    def test_join_channels(self, _name: str, post_welcome: bool, mock_slack: MagicMock, mock_join: MagicMock) -> None:
+    def test_join_channels(
+        self, _name: str, post_welcome: bool, mock_slack: MagicMock, mock_join: MagicMock, mock_capture: MagicMock
+    ) -> None:
         integration = self._slack_install(self.team, created_by=self.user, scope="channels:join")
         mock_slack.return_value.list_public_channels.return_value = [
             {"id": "C1", "name": "product", "is_member": False},
@@ -175,6 +187,15 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
         # A quiet join holds the welcome slot of each joined channel, so the join event posts no welcome.
         assert (cache.get(_channel_onboarding_cache_key(SLACK_TEAM_ID, "C1")) is not None) is not post_welcome
         assert cache.get(_channel_onboarding_cache_key(SLACK_TEAM_ID, "C2")) is None
+        mock_capture.assert_called_once_with(
+            ANY,
+            "slack app channels joined",
+            posthog_user=self.user,
+            source="web_setup",
+            joined_count=1,
+            failed_count=2,
+            post_welcome=post_welcome,
+        )
 
     @parameterized.expand([("not_installer_or_admin", "channels:join"), ("no_join_scope", "chat:write")])
     @patch("products.slack_app.backend.logic.workspace_setup.join_channel")

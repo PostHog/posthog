@@ -7,20 +7,10 @@ import { urls } from 'scenes/urls'
 
 import { slackAppWorkspaceSetupRetrieve } from '../generated/api'
 
-/**
- * Offers the web setup after a Slack install that started outside the Slack landing page, for
- * example from a channel picker. The person is in the middle of another task, so this is a toast
- * and not a redirect. Nothing shows when the install has no open setup step.
- */
+/** A toast and not a redirect, because the person is in the middle of another task, such as picking a channel. */
 export async function offerSlackWorkspaceSetup(teamId: number, integrationId: number, surface: string): Promise<void> {
-    let stepCount: number
-    try {
-        const setup = await slackAppWorkspaceSetupRetrieve(String(teamId), String(integrationId))
-        stepCount = setup.steps.length
-    } catch {
-        return
-    }
-    if (stepCount === 0) {
+    const setup = await slackAppWorkspaceSetupRetrieve(String(teamId), String(integrationId))
+    if (setup.steps.length === 0) {
         return
     }
     // pinned: analytics event and property names, renaming breaks dashboards

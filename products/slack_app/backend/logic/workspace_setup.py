@@ -1,11 +1,6 @@
-"""The setup that the installer sees in PostHog on the web after installing the Slack app.
-
-The web asks only for what blocks the Slack app for everyone, plus a few steps that work better in
-a browser when the person started the install on the Slack page in PostHog. All other setup
-happens later in Slack. A step that does not apply to the install, or that is already done, is left
-out, so the page shows only what is left. Each step computes its status from the database every
-time and stores no progress of its own.
-"""
+"""The web setup after a Slack install. It asks only for what blocks the Slack app for everyone; the
+rest of the setup happens in Slack. Steps store no progress: each one reads its status from the
+database every time."""
 
 from collections.abc import Callable
 from functools import cached_property
@@ -17,9 +12,10 @@ from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationRecord
 from posthog.models import OrganizationMembership, User
 from posthog.models.integration import SlackIntegration
-from posthog.slack.channels import SHARED_CHANNEL_FLAGS, join_channel
+from posthog.slack.channels import is_shared_channel, join_channel
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.slack_scopes import has_scopes
 from products.slack_app.backend.services.slack_settings import (
@@ -32,6 +28,8 @@ SLACK_APP_REDIRECT_URL = "https://slack.com/app_redirect"
 CHANNELS_JOIN_SCOPE = "channels:join"
 # Slack rate limits conversations.join, and a long list in one request would hold the request open.
 MAX_CHANNELS_TO_JOIN = 20
+# pinned: analytics property value, the same events can come from other surfaces later
+EVENT_SOURCE = "web_setup"
 
 
 class SlackSetupStepKey(models.TextChoices):
@@ -46,7 +44,7 @@ class SlackSetupEntry(models.TextChoices):
 
 
 class WorkspaceSettingsError(Exception):
-    """The person cannot change this workspace setting."""
+    pass
 
 
 @frozen(slots=False)
@@ -114,8 +112,7 @@ def _default_project_is_done(ctx: SetupContext) -> bool:
 
 
 def _channels_applies(ctx: SetupContext) -> bool:
-    # A person who started on the Slack page is setting up the Slack app on purpose. Someone who
-    # connected Slack from a channel picker is in the middle of another task.
+    # Only a deliberate setup asks for channels, not a connect in the middle of another task.
     return ctx.entry == SlackSetupEntry.SLACK_PAGE and has_scopes(ctx.integration, [CHANNELS_JOIN_SCOPE])
 
 
@@ -143,7 +140,8 @@ def open_slack_url(integration: IntegrationRecord) -> str | None:
 
 def get_workspace_setup(integration: WorkspaceIntegration, user: User, entry: SlackSetupEntry) -> WorkspaceSetup:
     ctx = SetupContext(integration=integration, user=user, entry=entry)
-    steps = tuple(step.key for step in SETUP_STEPS if step.applies(ctx) and not step.is_done(ctx))
+    # is_done first, because it is cheaper than the project list that some applies checks load.
+    steps = tuple(step.key for step in SETUP_STEPS if not step.is_done(ctx) and step.applies(ctx))
     return WorkspaceSetup(
         integration_id=integration.id,
         slack_workspace_name=((integration.config or {}).get("team") or {}).get("name"),
@@ -163,8 +161,7 @@ def get_workspace_setup(integration: WorkspaceIntegration, user: User, entry: Sl
 
 
 def _can_change_workspace_settings(integration: WorkspaceIntegration, user: User) -> bool:
-    # These settings change the Slack workspace for everyone in it, so only the person who
-    # installed it or an admin of its project may change them from the web.
+    # These settings change the Slack workspace for everyone in it.
     if integration.created_by_id == user.id:
         return True
     level = UserPermissions(user=user).team(integration.team).effective_membership_level
@@ -181,16 +178,24 @@ def set_default_project(integration: WorkspaceIntegration, user: User, target_in
     if target is None:
         raise WorkspaceSettingsError("This project is not connected to this Slack workspace, or you can't open it.")
     set_workspace_default_integration(ctx.slack_workspace_id, target.id)
+    # pinned: analytics event and property names, renaming breaks dashboards
+    capture_slack_event(
+        integration,
+        "slack app workspace default project set",
+        posthog_user=user,
+        source=EVENT_SOURCE,
+        default_integration_id=target.id,
+        project_count=len(ctx.project_options),
+    )
 
 
 def list_channel_options(integration: IntegrationRecord) -> tuple[ChannelOption, ...]:
-    """Public channels that the bot can join. Shared channels are left out, because people outside
-    the workspace would see the bot there."""
+    """Leaves out shared channels, because people outside the workspace would see the bot there."""
     channels = SlackIntegration(integration).list_public_channels()
     return tuple(
         ChannelOption(id=channel["id"], name=channel["name"], is_member=bool(channel.get("is_member")))
         for channel in channels
-        if not any(channel.get(flag) for flag in SHARED_CHANNEL_FLAGS)
+        if not is_shared_channel(channel)
     )
 
 
@@ -218,10 +223,20 @@ def join_channels(
         if channel_id not in allowed:
             results.append(ChannelJoinResult(channel_id=channel_id, error="channel_not_available"))
             continue
-        if not post_welcome:
-            skip_channel_welcome(slack_workspace_id, channel_id)
+        holds_welcome_slot = not post_welcome and skip_channel_welcome(slack_workspace_id, channel_id)
         error = join_channel(slack, channel_id)
-        if error is not None and not post_welcome:
+        if error is not None and holds_welcome_slot:
             release_channel_welcome_skip(slack_workspace_id, channel_id)
         results.append(ChannelJoinResult(channel_id=channel_id, error=error))
+    failed_count = sum(1 for result in results if result.error is not None)
+    # pinned: analytics event and property names, renaming breaks dashboards
+    capture_slack_event(
+        integration,
+        "slack app channels joined",
+        posthog_user=user,
+        source=EVENT_SOURCE,
+        joined_count=len(results) - failed_count,
+        failed_count=failed_count,
+        post_welcome=post_welcome,
+    )
     return tuple(results)
