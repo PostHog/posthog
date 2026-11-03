@@ -22,7 +22,7 @@ jest.mock(
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }), useIsFocused: () => true }))
 jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 jest.mock('../report/hooks', () => ({ useReport: jest.fn(), useReportActions: jest.fn() }))
 jest.mock('../reviewers/hooks', () => ({ useReportReviewers: () => undefined, useGithubOnlyReviewerCount: () => 0 }))
