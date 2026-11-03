@@ -73,6 +73,30 @@ describe('SyncFrequencySelect', () => {
         }
     )
 
+    it.each([
+        [
+            'a pinned view, whose bounds no longer carry a consumer ceiling',
+            true,
+            "Can't pin: downstream view maps reads fresh data only through this view",
+        ],
+        ['an unpinned view that can take the cadence without a pin', false, undefined],
+    ])('only withholds a slower cadence that strands a downstream view for %s', (_case, pinned, reason) => {
+        const pinnedBounds = bounds({
+            options: [
+                { cadence: '6hour', allowed: true, blocked_by: null, blocker: null },
+                { cadence: '24hour', allowed: true, blocked_by: null, blocker: null },
+            ],
+        } as Partial<SyncFrequencyBoundsApi>)
+
+        const options = buildOptions(pinnedBounds, {
+            canPin: true,
+            pinned,
+            pinBlockedBy: { '24hour': blocker('maps') },
+        })
+
+        expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(reason)
+    })
+
     describe('pinNote', () => {
         it.each([
             [

@@ -118,16 +118,23 @@ export function SyncFrequencySelect({
     const selected = unpinning?.cadence ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)
     const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
     const upstreamToKeep = onKeepUpstream && value && value !== 'never' ? speedUpViews(bounds, value) : []
-    const options = buildOptions(bounds, { canPin: !!pin, pinBlockedBy: pin?.blockedBy, pinDelays: pin?.delaysBy })
+    const options = buildOptions(bounds, {
+        canPin: !!pin,
+        pinned: !!pin?.pinned,
+        pinBlockedBy: pin?.blockedBy,
+        pinDelays: pin?.delaysBy,
+    })
     const canUnpin = !!pin?.pinned && !pin.pending && !!onUnpin
     // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
     // With a pin on offer, a downstream view no longer caps how slow this view can go.
     const explanation = buildExplanation(bounds, { omitCeiling: !!inherited || !!pin })
     const modeReason = modeDisabledReason(bounds)
+    // A pin can make a cadence selectable that the bounds alone refuse, so the bar is only dead when its own options are.
+    const nothingSelectable = options.every((option) => option.disabledReason)
     const reason =
         disabledReason ??
         (loading ? 'Saving the new cadence.' : undefined) ??
-        unsatisfiableReason(bounds) ??
+        (nothingSelectable ? unsatisfiableReason(bounds) : null) ??
         modeReason ??
         undefined
 
@@ -348,10 +355,12 @@ export function buildOptions(
     bounds?: SyncFrequencyBoundsApi | null,
     {
         canPin = false,
+        pinned = false,
         pinBlockedBy = {},
         pinDelays = {},
     }: {
         canPin?: boolean
+        pinned?: boolean
         pinBlockedBy?: Partial<Record<string, { name: string }>>
         pinDelays?: Partial<Record<string, { name: string }[]>>
     } = {}
@@ -363,7 +372,8 @@ export function buildOptions(
     return bounds.options.map((option) => {
         const cadence = option.cadence as DataModelingSyncInterval
         const stranded = pinBlockedBy[cadence]
-        if (canPin && stranded && needsPin(bounds, cadence)) {
+        // A pinned view has no consumer ceiling, so the bounds alone never mark a slower cadence as needing a pin.
+        if (canPin && stranded && (pinned || needsPin(bounds, cadence))) {
             return {
                 ...segment(cadence),
                 disabledReason: `Can't pin: downstream view ${stranded.name} reads fresh data only through this view`,

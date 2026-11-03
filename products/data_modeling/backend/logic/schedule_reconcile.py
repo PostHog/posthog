@@ -159,6 +159,7 @@ def apply_saved_query_frequency_target(
     reconcile: bool = True,
     visible_names: Mapping[str, str] | None = None,
     pinned: bool | None = None,
+    keep_target: bool = False,
 ) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
@@ -178,7 +179,9 @@ def apply_saved_query_frequency_target(
     and get the better message; everything left out falls back to generic prose.
 
     `pinned` sets or clears the pin alongside the target; None leaves the stored pin as it is. A pin
-    lets the target sit slower than the node's consumers. Unpinning without changing the target is
+    lets the target sit slower than the node's consumers. `keep_target` ignores `target` and leaves
+    each node's stored target as it is, read after the row lock so a pin written on its own never
+    overwrites a cadence that committed in the meantime. Unpinning without changing the target is
     not validated, because the target was legal when it was pinned and the scheduler only uses it
     as a floor for consumer demand once unpinned.
 
@@ -189,6 +192,11 @@ def apply_saved_query_frequency_target(
     """
     written = 0
     with transaction.atomic():
+        # Validating a pin reads other nodes' targets, so two writes on different nodes of one DAG
+        # must not validate against each other's stale state: each could pass and the pair strand a
+        # consumer. Taking the DAG row first, in id order, makes them take turns.
+        dag_ids = Node.objects.filter(team=saved_query.team, saved_query=saved_query).values_list("dag_id", flat=True)
+        list(DAG.objects.select_for_update().filter(pk__in=dag_ids).order_by("pk").values_list("pk", flat=True))
         # target and anchor share one JSON field and each setter rewrites the whole blob, so an
         # unlocked read-modify-write racing the anchor path would silently drop the other's key
         for node in (
@@ -196,16 +204,19 @@ def apply_saved_query_frequency_target(
             .filter(team=saved_query.team, saved_query=saved_query)
             .select_related("dag", "dag__team")
         ):
-            if target is None:
+            node_target = get_declared_target(node) if keep_target else target
+            if node_target is None:
+                if keep_target and pinned:
+                    raise ValueError("a node needs a declared target before it can be pinned")
                 set_declared_target(node, None)
             else:
                 node_id = str(node.id)
                 pin = get_declared_pin(node) if pinned is None else pinned
-                if pinned is not False or target != get_declared_target(node):
+                if pinned is not False or node_target != get_declared_target(node):
                     graph = build_frequency_graph(node.dag)
                     validate_declared_target(
                         node_id=node_id,
-                        target=target,
+                        target=node_target,
                         edges=graph.edges,
                         declared_targets=graph.declared_targets,
                         source_intervals=graph.source_intervals,
@@ -215,14 +226,14 @@ def apply_saved_query_frequency_target(
                     if pin:
                         validate_pin(
                             node_id=node_id,
-                            target=target,
+                            target=node_target,
                             edges=graph.edges,
                             declared_targets=graph.declared_targets,
                             source_intervals=graph.source_intervals,
                             pinned=graph.pinned,
                             names=visible_names or {},
                         )
-                set_declared_target(node, target)
+                set_declared_target(node, node_target)
                 if pinned is not None:
                     set_declared_pin(node, pinned)
             written += 1

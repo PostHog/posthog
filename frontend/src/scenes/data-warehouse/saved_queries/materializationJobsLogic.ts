@@ -485,6 +485,8 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                         // A view with no node has nothing to pin, and the picker then refuses slow cadences as before.
                         if (!(e instanceof ApiError && e.status === 404)) {
                             posthog.captureException(e)
+                            // Not an answer about the view, so the next saved query reload gets to try again.
+                            cache.nodeFrequencyRequested = false
                         }
                         return null
                     }
@@ -1121,6 +1123,10 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             // doesn't own our `savedQuery`. Reload it so the displayed frequency reflects the new value
             // immediately instead of reverting until the next poll.
             if (payload?.id === props.viewId) {
+                // Pausing a view clears its pin on the server, so the pin held here may be out of date.
+                if (values.nodeFrequency) {
+                    actions.loadNodeFrequency()
+                }
                 if (values.savingMaterialization && values.savedQuery) {
                     actions.loadSavedQuerySuccess({ ...values.savedQuery, ...payload } as DataWarehouseSavedQuery)
                     actions.discardMaterializationChanges()

@@ -22,13 +22,14 @@ from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
     MaterializationForbiddenError,
     MaterializationRunDirection,
+    SavedQueryFrequencyBounds,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     apply_saved_query_frequency_target,
     delete_node,
     endpoint_link,
-    get_declared_pin,
     get_declared_target,
+    is_declared_pin,
     run_related_node_materializations,
     saved_query_target_bounds,
     suspension_state,
@@ -115,7 +116,7 @@ class LineageIssueSerializer(serializers.Serializer):
 
 class DeclaredPinField(serializers.BooleanField):
     def get_attribute(self, instance: Node) -> bool:
-        return get_declared_pin(instance)
+        return is_declared_pin(instance.properties)
 
 
 class NodePinDelaySerializer(serializers.Serializer):
@@ -351,9 +352,10 @@ def _write_cadence(
     """Write the cadence and pin to every node of the node's view, and record it on the view's activity log."""
     saved_query = node.saved_query
     assert saved_query is not None
-    previous_target, previous_pinned = get_declared_target(node), get_declared_pin(node)
-    if frequency is None:
-        # A pin on its own keeps the stored cadence.
+    previous_target, previous_pinned = get_declared_target(node), is_declared_pin(node.properties)
+    keep_target = frequency is None
+    if keep_target:
+        # A pin on its own keeps the stored cadence, which the write reads again under the row lock.
         target = previous_target
     else:
         target = None if frequency == NEVER else sync_frequency_to_sync_frequency_interval(frequency)
@@ -363,11 +365,23 @@ def _write_cadence(
         # Scheduling a view is the same grant as materializing it directly.
         assert_user_can_read_query(saved_query.query, saved_query.team_id, cast(User, request.user))
     try:
-        apply_saved_query_frequency_target(saved_query, target, visible_names=visible_names, pinned=pinned)
+        apply_saved_query_frequency_target(
+            saved_query, target, visible_names=visible_names, pinned=pinned, keep_target=keep_target
+        )
     except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
         raise serializers.ValidationError(str(e))
+    except ValueError:
+        if not keep_target:
+            raise
+        # The cadence was cleared between the read above and the write, so there is nothing to pin.
+        raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
     node.refresh_from_db(fields=["properties"])
-    _log_cadence_change(request, saved_query, (previous_target, target), (previous_pinned, get_declared_pin(node)))
+    _log_cadence_change(
+        request,
+        saved_query,
+        (previous_target, get_declared_target(node)),
+        (previous_pinned, is_declared_pin(node.properties)),
+    )
 
 
 def _log_cadence_change(
@@ -521,10 +535,16 @@ class NodeViewSet(
         # A refusal names what blocks the cadence, so it names only nodes this caller can list.
         serializer.save(visible_names=self._visible_names_around(node))
 
-    def _visible_names_around(self, node: Node) -> dict[str, str]:
+    def _visible_names_around(self, node: Node, resolved: SavedQueryFrequencyBounds | None = None) -> dict[str, str]:
+        """Names of the nodes around this view's cadence that the caller may list and read."""
+        if resolved is None and node.saved_query_id:
+            resolved = saved_query_target_bounds(self.team_id, node.saved_query_id)
+        if resolved is None:
+            return {}
         dag_ids = Node.objects.filter(team_id=self.team_id, saved_query_id=node.saved_query_id).values("dag_id")
-        visible = self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, dag_id__in=dag_ids))
-        return {str(node_id): name for node_id, name in visible.values_list("id", "name")}
+        listed = self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, dag_id__in=dag_ids))
+        listed_ids = {str(node_id) for node_id in listed.values_list("id", flat=True)}
+        return {node_id: name for node_id, name in self._readable_node_names(resolved).items() if node_id in listed_ids}
 
     @extend_schema(responses=NodeFrequencyBoundsSerializer)
     @action(methods=["GET"], detail=True)
@@ -535,15 +555,16 @@ class NodeViewSet(
         resolved = saved_query_target_bounds(self.team_id, node.saved_query_id) if node.saved_query_id else None
         if resolved is None:
             return response.Response({"pinned": False, "options": []})
-        names = self._visible_names_around(node)
+        names = self._visible_names_around(node, resolved)
 
         def pin_blocker(cadence: timedelta) -> dict[str, str] | None:
             stranded = sorted(resolved.pin_blocked_by.get(cadence, ()))
             if not stranded:
                 return None
-            # name a view the caller can see when there is one
-            node_id = next((node_id for node_id in stranded if node_id in names), stranded[0])
-            return {"id": node_id, "name": names.get(node_id, "a downstream view")}
+            # Name a view the caller can see when there is one. Otherwise the pin is still refused, but
+            # neither the id nor the name of a view the caller may not read goes out with the refusal.
+            node_id = next((node_id for node_id in stranded if node_id in names), None)
+            return {"id": node_id, "name": names[node_id]} if node_id else {"id": "", "name": "a downstream view"}
 
         options = [
             {

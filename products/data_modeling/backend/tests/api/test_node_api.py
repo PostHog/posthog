@@ -799,6 +799,7 @@ class TestNodeViewSet(APIBaseTest):
         )
         self.assertTrue(self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()["pinned"])
         log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=str(self.saved_query.id))
+        assert log.detail is not None
         changes = {change["field"]: (change["before"], change["after"]) for change in log.detail["changes"]}
         self.assertEqual(
             changes, {"sync_frequency_interval": (None, "1 day, 0:00:00"), "sync_frequency_pinned": (False, True)}
@@ -1157,6 +1158,32 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, expected_status)
         self.node.refresh_from_db()
         self.assertEqual(get_declared_pin(self.node), expected_status == status.HTTP_200_OK)
+
+    def test_pin_bounds_do_not_name_a_downstream_view_the_member_is_denied(self):
+        consumer = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="hidden_consumer", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.MAT_VIEW,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.node, target=consumer)
+        set_declared_target(consumer, timedelta(hours=6))
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(consumer.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(f"{self._list_url()}{self.node.id}/frequency_bounds/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        options = {option["cadence"]: option for option in response.json()["options"]}
+        self.assertEqual(options["24hour"]["pin_blocked_by"], {"id": "", "name": "a downstream view"})
+        self.assertEqual(options["24hour"]["delays_if_pinned"], [])
+        self.assertNotIn("hidden_consumer", response.content.decode())
+        self.assertNotIn(str(consumer.id), response.content.decode())
 
     @parameterized.expand(
         [

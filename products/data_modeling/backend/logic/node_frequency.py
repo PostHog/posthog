@@ -9,8 +9,9 @@ typed column.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
+from typing import Any
 
 from django.db.models import Q, QuerySet
 
@@ -82,9 +83,14 @@ def get_declared_target(node: Node) -> timedelta | None:
     return timedelta(seconds=seconds) if seconds is not None else None
 
 
+def is_declared_pin(properties: Mapping[str, Any] | None) -> bool:
+    """Return whether node properties say it holds its declared target instead of following its consumers."""
+    return bool((properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PINNED_KEY, False))
+
+
 def get_declared_pin(node: Node) -> bool:
     """Return whether the node holds its declared target instead of following its consumers."""
-    return bool((node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PINNED_KEY, False))
+    return is_declared_pin(node.properties)
 
 
 def declared_targets_by_saved_query(team_id: int, saved_query_ids: Iterable[str | uuid.UUID]) -> dict[str, timedelta]:
