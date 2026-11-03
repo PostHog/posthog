@@ -59,10 +59,9 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
     const theButton = (
         <div
             className={clsx('ToolbarButton', active && 'ToolbarButton--active', flex && 'ToolbarButton--flex')}
-            aria-label={theTitle}
             ref={ref}
         >
-            <button className="ToolbarButton__button" {...props} onClick={_onClick}>
+            <button className="ToolbarButton__button" aria-label={theTitle} {...props} onClick={_onClick}>
                 {children}
             </button>
         </div>
