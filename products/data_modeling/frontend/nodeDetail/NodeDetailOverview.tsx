@@ -83,12 +83,13 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     const suspended = !!suspension
     // The saved setting is a lower bound: a downstream view can make this one run more often unless it is pinned.
     // The node in the scene store is not reloaded after a pin save, so the refreshed bounds win when they have loaded.
-    const inherited = (nodeFrequency?.bounds.pinned ?? node.pinned)
-        ? null
-        : inheritedCadence(
-              savedQuery?.sync_frequency_bounds,
-              (savedQuery?.sync_frequency as SyncFrequencyValue | undefined) ?? null
-          )
+    const inherited =
+        (nodeFrequency?.bounds.pinned ?? node.pinned)
+            ? null
+            : inheritedCadence(
+                  savedQuery?.sync_frequency_bounds,
+                  (savedQuery?.sync_frequency as SyncFrequencyValue | undefined) ?? null
+              )
     const cadence = inherited?.cadence ?? savedQuery?.sync_frequency
     const schedule = suspended
         ? 'Suspended after repeated failures'
