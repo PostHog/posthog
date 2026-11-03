@@ -1,4 +1,3 @@
-/* eslint-disable */
 // Static assets skip msw, which otherwise round-trips every request through the page.
 // Keep in sync with STATIC_ASSET_URL in frontend/src/mocks/browser.tsx.
 const STATIC_ASSET_URL =

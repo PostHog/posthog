@@ -3,7 +3,6 @@ import { getResponse, HttpHandler, type HttpHandler as HttpHandlerType } from 'm
 import { handlers } from '~/mocks/handlers'
 import { routeHandlers } from '~/mocks/routeHandlers'
 
-// Each marker answers with its index, so responses show which handler matched.
 const markers: HttpHandlerType[] = handlers.map(
     (handler, index) => new HttpHandler(handler.info.method, handler.info.path, () => new Response(String(index)))
 )
@@ -13,7 +12,6 @@ const answer = async (list: HttpHandlerType[], method: string, url: string): Pro
     return response ? await response.text() : 'unhandled'
 }
 
-// One variant per handler, rotated, because plain msw matching is slow.
 const requestsFor = (handler: HttpHandlerType, index: number): [string, string][] => {
     const { method, path } = handler.info
     if (typeof path !== 'string' || typeof method !== 'string' || !path.startsWith('/')) {

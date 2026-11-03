@@ -28,7 +28,6 @@ configureTestingLibrary({ asyncUtilTimeout: 15000 })
 const setupMsw = (): void => {
     // Make sure the msw worker is started
     worker.start({
-        // Lets static assets skip msw.
         serviceWorker: { url: '/storybookServiceWorker.js' },
         quiet: true,
         onUnhandledRequest(request, print) {

@@ -2,7 +2,6 @@ import { getResponse, http, type HttpHandler } from 'msw'
 
 type RouteEntry = { handler: HttpHandler; method: string | RegExp; segments: string[] | null }
 
-// Null means the path is too complex to pre-filter, so msw always checks it.
 const pathSegments = (path: unknown): string[] | null => {
     if (typeof path !== 'string' || !path.startsWith('/') || /[*?+()\\]/.test(path)) {
         return null
@@ -29,7 +28,6 @@ const mayMatch = (entry: RouteEntry, method: string, requestSegments: string[]):
     )
 }
 
-// Answers like `handlers` in order, but msw only parses the handlers whose method and path can match.
 export const routeHandlers = (handlers: HttpHandler[]): HttpHandler => {
     const entries: RouteEntry[] = handlers.map((handler) => ({
         handler,
