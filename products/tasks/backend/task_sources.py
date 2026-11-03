@@ -57,6 +57,7 @@ def source_q(kind: SourceKind, source_ids: Iterable[str | UUID], *, via: str = "
     ids = [str(source_id) for source_id in source_ids]
     on_new_columns = Q(**{_field_path(via, "source_kind"): kind.value, _field_path(via, "source_id__in"): ids})
     if kind == SourceKind.SIGNAL_REPORT:
+        on_new_columns &= Q(**{_field_path(via, "signal_report_id__isnull"): False})
         legacy_field = "signal_report_id__in"
     elif kind == SourceKind.HOG_FLOW:
         legacy_field = "hog_flow_id__in"

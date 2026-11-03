@@ -24,7 +24,13 @@ class TestStoredSource(SimpleTestCase):
             ("neither", {}, None, None),
             ("report_in_old_column", {"signal_report_id": REPORT_ID}, REPORT_ID, None),
             ("flow_in_old_column", {"hog_flow_id": FLOW_ID}, None, FLOW_ID),
-            ("report_in_new_columns", {"source_kind": "signal_report", "source_id": str(REPORT_ID)}, REPORT_ID, None),
+            (
+                "report_in_both_columns",
+                {"source_kind": "signal_report", "source_id": str(REPORT_ID), "signal_report_id": REPORT_ID},
+                REPORT_ID,
+                None,
+            ),
+            ("report_deleted", {"source_kind": "signal_report", "source_id": str(REPORT_ID)}, None, None),
             ("flow_in_new_columns", {"source_kind": "hog_flow", "source_id": str(FLOW_ID)}, None, FLOW_ID),
             (
                 "new_columns_win_over_old",
@@ -83,10 +89,10 @@ class TestSourceQueries(TestCase):
         rows: dict[str, dict[str, Any]] = {
             "neither": {},
             "report_old": {"signal_report_id": REPORT_ID, "origin_key": "scout-trial:report_old"},
-            "report_new": {
+            "report_deleted": {
                 "source_kind": "signal_report",
                 "source_id": str(REPORT_ID),
-                "idempotency_key": "scout-trial:report_new",
+                "idempotency_key": "scout-trial:report_deleted",
             },
             "report_both": {
                 "signal_report_id": REPORT_ID,
@@ -127,7 +133,7 @@ class TestSourceQueries(TestCase):
                 "report",
                 SourceKind.SIGNAL_REPORT,
                 REPORT_ID,
-                {"report_old", "report_new", "report_both", "flow_kind_without_id_over_old_report"},
+                {"report_old", "report_both", "flow_kind_without_id_over_old_report"},
             ),
             (
                 "flow",
@@ -152,13 +158,13 @@ class TestSourceQueries(TestCase):
 
         self.assertEqual(
             {run.task.title for run in runs},
-            {"report_old", "report_new", "report_both", "flow_kind_without_id_over_old_report"},
+            {"report_old", "report_both", "flow_kind_without_id_over_old_report"},
         )
 
     @parameterized.expand(
         [
             ("old_column", "scout-trial:report_old", {"report_old"}),
-            ("new_column", "scout-trial:report_new", {"report_new"}),
+            ("new_column", "scout-trial:report_deleted", {"report_deleted"}),
             ("both_columns", "scout-trial:report_both", {"report_both"}),
             ("old_value_hidden_by_new", "scout-trial:stale", set()),
             ("new_value", "other:fresh", {"flow_over_old_report"}),
@@ -171,5 +177,5 @@ class TestSourceQueries(TestCase):
     def test_idempotency_key_startswith_q_matches_new_and_old_columns(self) -> None:
         self.assertEqual(
             self._names(idempotency_key_startswith_q("scout-trial:")),
-            {"report_old", "report_new", "report_both"},
+            {"report_old", "report_deleted", "report_both"},
         )

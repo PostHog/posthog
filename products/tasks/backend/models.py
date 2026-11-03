@@ -727,6 +727,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     @property
     def stored_source(self) -> TaskSource | None:
         if self.source_kind is not None and self.source_id is not None:
+            if self.source_kind == SourceKind.SIGNAL_REPORT and self.signal_report_id is None:
+                return None
             return TaskSource(kind=SourceKind(self.source_kind), id=self.source_id)
         if self.signal_report_id is not None:
             return TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(self.signal_report_id))
