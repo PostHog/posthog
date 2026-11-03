@@ -3,7 +3,9 @@
         .LemonCollapsePanel__header,
         .ViewOnlyArea__reading-control,
         [data-attr='copy-code-button'],
-        [data-attr^='show-prop-filter-']
+        [data-attr^='show-prop-filter-'],
+        [data-attr='workflow-schedule-row'],
+        [data-attr='warehouse-column-copy']
     ) {
         opacity: 0.6;
     }
@@ -17,7 +19,9 @@
         .LemonCollapsePanel__header,
         .ViewOnlyArea__reading-control,
         [data-attr='copy-code-button'],
-        [data-attr^='show-prop-filter-']
+        [data-attr^='show-prop-filter-'],
+        [data-attr='workflow-schedule-row'],
+        [data-attr='warehouse-column-copy']
     ) {
         pointer-events: none;
     }

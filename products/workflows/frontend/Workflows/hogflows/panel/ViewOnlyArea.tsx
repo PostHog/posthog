@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react'
 import { workflowLogic } from '../../workflowLogic'
 
 const READING_CONTROLS =
-    '.LemonCollapsePanel__header, .ViewOnlyArea__reading-control, a[href], [data-attr="copy-code-button"], [data-attr^="show-prop-filter-"]'
+    '.LemonCollapsePanel__header, .ViewOnlyArea__reading-control, a[href], [data-attr="copy-code-button"], [data-attr^="show-prop-filter-"], [data-attr="workflow-schedule-row"], [data-attr="warehouse-column-copy"]'
 const FOCUS_KEYS = new Set(['Tab', 'Escape'])
 const TEXT_CURSOR_KEYS = new Set([
     'ArrowUp',

@@ -56,6 +56,7 @@ export function DataWarehouseColumnsHint({
                                         size="xsmall"
                                         type="secondary"
                                         tooltip={`Copy {record.${column.name}}`}
+                                        data-attr="warehouse-column-copy"
                                         onClick={() =>
                                             void copyToClipboard(`{record.${column.name}}`, 'column reference')
                                         }

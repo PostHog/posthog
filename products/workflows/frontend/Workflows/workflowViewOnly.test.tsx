@@ -6,6 +6,10 @@ import { BindLogic, Provider } from 'kea'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import {
+    DataWarehouseColumnsHint,
+    DataWarehouseColumnsHintProps,
+} from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 
@@ -17,8 +21,10 @@ import { HogFlowEventFilters } from './hogflows/filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { HogFlowEditorPanelBuildDetail } from './hogflows/panel/HogFlowEditorPanelBuildDetail'
 import { ViewOnlyArea } from './hogflows/panel/ViewOnlyArea'
+import { AiTaskInstructionsCompare } from './hogflows/steps/components/AiTaskInstructionsCompare'
+import { ScheduleList } from './hogflows/steps/components/ScheduleList'
 import * as hogFlowSteps from './hogflows/steps/HogFlowSteps'
-import { HogFlow } from './hogflows/types'
+import { HogFlow, HogFlowSchedule } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 
@@ -163,6 +169,79 @@ describe('view-only workflow', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Show filters' }))
 
         expect(screen.getByText(/Firefox/)).toBeInTheDocument()
+    })
+
+    it('lets a viewer pick another schedule to inspect', () => {
+        const schedule = (id: string, rrule: string): HogFlowSchedule =>
+            ({ id, rrule, starts_at: '2026-05-01T09:00:00.000Z', timezone: 'UTC' }) as HogFlowSchedule
+        logic.actions.setSchedules([schedule('daily', 'FREQ=DAILY'), schedule('weekly', 'FREQ=WEEKLY')])
+        renderForViewer(
+            <ViewOnlyArea>
+                <ScheduleList />
+            </ViewOnlyArea>
+        )
+
+        fireEvent.click(screen.getAllByRole('button').filter((b) => b.dataset.attr === 'workflow-schedule-row')[1])
+
+        expect(logic.values.currentSchedule?.id).toBe('weekly')
+    })
+
+    it('lets a viewer copy a warehouse column reference', () => {
+        renderForViewer(
+            <ViewOnlyArea>
+                <DataWarehouseColumnsHint
+                    schemaColumns={[
+                        { name: 'email', type: 'string' } as DataWarehouseColumnsHintProps['schemaColumns'][0],
+                    ]}
+                />
+            </ViewOnlyArea>
+        )
+
+        fireEvent.click(screen.getByText('Reference table columns'))
+        fireEvent.click(screen.getByText('email'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith('{record.email}', 'column reference')
+    })
+
+    it('lets a viewer compare AI task instructions with another version', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    ...VIEWER_WORKFLOW,
+                    status: 'active',
+                    actions: [
+                        ...VIEWER_WORKFLOW.actions,
+                        {
+                            id: 'task_node',
+                            type: 'function',
+                            name: 'Create task',
+                            description: '',
+                            created_at: 0,
+                            updated_at: 0,
+                            config: {
+                                template_id: 'template-posthog-create-task',
+                                inputs: { prompt: { value: 'Summarize the week' } },
+                            },
+                        },
+                    ],
+                },
+                '/api/environments/:team_id/hog_flows/:id/revisions/': { results: [], count: 0 },
+            },
+        })
+        await act(async () => {
+            await logic.asyncActions.loadWorkflow()
+        })
+        renderForViewer(
+            <ViewOnlyArea>
+                <AiTaskInstructionsCompare actionId="task_node" />
+            </ViewOnlyArea>
+        )
+
+        fireEvent.click(screen.getByText('Compare instructions with another version'))
+        expect(screen.getByLabelText('Version to compare with')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Close'))
+        expect(screen.getByText('Compare instructions with another version')).toBeInTheDocument()
     })
 
     it.each([
