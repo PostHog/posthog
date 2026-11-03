@@ -83,7 +83,14 @@ export class RecordingApiMetrics {
     })
 
     public static incrementReplayBlockRequest(
-        result: 'ok' | 'not_found' | 'deleted' | 'rate_limited' | 'rate_limited_log_only' | 'error'
+        result:
+            | 'ok'
+            | 'not_found'
+            | 'deleted'
+            | 'rate_limited'
+            | 'rate_limited_log_only'
+            | 'rate_limit_unavailable'
+            | 'error'
     ): void {
         this.replayBlockRequests.labels({ result }).inc()
     }

@@ -408,7 +408,7 @@ describe('RecordingService', () => {
             mockKeyStore.getKey.mockResolvedValue(sessionKey('cleartext'))
 
             expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual([block])
-            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1, { cacheMissing: false })
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
         })
 
         it('fetches the byte range a listed ref names', async () => {
@@ -426,7 +426,7 @@ describe('RecordingService', () => {
 
             expect(result).toEqual({ ok: true, data: Buffer.from('data') })
             expect(mockKeyStore.getKey).toHaveBeenCalledTimes(1)
-            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1, { cacheMissing: false })
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
             expect(mockDecryptor.decryptBlock).not.toHaveBeenCalled()
             expect(mockS3Send).toHaveBeenCalledWith(
                 expect.objectContaining({ input: { Bucket: 'test-bucket', Key: block.key, Range: 'bytes=100-250' } })

@@ -1,4 +1,3 @@
-import { hasJwtKeys } from '~/cdp/utils/jwt-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
@@ -12,7 +11,10 @@ import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
-import { assertRecordingApiAuthConfigured } from '~/session-replay/recording-api/auth'
+import {
+    assertRecordingApiRoleAuthConfigured,
+    internalApiAuthExcludedPathPrefixes,
+} from '~/session-replay/recording-api/auth'
 import { createProducerRegistry } from '~/session-replay/recording-api/outputs/producer-registry'
 import { createOutputsRegistry } from '~/session-replay/recording-api/outputs/registry'
 import { RecordingApi } from '~/session-replay/recording-api/recording-api'
@@ -20,6 +22,7 @@ import {
     RecordingApiConfig,
     RecordingApiOutputsConfig,
     type RecordingApiProducerName,
+    RecordingApiRole,
     getDefaultRecordingApiAuthConfig,
     getDefaultRecordingApiBlocksConfig,
     getDefaultRecordingApiOutputsConfig,
@@ -47,6 +50,7 @@ export class RecordingApiServer implements NodeServer {
 
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<RecordingApiProducerName>
+    private readonly role: RecordingApiRole
 
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
         this.config = {
@@ -59,12 +63,11 @@ export class RecordingApiServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultRecordingApiBlocksConfig()),
             ...config,
         }
+        this.role = parseRecordingApiRole(this.config.RECORDING_API_ROLE)
         // recording-api verifies a team-scoped JWT per route, so exempt its routes from the
         // shared-secret middleware (callers send a Bearer token, not X-Internal-Api-Secret).
-        // The browser block route checks its own browser token, so a process serving it exempts it too.
-        const servesPublicRoutes = parseRecordingApiRole(this.config.RECORDING_API_ROLE) !== 'internal'
         this.lifecycle = new ServerLifecycle(this.config, {
-            internalApiAuthExcludedPathPrefixes: ['/api/projects/', ...(servesPublicRoutes ? ['/replay-blocks/'] : [])],
+            internalApiAuthExcludedPathPrefixes: internalApiAuthExcludedPathPrefixes(this.role),
         })
     }
 
@@ -80,37 +83,26 @@ export class RecordingApiServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
-        const role = parseRecordingApiRole(this.config.RECORDING_API_ROLE)
-        // The browser route accepts only browser tokens, so no other secret can stand in for the blocks secret.
-        if (role !== 'internal' && isProdEnv() && !hasJwtKeys(this.config.RECORDING_API_BLOCKS_JWT_SECRET || '')) {
-            throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
-        }
-        // A public process holds no service secret at all, so it has no internal auth to check.
-        if (role !== 'public') {
-            assertRecordingApiAuthConfigured({
-                isProd: isProdEnv(),
-                jwtSecret: this.config.RECORDING_API_JWT_SECRET,
-                allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
-                legacySecret: this.config.INTERNAL_API_SECRET,
-            })
-        }
+        assertRecordingApiRoleAuthConfigured({
+            role: this.role,
+            isProd: isProdEnv(),
+            blocksJwtSecret: this.config.RECORDING_API_BLOCKS_JWT_SECRET,
+            jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+            allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
+            legacySecret: this.config.INTERNAL_API_SECRET,
+        })
 
         // A public process serves only browser block reads, so it never connects to Postgres or Kafka.
-        if (role === 'public') {
-            const api = new RecordingApi(this.config)
-            this.lifecycle.expressApp.use('/', api.router())
-            await api.start()
-            this.lifecycle.services.push(api.service)
-            return
+        let outputs: ReturnType<ReturnType<typeof createOutputsRegistry>['build']> | undefined
+        if (this.role !== 'public') {
+            this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
+            logger.info('👍', 'Postgres Router ready')
+
+            logger.info('🤔', 'Connecting to Kafka...')
+            this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+            outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+            logger.info('👍', 'Kafka ready')
         }
-
-        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
-        logger.info('👍', 'Postgres Router ready')
-
-        logger.info('🤔', 'Connecting to Kafka...')
-        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
-        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
-        logger.info('👍', 'Kafka ready')
 
         const api = new RecordingApi(this.config, this.postgres, outputs)
         this.lifecycle.expressApp.use('/', api.router())

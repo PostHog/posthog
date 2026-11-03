@@ -69,7 +69,7 @@ export class RecordingApi {
     private recordingService: RecordingService | null = null
     private blockRateLimiter: KeyedRateLimiterService | null = null
     private readonly role: RecordingApiRole
-    private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket>
+    private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket> | null
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
@@ -78,10 +78,13 @@ export class RecordingApi {
         private outputs?: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
     ) {
         this.role = parseRecordingApiRole(config.RECORDING_API_ROLE || 'internal')
-        this.replayBlockBuckets = parseReplayBlockRateLimits(
-            config.RECORDING_API_BLOCK_RATE_LIMITS ||
-                getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
-        )
+        // Only a process serving the browser route reads its limits, so a bad value cannot stop an internal pod.
+        this.replayBlockBuckets = this.servesPublicRoutes
+            ? parseReplayBlockRateLimits(
+                  config.RECORDING_API_BLOCK_RATE_LIMITS ||
+                      getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
+              )
+            : null
     }
 
     private get servesInternalRoutes(): boolean {
@@ -160,7 +163,9 @@ export class RecordingApi {
         })
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
-        this.keyStore = new RedisCachedKeyStore(keyStore, this.redisPool)
+        // Never cache a missing key: the browser route can name a session ingestion has not keyed yet, and DynamoDB's
+        // eventually consistent read can briefly miss a new key. Either cached miss would read as cleartext for a day.
+        this.keyStore = new RedisCachedKeyStore(keyStore, this.redisPool, undefined, false)
         await this.keyStore.start()
 
         this.decryptor = getBlockDecryptor(this.keyStore)
@@ -173,7 +178,7 @@ export class RecordingApi {
             )
         }
 
-        if (!this.servesInternalRoutes || !this.outputs) {
+        if (!this.servesInternalRoutes) {
             this.recordingService = new RecordingService(
                 this.s3Client,
                 this.s3Bucket!,
@@ -185,6 +190,9 @@ export class RecordingApi {
             return
         }
 
+        if (!this.outputs) {
+            throw new Error('recording-api serving internal routes needs its Kafka outputs')
+        }
         this.encryptor = getBlockEncryptor(this.keyStore)
         await this.encryptor.start()
 
@@ -455,7 +463,25 @@ export class RecordingApi {
         const known = REPLAY_BLOCK_TIERS.includes(tier as ReplayBlockTier) ? (tier as ReplayBlockTier) : 'free'
         return {
             id: known === 'browser' ? `viewer:${caller}` : `team:${teamId}`,
-            bucket: this.replayBlockBuckets[known],
+            bucket: this.replayBlockBuckets![known],
+        }
+    }
+
+    // rateLimitGrouped allows a request that spends the bucket's last token. rateLimitMany refuses it yet still spends
+    // the token, so a steady trickle at the refill rate would never get through. A Redis failure lets the request
+    // through: the limit protects capacity, and the block fetch needs Redis for the key lookup anyway.
+    private async isRateLimited(id: string, bucket: ReplayBlockBucket): Promise<boolean> {
+        try {
+            const [[, decision]] = await this.blockRateLimiter!.rateLimitGrouped([
+                { id, cost: 1, bucketSize: bucket.bucketSize, refillRate: bucket.refillPerSecond },
+            ])
+            return decision.isRateLimited
+        } catch (error) {
+            RecordingApiMetrics.incrementReplayBlockRequest('rate_limit_unavailable')
+            logger.warn('[RecordingApi] Block rate limit unavailable, allowing the request', {
+                error: serializeError(error),
+            })
+            return false
         }
     }
 
@@ -478,14 +504,12 @@ export class RecordingApi {
                     res.locals.replayBlocksCaller,
                     res.locals.replayBlocksTier
                 )
-                const [[, decision]] = await this.blockRateLimiter.rateLimitMany([
-                    { id, cost: 1, bucketSize: bucket.bucketSize, refillRate: bucket.refillPerSecond },
-                ])
-                if (decision.isRateLimited) {
+                if (await this.isRateLimited(id, bucket)) {
                     const enforced = this.config.RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED
                     RecordingApiMetrics.incrementReplayBlockRequest(enforced ? 'rate_limited' : 'rate_limited_log_only')
                     if (enforced) {
-                        res.set('Retry-After', '60')
+                        // The wait for one token to refill, not a fixed window.
+                        res.set('Retry-After', String(Math.ceil(1 / bucket.refillPerSecond)))
                         res.status(429).json({ error: 'Too many requests' })
                         return
                     }

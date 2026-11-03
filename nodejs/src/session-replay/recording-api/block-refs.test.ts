@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { BlockLocation, decodeBlockRef, encodeBlockRef } from './block-refs'
+import { BlockLocation, blockRefEncoder, decodeBlockRef } from './block-refs'
 
 describe('block refs', () => {
     const sessionKey = new Uint8Array(32).fill(1)
@@ -17,9 +17,9 @@ describe('block refs', () => {
     })
 
     it('names a block the same way every time, so its URL stays cacheable', () => {
-        const ref = encodeBlockRef(sessionKey, location)
+        const ref = blockRefEncoder(sessionKey)(location)
 
-        expect(encodeBlockRef(sessionKey, location)).toBe(ref)
+        expect(blockRefEncoder(sessionKey)(location)).toBe(ref)
         expect(ref).not.toContain('session_recordings')
         expect(decodeBlockRef(sessionKey, ref, 1, 'session-123')).toEqual({
             key: location.key,
@@ -45,6 +45,6 @@ describe('block refs', () => {
         ['a body shorter than its nonce', () => decodeBlockRef(sessionKey, 'v1.AAAA', 1, 'session-123')],
         ['an extra segment', (ref: string) => decodeBlockRef(sessionKey, `${ref}.x`, 1, 'session-123')],
     ])('rejects a ref read with %s', (_, decode) => {
-        expect(decode(encodeBlockRef(sessionKey, location))).toBeNull()
+        expect(decode(blockRefEncoder(sessionKey)(location))).toBeNull()
     })
 })

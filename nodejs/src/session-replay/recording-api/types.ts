@@ -101,7 +101,12 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
 }
 
 export function parseReplayBlockRateLimits(raw: string): Record<ReplayBlockTier, ReplayBlockBucket> {
-    const parsed = parseJSON(raw) as Record<string, unknown>
+    let parsed: Record<string, unknown>
+    try {
+        parsed = parseJSON(raw) as Record<string, unknown>
+    } catch {
+        throw new Error('Invalid RECORDING_API_BLOCK_RATE_LIMITS: not valid JSON')
+    }
     const buckets = {} as Record<ReplayBlockTier, ReplayBlockBucket>
     for (const tier of REPLAY_BLOCK_TIERS) {
         const value = parsed?.[tier]

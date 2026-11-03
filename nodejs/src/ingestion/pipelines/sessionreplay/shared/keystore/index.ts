@@ -16,7 +16,7 @@ export { MemoryKeyStore } from './memory-keystore'
 export interface KeyStoreConfig {
     kmsEndpoint?: string
     dynamoDBEndpoint?: string
-    // Per-request deadline for the AWS calls. Unset keeps the SDK default, which has none.
+    // Per-request deadline for the AWS calls, which then abort and retry once. Unset keeps the SDK default: no deadline.
     requestTimeoutMs?: number
 }
 
@@ -28,19 +28,19 @@ export function getKeyStore(region: string, config?: KeyStoreConfig): KeyStore {
             dynamoDBEndpoint: config?.dynamoDBEndpoint ?? 'default',
         })
 
-        const requestHandler = config?.requestTimeoutMs
-            ? { requestTimeout: config.requestTimeoutMs, connectionTimeout: config.requestTimeoutMs }
-            : undefined
-        const kmsClient = new KMSClient({
-            region,
-            endpoint: config?.kmsEndpoint,
-            ...(requestHandler ? { requestHandler } : {}),
-        })
-        const dynamoDBClient = new DynamoDBClient({
-            region,
-            endpoint: config?.dynamoDBEndpoint,
-            ...(requestHandler ? { requestHandler } : {}),
-        })
+        // Without throwOnRequestTimeout the SDK only logs a warning at the deadline and keeps waiting.
+        const bounded = config?.requestTimeoutMs
+            ? {
+                  requestHandler: {
+                      requestTimeout: config.requestTimeoutMs,
+                      connectionTimeout: config.requestTimeoutMs,
+                      throwOnRequestTimeout: true,
+                  },
+                  maxAttempts: 2,
+              }
+            : {}
+        const kmsClient = new KMSClient({ region, endpoint: config?.kmsEndpoint, ...bounded })
+        const dynamoDBClient = new DynamoDBClient({ region, endpoint: config?.dynamoDBEndpoint, ...bounded })
 
         return new DynamoDBKeyStore(dynamoDBClient, kmsClient)
     }

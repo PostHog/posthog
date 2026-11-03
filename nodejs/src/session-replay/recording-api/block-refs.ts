@@ -53,10 +53,6 @@ export function blockRefEncoder(sessionKey: Uint8Array): (location: BlockLocatio
     }
 }
 
-export function encodeBlockRef(sessionKey: Uint8Array, location: BlockLocation): string {
-    return blockRefEncoder(sessionKey)(location)
-}
-
 /** Returns null for any ref this session key did not produce for this team and session. */
 export function decodeBlockRef(
     sessionKey: Uint8Array,

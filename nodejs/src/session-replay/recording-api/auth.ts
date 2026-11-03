@@ -5,6 +5,8 @@ import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt } from '~/cdp/util
 import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/common/api/middleware/internal-api-auth'
 import { logger } from '~/common/utils/logger'
 
+import { RecordingApiRole } from './types'
+
 /**
  * Authorization for recording-api routes.
  *
@@ -100,6 +102,32 @@ export function assertRecordingApiAuthConfigured(opts: {
                 'or keep RECORDING_API_ALLOW_LEGACY_SECRET enabled with INTERNAL_API_SECRET set'
         )
     }
+}
+
+/**
+ * Each role must hold exactly the auth it serves. A process serving the browser route needs the blocks secret in
+ * production, since no other secret is accepted there. A public process holds no service secret, so it skips the
+ * internal check that would otherwise demand one.
+ */
+export function assertRecordingApiRoleAuthConfigured(opts: {
+    role: RecordingApiRole
+    isProd: boolean
+    blocksJwtSecret: string
+    jwtSecret: string
+    allowLegacySecret: boolean
+    legacySecret: string
+}): void {
+    if (opts.role !== 'internal' && opts.isProd && !hasJwtKeys(opts.blocksJwtSecret || '')) {
+        throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
+    }
+    if (opts.role !== 'public') {
+        assertRecordingApiAuthConfigured(opts)
+    }
+}
+
+// The browser block route checks its own browser token, so only a process serving it exempts it from the shared secret.
+export function internalApiAuthExcludedPathPrefixes(role: RecordingApiRole): string[] {
+    return ['/api/projects/', ...(role === 'internal' ? [] : ['/replay-blocks/'])]
 }
 
 export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOptions) {

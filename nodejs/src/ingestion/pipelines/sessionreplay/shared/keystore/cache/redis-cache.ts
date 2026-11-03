@@ -4,7 +4,7 @@ import {
     deserializeSessionKey,
     serializeSessionKey,
 } from '~/ingestion/pipelines/sessionreplay/shared/crypto/session-key'
-import { DeleteKeyResult, GetKeyOptions, KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { RedisPool } from '~/types'
 
 const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
@@ -21,7 +21,10 @@ export class RedisCachedKeyStore implements KeyStore {
     constructor(
         private readonly delegate: KeyStore,
         private readonly redisPool: RedisPool,
-        private readonly ttlSeconds: number = REDIS_CACHE_TTL_SECONDS
+        private readonly ttlSeconds: number = REDIS_CACHE_TTL_SECONDS,
+        // A reader that may ask about a session ingestion has not keyed yet, or before DynamoDB's eventually consistent
+        // read sees a new key, passes false: caching that miss would pin the session to cleartext for the cache lifetime.
+        private readonly cacheMissingKeys: boolean = true
     ) {}
 
     private cacheKey(sessionId: string, teamId: number): string {
@@ -88,15 +91,14 @@ export class RedisCachedKeyStore implements KeyStore {
         return key
     }
 
-    async getKey(sessionId: string, teamId: number, { cacheMissing = true }: GetKeyOptions = {}): Promise<SessionKey> {
+    async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
         const cached = await this.getCached(sessionId, teamId)
         if (cached) {
             return cached
         }
 
         const key = await this.delegate.getKey(sessionId, teamId)
-        // A lookup for a session ingestion has not keyed yet would otherwise pin it to cleartext for the cache lifetime.
-        if (cacheMissing || key.sessionState !== 'cleartext') {
+        if (this.cacheMissingKeys || key.sessionState !== 'cleartext') {
             await this.setCached(sessionId, teamId, key, 'if_absent')
         }
         return key

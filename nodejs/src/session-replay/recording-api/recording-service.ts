@@ -264,8 +264,7 @@ export class RecordingService {
         teamId: number,
         blocks: RecordingBlock[]
     ): Promise<RecordingDeletedResult | ListedBlock[]> {
-        // DynamoDB reads are eventually consistent, so a key created moments ago can read as missing: never cache that.
-        const sessionKey = await this.keyStore.getKey(sessionId, teamId, { cacheMissing: false })
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         const deletion = deletionOf(sessionKey)
         if (deletion) {
             return deletion
@@ -281,8 +280,7 @@ export class RecordingService {
     }
 
     async getBlockByRef(teamId: number, sessionId: string, ref: string): Promise<GetBlockResult> {
-        // The browser route can name any session, including one ingestion has not keyed yet.
-        const sessionKey = await this.keyStore.getKey(sessionId, teamId, { cacheMissing: false })
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
         const deletion = deletionOf(sessionKey)
         if (deletion) {
             return deletion

@@ -821,7 +821,7 @@ describe('RecordingApi', () => {
         const BLOCKS_JWT_SECRET = 'recording-api-blocks-test-secret'
         const BLOCK_URL = '/replay-blocks/1/session-123/u7/v1.abc'
         let server: Server
-        let rateLimiter: { rateLimitMany: jest.Mock }
+        let rateLimiter: { rateLimitGrouped: jest.Mock }
 
         const browserToken = (
             claims: Record<string, unknown> = {},
@@ -857,7 +857,7 @@ describe('RecordingApi', () => {
 
         beforeEach(() => {
             rateLimiter = {
-                rateLimitMany: jest
+                rateLimitGrouped: jest
                     .fn()
                     .mockImplementation((requests: { id: string }[]) =>
                         Promise.resolve(
@@ -882,7 +882,7 @@ describe('RecordingApi', () => {
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
             expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
-            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([
+            expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
                 { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },
             ])
         })
@@ -941,13 +941,27 @@ describe('RecordingApi', () => {
             ['enforced', true, 429],
             ['log only', false, 200],
         ])('applies the per-caller rate limit when %s', async (_, enforced, expectedStatus) => {
-            rateLimiter.rateLimitMany.mockResolvedValue([['u7', { isRateLimited: true, tokens: -1, tokensBefore: 0 }]])
+            rateLimiter.rateLimitGrouped.mockResolvedValue([
+                ['u7', { isRateLimited: true, tokens: -1, tokensBefore: 0 }],
+            ])
             const app = await buildApp('public', enforced)
 
             const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
 
             expect(res.status).toBe(expectedStatus)
             expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=86400, immutable')
+            if (enforced) {
+                expect(res.headers['retry-after']).toBe('1')
+            }
+        })
+
+        it('serves the block when the rate limiter is unavailable', async () => {
+            rateLimiter.rateLimitGrouped.mockRejectedValue(new Error('Redis unavailable'))
+            const app = await buildApp('public')
+
+            const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
+
+            expect(res.status).toBe(200)
         })
 
         it.each([
@@ -965,7 +979,7 @@ describe('RecordingApi', () => {
                 .get(`/replay-blocks/1/session-123/${sub}/v1.abc`)
                 .set('Authorization', browserToken(claims))
 
-            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([
+            expect(rateLimiter.rateLimitGrouped).toHaveBeenCalledWith([
                 expect.objectContaining({ id: expectedId, bucketSize: expectedBucketSize }),
             ])
         })
