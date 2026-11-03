@@ -140,6 +140,7 @@ pub enum Library {
     PosthogRubyMcp,
     /// posthog-php SDK
     PosthogPhp,
+    /// Laravel has a separate identity for SDK-specific usage attribution.
     PosthogLaravel,
     /// posthog-ruby SDK
     PosthogRuby,
