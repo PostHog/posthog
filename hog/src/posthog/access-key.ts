@@ -100,7 +100,7 @@ export class PersonalAPIKey implements AccessKey {
     async verify(runtime: Runtime): Promise<PersonalAPIKey> {
         const response = await sendRequest(runtime.fetch, hostUrl(this.host, 'api/personal_api_keys/@current/'), {
             method: 'GET',
-            apiKey: this.apiKey,
+            token: this.apiKey,
         })
         if (response.status === 401) {
             throw new HogError(
