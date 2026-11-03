@@ -123,7 +123,7 @@ Take each screenshot from the first source that can show the change:
 
 Capture at `deviceScaleFactor: 2`. A 1x image looks soft on a high-density screen, and GitHub shrinks a wider image to fit the column. Take the before from the base branch the same way. A new surface has no before, so say that in one line.
 
-Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
+Upload with `hogli pr:upload-image <file>`. With an open PR it attaches the image to the description: a `![alt](./file.png)` reference already in the body is rewritten to the upload, and any other image is appended. Without a PR it prints markdown to paste. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
 
 Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
 

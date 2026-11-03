@@ -1,6 +1,5 @@
 import base64
 import hashlib
-import ipaddress
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
@@ -12,8 +11,7 @@ from rest_framework.test import APIClient
 
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
-
-PUBLIC_IPS = {ipaddress.ip_address("93.184.216.34")}
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 
 class TestDynamicClientRegistration(APIBaseTest):
@@ -45,7 +43,7 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
 
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IPS)
+    @mock_anti_ssrf_dns_lookup()
     def test_register_full_client(self, _resolve):
         response = self.client.post(
             "/oauth/register/",
@@ -278,7 +276,6 @@ class TestDynamicClientRegistration(APIBaseTest):
 
     def test_rate_limiting_enforced(self):
         """DCR endpoint should enforce rate limiting."""
-        from unittest.mock import patch
 
         # Mock the throttle to have a very low limit
         with patch("posthog.api.oauth.dcr.DCRBurstThrottle.rate", "2/minute"):
@@ -433,6 +430,13 @@ class TestDynamicClientRegistration(APIBaseTest):
             ),
             ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"], "experiment:read"),
             (
+                "oidc_only_keeps_identity_ceiling",
+                "openid profile email",
+                ["openid", "profile", "email"],
+                "openid profile email",
+            ),
+            ("oidc_next_to_resource_is_dropped", "openid experiment:read", ["experiment:read"], "experiment:read"),
+            (
                 "strips_hidden",
                 "experiment:read wizard_session:write",
                 ["experiment:read"],
@@ -540,6 +544,14 @@ class TestDynamicClientRegistration(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
+
+    def test_sign_in_only_dcr_client_gets_no_resource_scope_at_authorize(self):
+        client_id = self._register_dcr_client(scope="openid profile email")
+        response = self._authorize_consent_post(client_id, "openid profile email experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        granted = set(OAuthGrant.objects.get(code=code).scope.split())
+        self.assertEqual(granted, {"openid", "profile", "email"})
 
     def test_no_scope_dcr_client_does_not_obtain_privileged_scope_at_authorize(self):
         """The broad default excludes PRIVILEGED_SCOPES, so a no-ceiling DCR

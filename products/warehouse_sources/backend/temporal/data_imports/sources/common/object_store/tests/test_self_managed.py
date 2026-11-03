@@ -58,7 +58,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     SelfManagedLocation,
     UnmappableTableError,
     needs_preserved_column_names,
+    nested_text_columns,
     parse_self_managed_url,
+    refuse_columns_an_import_changes,
     source_format_for,
     table_definition_for,
 )
@@ -501,11 +503,26 @@ class TestTableDefinition:
             )
         ]
     )
-    def test_nested_columns_are_refused(self, _name: str, table_format: str, column_type: str, url: str) -> None:
+    def test_nested_columns_can_be_linked(self, _name: str, table_format: str, column_type: str, url: str) -> None:
         columns = {"id": "Int64", "items": {"clickhouse": column_type, "hogql": "StringJSONDatabaseField"}}
 
-        with pytest.raises(UnmappableTableError, match="'items'"):
-            table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
+        definition = table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
+
+        assert definition.kind == ("delta" if table_format == "Delta" else "files")
+
+    @parameterized.expand(
+        [
+            ("array", {"items": "Array(String)"}, {"items": "Array(String)"}),
+            ("nullable_array", {"items": "Nullable(Array(String))"}, {"items": "Nullable(Array(String))"}),
+            ("map", {"items": "Map(String, Int64)"}, {"items": "Map(String, Int64)"}),
+            ("tuple", {"items": "Tuple(Int64, String)"}, {"items": "Tuple(Int64, String)"}),
+            ("plain_string", {"items": "String"}, {}),
+            ("no_columns", None, {}),
+            ("invalid_column", {"items": {"clickhouse": "Array(String)", "valid": False}}, {}),
+        ]
+    )
+    def test_nested_text_columns(self, _name: str, columns: dict[str, Any] | None, expected: dict[str, str]) -> None:
+        assert nested_text_columns(columns) == expected
 
     def test_an_invalid_nested_column_does_not_block_the_table(self) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.parquet")
@@ -539,11 +556,23 @@ class TestTableDefinition:
             table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
 
     @parameterized.expand([("Date",), ("Nullable(Date32)",), ("DateTime",), ("Nullable(DateTime64(9))",)])
-    def test_json_dates_and_times_are_refused(self, column_type: str) -> None:
+    def test_json_dates_and_times_are_cast_not_refused(self, column_type: str) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
+        columns = {"id": "Int64", "created": column_type}
 
-        with pytest.raises(UnmappableTableError, match="'created'"):
-            table_definition_for("orders", location, "JSONEachRow", {"id": "Int64", "created": column_type}, None)
+        refuse_columns_an_import_changes(columns, "jsonl")
+        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
+
+        assert [column.name for column in definition.csv.column_types] == ["created"]
+
+    def test_json_nested_columns_can_be_linked(self) -> None:
+        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
+        columns = {"tags": "Array(String)", "day": "Date"}
+
+        refuse_columns_an_import_changes(columns, "jsonl")
+        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
+
+        assert [column.name for column in definition.csv.column_types] == ["day"]
 
     def test_csv_header_names_with_surrounding_spaces_are_refused(self) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")
