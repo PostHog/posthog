@@ -1,10 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
 import { detailExperiment, detailItems, offlineDetailItemResults } from './offlineDetailFixtures'
 import { offlineItemInspectorLogic } from './offlineItemInspectorLogic'
+
+jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 
 jest.mock('../generated/api', () => ({
     aiObservabilityOfflineExperimentsItemsRetrieve: jest.fn(),
@@ -17,6 +20,7 @@ describe('offlineItemInspectorLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
+        jest.mocked(performQuery).mockResolvedValue({ results: [] })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsRetrieve).mockResolvedValue(detailItems[0])
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsPayloadRetrieve).mockResolvedValue({
             id: detailItems[0].id,
@@ -89,5 +93,54 @@ describe('offlineItemInspectorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(api.aiObservabilityOfflineExperimentsResultsPayloadRetrieve).not.toHaveBeenCalled()
         expect(logic.values.selectedResult).toBeNull()
+        expect(performQuery).not.toHaveBeenCalled()
     })
+
+    it.each([{ found: ['app-trace'] }, { found: [] }, { found: null }])(
+        'shows only confirmed trace IDs: $found',
+        async ({ found }) => {
+            const selected = { ...offlineDetailItemResults(detailItems[0].id)[0], evaluator_trace_id: 'judge-trace' }
+            jest.mocked(api.aiObservabilityOfflineExperimentsItemsRetrieve).mockResolvedValue({
+                ...detailItems[0],
+                application_trace_id: 'app-trace',
+            })
+            jest.mocked(api.aiObservabilityOfflineExperimentsItemsResultsList).mockResolvedValue({
+                count: 1,
+                next: null,
+                previous: null,
+                next_cursor: null,
+                results: [selected],
+            })
+            if (found === null) {
+                jest.mocked(performQuery).mockRejectedValue(new Error('Query unavailable'))
+            } else {
+                jest.mocked(performQuery).mockResolvedValue({ results: found.map((id) => [id]) })
+            }
+            const logic = offlineItemInspectorLogic({
+                teamId: 997,
+                experimentId: detailExperiment.id,
+                itemId: detailItems[0].id,
+                resultId: selected.id,
+                scorerVersionId: selected.scorer.id,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.availableTraceIds).toEqual(found ?? [])
+            expect(performQuery).toHaveBeenCalledTimes(1)
+            expect(performQuery).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    query: expect.stringContaining("trace_id IN ['app-trace', 'judge-trace']"),
+                }),
+                undefined,
+                'force_blocking'
+            )
+            expect(logic.values.item?.id).toBe(detailItems[0].id)
+            expect(logic.values.selectedResult?.id).toBe(selected.id)
+            jest.mocked(performQuery).mockRejectedValue(new Error('Query unavailable'))
+            logic.actions.refreshItem()
+            expect(logic.values.availableTraceIds).toEqual([])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.availableTraceIds).toEqual([])
+        }
+    )
 })
