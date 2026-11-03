@@ -87,7 +87,7 @@ const emailAttachmentsTableBytesGauge = new Gauge({
 
 const emailAttachmentsRowsGauge = new Gauge({
     name: 'cdp_email_attachments_rows',
-    help: 'Rows in cyclotron_email_attachments, one per file of a transactional email that waits to send. Sampled by the janitor sweep.',
+    help: 'Planner estimate (pg_class.reltuples) of the rows in cyclotron_email_attachments, one per file of a transactional email that waits to send. Sampled by the janitor sweep without a table scan.',
 })
 
 const queueDepthGauge = new Gauge({
@@ -562,7 +562,8 @@ export class CyclotronV2Janitor {
             }
             const size = await this.pool.query<{ bytes: string; rows: string }>(
                 `SELECT pg_total_relation_size('cyclotron_email_attachments') AS bytes,
-                        (SELECT COUNT(*) FROM cyclotron_email_attachments) AS rows`
+                        (SELECT GREATEST(reltuples, 0)::bigint FROM pg_class
+                         WHERE oid = 'cyclotron_email_attachments'::regclass) AS rows`
             )
             emailAttachmentsTableBytesGauge.set(Number(size.rows[0].bytes))
             emailAttachmentsRowsGauge.set(Number(size.rows[0].rows))
