@@ -2,7 +2,6 @@ import re
 
 import pytest
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.codebase_detection import Detection, fields_require_ui
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
