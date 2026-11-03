@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -55,6 +58,115 @@ describe('emailTemplaterLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.useRealTimers()
+    })
+
+    describe('sender picker', () => {
+        const OWN_SENDER = { id: 5, kind: 'email', display_name: 'Acme <hello@acme.example.com>', config: {} }
+        const SANDBOX_SENDER = {
+            id: 7,
+            kind: 'email',
+            display_name: 'Acme via PostHog <sandbox@example.com>',
+            config: { provider: 'sandbox', verified: true },
+        }
+
+        function enableSandboxFlag(): void {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+        }
+
+        async function mountWithSenders(overrides?: Partial<EmailTemplaterLogicProps>): Promise<void> {
+            logic = emailTemplaterLogic(makeProps(overrides))
+            logic.mount()
+            await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        }
+
+        beforeEach(() => {
+            useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [SANDBOX_SENDER, OWN_SENDER] } } })
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it.each([
+            { surface: 'a workflow email step', sandboxSenderAllowed: true, flag: true, expectedIds: [5, 7] },
+            {
+                surface: 'a workflow email step with the flag off',
+                sandboxSenderAllowed: true,
+                flag: false,
+                expectedIds: [5],
+            },
+            { surface: 'a broadcast or destination', sandboxSenderAllowed: false, flag: true, expectedIds: [5] },
+        ])('lists the sandbox sender last only on $surface', async ({ sandboxSenderAllowed, flag, expectedIds }) => {
+            if (flag) {
+                enableSandboxFlag()
+            }
+            await mountWithSenders({ sandboxSenderAllowed })
+
+            expect(logic.values.senderIntegrations.map((integration) => integration.id)).toEqual(expectedIds)
+        })
+
+        it('keeps a saved sandbox sender listed after the flag turns off, until another sender replaces it', async () => {
+            const onChange = jest.fn()
+            await mountWithSenders({
+                sandboxSenderAllowed: true,
+                liveChanges: true,
+                onChange,
+                value: { ...DEFAULT_EMAIL_TEMPLATE, from: { integrationId: 7 } },
+            })
+
+            expect(logic.values.senderIntegrations.map((integration) => integration.id)).toEqual([5, 7])
+            expect(logic.values.isSandboxSenderSelected).toBe(true)
+
+            logic.actions.chooseSenders([7, 5])
+
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({ from: { integrationId: 5, integrationIds: undefined } })
+            )
+            expect(logic.values.senderIntegrations.map((integration) => integration.id)).toEqual([5])
+        })
+
+        it('picking the sandbox sender replaces the selection and clears the custom sender and Reply-To', async () => {
+            enableSandboxFlag()
+            const onChange = jest.fn()
+            await mountWithSenders({
+                sandboxSenderAllowed: true,
+                liveChanges: true,
+                onChange,
+                value: {
+                    ...DEFAULT_EMAIL_TEMPLATE,
+                    from: { integrationId: 5, email: 'hello@acme.example.com', name: 'Acme' },
+                    replyTo: 'replies@acme.example.com',
+                },
+            })
+
+            logic.actions.chooseSenders([5, 7])
+
+            expect(onChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    from: { integrationId: 7, integrationIds: undefined, email: undefined, name: undefined },
+                    replyTo: '',
+                })
+            )
+            expect(logic.values.isSandboxSenderSelected).toBe(true)
+        })
+
+        it('offers no Reply-To while the sandbox sender is selected', async () => {
+            enableSandboxFlag()
+            await mountWithSenders({
+                sandboxSenderAllowed: true,
+                value: { ...DEFAULT_EMAIL_TEMPLATE, from: { integrationId: 7 }, replyTo: 'replies@example.com' },
+            })
+
+            expect(logic.values.visibleFields.map((field) => field.key)).not.toContain('replyTo')
+            expect(logic.values.hiddenAdvancedFields.map((field) => field.key)).not.toContain('replyTo')
+
+            logic.actions.setEmailTemplateValue('from', { integrationId: 5 })
+
+            expect(logic.values.isSandboxSenderSelected).toBe(false)
+            expect(logic.values.visibleFields.map((field) => field.key)).toContain('replyTo')
+        })
     })
 
     describe('advanced fields', () => {

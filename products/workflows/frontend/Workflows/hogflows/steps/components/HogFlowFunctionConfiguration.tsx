@@ -17,6 +17,7 @@ import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
+import type { HogFlowAction } from '../../types'
 import { CustomerTaskWorkflowReferenceInput } from './CustomerTaskWorkflowReferenceInput'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
@@ -191,8 +192,16 @@ export function filterInputsSchemaForTrigger<T extends { key: string }>(
     return inputsSchema
 }
 
+export function allowsSandboxSender(
+    actionType: HogFlowAction['type'],
+    originProduct: string | null | undefined
+): boolean {
+    return actionType === 'function_email' && originProduct !== 'broadcasts'
+}
+
 export function HogFlowFunctionConfiguration({
     templateId,
+    actionType,
     inputs,
     setInputs,
     mappings,
@@ -202,6 +211,7 @@ export function HogFlowFunctionConfiguration({
     emailFieldErrors,
 }: {
     templateId: string
+    actionType: HogFlowAction['type']
     inputs: Record<string, CyclotronJobInputType>
     mappings?: HogFunctionMappingType[]
     setInputs: (inputs: Record<string, CyclotronJobInputType>) => void
@@ -281,6 +291,7 @@ export function HogFlowFunctionConfiguration({
             // (into the staged draft on active workflows), so the editor needs no save step.
             emailLiveChanges
             emailSaveIndicator={<WorkflowAutoSaveIndicator />}
+            emailSandboxSenderAllowed={allowsSandboxSender(actionType, workflow?.origin_product)}
             configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
