@@ -10,7 +10,8 @@
                         <p class="text-gray-600 text-base mb-8"><span class="font-semibold">{{ recipient.identifier|escape }}</span> will stop receiving marketing emails.</p>
                         <form method="post" action="{{ request.get_full_path }}" class="mb-8">
                             <input type="hidden" name="one_click_unsubscribe" value="1" />
-                            <button type="submit" class="bg-red-500 text-white font-semibold px-6 py-4 rounded-lg cursor-pointer">Unsubscribe</button>
+                            <button type="submit"
+                                    class="bg-red-500 text-white font-semibold px-6 py-4 rounded-lg cursor-pointer">Unsubscribe</button>
                         </form>
                         <p class="text-gray-600 text-base">
                             Want to stay subscribed to some emails? <a class="text-blue-600 hover:underline" href="{{ request.path }}">Manage your preferences</a>.
