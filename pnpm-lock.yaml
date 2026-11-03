@@ -1805,8 +1805,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.61.1
-        version: 5.61.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: 5.61.2
+        version: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -5995,7 +5995,7 @@ importers:
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.25.0
-        version: '@posthog/mcp@0.25.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.61.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
+        version: '@posthog/mcp@0.25.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -6033,8 +6033,8 @@ importers:
         specifier: 4.13.1
         version: 4.13.1
       posthog-node:
-        specifier: ^5.61.1
-        version: 5.61.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: ^5.61.2
+        version: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -20924,8 +20924,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.61.1:
-    resolution: {integrity: sha512-Az2H3hHyxxZ5PQpQAQEoJfa9FrLsM4OnuyIQwzi9hei5mtN0/mepw1yvLtAmPAbEkC6+muWXiBShBnVMKeBSXw==}
+  posthog-node@5.61.2:
+    resolution: {integrity: sha512-6pMhzR+APW+CBreUlHce3qrxwU7l90gYp1A5eN0kf/o3rVf++Zz2KPtZQC63ct+hWkzCwi3Arm+GT8EjUBrUag==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -30972,10 +30972,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.25.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.61.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
+  '@posthog/mcp@0.25.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.61.1
-      posthog-node: 5.61.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+      posthog-node: 5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6)
 
@@ -43450,7 +43450,7 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.61.1(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
+  posthog-node@5.61.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
     dependencies:
       '@posthog/core': 1.62.0
     optionalDependencies:
