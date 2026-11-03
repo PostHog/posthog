@@ -5,9 +5,16 @@ from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, retry_with_deadline
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    reach_safe_point,
+    retry_with_deadline,
+)
 from products.warehouse_sources.sources.sdk.internals import Batcher
 from products.warehouse_sources.sources.zapier_supported_storage.settings import ZAPIER_SUPPORTED_STORAGE_ENDPOINTS
 
@@ -16,8 +23,19 @@ from products.warehouse_sources.sources.zapier_supported_storage.settings import
 ZAPIER_SUPPORTED_STORAGE_URL = "https://store.zapier.com/api/records"
 
 
+@frozen
+class ZapierSupportedStorageResumeConfig:
+    # The last key handed on. Keys are read in sorted order, so a resume reads only the keys after it.
+    last_key: str
+
+
 class ZapierSupportedStorageRetryableError(Exception):
     pass
+
+
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # The store is read in one call before any row is handed on, so nothing is held during the wait.
+    reach_safe_point()
 
 
 def _headers(secret: str) -> dict[str, str]:
@@ -44,6 +62,7 @@ def _stringify_value(value: Any) -> str | None:
     ),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_store(session: requests.Session, secret: str, logger: FilteringBoundLogger) -> dict[str, Any]:
@@ -83,7 +102,9 @@ def _fetch_store(session: requests.Session, secret: str, logger: FilteringBoundL
     return data
 
 
-def get_rows(secret: str, logger: FilteringBoundLogger) -> Iterator[Any]:
+def get_rows(
+    secret: str, logger: FilteringBoundLogger, manager: ResumableSourceManager[ZapierSupportedStorageResumeConfig]
+) -> Iterator[Any]:
     batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=100 * 1024 * 1024)
     # capture=False: the entire response body is the store's arbitrary key/value contents, so HTTP
     # sample capture would serialize customer data to object storage where the name-based scrubbers
@@ -94,12 +115,16 @@ def get_rows(secret: str, logger: FilteringBoundLogger) -> Iterator[Any]:
 
     # The store is fetched in a single call - there is no pagination or list endpoint.
     store = _fetch_store(session, secret, logger)
-    for key, value in store.items():
-        batcher.batch({"key": key, "value": _stringify_value(value)})
+    resume = manager.load_state() if manager.can_resume() else None
+    keys = sorted(key for key in store if resume is None or key > resume.last_key)
+    for key in keys:
+        batcher.batch({"key": key, "value": _stringify_value(store[key])})
         if batcher.should_yield():
+            manager.save_state(ZapierSupportedStorageResumeConfig(last_key=key))
             yield batcher.get_table()
 
     if batcher.should_yield(include_incomplete_chunk=True):
+        manager.save_state(ZapierSupportedStorageResumeConfig(last_key=keys[-1]))
         yield batcher.get_table()
 
 
@@ -107,12 +132,14 @@ def zapier_supported_storage_source(
     secret: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ZapierSupportedStorageResumeConfig],
 ) -> SourceResponse:
     config = ZAPIER_SUPPORTED_STORAGE_ENDPOINTS[endpoint]
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(secret=secret, logger=logger),
+        on_complete=resumable_source_manager.clear_state,
+        items=lambda: get_rows(secret=secret, logger=logger, manager=resumable_source_manager),
         primary_keys=config.primary_keys,
         # Full refresh only - the store exposes no timestamps to partition on.
         partition_count=1,
