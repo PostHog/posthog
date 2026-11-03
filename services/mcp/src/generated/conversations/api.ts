@@ -277,7 +277,9 @@ export const ConversationsTicketsNotesCreateBody = () => zod
         rich_content: zod
             .unknown()
             .optional()
-            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+            .describe(
+                'Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project.'
+            ),
     })
     .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
 
@@ -310,7 +312,7 @@ export const ConversationsTicketsNotesPartialUpdateBody = () => zod
             .unknown()
             .optional()
             .describe(
-                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.'
+                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project.'
             ),
     })
     .describe('Payload for updating a private note on a ticket.')
@@ -368,7 +370,7 @@ export const ConversationsTicketsReplyCreateBody = () => zod
             .unknown()
             .optional()
             .describe(
-                'Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Use the url of an image uploaded to this project.'
+                'Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400.'
             ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
@@ -417,7 +419,12 @@ export const ConversationsTicketsComposeCreateBody = () => zod.object({
             "ID of the support email channel to send from. Omit it to send from the team's default support channel."
         ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
-    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project.'
+        ),
     tags: zod
         .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
         .max(conversationsTicketsComposeCreateBodyTagsMax)

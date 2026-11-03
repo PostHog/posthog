@@ -26537,7 +26537,7 @@ export namespace Schemas {
          * @maxLength 5000
          */
       message: string;
-      /** TipTap rich content JSON for formatted messages. */
+      /** TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project. */
       rich_content?: unknown;
       /**
          * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.
@@ -87228,7 +87228,7 @@ export namespace Schemas {
          * @maxLength 5000
          */
       message?: string;
-      /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+      /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project. */
       rich_content?: unknown;
     }
 
@@ -110962,7 +110962,7 @@ export namespace Schemas {
          * @maxLength 5000
          */
       message: string;
-      /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+      /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project. */
       rich_content?: unknown;
     }
 
@@ -110977,7 +110977,7 @@ export namespace Schemas {
       message: string;
       /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
       is_private?: boolean;
-      /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Use the url of an image uploaded to this project. */
+      /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400. */
       rich_content?: unknown;
     }
 
@@ -111860,7 +111860,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Library to add this image to once uploaded, e.g. 'email'.
+         * Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.
          * @maxLength 100
          */
       purpose: string;
@@ -132768,13 +132768,12 @@ export namespace Schemas {
 
     export const UploadedMediaListPurpose = {
       Canvas: 'canvas',
-      Conversations: 'conversations',
       Email: 'email',
       Experiment: 'experiment',
     } as const;
 
     /**
-     * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+     * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.
      */
     export type UploadedMediaCreateBodyPurpose = typeof UploadedMediaCreateBodyPurpose[keyof typeof UploadedMediaCreateBodyPurpose];
 
@@ -132789,7 +132788,7 @@ export namespace Schemas {
     export type UploadedMediaCreateBody = {
       /** Image file. Must be under 4MB and a real, decodable image. */
       image: Blob;
-      /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+      /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists. */
       purpose?: UploadedMediaCreateBodyPurpose;
     };
 

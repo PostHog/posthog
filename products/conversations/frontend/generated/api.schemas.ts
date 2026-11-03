@@ -707,7 +707,7 @@ export interface TicketNoteCreateRequestApi {
      * @maxLength 5000
      */
     message: string
-    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+    /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
 }
 
@@ -720,7 +720,7 @@ export interface PatchedTicketNoteUpdateRequestApi {
      * @maxLength 5000
      */
     message?: string
-    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. */
+    /** Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
 }
 
@@ -735,7 +735,7 @@ export interface TicketReplyRequestApi {
     message: string
     /** If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel. */
     is_private?: boolean
-    /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Use the url of an image uploaded to this project. */
+    /** Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {"type": "image", "attrs": {"src": <url>, "alt": <text>}} to the "doc" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400. */
     rich_content?: unknown
 }
 
@@ -842,7 +842,7 @@ export interface ComposeTicketApi {
      * @maxLength 5000
      */
     message: string
-    /** TipTap rich content JSON for formatted messages. */
+    /** TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project. */
     rich_content?: unknown
     /**
      * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.

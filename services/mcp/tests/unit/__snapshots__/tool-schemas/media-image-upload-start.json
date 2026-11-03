@@ -7,7 +7,7 @@
             "type": "string"
         },
         "purpose": {
-            "description": "Library to add this image to once uploaded, e.g. 'email'.",
+            "description": "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.",
             "maxLength": 100,
             "type": "string"
         }

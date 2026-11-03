@@ -2897,7 +2897,7 @@ export const getUploadedMediaCompleteUploadCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const uploadedMediaCompleteUploadCreate = async (
     projectId: string,

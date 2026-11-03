@@ -16,7 +16,7 @@
             "type": "string"
         },
         "rich_content": {
-            "description": "Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Use the url of an image uploaded to this project."
+            "description": "Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400."
         }
     },
     "required": ["id", "message"],

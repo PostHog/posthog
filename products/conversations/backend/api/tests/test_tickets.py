@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 from posthog.test.persons import create_person
@@ -3238,6 +3239,27 @@ class TestTicketReplyAPI(APIBaseTest):
         response = self.client.post(self.url, {"message": "Hi", "rich_content": rich}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["rich_content"] == rich
+
+    @parameterized.expand(
+        [
+            ("own_team_upload", "own", status.HTTP_201_CREATED),
+            ("other_team_upload", "other_team", status.HTTP_400_BAD_REQUEST),
+            ("external_url", "https://attacker.example.com/pixel.png", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_reply_rich_content_image_must_be_own_team_upload(self, mock_on_commit, _name, source, expected_status):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        own_media = UploadedMedia.objects.create(team=self.team, file_name="own.png", content_type="image/png")
+        other_media = UploadedMedia.objects.create(team=other_team, file_name="other.png", content_type="image/png")
+        src = {"own": own_media.get_absolute_url(), "other_team": other_media.get_absolute_url()}.get(source, source)
+        rich = {"type": "doc", "content": [{"type": "image", "attrs": {"src": src, "alt": "screenshot"}}]}
+
+        response = self.client.post(self.url, {"message": "See image", "rich_content": rich}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "rich_content"
+            assert not Comment.objects.filter(item_id=str(self.ticket.id)).exists()
 
     @parameterized.expand(
         [
