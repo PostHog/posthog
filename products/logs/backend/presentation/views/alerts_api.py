@@ -49,10 +49,10 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import (
-    history_by_legacy_id,
+    history_by_public_id,
     recent_destination_sends,
     reset_broken,
-    runtime_by_legacy_id,
+    runtime_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -241,7 +241,7 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
+    return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
 def _platform_history_of(
@@ -253,9 +253,9 @@ def _platform_history_of(
     if not owned:
         return {}
     try:
-        return history_by_legacy_id(
+        return history_by_public_id(
             team_id=owned[0].team_id,
-            legacy_configuration_ids=[alert.id for alert in owned],
+            public_ids=[alert.id for alert in owned],
             since=window[0],
             until=window[1],
         )
@@ -1621,9 +1621,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if alert.platform_owned:
                 # The platform skips a broken alert, so the reset has to reach its copy. Its state
                 # decides, because the logs row stops moving once the shadow ends.
-                platform_failures = reset_broken(
-                    team_id=alert.team_id, legacy_configuration_id=alert.id, at=timezone.now()
-                )
+                platform_failures = reset_broken(team_id=alert.team_id, public_id=alert.id, at=timezone.now())
                 if platform_failures is None:
                     raise ValidationError({"state": "Only broken alerts can be reset."})
                 previous_failures = platform_failures

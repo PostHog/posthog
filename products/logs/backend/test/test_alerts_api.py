@@ -3619,7 +3619,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
+            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
             side_effect=Exception("ClickHouse is down"),
         ):
             [row] = self._rows("list")
