@@ -178,6 +178,22 @@ describe('TraceDrawerHost', () => {
         }
     )
 
+    it('steps with n and p, but not while typing in the trace search', async () => {
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A))
+        const view = renderHost([ROW_A, ROW_B])
+        await view.findAllByText('answer-a')
+
+        fireEvent.keyDown(attr(view.container, 'trace-view-search-input'), { key: 'n' })
+        expect(router.values.searchParams.trace).toBe('a')
+
+        fireEvent.keyDown(document.body, { key: 'n' })
+        await waitFor(() => expect(router.values.searchParams.trace).toBe('b'))
+
+        fireEvent.keyDown(document.body, { key: 'p' })
+        await waitFor(() => expect(router.values.searchParams.trace).toBe('a'))
+    })
+
     it('reads no node when it closes on a step other than the default', async () => {
         useTraceMocks(answerTrace('a'))
         setUp(combineUrl(LIST_PATH, { trace: 'a', ts: ROW_A.timestamp ?? undefined, step: 'span-1' }).url)
