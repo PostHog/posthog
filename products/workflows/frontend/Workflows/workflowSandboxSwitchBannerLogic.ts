@@ -10,11 +10,11 @@ import { selectedSenderIds } from 'scenes/hog-functions/email-templater/selectSe
 
 import { AccessControlLevel, AccessControlResourceType, IntegrationType } from '~/types'
 
-import { isEmailAction } from './hogflows/steps/types'
-import { HogFlow, HogFlowAction } from './hogflows/types'
+import { EmailAction, isEmailAction } from './hogflows/steps/types'
+import { HogFlow } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
-export type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
+type EmailStep = EmailAction
 
 const usesSender = (step: EmailStep, senderId: number): boolean =>
     selectedSenderIds(step.config.inputs?.email?.value?.from).includes(senderId)
@@ -75,70 +75,7 @@ export interface workflowSandboxSwitchBannerLogicMeta {
         ) => string | null
         verifiedOwnSenders: (ownEmailIntegrations: IntegrationType[]) => IntegrationType[]
         sandboxEmailSteps: (workflow: HogFlow, sandboxEmailSender: IntegrationType | null) => EmailStep[]
-        bannerVisible: (
-            sandboxEmailSteps: ({
-                config: {
-                    inputs: Record<
-                        string,
-                        {
-                            bytecode?: any
-                            order?: number | undefined
-                            secret?: boolean | undefined
-                            templating?: 'hog' | 'liquid' | undefined
-                            value: any
-                        }
-                    >
-                    message_category_id?: string | undefined
-                    message_category_type?: 'marketing' | 'transactional' | undefined
-                    template_id: 'template-email'
-                    template_uuid?: string | undefined
-                    tracking_enabled?: boolean | undefined
-                    utm_params?:
-                        | {
-                              utm_campaign?: string | undefined
-                              utm_content?: string | undefined
-                              utm_medium?: string | undefined
-                              utm_source?: string | undefined
-                          }
-                        | undefined
-                    utm_params_from_default?:
-                        | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
-                        | undefined
-                    utm_tags_enabled?: boolean | undefined
-                }
-                created_at?: number | undefined
-                description: string
-                filters?:
-                    | {
-                          actions?: any[] | undefined
-                          events?: any[] | undefined
-                          properties?: any[] | undefined
-                      }
-                    | null
-                    | undefined
-                id: string
-                name: string
-                on_error?: 'abort' | 'continue' | null | undefined
-                output_variable?:
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }
-                    | {
-                          key: string
-                          label?: string | null | undefined
-                          result_path?: string | null | undefined
-                          spread?: boolean | null | undefined
-                      }[]
-                    | null
-                    | undefined
-                type: 'function_email'
-                updated_at?: number | undefined
-            } & Record<string, unknown>)[],
-            verifiedOwnSenders: IntegrationType[]
-        ) => boolean
+        bannerVisible: (sandboxEmailSteps: EmailAction[], verifiedOwnSenders: IntegrationType[]) => boolean
     }
 }
 
