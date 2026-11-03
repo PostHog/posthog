@@ -17,13 +17,19 @@ import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import type { DecodedAttachment } from '../hogflows/transactional-email'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import {
+    EMAIL_ATTACHMENTS_MISSING,
+    EmailAttachmentsMissingError,
+    EmailAttachmentsService,
+} from './email-attachments.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -428,7 +434,8 @@ export class EmailService {
         private emailStatusService: EmailStatusService | null,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private emailAttachmentsService: EmailAttachmentsService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -444,6 +451,20 @@ export class EmailService {
     public async executeSendEmail(
         invocation: CyclotronJobInvocationHogFunction,
         isTest = false
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const result = await this.sendEmailOnce(invocation, isTest)
+        // The rows stay while the job reschedules for a rate limit or a provider throttle, because the
+        // retry needs them. Every other outcome is final, and nothing reads the rows again.
+        const attachments = invocation.queueParameters?.type === 'email' ? invocation.queueParameters.attachments : []
+        if (attachments?.length && result.finished) {
+            await this.emailAttachmentsService?.delete(invocation.id)
+        }
+        return result
+    }
+
+    private async sendEmailOnce(
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest: boolean
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'email') {
             throw new Error('Invocation passed to sendEmail is not an email function')
@@ -473,6 +494,7 @@ export class EmailService {
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let failureReason: EmailStatusReason = 'provider_error'
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -741,12 +763,16 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
 
+            // Loaded last, after every gate that can skip or delay the send, and kept out of `params`,
+            // which a reschedule writes back into the job state.
+            const files = await this.loadAttachments(invocation.id, params.attachments)
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
+                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
                     break
 
                 case 'unsupported':
@@ -775,6 +801,9 @@ export class EmailService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {
+                if (error instanceof EmailAttachmentsMissingError) {
+                    failureReason = EMAIL_ATTACHMENTS_MISSING
+                }
                 addLog('error', error.message)
                 result.error = error.message
                 result.emailSendResult = { status: 'failed', reason: error.message }
@@ -831,7 +860,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? undefined : 'provider_error',
+                    reason: success ? undefined : failureReason,
                 })
             }
         }
@@ -1128,13 +1157,27 @@ export class EmailService {
         return overrideEmail
     }
 
+    private async loadAttachments(
+        jobId: string,
+        expected: CyclotronInvocationQueueParametersEmailType['attachments']
+    ): Promise<DecodedAttachment[]> {
+        if (!expected?.length) {
+            return []
+        }
+        if (!this.emailAttachmentsService) {
+            throw new EmailAttachmentsMissingError()
+        }
+        return await this.emailAttachmentsService.load(jobId, expected)
+    }
+
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
-        isTest = false
+        isTest = false,
+        files: DecodedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
@@ -1165,6 +1208,15 @@ export class EmailService {
         if (replyToAddresses) {
             mailOptions.replyTo = replyToAddresses
         }
+        if (files.length) {
+            mailOptions.attachments = files.map((file) => ({
+                filename: file.filename,
+                content: file.content,
+                contentType: file.contentType,
+                cid: file.contentId,
+                contentDisposition: file.contentId ? 'inline' : 'attachment',
+            }))
+        }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
 
@@ -1181,7 +1233,8 @@ export class EmailService {
         from: { email: string; name: string },
         trackingEnabled: boolean,
         isTest = false,
-        queueWait?: EmailQueueWait
+        queueWait?: EmailQueueWait,
+        files: DecodedAttachment[] = []
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -1281,6 +1334,16 @@ export class EmailService {
                   )
                 : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            if (files.length) {
+                sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
+                    RawContent: file.content,
+                    FileName: file.filename,
+                    ContentType: file.contentType,
+                    ContentId: file.contentId,
+                    // A file with a content id is an image the html shows through `cid:`.
+                    ContentDisposition: file.contentId ? 'INLINE' : 'ATTACHMENT',
+                }))
+            }
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)

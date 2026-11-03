@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
+import { Pool } from 'pg'
 import { register } from 'prom-client'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
@@ -11,6 +12,7 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
+import { attachmentMetadata, decodeAttachments } from '~/cdp/services/hogflows/transactional-email'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -26,6 +28,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { EmailAttachmentsService } from './email-attachments.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -1208,6 +1211,116 @@ describe('EmailService', () => {
                 EmailTags: expectedTags,
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
+            })
+        })
+
+        describe('attachments', () => {
+            let attachments: EmailAttachmentsService
+            let assertPool: Pool
+            const files = decodeAttachments({
+                tracking: { captureEngagement: false },
+                attachments: [
+                    {
+                        filename: 'report.pdf',
+                        content: Buffer.from('%PDF-1.4 report').toString('base64'),
+                        contentType: 'application/pdf',
+                    },
+                    {
+                        filename: 'logo.png',
+                        content: Buffer.from('png bytes').toString('base64'),
+                        contentType: 'image/png',
+                        contentId: 'logo',
+                    },
+                ],
+            })
+            const storedRows = async (): Promise<number> =>
+                (
+                    await assertPool.query('SELECT id FROM cyclotron_email_attachments WHERE job_id = $1', [
+                        invocation.id,
+                    ])
+                ).rowCount ?? 0
+
+            beforeEach(() => {
+                attachments = new EmailAttachmentsService(hub.CYCLOTRON_NODE_DATABASE_URL)
+                service['emailAttachmentsService'] = attachments
+                assertPool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                invocation.id = new UUIDT().toString()
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    attachments: attachmentMetadata(files),
+                })
+            })
+
+            afterEach(async () => {
+                await attachments.stop()
+                await assertPool.end()
+            })
+
+            it.each([
+                [
+                    'delivers the files and deletes their rows once SES accepts the email',
+                    () => sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' }),
+                    true,
+                    0,
+                ],
+                [
+                    'keeps the rows for the retry when SES throttles the send',
+                    () =>
+                        sendEmailSpy.mockRejectedValueOnce(
+                            new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                        ),
+                    false,
+                    2,
+                ],
+            ])('%s', async (_name, ses, finished, rowsLeft) => {
+                ses()
+                await attachments.store(invocation.id, team.id, files)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(finished)
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Attachments).toEqual([
+                    {
+                        RawContent: Buffer.from('%PDF-1.4 report'),
+                        FileName: 'report.pdf',
+                        ContentType: 'application/pdf',
+                        ContentId: undefined,
+                        ContentDisposition: 'ATTACHMENT',
+                    },
+                    {
+                        RawContent: Buffer.from('png bytes'),
+                        FileName: 'logo.png',
+                        ContentType: 'image/png',
+                        ContentId: 'logo',
+                        ContentDisposition: 'INLINE',
+                    },
+                ])
+                expect(await storedRows()).toBe(rowsLeft)
+            })
+
+            it.each([
+                ['no row is stored', async () => {}],
+                [
+                    'a stored file does not match its checksum',
+                    async () => {
+                        await attachments.store(invocation.id, team.id, files)
+                        await assertPool.query(
+                            `UPDATE cyclotron_email_attachments SET content = 'other bytes' WHERE job_id = $1 AND position = 1`,
+                            [invocation.id]
+                        )
+                    },
+                ],
+            ])('fails the send as attachments_missing and sends nothing when %s', async (_name, arrange) => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                await arrange()
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/^attachments_missing: /)
+                expect(await storedRows()).toBe(0)
             })
         })
 

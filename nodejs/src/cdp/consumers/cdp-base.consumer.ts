@@ -26,6 +26,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { EmailAttachmentsService } from '../services/messaging/email-attachments.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
@@ -72,6 +73,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     emailService: EmailService
+    emailAttachmentsService: EmailAttachmentsService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     cdpUsageReporter: CdpUsageReporterService
     invocationResultsService: InvocationResultsService
@@ -104,6 +106,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
+        this.emailAttachmentsService = services.emailAttachmentsService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.cdpUsageReporter = services.cdpUsageReporter
         this.invocationResultsService = services.invocationResultsService
@@ -152,6 +155,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         // Release the per-consumer conversion-watcher pool created in createCdpCoreServices, so
         // graceful shutdown frees its cyclotron connections like the other cyclotron pools do.
         await this.invocationResultsService.stop()
+        await this.emailAttachmentsService.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

@@ -11,14 +11,14 @@ import {
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import type { PreferencesTokenSource } from '../messaging/recipient-tokens.service'
-import { AcceptedSend } from './transactional-email'
+import { QueuedSend } from './transactional-email'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
 
 const layAcceptedSendOver = (
     globals: HogFunctionInvocationGlobalsWithInputs,
-    send: AcceptedSend
+    send: QueuedSend
 ): HogFunctionInvocationGlobalsWithInputs => ({
     ...globals,
     inputs: {
@@ -35,6 +35,7 @@ const layAcceptedSendOver = (
             ...(send.replyTo && { replyTo: send.replyTo.join(', ') }),
             ...(send.cc && { cc: send.cc.join(', ') }),
             ...(send.bcc && { bcc: send.bcc.join(', ') }),
+            ...(send.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
         },
     },
 })
@@ -127,7 +128,7 @@ export class HogFlowFunctionsService {
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
         globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>,
-        send?: AcceptedSend
+        send?: QueuedSend
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -174,7 +175,7 @@ export class HogFlowFunctionsService {
     private async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        send: AcceptedSend | undefined,
+        send: QueuedSend | undefined,
         preferencesTokenSource: PreferencesTokenSource
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         const rendered = await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(

@@ -1,10 +1,109 @@
+import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
+
+import { EmailAttachmentMetadata, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
 
 // The contract caps each copy list at 10 addresses. Every address also uses one unit of the sending cap.
 export const MAX_COPY_RECIPIENTS = 10
 
 const CopyRecipientsSchema = z.array(z.string().email()).max(MAX_COPY_RECIPIENTS).readonly().optional()
+
+export const MAX_EMAIL_ATTACHMENTS_BYTES = 512 * 1024
+
+// File types that mailbox providers refuse or quarantine. These are the executable and script types
+// that both Gmail's blocked file types and Amazon SES's unsupported attachment types name, so a send
+// with one of them fails at the provider or never reaches the inbox.
+const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
+    'ade',
+    'adp',
+    'bat',
+    'chm',
+    'cmd',
+    'com',
+    'cpl',
+    'exe',
+    'hta',
+    'ins',
+    'isp',
+    'jar',
+    'js',
+    'jse',
+    'lib',
+    'lnk',
+    'mde',
+    'msc',
+    'msi',
+    'msp',
+    'mst',
+    'pif',
+    'ps1',
+    'scr',
+    'sct',
+    'shb',
+    'sys',
+    'vb',
+    'vbe',
+    'vbs',
+    'vxd',
+    'wsc',
+    'wsf',
+    'wsh',
+])
+
+const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+// A bare type/subtype, the token characters of RFC 6838. Parameters such as a charset are refused.
+const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
+const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
+
+const base64DecodedBytes = (content: string): number =>
+    (content.length / 4) * 3 - (content.endsWith('==') ? 2 : content.endsWith('=') ? 1 : 0)
+
+// The messages name the rule only. Zod puts them in the 400 body and the logs, so they must never
+// repeat a value from the request.
+const AttachmentSchema = z
+    .object({
+        filename: z
+            .string()
+            .min(1)
+            .max(255)
+            .refine((name) => !/[\\/]/.test(name) && !CONTROL_CHARACTER_RE.test(name), {
+                message: 'filename must not contain a path separator or a line break',
+            })
+            .refine(
+                (name) => {
+                    const dot = name.lastIndexOf('.')
+                    return dot < 0 || !BLOCKED_ATTACHMENT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())
+                },
+                { message: 'mailbox providers block this file type' }
+            ),
+        content: z
+            .string()
+            .min(1, { message: 'content must not be empty' })
+            .refine((content) => BASE64_RE.test(content), { message: 'content must be base64' }),
+        contentType: z.string().regex(MIME_TYPE_RE, { message: 'contentType must be a MIME type' }).optional(),
+        contentId: z
+            .string()
+            .min(1)
+            .max(255)
+            .refine((id) => !/[<>]/.test(id) && !CONTROL_CHARACTER_RE.test(id), {
+                message: 'contentId must not contain < or > or a line break',
+            })
+            .optional(),
+    })
+    .strict()
+    .readonly()
+
+const AttachmentsSchema = z
+    .array(AttachmentSchema)
+    .max(MAX_EMAIL_ATTACHMENTS)
+    .refine(
+        (files) =>
+            files.reduce((total, file) => total + base64DecodedBytes(file.content), 0) <= MAX_EMAIL_ATTACHMENTS_BYTES,
+        { message: 'attachments must be 512 KB or less in total' }
+    )
+    .readonly()
+    .optional()
 
 export const AcceptedSendSchema = z
     .object({
@@ -28,6 +127,7 @@ export const AcceptedSendSchema = z
         replyTo: z.array(z.string()).readonly().optional(),
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
+        attachments: AttachmentsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
     })
     // A field this version does not know is refused, so a newer caller never loses one without notice.
@@ -35,6 +135,33 @@ export const AcceptedSendSchema = z
     .readonly()
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
+
+export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
+
+export type DecodedAttachment = EmailAttachmentMetadata & { content: Buffer }
+
+export const decodeAttachments = (send: AcceptedSend | undefined): DecodedAttachment[] =>
+    (send?.attachments ?? []).map(({ filename, content, contentType, contentId }) => {
+        const bytes = Buffer.from(content, 'base64')
+        return {
+            filename,
+            ...(contentType !== undefined && { contentType }),
+            ...(contentId !== undefined && { contentId }),
+            sizeBytes: bytes.length,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            content: bytes,
+        }
+    })
+
+export const attachmentMetadata = (files: DecodedAttachment[]): EmailAttachmentMetadata[] =>
+    files.map(({ content: _content, ...metadata }) => metadata)
+
+// The send without its file bytes. The idempotency fingerprint and the queued run both use it, so the
+// same key with other files is a reuse, and no snapshot of the run holds a file.
+export const queuedSend = (send: AcceptedSend, files: DecodedAttachment[]): QueuedSend => {
+    const { attachments, ...rest } = send
+    return attachments === undefined ? rest : { ...rest, attachments: attachmentMetadata(files) }
+}
 
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
@@ -94,6 +221,7 @@ export const TRANSACTIONAL_EMAIL_STAGES = [
     'build',
     'idempotency',
     'checks',
+    'files',
     'queue_insert',
     'metrics_flush',
 ] as const
@@ -101,7 +229,7 @@ export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), files (the attachment rows written to the Cyclotron database), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
     labelNames: ['stage'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })
