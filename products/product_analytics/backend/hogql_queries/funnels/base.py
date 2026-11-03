@@ -39,6 +39,10 @@ from products.product_analytics.backend.hogql_queries.funnels.utils import (
 
 JOIN_ALGOS = "auto"
 
+# One device's clock over one day rarely produces more events than this. A larger anchor group is
+# usually an automated client or an ID that several devices share, where one anchor misorders events.
+MAX_EVENTS_PER_CAPTURE_ANCHOR = 10_000
+
 MISSING_FUNNEL_STEP_MESSAGE = (
     "funnelStep is required for a funnel actors query in steps mode. "
     "Set it to a positive step number to get persons who completed that step, for example 1 for the first step. "
@@ -52,6 +56,74 @@ class FunnelBase(ABC):
 
     _extra_event_fields: list[ColumnName]
     _extra_event_properties: list[PropertyName]
+
+    def _with_capture_order_key(self, inner_event_query: ast.Expr) -> ast.Expr:
+        """Add `capture_order_key`, the instant each event was captured, made comparable across devices.
+
+        `$client_capture_time` is the device's own clock reading, written by capture. It carries
+        that device's clock error rather than the request's delivery delay, so it orders one
+        device's events correctly but is not comparable between two devices whose clocks differ.
+        Anchoring each group (see `capture_group`) on the smallest offset it was seen with cancels
+        the clock error and leaves the group's floor latency, which is comparable.
+
+        A group keeps the stored timestamp when any of its events lacks the capture instant,
+        because correcting only some events can reorder a pair the stored timestamp had right, and
+        when it holds more than `MAX_EVENTS_PER_CAPTURE_ANCHOR` events. A row outside every group
+        keeps the stored timestamp. The group key is a hash rather than the string it names, because
+        the window sort carries the key on every event row.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return inner_event_query
+
+        return parse_select(
+            """
+            SELECT
+                *,
+                if(
+                    capture_group != 0
+                    AND group_rows_with_capture = group_rows
+                    AND group_rows <= {max_group_rows},
+                    (capture_ms + group_offset_ms) / 1000,
+                    stored_ms / 1000
+                ) AS capture_order_key
+            FROM (
+                SELECT
+                    *,
+                    min(stored_ms - capture_ms) OVER capture_window AS group_offset_ms,
+                    count(capture_ms) OVER capture_window AS group_rows_with_capture,
+                    count() OVER capture_window AS group_rows
+                FROM (
+                    SELECT
+                        *,
+                        toUnixTimestamp64Milli(client_capture_time) AS capture_ms,
+                        toUnixTimestamp64Milli(toDateTime64(timestamp, 3)) AS stored_ms
+                    FROM {inner_event_query}
+                )
+                WINDOW capture_window AS (PARTITION BY aggregation_target, capture_group)
+            )
+            """,
+            {
+                "inner_event_query": inner_event_query,
+                "max_group_rows": ast.Constant(value=MAX_EVENTS_PER_CAPTURE_ANCHOR),
+            },
+        )
+
+    def step_order_key(self) -> str:
+        """The expression funnel steps are ordered by.
+
+        The stored timestamp is the capture instant plus that request's delivery latency, so two
+        requests from one device order by how long each took to arrive rather than by when the
+        events happened. `$client_capture_time` is the device's own clock reading at capture, which
+        has the device's clock error in it instead; that error is constant within a device, so it
+        cannot reorder that device's own events.
+
+        Anchoring each group on the smallest offset it was seen with cancels the clock error and
+        leaves the group's floor latency, which orders correctly within a group and stays
+        comparable across the groups of one actor.
+        """
+        if not self.context.modifiers.funnelUseClientCaptureOrder:
+            return "toFloat(timestamp)"
+        return "toFloat(capture_order_key)"
 
     def __init__(self, context: FunnelQueryContext):
         self.context = context
