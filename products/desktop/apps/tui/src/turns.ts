@@ -47,16 +47,38 @@ export interface TurnFacts {
   wake: boolean;
 }
 
-export function turnFacts(
+// A log's reading, kept per entries array: a log is replaced on every update, never changed in place, so an
+// unchanged one is never read twice. The transcript is rebuilt from the whole log, which costs a frame when long.
+const readings = new WeakMap<
+  object,
+  { runtime: AgentRuntime | undefined; turnOpen: boolean; facts: TurnFacts }
+>();
+
+// Whether a chat is mid-turn, and its last turn's facts. The facts are null while a turn runs: only a settled turn
+// has an end to report, so a streaming chat adds nothing to the inbox's cost.
+export function readTurn(
   view: RunView,
   runtime: AgentRuntime | undefined,
-): TurnFacts {
-  const transcript = transcriptFrom(runtime, view.entries);
-  return {
-    turnEndedAt: transcript.lastTurn?.endedAt ?? null,
-    shells: transcript.shells,
-    wake: transcript.wake !== null,
-  };
+): { working: boolean; facts: TurnFacts | null } {
+  if (!view.loaded) return { working: false, facts: null };
+  let reading = readings.get(view.entries);
+  if (!reading || reading.runtime !== runtime) {
+    const transcript = transcriptFrom(runtime, view.entries);
+    reading = {
+      runtime,
+      turnOpen: transcript.turnOpen,
+      facts: {
+        turnEndedAt: transcript.lastTurn?.endedAt ?? null,
+        shells: transcript.shells,
+        wake: transcript.wake !== null,
+      },
+    };
+    readings.set(view.entries, reading);
+  }
+  const working =
+    (view.status === "queued" || view.status === "in_progress") &&
+    reading.turnOpen;
+  return { working, facts: working ? null : reading.facts };
 }
 
 // The run is up and has a prompt it has not finished answering.
@@ -64,9 +86,5 @@ export function midTurn(
   view: RunView,
   runtime: AgentRuntime | undefined,
 ): boolean {
-  return (
-    view.loaded &&
-    (view.status === "queued" || view.status === "in_progress") &&
-    transcriptFrom(runtime, view.entries).turnOpen
-  );
+  return readTurn(view, runtime).working;
 }

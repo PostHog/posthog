@@ -11,9 +11,9 @@ import type { CloudRuns, RunView } from "../runs";
 import {
   midTurn,
   noTurns,
+  readTurn,
   settle,
   type TurnFacts,
-  turnFacts,
   visit,
 } from "../turns";
 
@@ -168,13 +168,13 @@ export function useTurns({
       readListed();
       const read = new Map<string, TurnFacts>();
       for (const [taskId, { view, runtime }] of unread.current) {
+        const reading = readTurn(view, runtime);
         // A message still on its way keeps the turn open whatever the log says so far.
-        const working =
-          midTurn(view, runtime) || wasPending.current.has(taskId);
+        const working = reading.working || wasPending.current.has(taskId);
         setTurns((state) =>
           settle(state, taskId, working, taskId === focused.current),
         );
-        if (view.loaded) read.set(taskId, turnFacts(view, runtime));
+        if (reading.facts) read.set(taskId, reading.facts);
       }
       unread.current.clear();
       if (read.size > 0)

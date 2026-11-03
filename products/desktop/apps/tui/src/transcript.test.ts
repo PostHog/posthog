@@ -1,5 +1,6 @@
 import type { StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
+import { emptyRunView, type RunView } from "./runs";
 import {
   activityOf,
   type ToolLine,
@@ -9,6 +10,7 @@ import {
   withPending,
   withPendingShells,
 } from "./transcript";
+import { readTurn } from "./turns";
 
 const at = (second: number): string =>
   new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
@@ -537,6 +539,23 @@ describe("transcriptFrom last turn", () => {
       stopReason: "stop",
     });
     expect(transcriptFrom("pi", PI_LOG.slice(0, -1)).lastTurn).toBeNull();
+  });
+
+  it("reports a settled turn's end to the inbox, and nothing while the turn runs", () => {
+    const view = (entries: StoredLogEntry[]): RunView => ({
+      ...emptyRunView,
+      loaded: true,
+      status: "in_progress",
+      entries,
+    });
+    expect(readTurn(view(PI_LOG), "pi")).toEqual({
+      working: false,
+      facts: { turnEndedAt: 6000, shells: 0, wake: false },
+    });
+    expect(readTurn(view(PI_LOG.slice(0, -1)), "pi")).toEqual({
+      working: true,
+      facts: null,
+    });
   });
 
   it("reports the wake-up the agent scheduled at the end of the turn", () => {
