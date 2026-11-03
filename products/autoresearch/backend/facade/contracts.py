@@ -72,6 +72,14 @@ class ArtifactStorageUnavailable(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ActionTarget:
+    id: int
+    name: str
+    team_id: int
+    created_by_id: int | None
+
+
+@dataclass(frozen=True)
 class TrainingTrendPoint:
     iteration_number: int
     best_holdout_score: float

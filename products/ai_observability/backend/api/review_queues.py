@@ -183,6 +183,20 @@ class BaseReviewQueueItemWriteSerializer(serializers.Serializer):
         queue = ReviewQueue.objects.filter(team=team, pk=queue_id, deleted=False).first()
         if not queue:
             raise serializers.ValidationError({"queue_id": "Review queue not found."})
+        instance = cast(ReviewQueueItem | None, self.instance)
+        if (
+            (instance is None or instance.queue_id != queue.id)
+            and isinstance(self.context["request"].user, User)
+            and self.context["view"].user_access_control.denied_object_ids(
+                "llm_analytics", [(str(queue.id), queue.team_id, queue.created_by_id)], "editor"
+            )
+        ):
+            raise serializers.ValidationError(
+                {
+                    "queue_id": "You need editor access to this review queue to add traces to it. "
+                    "Ask for access or pick another queue."
+                }
+            )
         return queue
 
     def validate_queue_id(self, value: str) -> str:

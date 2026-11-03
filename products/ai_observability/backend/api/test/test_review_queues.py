@@ -1,9 +1,13 @@
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import serializers, status
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.review_queues import ReviewQueueItemCreateSerializer
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
@@ -107,7 +111,11 @@ class TestReviewQueuesApi(APIBaseTest):
         queue = self._create_queue()
         serializer = ReviewQueueItemCreateSerializer(
             data={"queue_id": str(queue.id), "trace_id": "trace_reviewed"},
-            context={"request": SimpleNamespace(user=self.user), "team": self.team},
+            context={
+                "request": SimpleNamespace(user=self.user),
+                "team": self.team,
+                "view": SimpleNamespace(user_access_control=UserAccessControl(user=self.user, team=self.team)),
+            },
         )
 
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -270,3 +278,35 @@ class TestReviewQueuesApi(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("add", None, status.HTTP_400_BAD_REQUEST),
+            ("move_in", "Source queue", status.HTTP_400_BAD_REQUEST),
+            ("stay", "Restricted queue", status.HTTP_200_OK),
+        ]
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_queueing_a_trace_needs_editor_access_to_the_queue(
+        self, _name: str, current_queue: str | None, expected_status: int
+    ) -> None:
+        queues = {name: self._create_queue(name=name) for name in ("Source queue", "Restricted queue")}
+        restricted = queues["Restricted queue"]
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", resource_id=str(restricted.id), access_level="viewer"
+        )
+        self.client.force_login(self._create_user("member@example.com"))
+
+        if current_queue is None:
+            response = self.client.post(
+                self._queue_items_endpoint(), {"queue_id": str(restricted.id), "trace_id": "trace_new"}, format="json"
+            )
+        else:
+            item = self._create_queue_item(queue=queues[current_queue], trace_id="trace_pending")
+            response = self.client.patch(
+                f"{self._queue_items_endpoint()}{item.id}/", {"queue_id": str(restricted.id)}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())

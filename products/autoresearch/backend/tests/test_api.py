@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
@@ -811,6 +812,40 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         with_action = self.create_personal_api_key_with_scopes([*scopes, "action:read"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {with_action}")
         assert self.client.post(f"{self.base_url}/{path}", body, format="json").status_code == ok_status
+
+    @parameterized.expand(
+        [
+            ("validate", "validate/", False, status.HTTP_400_BAD_REQUEST),
+            ("create", "", False, status.HTTP_400_BAD_REQUEST),
+            ("update_keeping_the_stored_action", "", True, status.HTTP_200_OK),
+        ]
+    )
+    @patch(
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_action_targets_need_viewer_access_to_the_action(
+        self, _name: str, path: str, stored: bool, expected_status: int, _mock: MagicMock
+    ):
+        action = Action.objects.create(
+            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}], created_by=self.user
+        )
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        body = {"name": "Action Pipeline", "target_definition": {"type": "action", "action_id": action.id}}
+        if stored:
+            created = self.client.post(f"{self.base_url}/", body, format="json")
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+        self.client.force_login(self._create_user("member@example.com"))
+
+        if stored:
+            resp = self.client.patch(f"{self.base_url}/{created.json()['id']}/", body, format="json")
+        else:
+            resp = self.client.post(f"{self.base_url}/{path}", body, format="json")
+
+        assert resp.status_code == expected_status, resp.json()
 
     @parameterized.expand(
         [

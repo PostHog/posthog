@@ -275,6 +275,23 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             .prefetch_related("versions")
             .distinct()
         }
+        instance = cast(TraceReview | None, self.instance)
+        stored_definition_ids = set(instance.scores.values_list("definition_id", flat=True)) if instance else set()
+        denied_definition_ids = (
+            set(
+                self.context["view"].user_access_control.denied_object_ids(
+                    "llm_analytics",
+                    [
+                        (str(definition.id), definition.team_id, definition.created_by_id)
+                        for definition in definition_lookup.values()
+                        if definition.id not in stored_definition_ids
+                    ],
+                    "viewer",
+                )
+            )
+            if isinstance(self.context["request"].user, User)
+            else set()
+        )
         version_lookup = {
             str(version.id): version
             for definition in definition_lookup.values()
@@ -290,6 +307,11 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
             if definition is None:
                 score_errors[index]["definition_id"] = "Unknown scorer definition."
+                continue
+            if definition_key in denied_definition_ids:
+                score_errors[index]["definition_id"] = (
+                    "You need viewer access to this scorer to use it. Ask for access or remove it from the review."
+                )
                 continue
 
             definition_version_id = score_payload.get("definition_version_id")
