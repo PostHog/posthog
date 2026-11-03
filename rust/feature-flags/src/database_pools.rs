@@ -48,7 +48,8 @@ impl DatabasePools {
         }
     }
 
-    /// A pool that is not built aliases another pool, or has no database URL.
+    /// Lists each pool with its configured statement timeout and whether the service creates it.
+    /// The service does not create a pool that aliases another pool or has no database URL.
     fn pool_statement_timeouts(config: &Config) -> [(&'static str, u64, bool); 5] {
         let routing = config.is_persons_db_routing_enabled();
         let writes = !*config.skip_writes;
@@ -183,22 +184,22 @@ impl DatabasePools {
 
         let listed = &config.pooler_statement_timeout_pools.0;
         if !listed.is_empty() {
-            let mut skip_set = Vec::new();
+            let mut pools_without_set = Vec::new();
             for (pool, _, built) in Self::pool_statement_timeouts(config) {
                 if !listed.contains(pool) {
                     continue;
                 }
                 if built {
-                    skip_set.push(pool);
+                    pools_without_set.push(pool);
                 } else {
                     tracing::warn!(
                         pool,
-                        "POOLER_STATEMENT_TIMEOUT_POOLS lists a pool that is not built, so the listing has no effect. An aliased pool uses the setting of the pool it aliases"
+                        "POOLER_STATEMENT_TIMEOUT_POOLS lists a pool that this service does not create, because it aliases another pool or has no database URL, so the listing has no effect. An aliased pool uses the setting of the pool it aliases"
                     );
                 }
             }
             info!(
-                pools = ?skip_set,
+                pools = ?pools_without_set,
                 "The pooler sets statement_timeout on these pools, so they send no SET"
             );
         }

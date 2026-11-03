@@ -77,7 +77,7 @@ Behind a PgBouncer pooler in transaction mode, that session `SET` lands on which
 The pooler sets the timeout itself with `connect_query`.
 List those pools in `POOLER_STATEMENT_TIMEOUT_POOLS`, and they send no `SET`.
 Their statement timeouts still count in the `REQUEST_TIMEOUT_MS` check, so keep each one equal to the pooler's value. For `behavioral_cohorts` that is the fixed 1000ms.
-An aliased pool uses the setting of the pool it aliases. At startup the service logs the pools that send no `SET`, and warns about a listed pool that is not built.
+An aliased pool uses the setting of the pool it aliases. At startup the service logs the pools that send no `SET`, and warns about a listed pool that the service does not create, because it aliases another pool or has no database URL.
 
 The same hook also increments the `db_connection_created_total` counter when `pool_name` is set, providing visibility into connection churn per pool.
 

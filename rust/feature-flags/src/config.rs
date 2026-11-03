@@ -1818,6 +1818,20 @@ mod tests {
     }
 
     #[test]
+    fn test_pooler_statement_timeout_pools_reads_env_var() {
+        let env = HashMap::from([(
+            "POOLER_STATEMENT_TIMEOUT_POOLS".to_string(),
+            "persons_reader".to_string(),
+        )]);
+        let config = Config::init_from_hashmap(&env).unwrap();
+
+        assert!(config
+            .pooler_statement_timeout_pools
+            .0
+            .contains(pool_names::PERSONS_READER));
+    }
+
+    #[test]
     fn test_pooler_statement_timeout_pools_rejects_unknown_pool() {
         let error = "persons_reader,persons_readr"
             .parse::<PoolerStatementTimeoutPools>()
