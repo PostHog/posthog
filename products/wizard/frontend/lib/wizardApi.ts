@@ -10,7 +10,7 @@ import type { WizardRunArtifactApi } from '../generated/api.schemas'
 export async function loadWizardOnboardingStartTime(projectId: string): Promise<string> {
     const startedAt = Date.now()
     try {
-        // The generated client returns only JSON; onboarding also needs the server clock.
+        // nosemgrep: prefer-codegen-api -- The generated client returns only JSON, and onboarding also needs the server clock from the Date header.
         const response = await api.getResponse(getWizardRunsListUrl(projectId, { limit: 1 }))
         const serverTime = Date.parse(response.headers.get('Date') ?? '')
         if (Number.isFinite(serverTime)) {
