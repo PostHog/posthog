@@ -17,8 +17,7 @@ export function EmailMetricsIncidentBanner({
 
     return (
         <LemonBanner type="warning">
-            Email metrics for Nov 3, 2026, 11:00-12:00 UTC are inaccurate because of an incident, so don't rely on
-            numbers from this hour.{' '}
+            Email metrics for Nov 3, 2026, 10:58-11:36 UTC are inflated because of an incident.{' '}
             <Link
                 to="https://www.posthogstatus.com/incidents/q6dk441s"
                 target="_blank"
