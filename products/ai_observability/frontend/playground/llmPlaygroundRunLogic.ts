@@ -24,7 +24,12 @@ import {
 } from './playgroundDecisions'
 import { isMessageSendable, toProviderMessages } from './playgroundMessageMapping'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
-import { extractVariablesFromTexts, getVariableValue, substituteVariables } from './playgroundTemplating'
+import {
+    extractVariablesFromTexts,
+    getVariableValue,
+    promptTemplateTexts,
+    substituteVariables,
+} from './playgroundTemplating'
 
 interface ToolCallChunk {
     id?: string
@@ -162,6 +167,56 @@ export interface ComparisonItem {
     latencyMs?: number | null
     /** Set for a System One run, with the questions as asked so the answers keep their labels after edits. */
     decision?: { questions: PlaygroundQuestion[]; result: PlaygroundDecisionResult } | null
+}
+
+function buildCompletionRequest(
+    prompt: PromptConfig,
+    model: string,
+    provider: string,
+    providerKeyId: string | null,
+    system: string,
+    messages: Message[]
+): Record<string, unknown> {
+    return {
+        system,
+        messages: toProviderMessages(messages),
+        model,
+        provider,
+        thinking: prompt.thinking,
+        ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
+        ...(prompt.tools ? { tools: prompt.tools } : {}),
+        ...(prompt.responseFormat ? { response_format: prompt.responseFormat } : {}),
+        ...(prompt.maxTokens !== null && prompt.maxTokens > 0 ? { max_tokens: prompt.maxTokens } : {}),
+        ...(typeof prompt.temperature === 'number' ? { temperature: prompt.temperature } : {}),
+        ...(typeof prompt.topP === 'number' ? { top_p: prompt.topP } : {}),
+        ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
+    }
+}
+
+/** Throws RateLimitError for a throttled request, so it reaches the same banner as a throttled stream. */
+async function requestDecision(
+    prompt: PromptConfig,
+    providerKeyId: string | null,
+    variableValues: Record<string, string>,
+    signal: AbortSignal
+): Promise<PlaygroundDecisionResult> {
+    const resolve = (text: string): string => substituteVariables(text, variableValues)
+    try {
+        // nosemgrep: prefer-codegen-api -- the llm_proxy routes sit on the root router, which the generated client does not cover.
+        return await api.create<PlaygroundDecisionResult>(
+            '/api/llm_proxy/decision/',
+            {
+                provider_key_id: providerKeyId,
+                state: resolve(prompt.decisionInput),
+                questions: toDecisionQuestionsPayload(prompt.decisionQuestions, resolve),
+            },
+            { signal }
+        )
+    } catch (err) {
+        const retryAfter =
+            err instanceof ApiError && err.status === 429 ? parseInt(err.headers?.get('Retry-After') ?? '', 10) : NaN
+        throw Number.isFinite(retryAfter) ? new RateLimitError(retryAfter) : err
+    }
 }
 
 /** Two connections can serve the same model id, so the selected key decides which entry the prompt means. */
@@ -372,13 +427,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             // Count only the prompts actually submitted; a skipped panel's variables are not sent,
             // so they belong in neither the warning nor the event.
             const runVariables = extractVariablesFromTexts(
-                runnablePrompts.flatMap(({ prompt, messagesToSend }) => [
-                    prompt.systemPrompt,
-                    prompt.decisionInput,
-                    ...prompt.decisionQuestions.map((question) => question.instructions),
-                    ...messagesToSend.map((m) => m.content),
-                    ...messagesToSend.flatMap((m) => m.toolCalls?.map((toolCall) => toolCall.arguments) ?? []),
-                ])
+                runnablePrompts.flatMap(({ prompt }) =>
+                    promptTemplateTexts(prompt, values.systemOnePromptIds.includes(prompt.id))
+                )
             )
             const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
 
@@ -533,23 +584,6 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             values.activeProviderKeyId
                         selectedModelProvider = normalizedProvider
 
-                        const requestData: Record<string, unknown> = {
-                            system: resolvedSystemPrompt,
-                            messages: toProviderMessages(resolvedMessages),
-                            model: selectedModel.id,
-                            provider: selectedModelProvider,
-                            thinking: prompt.thinking,
-                            ...(providerKeyId ? { provider_key_id: providerKeyId } : {}),
-                            ...(prompt.tools ? { tools: prompt.tools } : {}),
-                            ...(prompt.responseFormat ? { response_format: prompt.responseFormat } : {}),
-                            ...(prompt.maxTokens !== null && prompt.maxTokens > 0
-                                ? { max_tokens: prompt.maxTokens }
-                                : {}),
-                            ...(typeof prompt.temperature === 'number' ? { temperature: prompt.temperature } : {}),
-                            ...(typeof prompt.topP === 'number' ? { top_p: prompt.topP } : {}),
-                            ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
-                        }
-
                         if (normalizedProvider === 'system_one') {
                             const questionsError = decisionQuestionsDisabledReason(prompt.decisionQuestions)
                             if (questionsError) {
@@ -561,17 +595,11 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             }
                             const askedQuestions = prompt.decisionQuestions
                             try {
-                                // nosemgrep: prefer-codegen-api -- the llm_proxy routes sit on the root router, which the generated client does not cover.
-                                const result = await api.create<PlaygroundDecisionResult>(
-                                    '/api/llm_proxy/decision/',
-                                    {
-                                        provider_key_id: providerKeyId,
-                                        state: substituteVariables(prompt.decisionInput, values.variableValues),
-                                        questions: toDecisionQuestionsPayload(askedQuestions, (text) =>
-                                            substituteVariables(text, values.variableValues)
-                                        ),
-                                    },
-                                    { signal: abortController.signal }
+                                const result = await requestDecision(
+                                    prompt,
+                                    providerKeyId,
+                                    values.variableValues,
+                                    abortController.signal
                                 )
                                 decision = { questions: askedQuestions, result }
                                 responseUsage = {
@@ -581,20 +609,22 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                                 upsertLiveItem()
                             } catch (err) {
                                 if (!isAbandoned() && !abortController.signal.aborted) {
-                                    const retryAfter =
-                                        err instanceof ApiError && err.status === 429
-                                            ? parseInt(err.headers?.get('Retry-After') ?? '', 10)
-                                            : NaN
-                                    const error = Number.isFinite(retryAfter) ? new RateLimitError(retryAfter) : err
-                                    reportedStreamError = error
-                                    reportStreamError(error)
+                                    reportedStreamError = err
+                                    reportStreamError(err)
                                 }
                             }
                         } else {
                             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                             await api.stream('/api/llm_proxy/completion', {
                                 method: 'POST',
-                                data: requestData,
+                                data: buildCompletionRequest(
+                                    prompt,
+                                    selectedModel.id,
+                                    selectedModelProvider,
+                                    providerKeyId,
+                                    resolvedSystemPrompt,
+                                    resolvedMessages
+                                ),
                                 headers: { 'Content-Type': 'application/json' },
                                 signal: abortController.signal,
                                 onMessage: (event) => {

@@ -9,6 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
+import { modelPickerLogic } from '../modelPickerLogic'
 import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import {
     appendToolCallChunk,
@@ -216,6 +217,56 @@ describe('llmPlaygroundRunLogic', () => {
         logic.unmount()
         createSpy.mockRestore()
         streamSpy.mockRestore()
+    })
+
+    it('keeps a System One panel on its model when the key list reloads', async () => {
+        // A chat key too, so the reload has chat models to match a System One panel against.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: [
+                        { id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' },
+                        { id: 'key-oa', provider: 'openai', name: 'OpenAI', state: 'ok' },
+                    ],
+                },
+                '/api/llm_proxy/models/': ({ request }) => {
+                    const keyId = new URL(request.url).searchParams.get('provider_key_id')
+                    return [
+                        200,
+                        keyId === 'key-s1'
+                            ? [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]
+                            : [{ id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', description: '' }],
+                    ]
+                },
+            },
+        })
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('jev-1', 'key-s1')
+        modelPickerLogic.actions.loadByokModels()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmPlaygroundPromptsLogic.values.promptConfigs[0]).toMatchObject({
+            model: 'jev-1',
+            selectedProviderKeyId: 'key-s1',
+        })
+        logic.unmount()
+    })
+
+    it('starts a new trace with an empty System One input, so the next prefill uses the new conversation', async () => {
+        useSystemOneKeyMocks()
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setDecisionInput('user: the first trace')
+        llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input: 'the second trace' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmPlaygroundPromptsLogic.values.promptConfigs[0].decisionInput).toBe('')
+        logic.unmount()
     })
 
     it('shows the rate limit banner when the decision endpoint throttles', async () => {

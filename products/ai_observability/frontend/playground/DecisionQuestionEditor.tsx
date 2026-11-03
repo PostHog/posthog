@@ -3,6 +3,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import {
     MAX_SCORE_LEVELS,
+    MIN_OPTIONS,
     type PlaygroundQuestion,
     type PlaygroundQuestionOption,
     type PlaygroundQuestionType,
@@ -33,9 +34,8 @@ export function DecisionQuestionEditor({
             options: question.options.map((option) => (option.id === optionId ? { ...option, ...patch } : option)),
         })
     const changeType = (type: PlaygroundQuestionType): void => {
-        const minimum = type === 'score' ? 2 : type === 'choice' ? 1 : 0
         const options = [...question.options]
-        while (options.length < minimum) {
+        while (options.length < MIN_OPTIONS[type]) {
             options.push(createPlaygroundQuestionOption())
         }
         onChange({ ...question, type, options })

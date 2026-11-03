@@ -8,6 +8,8 @@ export const MAX_SCORE_LEVELS = 10
 
 export type PlaygroundQuestionType = 'noul' | 'choice' | 'score'
 
+export const MIN_OPTIONS: Record<PlaygroundQuestionType, number> = { noul: 0, choice: 1, score: 2 }
+
 export interface PlaygroundQuestionOption {
     id: string
     name: string
@@ -65,12 +67,11 @@ export function createPlaygroundQuestionOption(): PlaygroundQuestionOption {
 }
 
 export function createPlaygroundQuestion(type: PlaygroundQuestionType = 'noul'): PlaygroundQuestion {
-    const levels = type === 'score' ? 2 : type === 'choice' ? 1 : 0
     return {
         id: uuid(),
         type,
         instructions: '',
-        options: Array.from({ length: levels }, createPlaygroundQuestionOption),
+        options: Array.from({ length: MIN_OPTIONS[type] }, createPlaygroundQuestionOption),
     }
 }
 
@@ -82,10 +83,10 @@ function optionsDisabledReason(question: PlaygroundQuestion): string | null {
     if (new Set(names).size !== names.length) {
         return 'Give each option of a question a different name'
     }
-    if (question.type === 'choice' && names.length < 1) {
+    if (question.type === 'choice' && names.length < MIN_OPTIONS.choice) {
         return 'A multiple choice question needs at least one option'
     }
-    if (question.type === 'score' && (names.length < 2 || names.length > MAX_SCORE_LEVELS)) {
+    if (question.type === 'score' && (names.length < MIN_OPTIONS.score || names.length > MAX_SCORE_LEVELS)) {
         return `A rating question needs 2 to ${MAX_SCORE_LEVELS} levels`
     }
     return null

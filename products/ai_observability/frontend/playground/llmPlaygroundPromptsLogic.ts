@@ -836,6 +836,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                             sourcePromptVersion: payload.sourcePromptVersion ?? null,
                             sourceEvaluationId: payload.sourceEvaluationId ?? null,
                             sourceEvaluationName: null,
+                            decisionInput: '',
                         },
                     ]
                 },

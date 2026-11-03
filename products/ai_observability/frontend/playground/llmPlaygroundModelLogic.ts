@@ -24,9 +24,15 @@ function normalizePromptsToAvailableModels(
     promptConfigs: PromptConfig[],
     pendingTargetModel: string | null,
     availableModels: MatchModelOption[],
-    providerKeys: LLMProviderKey[]
+    providerKeys: LLMProviderKey[],
+    systemOnePromptIds: string[]
 ): PromptConfig[] {
     return promptConfigs.map((prompt: PromptConfig, index: number) => {
+        const isPendingTarget = index === 0 && !!pendingTargetModel
+        // A System One model is not in the chat-only list, so matching would swap in a chat model and keep the System One key.
+        if (!isPendingTarget && systemOnePromptIds.includes(prompt.id)) {
+            return prompt
+        }
         const targetModel = index === 0 && pendingTargetModel ? pendingTargetModel : prompt.model
         const matchedModel = matchClosestModelOption(targetModel, availableModels, providerKeys)
         return {
@@ -415,7 +421,8 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 values.promptConfigs,
                 pendingTargetModel,
                 values.effectiveModelOptions,
-                values.providerKeys
+                values.providerKeys,
+                values.systemOnePromptIds
             )
             actions.setPromptConfigs(normalizedPromptsWithTarget)
             actions.clearPendingTargetModel()
@@ -449,7 +456,10 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     if (index === 0 && pendingTargetModel) {
                         return prompt
                     }
-                    if (values.hasByokKeys && prompt.selectedProviderKeyId) {
+                    if (
+                        (values.hasByokKeys && prompt.selectedProviderKeyId) ||
+                        values.systemOnePromptIds.includes(prompt.id)
+                    ) {
                         return prompt
                     }
 
@@ -494,7 +504,8 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     values.promptConfigs,
                     targetModelForFirstPrompt,
                     byokModels,
-                    values.providerKeys
+                    values.providerKeys,
+                    values.systemOnePromptIds
                 )
 
                 actions.setPromptConfigs(normalizedPrompts)
