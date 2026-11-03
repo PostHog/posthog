@@ -350,13 +350,11 @@ jobs:
             contents: write
 
         steps:
-            # The version step below only needs the origin remote for `git ls-remote`, and the
-            # omnibus step needs its composite action on disk, so only that action is materialized.
+            # The version step below only needs the origin remote for `git ls-remote`, so
+            # nothing of the tree has to be materialized.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: |
-                      .github/workflows/ci-agent-skills.yml
-                      .github/actions/download-context-mill-skills
+                  sparse-checkout: .github/workflows/ci-agent-skills.yml
                   sparse-checkout-cone-mode: false
                   filter: blob:none
 
@@ -365,27 +363,6 @@ jobs:
               with:
                   name: agent-skills-zip
                   path: products/posthog_ai/dist
-
-            - name: Download the context-mill omnibus skills
-              # The MCP server's learn catalog reads this archive alone, while every other
-              # consumer overlays the context-mill release itself. Packing the omnibus skills
-              # here gives learn the same skills those consumers already have.
-              uses: ./.github/actions/download-context-mill-skills
-              with:
-                  target-dir: ${{ runner.temp }}/omnibus-skills
-
-            - name: Append the omnibus skills to the skills ZIP
-              env:
-                  OMNIBUS_DIR: ${{ runner.temp }}/omnibus-skills
-                  SKILLS_ZIP: ${{ github.workspace }}/products/posthog_ai/dist/skills.zip
-              run: |
-                  (cd "$OMNIBUS_DIR" && zip -q -r -X "$SKILLS_ZIP" .)
-                  count=$(zipinfo -1 "$SKILLS_ZIP" | grep -c '^instrument-[a-z-]*/SKILL\.md$' || true)
-                  if [ "$count" -lt 1 ]; then
-                    echo "::error::no omnibus skill reached skills.zip"
-                    exit 1
-                  fi
-                  echo "Packed ${count} omnibus skills into skills.zip"
 
             - name: Determine next version
               id: version

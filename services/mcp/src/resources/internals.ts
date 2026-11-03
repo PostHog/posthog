@@ -1,11 +1,21 @@
-import { type Unzipped, strFromU8, unzipSync } from 'fflate'
+import { type Unzipped, strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
 import { loadContextMillManifest } from './manifest-loader'
 import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 
 const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
+const OMNIBUS_ARCHIVE_PATTERN = /^omnibus-([a-z0-9]+(?:-[a-z0-9]+)*)\.zip$/
+// A fixed mtime keeps the repacked bytes, and so their sha, stable across refreshes of
+// an unchanged release; a wall-clock mtime would make every pod re-parse every refresh.
+const OMNIBUS_ARCHIVE_MTIME = new Date('2000-01-01T00:00:00Z')
+
 let cachedResources: Unzipped | null = null
+
+export interface ContextMillArchiveContents {
+    entries: ContextMillResource[]
+    omnibusSkillsArchive: Uint8Array | null
+}
 
 export type ArchiveLoader = (url: string) => Promise<Uint8Array>
 
@@ -65,16 +75,38 @@ export function filterValidEntries(entries: readonly ContextMillResource[], arch
     })
 }
 
+export function buildOmnibusSkillsArchive(archive: Unzipped): Uint8Array | null {
+    const files: Record<string, Uint8Array> = {}
+    for (const [entryName, entryBytes] of Object.entries(archive)) {
+        const match = OMNIBUS_ARCHIVE_PATTERN.exec(entryName)
+        if (!match) {
+            continue
+        }
+        const skillName = match[1]!
+        for (const [path, bytes] of Object.entries(unzipSync(entryBytes))) {
+            if (path.endsWith('/')) {
+                continue
+            }
+            files[`${skillName}/${path}`] =
+                path === 'SKILL.md' ? strToU8(strFromU8(bytes).replace(/^(name:[ \t]*)omnibus-/m, '$1')) : bytes
+        }
+    }
+    return Object.keys(files).length > 0 ? zipSync(files, { mtime: OMNIBUS_ARCHIVE_MTIME }) : null
+}
+
 /**
- * Fetch + unzip + parse the context-mill manifest, returning the filtered
- * entries. Does not touch the module-level `cachedResources`; used by the
- * hono runtime to push entries into a Redis-sharded cache without retaining
- * the archive in process memory.
+ * Fetch + unzip + parse the context-mill archive, returning the filtered manifest
+ * entries and the repacked omnibus skills. Does not touch the module-level
+ * `cachedResources`; used by the hono runtime to push both into Redis-backed caches
+ * without retaining the archive in process memory.
  */
-export async function fetchAndExtractEntries(localUrl?: string): Promise<ContextMillResource[]> {
+export async function fetchAndExtractEntries(localUrl?: string): Promise<ContextMillArchiveContents> {
     const url = localUrl || CONTEXT_MILL_URL
     const bytes = await defaultArchiveLoader(url, Boolean(localUrl))
     const archive = unzipSync(bytes)
     const manifest = loadManifestFromArchive(archive)
-    return filterValidEntries(manifest.resources, archive)
+    return {
+        entries: filterValidEntries(manifest.resources, archive),
+        omnibusSkillsArchive: buildOmnibusSkillsArchive(archive),
+    }
 }

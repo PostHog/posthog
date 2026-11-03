@@ -77,69 +77,19 @@ export class SkillCatalog {
         }
     }
 
-    static fromZip(bytes: Uint8Array): SkillCatalog {
-        let fileCount = 0
-        let totalUncompressedBytes = 0
-        const archive = unzipSync(bytes, {
-            filter: (file) => {
-                if (file.name.endsWith('/')) {
-                    return false
+    static fromZip(bytes: Uint8Array, overlayBytes?: Uint8Array): SkillCatalog {
+        const skillsByName = new Map(parseSkillArchive(bytes).map((skill) => [skill.name, skill]))
+        if (overlayBytes) {
+            for (const skill of parseSkillArchive(overlayBytes)) {
+                if (skillsByName.has(skill.name)) {
+                    // The disk-based consumers unzip context-mill over this repo's skills, so the
+                    // overlay wins here too and the two deliveries agree on what a name serves.
+                    console.warn(`[SkillCatalog] overlay skill "${skill.name}" replaces the product skill of that name`)
                 }
-                validateArchivePath(file.name)
-                fileCount += 1
-                totalUncompressedBytes += file.originalSize
-                if (
-                    fileCount > MAX_ARCHIVE_FILES ||
-                    file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
-                    totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
-                ) {
-                    throw new Error('Skill archive exceeds the extraction limit')
-                }
-                return true
-            },
-        })
-        const filesByDirectory = new Map<string, SkillFile[]>()
-
-        for (const [archivePath, fileBytes] of Object.entries(archive)) {
-            if (archivePath.endsWith('/')) {
-                continue
+                skillsByName.set(skill.name, skill)
             }
-            const pathParts = validateArchivePath(archivePath)
-            const directory = pathParts[0]!
-            const relativePath = pathParts.slice(1).join('/')
-            const content = normalizeText(strFromU8(fileBytes))
-            if (content.includes('\0')) {
-                throw new Error(`Skill archive contains a binary file: "${archivePath}"`)
-            }
-
-            const files = filesByDirectory.get(directory) ?? []
-            if (files.some((file) => file.path === relativePath)) {
-                throw new Error(`Duplicate skill file path: "${archivePath}"`)
-            }
-            files.push(makeSkillFile(relativePath, content))
-            filesByDirectory.set(directory, files)
         }
-
-        const skills = [...filesByDirectory.entries()].map(([directory, files]) => {
-            const skillFile = files.find((file) => file.path === 'SKILL.md')
-            if (!skillFile) {
-                throw new Error(`Skill archive entry "${directory}" has no SKILL.md`)
-            }
-            const metadata = parseFrontmatter(skillFile.content, `${directory}/SKILL.md`)
-            if (metadata.name === 'skills') {
-                throw new Error('Skill name "skills" is reserved by the learn command')
-            }
-            return {
-                name: metadata.name,
-                description: metadata.description,
-                files: files.sort((left, right) => compareSkillPaths(left.path, right.path)),
-            }
-        })
-
-        if (skills.length === 0) {
-            throw new Error('Skill archive contains no skills')
-        }
-        return new SkillCatalog(skills.sort((left, right) => left.name.localeCompare(right.name)))
+        return new SkillCatalog([...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)))
     }
 
     get size(): number {
@@ -426,6 +376,71 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
         return lines.join('\n')
     })
     return fitLearnOutput(sections.join('\n\n'))
+}
+
+function parseSkillArchive(bytes: Uint8Array): SkillDefinition[] {
+    let fileCount = 0
+    let totalUncompressedBytes = 0
+    const archive = unzipSync(bytes, {
+        filter: (file) => {
+            if (file.name.endsWith('/')) {
+                return false
+            }
+            validateArchivePath(file.name)
+            fileCount += 1
+            totalUncompressedBytes += file.originalSize
+            if (
+                fileCount > MAX_ARCHIVE_FILES ||
+                file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
+                totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
+            ) {
+                throw new Error('Skill archive exceeds the extraction limit')
+            }
+            return true
+        },
+    })
+    const filesByDirectory = new Map<string, SkillFile[]>()
+
+    for (const [archivePath, fileBytes] of Object.entries(archive)) {
+        if (archivePath.endsWith('/')) {
+            continue
+        }
+        const pathParts = validateArchivePath(archivePath)
+        const directory = pathParts[0]!
+        const relativePath = pathParts.slice(1).join('/')
+        const content = normalizeText(strFromU8(fileBytes))
+        if (content.includes('\0')) {
+            throw new Error(`Skill archive contains a binary file: "${archivePath}"`)
+        }
+
+        const files = filesByDirectory.get(directory) ?? []
+        if (files.some((file) => file.path === relativePath)) {
+            throw new Error(`Duplicate skill file path: "${archivePath}"`)
+        }
+        files.push(makeSkillFile(relativePath, content))
+        filesByDirectory.set(directory, files)
+    }
+
+    const skills = [...filesByDirectory.entries()].map(([directory, files]) => {
+        const skillFile = files.find((file) => file.path === 'SKILL.md')
+        if (!skillFile) {
+            throw new Error(`Skill archive entry "${directory}" has no SKILL.md`)
+        }
+        const metadata = parseFrontmatter(skillFile.content, `${directory}/SKILL.md`)
+        if (metadata.name === 'skills') {
+            throw new Error('Skill name "skills" is reserved by the learn command')
+        }
+        return {
+            name: metadata.name,
+            description: metadata.description,
+            files: files.sort((left, right) => compareSkillPaths(left.path, right.path)),
+        }
+    })
+
+    if (skills.length === 0) {
+        throw new Error('Skill archive contains no skills')
+    }
+    return skills
 }
 
 function rankSkill(skill: SkillDefinition, query: NormalizedQuery): RankedSkill | null {

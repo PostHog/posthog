@@ -451,15 +451,16 @@ A same-named skill added here would have its `SKILL.md` overwritten
 while its extra reference files survived as orphans in the other source's directory.
 The Desktop harness bundle is the exception: it packages context-mill alone,
 so a skill from this repo is absent there rather than overwritten.
-The MCP server's `learn` catalog reads `skills.zip` alone,
-so the `release-skills` job in `ci-agent-skills.yml` packs the omnibus skills into that archive before it publishes `agent-skills-latest`.
+The MCP server's `learn` catalog overlays them at runtime:
+the context-mill resource refresh repacks the omnibus skills from the release it already downloads,
+and the skill catalog service merges that copy over `skills.zip` on its next poll.
 `learn -s` scores an omnibus skill by its name, description, and `SKILL.md` only,
 because its references are docs snapshots that would crowd out workflow skills;
 `learn posthog:<skill> <path>` still reads any reference.
 
 | Consumer                              | Merge site                                                                                                                  |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| MCP server `learn` catalog            | `.github/workflows/ci-agent-skills.yml` (`release-skills` packs them into `skills.zip`)                                     |
+| MCP server `learn` catalog            | `services/mcp/src/hono/skill-catalog-service.ts` – overlays the copy `ContextMillResourceCache` publishes to Redis          |
 | PostHog Desktop build                 | `products/desktop/apps/code/vite-main-plugins.mts` (`copyPosthogPlugin`)                                                    |
 | PostHog Desktop runtime, every 30 min | `products/desktop/packages/workspace-server/src/services/posthog-plugin/update-skills-saga.ts`                              |
 | Desktop harness bundle                | `packages/agent/packages/harness/tsup.config.ts` – context-mill only, this repo's skills are absent rather than overwritten |

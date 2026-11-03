@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { SkillCatalog } from '@/skills/skill-catalog'
 
 const ARCHIVE_URL = 'http://127.0.0.1/skills-mcp-resources.zip'
 
@@ -30,7 +31,7 @@ describe('fetchAndExtractEntries', () => {
         vi.restoreAllMocks()
     })
 
-    it('serves the manifest entries whose backing file is in the archive', async () => {
+    it('serves the manifest entries whose backing file is in the archive and repacks the omnibus skills', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {})
         const manifest = {
             version: '1.0',
@@ -43,11 +44,18 @@ describe('fetchAndExtractEntries', () => {
         stubArchiveResponse({
             'manifest.json': strToU8(JSON.stringify(manifest)),
             'skills/bundled.md': strToU8('# bundled'),
+            'omnibus-instrument-logs.zip': zipSync({
+                'SKILL.md': strToU8('---\nname: omnibus-instrument-logs\ndescription: Add logs.\n---\n\n# Add logs'),
+                'references/go.md': strToU8('# Go'),
+            }),
         })
 
-        const entries = await fetchAndExtractEntries(ARCHIVE_URL)
+        const { entries, omnibusSkillsArchive } = await fetchAndExtractEntries(ARCHIVE_URL)
 
         expect(entries.map((entry) => entry.id)).toEqual(['bundled', 'inline'])
+        const omnibus = SkillCatalog.fromZip(omnibusSkillsArchive!)
+        expect(omnibus.listNames()).toEqual(['instrument-logs'])
+        expect(omnibus.read('instrument-logs', 'references/go.md')).toContain('# Go')
     })
 
     it('rejects an archive without a manifest', async () => {

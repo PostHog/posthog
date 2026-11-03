@@ -105,6 +105,28 @@ describe('SkillCatalog and exec learn', () => {
         })
     })
 
+    it('overlays a second archive and lets it win on a shared name', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            const catalog = SkillCatalog.fromZip(
+                makeArchive({
+                    'funnels/SKILL.md': makeSkill('funnels', 'Product funnels.', '# Funnels'),
+                    'retention-analysis/SKILL.md': makeSkill('retention-analysis', 'Retention.', '# Retention'),
+                }),
+                makeArchive({
+                    'funnels/SKILL.md': makeSkill('funnels', 'Overlay funnels.', '# Overlay funnels'),
+                    'instrument-logs/SKILL.md': makeSkill('instrument-logs', 'Add logs.', '# Add logs'),
+                })
+            )
+
+            expect(catalog.listNames()).toEqual(['funnels', 'instrument-logs', 'retention-analysis'])
+            expect(catalog.describe('funnels')).toBe('Overlay funnels.')
+            expect(warn).toHaveBeenCalledTimes(1)
+        } finally {
+            warn.mockRestore()
+        }
+    })
+
     it('scores an omnibus instrument skill by its entry point only, never its references', () => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({
