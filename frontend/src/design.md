@@ -370,7 +370,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Branch on the action's value in `onValueChange`, and keep the action out of the selected value
   - A search must never hide the actions. When a logic already filters the items, pass `filter={null}`. Otherwise pass a `filter` that always keeps the actions
   - When no other item matches, the action group's label says so. `ComboboxEmpty` never shows while the actions are in the list
-  - Precedent: `layout/today/TodaySwitcherMenu` (the org and project switchers)
+  - Precedent: `layout/today/TodaySwitcherMenu` (the project switcher)
 - Before handoff, drive each popup you touched with the keyboard only: open it, arrow to every row, and press Enter on each action
 
 ## 9. Review before handoff
