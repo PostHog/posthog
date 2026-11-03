@@ -247,7 +247,29 @@ const accessControlDecorators: Story['decorators'] = [
                 can_edit: true,
                 is_managed_by_terraform: false,
                 project_access_level: 'member',
-                resource_access_levels: {},
+                resource_access_levels: {
+                    dashboard: {
+                        access_level: 'viewer',
+                        effective_access_level: 'viewer',
+                        inherited_access: null,
+                        minimum: 'none',
+                        maximum: 'manager',
+                    },
+                    insight: {
+                        access_level: null,
+                        effective_access_level: 'editor',
+                        inherited_access: null,
+                        minimum: 'none',
+                        maximum: 'manager',
+                    },
+                    notebook: {
+                        access_level: 'editor',
+                        effective_access_level: 'editor',
+                        inherited_access: null,
+                        minimum: 'none',
+                        maximum: 'manager',
+                    },
+                },
                 object_rule_resources: [
                     {
                         resource: 'dashboard',
@@ -284,6 +306,14 @@ const accessControlDecorators: Story['decorators'] = [
 export const SettingsEnvironmentAccessControl: Story = {
     args: { sectionId: 'environment-access-control' },
     decorators: accessControlDecorators,
+    play: async ({ canvasElement }) => {
+        const table = within(await within(canvasElement).findByRole('table'))
+        await table.findByRole('columnheader', { name: 'Product' })
+        await table.findByText('Dashboards', { exact: true })
+        await table.findByText('Insights', { exact: true })
+        await table.findByText('Notebooks', { exact: true })
+        await table.findByRole('button', { name: 'Add default' })
+    },
 }
 
 export const SettingsEnvironmentObjectAccessControl: Story = {
