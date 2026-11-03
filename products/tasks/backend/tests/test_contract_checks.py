@@ -131,6 +131,27 @@ class TestValidateRunOptions(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("read_under_an_injected_write", ["user:read"], ["task:read"], False),
+            ("business_knowledge_task_read", get_task_profile("business_knowledge").mcp_scopes, ["task:read"], False),
+            ("read_under_an_explicit_write", ["dashboard:write"], ["dashboard:read"], False),
+            ("same_scope", ["dashboard:write"], ["dashboard:write"], False),
+            ("write_over_a_read", ["dashboard:read"], ["dashboard:write"], True),
+            ("read_of_another_object", ["dashboard:write"], ["insight:read"], True),
+            ("some_scopes_outside_the_ceiling", ["dashboard:write"], ["dashboard:read", "insight:read"], True),
+        ]
+    )
+    def test_a_write_scope_in_the_ceiling_covers_the_read_scope(
+        self, _name: str, ceiling: list[str], requested: list[str], violated: bool
+    ) -> None:
+        profile = replace(LOG_PROFILE, key="test.scope_ceiling", mcp_scopes=ceiling)
+        before = _violation_counts(profile)[ContractCheck.MCP_SCOPES]
+
+        validate_run_options(profile, TaskRunOptions(mcp_scopes=requested))
+
+        self.assertEqual(_violation_counts(profile)[ContractCheck.MCP_SCOPES] - before, int(violated))
+
+    @parameterized.expand(
+        [
             ("enforced_check_violated", {ContractCheck.RUNTIMES}, TaskRunOptions(runtime="other"), True),
             (
                 "enforced_check_violated_beside_another",

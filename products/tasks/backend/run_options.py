@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
+from posthog.scopes import scopes_not_covered
 from posthog.temporal.oauth import resolve_scopes
 
 from products.tasks.backend.contract_checks import contract_violation_refused
@@ -121,7 +122,7 @@ def _set_option_names(options: TaskRunOptions) -> list[str]:
 
 
 def _scopes_within(requested: "PosthogMcpScopes", ceiling: "PosthogMcpScopes") -> bool:
-    return set(resolve_scopes(requested)) <= set(resolve_scopes(ceiling))
+    return not scopes_not_covered(resolve_scopes(ceiling), resolve_scopes(requested))
 
 
 def _run_option_violations(
