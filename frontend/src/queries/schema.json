@@ -7471,6 +7471,10 @@
             "required": ["row", "column", "mask", "users"],
             "type": "object"
         },
+        "BookActivityMatrixEmptyReason": {
+            "enum": ["no_group_type", "empty_book"],
+            "type": "string"
+        },
         "BookActivityMatrixFamily": {
             "additionalProperties": false,
             "properties": {
@@ -7644,6 +7648,9 @@
                         "$ref": "#/definitions/BookActivityMatrixCell"
                     },
                     "type": "array"
+                },
+                "emptyReason": {
+                    "$ref": "#/definitions/BookActivityMatrixEmptyReason"
                 },
                 "families": {
                     "items": {

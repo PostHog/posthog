@@ -43,6 +43,7 @@ from posthog.schema import (
     AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    BookActivityMatrixQuery,
     BreakdownType,
     CachedLifecycleQueryResponse,
     CachedStickinessQueryResponse,
@@ -677,6 +678,7 @@ RunnableQueryNode = Union[
     AccountsQuery,
     AccountsTableQuery,
     AccountActivityMatrixQuery,
+    BookActivityMatrixQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -1722,6 +1724,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountActivityMatrixQueryRunner
 
         return AccountActivityMatrixQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityMatrixQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityMatrixQueryRunner
+
+        return BookActivityMatrixQueryRunner(
             query=query,
             team=team,
             timings=timings,

@@ -820,6 +820,11 @@ class BookActivityInterval(StrEnum):
     MONTH = "month"
 
 
+class BookActivityMatrixEmptyReason(StrEnum):
+    NO_GROUP_TYPE = "no_group_type"
+    EMPTY_BOOK = "empty_book"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"

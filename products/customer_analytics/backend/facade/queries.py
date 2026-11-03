@@ -13,6 +13,9 @@ from products.customer_analytics.backend.hogql_queries.account_activity_matrix_q
 from products.customer_analytics.backend.hogql_queries.account_users_query_runner import AccountUsersQueryRunner
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import AccountsTableQueryRunner
+from products.customer_analytics.backend.hogql_queries.book_activity_matrix_query_runner import (
+    BookActivityMatrixQueryRunner,
+)
 from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
 __all__ = [
@@ -20,5 +23,6 @@ __all__ = [
     "AccountUsersQueryRunner",
     "AccountsQueryRunner",
     "AccountsTableQueryRunner",
+    "BookActivityMatrixQueryRunner",
     "UsageMetricsQueryRunner",
 ]

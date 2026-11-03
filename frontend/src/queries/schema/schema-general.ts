@@ -3533,6 +3533,8 @@ export interface AccountActivityMatrixQuery extends DataNode<AccountActivityMatr
 
 export type BookActivityInterval = 'day' | 'week' | 'month'
 
+export type BookActivityMatrixEmptyReason = 'no_group_type' | 'empty_book'
+
 export interface BookActivityMatrixRow {
     key: string
     label: string
@@ -3580,6 +3582,7 @@ export interface BookActivityMatrixResult {
     combinations: BookActivityMatrixCombination[]
     firstUse?: BookActivityMatrixFirstUse[]
     truncated: boolean
+    emptyReason?: BookActivityMatrixEmptyReason
 }
 
 export interface BookActivityMatrixQueryResponse extends AnalyticsQueryResponseBase {

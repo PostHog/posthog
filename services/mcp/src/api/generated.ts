@@ -20509,6 +20509,14 @@ export namespace Schemas {
       users: number;
     }
 
+    export type BookActivityMatrixEmptyReason = typeof BookActivityMatrixEmptyReason[keyof typeof BookActivityMatrixEmptyReason];
+
+
+    export const BookActivityMatrixEmptyReason = {
+      NoGroupType: 'no_group_type',
+      EmptyBook: 'empty_book',
+    } as const;
+
     export interface BookActivityMatrixFamily {
       key: string;
       label: string;
@@ -20537,6 +20545,7 @@ export namespace Schemas {
       columns: AccountActivityMatrixColumn[];
       combinations: BookActivityMatrixCombination[];
       data: BookActivityMatrixCell[];
+      emptyReason?: BookActivityMatrixEmptyReason | null;
       families: BookActivityMatrixFamily[];
       firstUse?: BookActivityMatrixFirstUse[] | null;
       rows: BookActivityMatrixRow[];

@@ -65,3 +65,4 @@ DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may h
 # Marks an async query status whose stored results are account users, so retrieval repeats the access check.
 ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-account-users:"
 ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-account-activity-matrix:"
+BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-book-activity-matrix:"

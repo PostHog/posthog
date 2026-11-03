@@ -73,6 +73,7 @@ from posthog.schema_enums import (
     BISortDirection as BISortDirection,
     BITableCalculationType as BITableCalculationType,
     BookActivityInterval as BookActivityInterval,
+    BookActivityMatrixEmptyReason as BookActivityMatrixEmptyReason,
     BounceRatePageViewMode as BounceRatePageViewMode,
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
@@ -5416,6 +5417,7 @@ class BookActivityMatrixResult(BaseModel):
     columns: list[AccountActivityMatrixColumn]
     combinations: list[BookActivityMatrixCombination]
     data: list[BookActivityMatrixCell]
+    emptyReason: BookActivityMatrixEmptyReason | None = None
     families: list[BookActivityMatrixFamily]
     firstUse: list[BookActivityMatrixFirstUse] | None = None
     rows: list[BookActivityMatrixRow]
