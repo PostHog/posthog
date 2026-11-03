@@ -2,7 +2,7 @@ import asyncio
 import threading
 import contextvars
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TypeVar, cast
 
 T = TypeVar("T")
@@ -13,11 +13,36 @@ T = TypeVar("T")
 _SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
 
 
+def _close_abandoned_result(future: Future) -> None:
+    if future.cancelled() or future.exception() is not None:
+        return
+    close = getattr(future.result(), "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 async def run_in_source_executor(func: Callable[[], T]) -> T:
-    """Run a blocking source call on the dedicated source thread pool, keeping contextvars."""
-    loop = asyncio.get_running_loop()
+    """
+    Run a blocking source call on the dedicated source thread pool, keeping contextvars.
+
+    A running thread can't be interrupted, so if the caller is cancelled the call finishes
+    in the background. Its result is then closed when it has a `close()`, so an abandoned
+    generator doesn't hold cursors or connections until garbage collection.
+    """
     ctx = contextvars.copy_context()
-    return await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, func)
+
+    def call() -> T:
+        return ctx.run(func)
+
+    future = _SOURCE_ITERATOR_EXECUTOR.submit(call)
+    try:
+        return await asyncio.wrap_future(future)
+    except asyncio.CancelledError:
+        future.add_done_callback(_close_abandoned_result)
+        raise
 
 
 async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
