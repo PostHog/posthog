@@ -423,10 +423,10 @@ export interface UserType extends UserBaseType {
     realm?: Realm
     is_email_verified?: boolean | null
     pending_email?: string | null
-    /** Absent until the app context's later part arrives. */
+    /** Absent until the app context's full stage arrives. */
     is_2fa_enabled?: boolean
     has_social_auth: boolean
-    /** Absent until the app context's later part arrives. */
+    /** Absent until the app context's full stage arrives. */
     has_sso_enforcement?: boolean
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
@@ -5270,7 +5270,7 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
-    /** Absent until the app context's later part arrives. */
+    /** Absent until the app context's full stage arrives. */
     has_person_email?: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a

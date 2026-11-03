@@ -31,7 +31,7 @@ from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import app_context, app_context_later, home, home_with_region_redirect
+from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
@@ -139,7 +139,6 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     opt_slash_path(r"(?:project/\d+/)?_app_context", app_context),
-    opt_slash_path(r"(?:project/\d+/)?_app_context/later", app_context_later),
     # ee
     *ee_urlpatterns,
     path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),

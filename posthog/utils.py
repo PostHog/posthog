@@ -892,26 +892,26 @@ def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Option
         )
 
 
-# Fields the first screen does not read. A deferred page gets them in a second request after the app boots.
-LATER_USER_FIELDS = frozenset({"is_2fa_enabled", "has_sso_enforcement"})
-LATER_TEAM_FIELDS = frozenset({"product_intents"})
-LATER_PROJECT_FIELDS = LATER_TEAM_FIELDS
+# Fields the first screen does not read. A deferred page fetches them with `stage=full` after the app boots.
+FULL_STAGE_USER_FIELDS = frozenset({"is_2fa_enabled", "has_sso_enforcement"})
+FULL_STAGE_TEAM_FIELDS = frozenset({"product_intents"})
+FULL_STAGE_PROJECT_FIELDS = FULL_STAGE_TEAM_FIELDS
 
-AppContextPart = Literal["all", "boot", "later"]
+AppContextStage = Literal["inline", "boot", "full"]
 
 
-def _serialize_app_context_part(
-    serializer: "Serializer", later_fields: frozenset[str], part: AppContextPart
+def _serialize_app_context_stage(
+    serializer: "Serializer", full_stage_fields: frozenset[str], stage: AppContextStage
 ) -> dict[str, Any]:
-    if part != "all":
+    if stage != "inline":
         for name in list(serializer.fields):
-            if (name in later_fields) != (part == "later"):
+            if (name in full_stage_fields) != (stage == "full"):
                 serializer.fields.pop(name)
     return serializer.data
 
 
 def add_user_app_context(
-    request: HttpRequest, posthog_app_context: dict[str, Any], part: Literal["all", "boot"] = "all"
+    request: HttpRequest, posthog_app_context: dict[str, Any], stage: Literal["inline", "boot"] = "inline"
 ) -> None:
     """Adds the signed-in user's user, team, project and access data to the app context."""
     from posthog.api.project import ProjectSerializer
@@ -958,7 +958,9 @@ def add_user_app_context(
             },
             many=False,
         )
-        posthog_app_context["current_user"] = _serialize_app_context_part(user_serialized, LATER_USER_FIELDS, part)
+        posthog_app_context["current_user"] = _serialize_app_context_stage(
+            user_serialized, FULL_STAGE_USER_FIELDS, stage
+        )
 
     if user.team:
         with tracer.start_as_current_span("template.team_serializer"):
@@ -971,7 +973,9 @@ def add_user_app_context(
                 },
                 many=False,
             )
-            posthog_app_context["current_team"] = _serialize_app_context_part(team_serialized, LATER_TEAM_FIELDS, part)
+            posthog_app_context["current_team"] = _serialize_app_context_stage(
+                team_serialized, FULL_STAGE_TEAM_FIELDS, stage
+            )
 
         with tracer.start_as_current_span("template.project_serializer"):
             project_serialized = ProjectSerializer(
@@ -979,14 +983,14 @@ def add_user_app_context(
                 context={"request": request, "user_permissions": user_permissions},
                 many=False,
             )
-            posthog_app_context["current_project"] = _serialize_app_context_part(
-                project_serialized, LATER_PROJECT_FIELDS, part
+            posthog_app_context["current_project"] = _serialize_app_context_stage(
+                project_serialized, FULL_STAGE_PROJECT_FIELDS, stage
             )
         event_info = get_default_event_info(user.team)
         posthog_app_context["default_event_name"] = event_info["default_event_name"]
         posthog_app_context["has_pageview"] = event_info["has_pageview"]
         posthog_app_context["has_screen"] = event_info["has_screen"]
-        if part == "all":
+        if stage == "inline":
             posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
         with tracer.start_as_current_span("template.posthog_ai_access"):
@@ -1002,8 +1006,8 @@ def add_user_app_context(
             posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
 
-def later_user_app_context(request: HttpRequest) -> dict[str, Any]:
-    """The app context fields that `add_user_app_context` leaves out of the boot part."""
+def full_stage_user_app_context(request: HttpRequest) -> dict[str, Any]:
+    """The app context fields that `add_user_app_context` leaves out of the boot stage."""
     from posthog.api.project import ProjectSerializer
     from posthog.api.team.team_serializer import TeamSerializer
     from posthog.api.user import UserSerializer
@@ -1011,20 +1015,20 @@ def later_user_app_context(request: HttpRequest) -> dict[str, Any]:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
     user = cast("User", request.user)
-    later: dict[str, Any] = {
-        "current_user": _serialize_app_context_part(
-            UserSerializer(user, context={"request": request}), LATER_USER_FIELDS, "later"
+    full_stage: dict[str, Any] = {
+        "current_user": _serialize_app_context_stage(
+            UserSerializer(user, context={"request": request}), FULL_STAGE_USER_FIELDS, "full"
         )
     }
     if user.team and UserAccessControl(user=user, team=user.team).has_project_access:
-        later["current_team"] = _serialize_app_context_part(
-            TeamSerializer(user.team, context={"request": request}), LATER_TEAM_FIELDS, "later"
+        full_stage["current_team"] = _serialize_app_context_stage(
+            TeamSerializer(user.team, context={"request": request}), FULL_STAGE_TEAM_FIELDS, "full"
         )
-        later["current_project"] = _serialize_app_context_part(
-            ProjectSerializer(user.team.project, context={"request": request}), LATER_PROJECT_FIELDS, "later"
+        full_stage["current_project"] = _serialize_app_context_stage(
+            ProjectSerializer(user.team.project, context={"request": request}), FULL_STAGE_PROJECT_FIELDS, "full"
         )
-        later["has_person_email"] = get_has_person_email(user.team)
-    return later
+        full_stage["has_person_email"] = get_has_person_email(user.team)
+    return full_stage
 
 
 def render_template(
