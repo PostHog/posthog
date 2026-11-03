@@ -54,6 +54,9 @@ function deviceFlow(pendingPolls: number, final = { status: 200, body: APPROVED 
         if (url.endsWith('/oauth/revoke/')) {
             return { status: 200, body: {} }
         }
+        if (url.endsWith('/api/personal_api_keys/@current/')) {
+            return { status: 200, body: { scopes: ['query:read'] } }
+        }
         return polls++ < pendingPolls ? { status: 400, body: { error: 'authorization_pending' } } : final
     }
 }
@@ -279,6 +282,20 @@ describe('hog auth login', () => {
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
         expect(result.files[PENDING_FILE]).toBeUndefined()
         expect(JSON.parse(result.keychain[host] ?? '{}')).toMatchObject(secret)
+        expect(result.stdout).toContain('Try it: hog query run')
+    })
+
+    test('a pasted personal API key that PostHog rejects is not saved', async () => {
+        const result = await runHog(['auth', 'login'], {
+            stdoutIsTTY: true,
+            env: { NO_COLOR: '1' },
+            answers: ['key', 'https://ph.example.com/', '42', 'phx_deleted'],
+            respond: () => ({ status: 401, body: { detail: 'Invalid personal API key.' } }),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain('PostHog rejected the personal API key')
+        expect(result.keychain).toEqual({})
     })
 
     const STORED = JSON.stringify({ host: 'https://eu.posthog.com', token: 'phx_secret', env_id: '42' })
