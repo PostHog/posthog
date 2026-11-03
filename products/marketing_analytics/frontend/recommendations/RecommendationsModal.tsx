@@ -1,6 +1,7 @@
 import { BindLogic } from 'kea'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import {
     LemonBadge,
     LemonBanner,
@@ -33,6 +34,7 @@ import {
     RecommendationSection,
     RecommendationTotal,
 } from './recommendations'
+import { RecommendationSteps } from './RecommendationSteps'
 
 const DIRECTION_TAG: Record<MarketingAnalyticsRecommendation['impactDirection'], LemonTagType> = {
     save: 'success',
@@ -71,12 +73,31 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
     )
 }
 
+function rowKey(row: MarketingAnalyticsRecommendation, index: number): string {
+    return `${row.rule}-${row.subject}-${row.campaign ?? ''}-${index}`
+}
+
 function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[] }): JSX.Element {
+    const [expanded, setExpanded] = useState<Set<string>>(new Set())
+    const toggle = (key: string): void =>
+        setExpanded((current) => {
+            const next = new Set(current)
+            if (!next.delete(key)) {
+                next.add(key)
+            }
+            return next
+        })
     return (
         <LemonTable<MarketingAnalyticsRecommendation>
             size="small"
             dataSource={rows}
-            rowKey={(row, index) => `${row.rule}-${row.subject}-${row.campaign ?? ''}-${index}`}
+            rowKey={rowKey}
+            expandable={{
+                expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} />,
+                rowExpandable: (row) => (row.steps?.length ? 1 : 0),
+                isRowExpanded: (row, index) => expanded.has(rowKey(row, index)),
+                showRowExpansionToggle: false,
+            }}
             columns={[
                 {
                     title: 'For',
@@ -92,12 +113,27 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                 {
                     title: 'Recommendation',
                     key: 'action',
-                    render: (_, row) => (
-                        <div className="flex flex-col gap-0.5 py-1">
-                            <span>{row.action}</span>
-                            <span className="text-xs text-secondary">{row.reason}</span>
-                        </div>
-                    ),
+                    render: (_, row, index) => {
+                        const key = rowKey(row, index)
+                        return (
+                            <div className="flex flex-col items-start gap-0.5 py-1">
+                                <span>{row.action}</span>
+                                <span className="text-xs text-secondary">{row.reason}</span>
+                                {!!row.steps?.length && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        className="-ml-1 mt-0.5"
+                                        sideIcon={expanded.has(key) ? <IconChevronDown /> : <IconChevronRight />}
+                                        onClick={() => toggle(key)}
+                                        data-attr="marketing-recommendations-view-instructions"
+                                    >
+                                        {expanded.has(key) ? 'Hide instructions' : 'View instructions'}
+                                    </LemonButton>
+                                )}
+                            </div>
+                        )
+                    },
                 },
                 {
                     title: 'Impact',

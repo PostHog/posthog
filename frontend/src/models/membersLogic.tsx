@@ -30,7 +30,7 @@ function meAsMember(user: UserType): OrganizationMemberType {
         last_login: null,
         joined_at: '',
         updated_at: '',
-        is_2fa_enabled: user.is_2fa_enabled,
+        is_2fa_enabled: user.is_2fa_enabled ?? false,
         has_social_auth: user.has_social_auth,
     }
 }

@@ -6,9 +6,9 @@ import { fetchStreamed } from '~/common/utils/request'
 
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
-import { canonicalizeUrl, politenessKey } from './politeness-key'
 import { ConfigurationFetchReason, ImageFetchProcessingMetrics } from './processing-metrics'
 import { BOT_NAME, REQUEST_IDENTITY_HEADERS } from './request-identity'
+import { canonicalizeUrl, politenessKey } from './v4-native'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 import { wildcardPatternMatchesPathname } from './wildcard-pattern'
 

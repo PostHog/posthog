@@ -17,7 +17,7 @@ import temporalio
 from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -40,6 +40,12 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
 )
 from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_INPUT_KEY,
+    SharedCredentialsEdit,
+    SharedCredentialsError,
+    UnusableCredentialsReferenceError,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -101,7 +107,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     api_version_deprecation_payload,
 )
 
-from . import base, connection_options, credential_store, helpers, webhook_setup
+from . import base, connection_options, credential_store, helpers, shared_credentials, webhook_setup
 
 
 def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
@@ -592,6 +598,32 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
             )
 
+        # A client may point the source at another credentials row only when the source can use that row.
+        # The check runs for every team, also while the dual-write flag is off, because it keeps a client
+        # from attaching credentials of another team. The source then uses the credentials of that row.
+        try:
+            requested_reference = SourceInputsStore.requested_credentials_reference(instance, incoming_job_inputs)
+            if requested_reference is not None:
+                # Object access controls on the sources that use the row also apply to its credentials.
+                if helpers.denied_source_usages(
+                    self.user_access_control,
+                    instance.team_id,
+                    SourceInputsStore.credentials_usages(instance, requested_reference),
+                    "editor",
+                ):
+                    raise UnusableCredentialsReferenceError(
+                        f"Source {instance.id} cannot use credentials {requested_reference}"
+                    )
+                new_job_inputs = SourceInputsStore.with_credentials_of(instance, new_job_inputs, requested_reference)
+        except UnusableCredentialsReferenceError:
+            raise ValidationError(
+                {
+                    "job_inputs": {
+                        CREDENTIALS_REFERENCE_INPUT_KEY: "These credentials don't exist or this source can't use them."
+                    }
+                }
+            )
+
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
@@ -699,9 +731,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
-        if "job_inputs" in validated_data:
-            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
-        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        # A confirmation changes the row for its other users too, so it needs edit access to each of them. Without
+        # it, the edit fails as an unconfirmed one does, and the view answers with a 403.
+        confirmed_shared_edit = helpers.update_shared_credentials_confirmed(request) and not (
+            "job_inputs" in validated_data
+            and helpers.denied_source_usages(
+                self.user_access_control,
+                instance.team_id,
+                SourceInputsStore.credentials_usages(instance, requested_reference),
+                "editor",
+            )
+        )
+
+        # One transaction for the credentials row and the source, so a failed source save also undoes the
+        # row write, and the source lock of the copy holds until the source save commits.
+        with transaction.atomic():
+            if "job_inputs" in validated_data:
+                # An edit of credentials that other sources or products use raises `SharedCredentialsError`
+                # (a 409) unless the request confirms it.
+                SourceInputsStore.assign(
+                    instance,
+                    validated_data.pop("job_inputs"),
+                    shared_credentials=SharedCredentialsEdit.CONFIRMED
+                    if confirmed_shared_edit
+                    else SharedCredentialsEdit.REFUSE,
+                    credentials_reference=requested_reference,
+                )
+            updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -1093,6 +1149,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
             resolved.credential.delete()
         return response
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Runs for both PUT and PATCH.
+        try:
+            return super().update(request, *args, **kwargs)
+        except SharedCredentialsError as error:
+            if helpers.update_shared_credentials_confirmed(request):
+                # The serializer drops a confirmation from a user who cannot edit every other user of the row.
+                raise PermissionDenied(
+                    "You need edit access to every source that uses these credentials to change them."
+                )
+            hidden = helpers.denied_source_usages(self.user_access_control, self.team_id, error.usages, "viewer")
+            return shared_credentials.shared_credentials_conflict_response(error, hidden_usage_ids=hidden)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
