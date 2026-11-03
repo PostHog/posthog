@@ -33,9 +33,21 @@ common_alloc::used!();
 
 const STORE_CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// `personhog-writer backfill`: a one-off run, while the writer group is empty.
+/// With no subcommand, runs the writer service.
 #[derive(clap::Parser)]
-#[command(name = "personhog-writer backfill")]
+#[command(name = "personhog-writer")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// A one-off run, while the writer group is empty.
+    Backfill(BackfillArgs),
+}
+
+#[derive(clap::Args)]
 struct BackfillArgs {
     /// Every team when absent.
     #[arg(long)]
@@ -66,8 +78,8 @@ fn init_tracing() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
-    if std::env::args().nth(1).as_deref() == Some("backfill") {
-        return backfill(BackfillArgs::parse_from(std::env::args().skip(1))).await;
+    if let Some(Command::Backfill(args)) = Cli::parse().command {
+        return backfill(args).await;
     }
     let config = Config::init_from_env().expect("Invalid configuration");
     let mode = config.property_storage_mode;
