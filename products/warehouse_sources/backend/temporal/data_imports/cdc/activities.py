@@ -74,6 +74,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCMaskedKeyError,
+    CDCMaskingKeyError,
     CDCReservedColumnError,
     CDCSlotNotConfiguredError,
     classify_cdc_error,
@@ -99,9 +100,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
-    get_masking_key,
-    mask_value,
     protected_masked_columns,
+    value_masker,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
@@ -215,7 +215,9 @@ class CDCExtractActivity:
         self.enabled_columns_by_table: dict[str, set[str]] = {}
         # Folded names of the columns to mask. Missing entry = mask nothing.
         self.masked_columns_by_table: dict[str, set[str]] = {}
-        self._masking_key: bytes | None = None
+        # Whether each raw column name is masked, per table. Folding a name costs too much per event.
+        self._masked_names_by_table: dict[str, dict[str, bool]] = {}
+        self._masker: Callable[[object], str | None] | None = None
         self.history_naming_by_table: dict[str, HistoryNaming] = {}
         self.adapter: typing.Any = None
         self.reader: typing.Any = None
@@ -664,6 +666,7 @@ class CDCExtractActivity:
         )
 
     def _load_masked_columns(self, schema: ExternalDataSchema) -> None:
+        self._masked_names_by_table.pop(schema.name, None)
         if not (isinstance(schema.masked_columns, list) and schema.masked_columns):
             self.masked_columns_by_table.pop(schema.name, None)
             return
@@ -672,6 +675,11 @@ class CDCExtractActivity:
         masked_keys = protected_masked_columns(schema.masked_columns, self.pk_columns_by_table.get(schema.name, []))
         if masked_keys:
             raise CDCMaskedKeyError(schema.name, masked_keys)
+        if self._masker is None:
+            try:
+                self._masker = value_masker(self.inputs.team_id)
+            except NonRetryableException as e:
+                raise CDCMaskingKeyError(str(e)) from e
         self.masked_columns_by_table[schema.name] = {fold_column_name(column) for column in schema.masked_columns}
 
     def _query_pk_columns(self, table_names: list[str]) -> dict[str, list[str]]:
@@ -736,20 +744,23 @@ class CDCExtractActivity:
         masked = self.masked_columns_by_table.get(event.table_name)
         if not masked:
             return event
-        if self._masking_key is None:
-            self._masking_key = get_masking_key()
-        key = self._masking_key
-        columns = {
-            name: mask_value(self.inputs.team_id, value, key=key) if fold_column_name(name) in masked else value
-            for name, value in event.columns.items()
-        }
+        assert self._masker is not None
+        mask = self._masker
+        decisions = self._masked_names_by_table.setdefault(event.table_name, {})
+
+        def is_masked(name: str) -> bool:
+            decision = decisions.get(name)
+            if decision is None:
+                decision = decisions[name] = fold_column_name(name) in masked
+            return decision
+
+        columns = {name: mask(value) if is_masked(name) else value for name, value in event.columns.items()}
         # A digest is text. Left on the source type, a flush where the column is all null would
         # write that type and no longer merge with the flushes that hold digests.
         column_types = event.column_types
         if column_types is not None:
             column_types = {
-                name: pa.string() if fold_column_name(name) in masked else column_type
-                for name, column_type in column_types.items()
+                name: pa.string() if is_masked(name) else column_type for name, column_type in column_types.items()
             }
         return dataclasses.replace(event, columns=columns, column_types=column_types)
 

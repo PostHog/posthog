@@ -773,7 +773,14 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
-    def test_a_masked_column_keeps_its_counts_but_stores_no_bounds(self) -> None:
+    @pytest.mark.parametrize(
+        "saved_during",
+        [
+            pytest.param("_aggregate_add_action_stats", id="mask_saved_during_the_read"),
+            pytest.param("_upsert_statistics", id="mask_saved_during_the_writes"),
+        ],
+    )
+    def test_a_masked_column_keeps_its_counts_but_stores_no_bounds(self, saved_during: str) -> None:
         team = self._team()
         schema, table, _ = self._schema_table_job(
             team, columns={"amount": {"clickhouse": "Nullable(Int64)"}, "email": {"clickhouse": "Nullable(String)"}}
@@ -789,16 +796,16 @@ class TestComputeTableStatisticsSync:
                 "max.email": ["z@example.com"],
             }
         )
-        aggregate = comp._aggregate_add_action_stats
+        original = getattr(comp, saved_during)
 
-        def mask_saved_during_the_read(*args: Any) -> Any:
-            # The profiler loaded the schema before this save, so it must read the masks again to write.
+        def save_mask_then_continue(*args: Any) -> Any:
+            # The profiler loaded the schema before this save, so it must read the masks again.
             ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=["Email"])
-            return aggregate(*args)
+            return original(*args)
 
         with (
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
-            patch.object(comp, "_aggregate_add_action_stats", mask_saved_during_the_read),
+            patch.object(comp, saved_during, save_mask_then_continue),
         ):
             compute_table_statistics_sync(team.id, schema.id)
 

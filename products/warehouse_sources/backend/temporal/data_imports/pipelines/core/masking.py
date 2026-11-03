@@ -27,7 +27,7 @@ from __future__ import annotations
 import hmac
 import asyncio
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -65,6 +65,20 @@ def get_masking_key() -> bytes:
 def _mask_base(team_id: int, key: bytes) -> hmac.HMAC:
     # Callers copy this per value, which skips the key schedule and the shared prefix for each cell.
     return hmac.new(key, f"{team_id}:".encode(), hashlib.sha256)
+
+
+def value_masker(team_id: int) -> Callable[[object], str | None]:
+    """`mask_value` for one team, with the key resolved once. Raises when no secret key is set."""
+    base = _mask_base(team_id, get_masking_key())
+
+    def mask(value: object) -> str | None:
+        if value is None:
+            return None
+        digest = base.copy()
+        digest.update(str(value).encode())
+        return digest.hexdigest()
+
+    return mask
 
 
 def mask_value(team_id: int, value: object, *, key: bytes | None = None) -> str | None:
@@ -108,24 +122,42 @@ def mask_table_columns(table: pa.Table, masked_columns: list[str] | None, *, tea
     masked = {fold_column_name(column) for column in masked_columns or []}
     if not masked:
         return table
-    base = _mask_base(team_id, get_masking_key())
+    mask = value_masker(team_id)
     for index, name in enumerate(table.column_names):
         if fold_column_name(name) not in masked:
             continue
         # One chunk at a time, so the Python objects in memory stay bounded by the chunk size.
         masked_chunks: list[pa.Array] = []
         for chunk in table.column(index).chunks:
-            digests: list[str | None] = []
-            for value in chunk.to_pylist():
-                if value is None:
-                    digests.append(None)
-                else:
-                    digest = base.copy()
-                    digest.update(str(value).encode())
-                    digests.append(digest.hexdigest())
-            masked_chunks.append(pa.array(digests, type=pa.string()))
+            masked_chunks.append(pa.array([mask(value) for value in chunk.to_pylist()], type=pa.string()))
         table = table.set_column(index, name, pa.chunked_array(masked_chunks, type=pa.string()))
     return table
+
+
+def raise_if_masked_key_columns(schema: ExternalDataSchema, resource: SourceResponse) -> None:
+    """Fail the sync when a masked column is a key, partition or incremental column.
+
+    The API rejects a mask on a key it knows, but some sources resolve their merge, partition or
+    row-replacement key only at sync time. The loader reads those columns as source values, and
+    skipping the mask syncs plaintext, so fail the sync. A retry reads the same configuration.
+    """
+    if not schema.masked_columns:
+        return
+    key_columns = [
+        *(resource.primary_keys or []),
+        *(resource.partition_keys or []),
+        *(schema.partitioning_keys or []),
+        *(schema.partitioning_keys_override or []),
+        *([resource.replace_scope.column] if resource.replace_scope else []),
+    ]
+    # A full-refresh table keeps the cursor of an earlier sync method in its settings, but reads no cursor.
+    cursor = schema.incremental_field if schema.should_use_incremental_field or schema.is_cdc else None
+    protected = protected_masked_columns(schema.masked_columns, [*key_columns, cursor])
+    if protected:
+        raise NonRetryableException(
+            f"Cannot mask key, partition or incremental columns {protected}. "
+            "Remove them from masked_columns to sync this table."
+        )
 
 
 async def mask_table_if_configured(
@@ -142,20 +174,5 @@ async def mask_table_if_configured(
             f"Cannot mask {sorted(ambiguous)}: two source columns have this name after normalization. "
             "Rename one of the source columns to sync this table."
         )
-    # The API rejects a mask on a key it knows, but some sources resolve their merge, partition or
-    # row-replacement key only at sync time. The loader reads those columns as source values, and
-    # skipping the mask syncs plaintext, so fail the sync. A retry reads the same configuration.
-    key_columns = [
-        *(resource.primary_keys or []),
-        *(resource.partition_keys or []),
-        *(schema.partitioning_keys or []),
-        *(schema.partitioning_keys_override or []),
-        *([resource.replace_scope.column] if resource.replace_scope else []),
-    ]
-    protected = protected_masked_columns(schema.masked_columns, [*key_columns, schema.incremental_field])
-    if protected:
-        raise NonRetryableException(
-            f"Cannot mask key, partition or incremental columns {protected}. "
-            "Remove them from masked_columns to sync this table."
-        )
+    raise_if_masked_key_columns(schema, resource)
     return await asyncio.to_thread(mask_table_columns, table, schema.masked_columns, team_id=schema.team_id)

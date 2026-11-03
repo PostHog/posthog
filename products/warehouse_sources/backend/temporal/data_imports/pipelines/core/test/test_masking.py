@@ -94,35 +94,67 @@ class TestMaskTableColumns:
         assert table.column("id").to_pylist() == [1, 2]
 
 
+def _schema(masked: list[str], **fields: Any) -> Any:
+    return SimpleNamespace(
+        masked_columns=masked,
+        team_id=3,
+        **{
+            "incremental_field": None,
+            "should_use_incremental_field": False,
+            "is_cdc": False,
+            "partitioning_keys": None,
+            "partitioning_keys_override": None,
+            **fields,
+        },
+    )
+
+
+_RESOURCE = cast(
+    Any,
+    SimpleNamespace(
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        replace_scope=SimpleNamespace(column="_file_name"),
+    ),
+)
+
+
 class TestMaskTableIfConfigured:
     @pytest.mark.parametrize(
-        "masked,source_column_names",
+        "masked,source_column_names,schema_fields",
         [
-            pytest.param(["id"], ["id", "email"], id="mask_on_a_key_resolved_at_sync_time"),
-            pytest.param(["created_at"], ["id", "created_at"], id="mask_on_a_source_partition_key"),
-            pytest.param(["_file_name"], ["id", "_file_name"], id="mask_on_the_row_replacement_column"),
-            pytest.param(["Email"], ["id", "Email", "email"], id="source_column_added_with_a_colliding_name"),
+            pytest.param(["id"], ["id", "email"], {}, id="mask_on_a_key_resolved_at_sync_time"),
+            pytest.param(["created_at"], ["id", "created_at"], {}, id="mask_on_a_source_partition_key"),
+            pytest.param(["_file_name"], ["id", "_file_name"], {}, id="mask_on_the_row_replacement_column"),
+            pytest.param(["Email"], ["id", "Email", "email"], {}, id="source_column_added_with_a_colliding_name"),
+            pytest.param(
+                ["updated_at"],
+                ["id", "updated_at"],
+                {"incremental_field": "updated_at", "should_use_incremental_field": True},
+                id="mask_on_the_cursor",
+            ),
+            pytest.param(["region"], ["id", "region"], {"partitioning_keys": ["region"]}, id="mask_on_a_partition_key"),
+            pytest.param(
+                ["region"],
+                ["id", "region"],
+                {"partitioning_keys_override": ["region"]},
+                id="mask_on_a_partition_key_override",
+            ),
         ],
     )
-    async def test_fails_the_sync(self, masked: list[str], source_column_names: list[str]) -> None:
-        schema = cast(
-            Any,
-            SimpleNamespace(
-                masked_columns=masked,
-                incremental_field=None,
-                team_id=3,
-                partitioning_keys=None,
-                partitioning_keys_override=None,
-            ),
-        )
-        resource = cast(
-            Any,
-            SimpleNamespace(
-                primary_keys=["id"],
-                partition_keys=["created_at"],
-                replace_scope=SimpleNamespace(column="_file_name"),
-            ),
+    async def test_fails_the_sync(
+        self, masked: list[str], source_column_names: list[str], schema_fields: dict[str, Any]
+    ) -> None:
+        with pytest.raises(NonRetryableException):
+            await mask_table_if_configured(
+                pa.table({"id": [1]}), _schema(masked, **schema_fields), _RESOURCE, source_column_names
+            )
+
+    async def test_a_full_refresh_table_masks_the_cursor_of_its_earlier_sync_method(self) -> None:
+        schema = _schema(["updated_at"], incremental_field="updated_at")
+
+        masked = await mask_table_if_configured(
+            pa.table({"id": [1], "updated_at": ["2026-01-01"]}), schema, _RESOURCE, ["id", "updated_at"]
         )
 
-        with pytest.raises(NonRetryableException):
-            await mask_table_if_configured(pa.table({"id": [1]}), schema, resource, source_column_names)
+        assert masked.column("updated_at").to_pylist() == [mask_value(3, "2026-01-01")]

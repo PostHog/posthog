@@ -26,7 +26,7 @@ from decimal import Decimal, localcontext
 from typing import Any
 
 from django.conf import settings
-from django.db import InterfaceError, OperationalError, close_old_connections, transaction
+from django.db import InterfaceError, OperationalError, close_old_connections
 from django.utils import timezone
 
 import structlog
@@ -43,7 +43,10 @@ from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -783,20 +786,23 @@ def _write_statistics(
     basis: str,
 ) -> None:
     """Persist every column's stats, with no bounds for a column masked at write time."""
-    with transaction.atomic():
-        # Read under the row lock a mask save takes, so a save can't land between this read and the writes.
-        masked_columns = (
-            ExternalDataSchema.objects.select_for_update()
-            .filter(team_id=team.id, id=schema_id)
+
+    def masked_columns() -> list[str] | None:
+        return (
+            ExternalDataSchema.objects.filter(team_id=team.id, id=schema_id)
             .values_list("masked_columns", flat=True)
             .first()
         )
-        masked = {fold_column_name(column) for column in masked_columns or []}
-        for column_name, stat in stats_by_column.items():
-            if fold_column_name(column_name) in masked:
-                # A masked column's bounds are plaintext until its rebuild lands, and digests after it.
-                stat = dataclasses.replace(stat, min_value=None, max_value=None, has_min_max=False)
-            _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
+
+    masked = {fold_column_name(column) for column in masked_columns() or []}
+    for column_name, stat in stats_by_column.items():
+        if fold_column_name(column_name) in masked:
+            # A masked column's bounds are plaintext until its rebuild lands, and digests after it.
+            stat = dataclasses.replace(stat, min_value=None, max_value=None, has_min_max=False)
+        _upsert_statistics(team, table, column_name, row_count, stat, delta_version, basis)
+    # A mask saved during the writes clears the bounds after its commit. This second read covers a mask
+    # saved before that point, so no lock on the schema row is needed.
+    clear_masked_column_bounds(team.id, table.id, masked_columns())
 
 
 def _upsert_statistics(

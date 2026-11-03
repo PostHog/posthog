@@ -94,7 +94,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_table_if_configured
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
+    mask_table_if_configured,
+    raise_if_masked_key_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_cursor_partition_keys,
 )
@@ -418,6 +421,7 @@ class PipelineV3(Generic[ResumableData]):
                 resume_manager=self._resumable_source_manager, is_webhook=self._schema.is_webhook
             ),
             primary_keys=self._resource.primary_keys,
+            masked_columns=self._schema.masked_columns,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -887,6 +891,10 @@ class PipelineV3(Generic[ResumableData]):
                 self._resource,
                 is_first_sync=self._table is None or self._reset_pipeline,
             )
+            # Before the reset below deletes the table: a full-refresh table stores no key, so the API
+            # can accept a mask on the key that only this run resolves.
+            if self._resource.cdc_write_mode is None:
+                raise_if_masked_key_columns(self._schema, self._resource)
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 

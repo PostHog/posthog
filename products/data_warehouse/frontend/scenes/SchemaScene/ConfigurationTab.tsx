@@ -856,7 +856,9 @@ function ColumnsAndRowFiltersSection({
     const handleSave = (): void => {
         const syncType = schema.sync_type
 
-        if (masksChanged && !!schema.last_synced_at) {
+        // A mask change also cancels and restarts a running first sync, which has no last_synced_at yet.
+        const isRunning = schema.status === 'Running'
+        if (masksChanged && (!!schema.last_synced_at || isRunning)) {
             LemonDialog.open({
                 title: 'Changing masked columns starts a full resync',
                 description: (
@@ -866,6 +868,9 @@ function ColumnsAndRowFiltersSection({
                             or unmasked in place. A masked column no longer matches the same values in tables where it
                             isn't masked.
                         </span>
+                        {isRunning && syncType !== 'cdc' && (
+                            <span>The sync currently running will be canceled when you save.</span>
+                        )}
                         {newlyMasked.length > 0 && newlyMasked.length <= 6 && (
                             <span className="text-xs text-muted">
                                 Masking: {newlyMasked.map((c) => `"${c}"`).join(', ')}

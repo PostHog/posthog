@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorCategory,
     CDCErrorInfo,
     CDCMaskedKeyError,
+    CDCMaskingKeyError,
     CDCSlotNotConfiguredError,
     CDCTransactionTooLargeError,
     cdc_error_info,
@@ -92,6 +93,11 @@ class TestClassifyCDCError:
                 CDCErrorCategory.TRANSACTION_TOO_LARGE,
             ),
             ("masked_key", CDCMaskedKeyError("public.orders", ["id"]), CDCErrorCategory.MASKED_KEY_CONFLICT),
+            (
+                "masking_key_unavailable",
+                CDCMaskingKeyError("ENCRYPTION_SALT_KEYS is the public default"),
+                CDCErrorCategory.MASKING_KEY_UNAVAILABLE,
+            ),
         ]
     )
     def test_config_errors_are_classified_without_adapter(self, _name, exc, category):

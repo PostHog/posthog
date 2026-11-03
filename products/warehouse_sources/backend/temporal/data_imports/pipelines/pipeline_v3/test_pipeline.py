@@ -81,6 +81,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceInputs,
     SourceResponse,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
@@ -262,6 +263,32 @@ class TestAttemptScopedRunUuid:
             pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
 
             await pipeline.run()
+
+        mock_reset.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_mask_on_a_key_resolved_at_sync_time_fails_before_the_reset(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._reset_pipeline = True
+        cast(MagicMock, pipeline._schema).configure_mock(
+            masked_columns=["order_uuid"],
+            incremental_field=None,
+            partitioning_keys=None,
+            partitioning_keys_override=None,
+        )
+        pipeline._resource = MagicMock(
+            primary_keys=["order_uuid"], partition_keys=None, replace_scope=None, cdc_write_mode=None
+        )
+
+        with (
+            patch(f"{_PIPELINE}.reset_rows_synced_if_needed", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.validate_incremental_sync"),
+            patch(f"{_PIPELINE}.handle_reset_or_full_refresh", new_callable=AsyncMock) as mock_reset,
+            patch(f"{_PIPELINE}.activity") as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            with pytest.raises(NonRetryableException, match="order_uuid"):
+                await pipeline.run()
 
         mock_reset.assert_not_called()
 
@@ -1829,6 +1856,7 @@ def _runnable_pipeline(manager: ResumableSourceManager[_Cursor], items) -> Pipel
         is_append=False,
         should_use_incremental_field=False,
         table=None,
+        masked_columns=None,
     )
     pipeline._process_batch = AsyncMock()  # type: ignore[method-assign]
     return pipeline
@@ -2410,6 +2438,7 @@ class TestFinalMarkerIsTheLastDataRow:
             is_append=False,
             should_use_incremental_field=False,
             table=None,
+            masked_columns=None,
         )
         pipeline._s3_batch_writer = MagicMock(
             write_batch=MagicMock(

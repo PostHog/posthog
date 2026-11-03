@@ -827,12 +827,15 @@ def table_from_iterator(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter)
+    processed_batch = _process_batch(
+        batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter, masked_columns=masked_columns
+    )
 
     return processed_batch
 
@@ -843,13 +846,18 @@ def table_from_py_list(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
     return table_from_iterator(
-        iter(table_data), schema=schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+        iter(table_data),
+        schema=schema,
+        primary_keys=primary_keys,
+        binary_reporter=binary_reporter,
+        masked_columns=masked_columns,
     )
 
 
@@ -1443,6 +1451,7 @@ def _process_batch(
     *,
     primary_keys: Optional[Sequence[str]] = None,
     binary_reporter: Optional[BinaryColumnReporter] = None,
+    masked_columns: Optional[Sequence[str]] = None,
 ) -> pa.Table:
     # Every step below reads a row as a mapping, so without this check a keyless row fails deep in
     # the conversion with a bare `'list' object has no attribute 'items'`, which names neither the
@@ -1452,6 +1461,7 @@ def _process_batch(
             raise NonMappingRowError(type(row).__name__)
 
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
+    masked = {fold_column_name(column) for column in masked_columns or []}
 
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
@@ -1667,11 +1677,15 @@ def _process_batch(
                     # not str" phrase so source non-retryable matching still fires, but name the
                     # column and show examples so the offending cells can be found in the source.
                     offenders = [x for x in all_values if isinstance(x, str)]
-                    sample = [(x if x != "" else "<blank>") for x in offenders[:5]]
+                    # A masked column's cells must not reach the sync error, which project members can read.
+                    if fold_column_name(str(field_name)) in masked:
+                        examples = ""
+                    else:
+                        examples = f" such as {[(x if x != '' else '<blank>') for x in offenders[:5]]}"
                     raise TypeError(
                         f"must be real number, not str: column '{field_name}' is imported as a "
-                        f"number but contains {len(offenders)} non-numeric value(s) such as "
-                        f"{sample}. Ensure every cell in this column is a plain number (or empty)."
+                        f"number but contains {len(offenders)} non-numeric value(s){examples}. "
+                        "Ensure every cell in this column is a plain number (or empty)."
                     ) from e
 
                 if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):

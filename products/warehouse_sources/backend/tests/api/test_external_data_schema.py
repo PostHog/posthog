@@ -5454,24 +5454,35 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("mask_added", None, ["password"], True),
-            ("mask_removed", ["password"], [], True),
-            ("mask_swapped", ["password"], ["email"], True),
-            ("same_mask_in_another_case", ["password"], ["Password"], False),
+            ("mask_added", None, ["password"], True, True, True, [True], True),
+            ("mask_removed", ["password"], [], True, True, True, [True], True),
+            ("mask_swapped", ["password"], ["email"], True, True, True, [True], True),
+            ("same_mask_in_another_case", ["password"], ["Password"], True, True, False, [], False),
+            ("mask_added_with_no_sync_running", None, ["password"], False, True, True, [False], False),
+            ("mask_added_on_a_disabled_table", None, ["password"], True, False, True, [], True),
         ]
     )
     def test_a_mask_change_resyncs_the_table(
-        self, _name: str, stored: list[str] | None, requested: list[str], resyncs: bool
+        self,
+        _name: str,
+        stored: list[str] | None,
+        requested: list[str],
+        sync_running: bool,
+        should_sync: bool,
+        resets: bool,
+        triggers_with_buffer_one: list[bool],
+        cancels: bool,
     ) -> None:
-        schema = self._create(masked_columns=stored)
-        # The schedule skips a trigger while a sync runs, so the rebuild would wait a whole interval.
-        ExternalDataJob.objects.create(
-            team=self.team,
-            pipeline=schema.source,
-            schema=schema,
-            status=ExternalDataJob.Status.RUNNING,
-            workflow_id="running-workflow-id",
-        )
+        schema = self._create(masked_columns=stored, should_sync=should_sync)
+        if sync_running:
+            # The schedule skips a trigger while a sync runs, so the rebuild would wait a whole interval.
+            ExternalDataJob.objects.create(
+                team=self.team,
+                pipeline=schema.source,
+                schema=schema,
+                status=ExternalDataJob.Status.RUNNING,
+                workflow_id="running-workflow-id",
+            )
         with (
             mock.patch(f"{self.VIEWS}.trigger_external_data_workflow") as mock_trigger,
             mock.patch(f"{self.VIEWS}.cancel_external_data_workflow") as mock_cancel,
@@ -5482,9 +5493,31 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         schema.refresh_from_db()
         # Stored under the source column's own name, which the UI compares exactly.
         assert schema.masked_columns == [column.lower() for column in requested]
-        assert schema.sync_type_config.get("reset_pipeline") is (True if resyncs else None)
-        assert mock_trigger.call_args_list == ([mock.call(mock.ANY, buffer_one=True)] if resyncs else [])
-        assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if resyncs else [])
+        assert schema.sync_type_config.get("reset_pipeline") is (True if resets else None)
+        assert mock_trigger.call_args_list == [
+            mock.call(mock.ANY, buffer_one=buffer_one) for buffer_one in triggers_with_buffer_one
+        ]
+        assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if cancels else [])
+
+    def test_a_source_without_column_metadata_checks_masks_against_the_synced_columns(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.HUBSPOT)
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="hubspot_contacts",
+            columns={"id": {"clickhouse": "String"}, "email": {"clickhouse": "Nullable(String)"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="contacts", team=self.team, source=source, table=table, sync_type_config={}
+        )
+        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
+            unknown = self._patch(schema, {"masked_columns": ["phone"]})
+            accepted = self._patch(schema, {"masked_columns": ["EMAIL"]})
+
+        assert unknown.status_code == 400
+        assert "Unknown columns" in str(unknown.json())
+        assert accepted.status_code == 200, accepted.json()
+        schema.refresh_from_db()
+        assert schema.masked_columns == ["email"]
 
     def test_a_mask_change_clears_the_cached_bounds_of_masked_columns(self) -> None:
         table = DataWarehouseTable.objects.create(team=self.team)
@@ -5541,25 +5574,39 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert schema.sync_type_config.get("reset_pipeline") is True
         mock_trigger.assert_not_called()
 
-    @parameterized.expand([("syncing", True, 1), ("disabled_stages_the_snapshot_in_the_save", False, 0)])
-    def test_a_cdc_table_resets_through_a_new_snapshot(self, _name: str, should_sync: bool, resets: int) -> None:
+    @parameterized.expand(
+        [
+            ("syncing", True, 1),
+            ("disabled_stages_the_snapshot_in_the_save", False, 0),
+            ("syncing_with_a_table_mode_change", True, 1, {"cdc_table_mode": "both"}),
+        ]
+    )
+    def test_a_cdc_table_resets_through_a_new_snapshot(
+        self, _name: str, should_sync: bool, resets: int, other_changes: dict[str, Any] | None = None
+    ) -> None:
         schema = self._create(sync_type=ExternalDataSchema.SyncType.CDC, should_sync=should_sync)
+        facade = "products.data_warehouse.backend.facade.api"
         with (
             mock.patch(f"{self.VIEWS}.source_type_supports_cdc", return_value=False),
             mock.patch(f"{self.VIEWS}.sync_cdc_extraction_schedule"),
-            mock.patch(f"{self.VIEWS}.hand_reset_to_capture") as mock_hand_over,
+            mock.patch(f"{facade}.pause_external_data_schedule") as mock_pause,
+            mock.patch(f"{facade}.trigger_cdc_extraction_schedule") as mock_start_capture,
             mock.patch(f"{self.VIEWS}._reset_cdc_for_full_resnapshot") as mock_resnapshot,
             mock.patch(f"{self.VIEWS}.trigger_external_data_workflow") as mock_trigger,
         ):
-            response = self._patch(schema, {"masked_columns": ["password"]})
+            response = self._patch(schema, {"masked_columns": ["password"], **(other_changes or {})})
 
         assert response.status_code == 200, response.json()
-        assert mock_hand_over.call_count == resets
+        assert mock_pause.call_count == resets
+        assert mock_start_capture.call_count == resets
         mock_resnapshot.assert_not_called()
         mock_trigger.assert_not_called()
         schema.refresh_from_db()
         # Saved with the mask, so capture still resets the table if the hand-over fails.
         assert ("cdc_reset_pending" in schema.sync_type_config) is should_sync
+        if should_sync:
+            # One staged generation: a second one would make capture take a second snapshot.
+            assert schema.sync_type_config["cdc_reset_pending"]["generation"] == 1
         if not should_sync:
             assert schema.sync_type_config["cdc_mode"] == "snapshot"
             assert schema.sync_type_config["reset_pipeline"] is True
@@ -5661,22 +5708,45 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
                 {"incremental_field": "password"},
                 ExternalDataSchema.SyncType.INCREMENTAL,
             ),
+            (
+                "primary_key_moved_onto_a_masked_column",
+                {"primary_key_columns": ["password"]},
+                ExternalDataSchema.SyncType.INCREMENTAL,
+            ),
             # A CDC table keeps its stored cursor whatever the request sends for it.
             (
                 "stored_cursor_with_a_null_cursor_in_the_request",
                 {"masked_columns": ["created_at"], "incremental_field": None},
                 ExternalDataSchema.SyncType.CDC,
             ),
+            # With no stored key, a sync merges and partitions on `id`.
+            (
+                "mask_on_id_with_no_stored_key",
+                {"masked_columns": ["id"]},
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                False,
+            ),
         ]
     )
     def test_a_mask_never_shares_a_column_with_the_key_or_cursor(
-        self, _name: str, data: dict[str, Any], sync_type: str
+        self, _name: str, data: dict[str, Any], sync_type: str, key_stored: bool = True
     ) -> None:
         schema = self._create(masked_columns=["password"], sync_type=sync_type)
+        if not key_stored:
+            update_sync_type_config_keys(schema.id, schema.team_id, removes=["primary_key_columns"])
         response = self._patch(schema, {"incremental_field_type": "integer", **data})
 
         assert response.status_code == 400
         assert "can't be masked" in str(response.json())
+
+    def test_a_full_refresh_table_can_mask_the_cursor_of_its_earlier_sync_method(self) -> None:
+        schema = self._create(sync_type=ExternalDataSchema.SyncType.FULL_REFRESH)
+        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
+            response = self._patch(schema, {"masked_columns": ["created_at"]})
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.masked_columns == ["created_at"]
 
 
 class TestExternalDataSchemaApiVersionOverride(APIBaseTest):

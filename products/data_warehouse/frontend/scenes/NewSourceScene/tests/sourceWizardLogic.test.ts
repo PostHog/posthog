@@ -1128,6 +1128,36 @@ describe('sourceWizardLogic', () => {
             }
         })
 
+        it.each([
+            { name: 'cursor', incrementalField: 'Updated_At', primaryKeyColumns: null, kept: ['email'] },
+            { name: 'primary key', incrementalField: null, primaryKeyColumns: ['email'], kept: ['updated_at'] },
+        ])(
+            'choosing a masked column as the $name drops its mask, since the server refuses it',
+            ({ incrementalField, primaryKeyColumns, kept }) => {
+                const users = buildSchema({ table: 'users' })
+                const orders = buildSchema({ table: 'orders' })
+                const { logic, unmount } = mountWithSchemas([users, orders])
+
+                try {
+                    logic.actions.setSchemaMaskedColumns(users, ['email', 'updated_at'])
+                    logic.actions.setSchemaMaskedColumns(orders, ['email'])
+                    logic.actions.updateSchemaSyncType(
+                        users,
+                        'incremental',
+                        incrementalField,
+                        'datetime',
+                        primaryKeyColumns
+                    )
+
+                    const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                    expect(byTable['users'].masked_columns).toEqual(kept)
+                    expect(byTable['orders'].masked_columns).toEqual(['email'])
+                } finally {
+                    unmount()
+                }
+            }
+        )
+
         it('toggleSchemaGroup skips permission_error rows in a group', () => {
             const { logic, unmount } = mountWithSchemas([
                 buildSchema({ table: 'public.customers' }),

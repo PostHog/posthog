@@ -277,6 +277,11 @@ export function buildCreateSourcePayload(
     }
 }
 
+function withoutColumns(columns: string[] | null | undefined, removed: (string | null)[]): string[] | null | undefined {
+    const names = new Set(removed.filter((name): name is string => !!name).map((name) => name.toLowerCase()))
+    return columns?.filter((column) => !names.has(column.toLowerCase())) ?? columns
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -1307,6 +1312,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 ? (incrementalFieldLookbackSeconds ?? null)
                                 : s.incremental_field_lookback_seconds,
                         primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
+                        // The server refuses to mask a cursor or key column, which would fail the whole source creation.
+                        masked_columns:
+                            s.table === schema.table
+                                ? withoutColumns(s.masked_columns, [incrementalField, ...(primaryKeyColumns ?? [])])
+                                : s.masked_columns,
                         ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
                             ? { cdc_table_mode: cdcTableMode }
                             : {}),

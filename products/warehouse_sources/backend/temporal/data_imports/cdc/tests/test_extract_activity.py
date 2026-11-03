@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Literal
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import ANY, DEFAULT, MagicMock, patch
@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     CDCErrorCategory,
     CDCMaskedKeyError,
+    CDCMaskingKeyError,
     CDCReservedColumnError,
     cdc_error_info,
 )
@@ -326,7 +327,7 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
 class TestMaskEventColumns:
     def test_masks_configured_columns_and_types_them_as_text(self):
         activity_obj = _make_extract_activity(_make_source())
-        activity_obj.masked_columns_by_table = {"users": {"email", "visits"}}
+        activity_obj._load_masked_columns(cast(Any, SimpleNamespace(name="users", masked_columns=["email", "Visits"])))
         event = dataclasses.replace(
             _make_event(columns={"id": 1, "Email": "a@example.com", "visits": None}),
             column_types={"id": pa.int64(), "Email": pa.string(), "visits": pa.int64()},
@@ -342,6 +343,18 @@ class TestMaskEventColumns:
         event = _make_event(columns={"id": 1, "email": "a@example.com"})
 
         assert activity_obj._mask_event_columns(event) is event
+
+    def test_no_secret_key_fails_capture_before_any_change_is_read(self):
+        activity_obj = _make_extract_activity(_make_source())
+
+        with (
+            patch(
+                f"{_ACTIVITIES}.value_masker",
+                side_effect=NonRetryableException("ENCRYPTION_SALT_KEYS is the public default"),
+            ),
+            pytest.raises(CDCMaskingKeyError),
+        ):
+            activity_obj._load_masked_columns(cast(Any, SimpleNamespace(name="users", masked_columns=["email"])))
 
 
 class TestSetupSelfCleansUnrunnableSchedules:

@@ -55,7 +55,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
-    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
     discovered_schema_finder,
     mark_schema_running_unless_halted,
     resolve_destinations,
@@ -577,19 +577,6 @@ def canonical_masked_columns(masked_columns: list[str], source_columns: Iterable
     return list(dict.fromkeys(by_folded.get(fold_column_name(column), column) for column in masked_columns))
 
 
-def _clear_masked_column_bounds(schema: ExternalDataSchema) -> None:
-    # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
-    masked = {fold_column_name(column) for column in schema.masked_columns or []}
-    statistics = WarehouseColumnStatistics.objects.for_team(schema.team_id).filter(
-        table_id=schema.table_id, has_min_max=True
-    )
-    stale = [
-        stat_id for stat_id, name in statistics.values_list("id", "column_name") if fold_column_name(name) in masked
-    ]
-    if stale:
-        statistics.filter(id__in=stale).update(min_value=None, max_value=None, has_min_max=False)
-
-
 def _stage_mask_rebuild(config: dict[str, Any]) -> None:
     config["reset_pipeline"] = True
 
@@ -624,8 +611,11 @@ def _validate_masked_columns(
         if not primary_key_columns:
             primary_key_columns = [name for name in source_columns if name.lower() == "id"][:1]
         # The stored key and cursor count too: an update can leave them in place, for example when a
-        # CDC table ignores the incremental field in the request.
-        incremental_fields = [data.get("incremental_field"), instance.incremental_field]
+        # CDC table ignores the incremental field in the request. A full-refresh table keeps the cursor
+        # of an earlier sync method in its settings, but reads no cursor.
+        sync_type = data.get("sync_type") or instance.sync_type
+        stored_cursor = instance.incremental_field if sync_type != ExternalDataSchema.SyncType.FULL_REFRESH else None
+        incremental_fields = [data.get("incremental_field"), stored_cursor]
         partition_keys = [*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])]
         # A stored mask whose column left the source must not block unrelated edits, so only new masks
         # are checked against the known columns. Every mask is still checked against the keys.
@@ -1915,8 +1905,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
 
-        if masked_columns_changed and updated_instance.table_id is not None:
-            _clear_masked_column_bounds(updated_instance)
+        if masked_columns_changed:
+            # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
+            clear_masked_column_bounds(
+                updated_instance.team_id, updated_instance.table_id, updated_instance.masked_columns
+            )
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
@@ -1939,6 +1932,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         logger.exception(
                             "Could not cancel running workflow after a schema change",
                             schema_id=str(instance.id),
+                            workflow_id=running_job.workflow_id,
+                            reason="api_version_change" if api_version_changed else "mask_change",
                             exc_info=e,
                         )
 
@@ -2029,7 +2024,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # buffer first: files captured before the change hold the old values and the old column type.
         cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
         if cdc_mask_reset:
-            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger))
+            # The save above staged the reset, so the hand-over only pauses the schedule and starts capture.
+            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger, stage=False))
 
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs

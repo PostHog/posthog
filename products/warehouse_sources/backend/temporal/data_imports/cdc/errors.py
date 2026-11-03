@@ -40,6 +40,7 @@ class CDCErrorCategory(enum.StrEnum):
     TRANSACTION_TOO_LARGE = "transaction_too_large"
     RESERVED_COLUMN_CONFLICT = "reserved_column_conflict"
     MASKED_KEY_CONFLICT = "masked_key_conflict"
+    MASKING_KEY_UNAVAILABLE = "masking_key_unavailable"
     UNKNOWN = "unknown"
 
 
@@ -82,6 +83,13 @@ class CDCReservedColumnError(Exception):
 
     The SCD2 stamp raises it too, because Delta refuses the duplicate name at write time anyway, and
     failing before the writer names the column instead of a qualified field in a schema error.
+    """
+
+
+class CDCMaskingKeyError(Exception):
+    """A table masks columns, but the instance has no secret key to hash them with.
+
+    Non-retryable: the key is deployment configuration, so replaying re-fails until it is set.
     """
 
 
@@ -198,6 +206,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "Remove the column from the table's masked columns, then re-enable change data capture.",
         False,
     ),
+    CDCErrorCategory.MASKING_KEY_UNAVAILABLE: (
+        "A table masks columns, but this PostHog instance has no secret key to hash them with. "
+        "Set ENCRYPTION_SALT_KEYS to a secret value, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.UNKNOWN: (
         "Change data capture hit an unexpected error. PostHog will retry automatically — if it "
         "persists, check the source's sync logs or contact support.",
@@ -236,6 +249,8 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
         if isinstance(err, CDCReservedColumnError):
             return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
+        if isinstance(err, CDCMaskingKeyError):
+            return cdc_error_info(CDCErrorCategory.MASKING_KEY_UNAVAILABLE)
         if isinstance(err, CDCMaskedKeyError):
             # Every table on the source shows this error, so it names the one to fix. Names are not secrets.
             return dataclasses.replace(
