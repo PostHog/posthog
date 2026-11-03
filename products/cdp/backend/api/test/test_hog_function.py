@@ -2782,14 +2782,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("saved_function_real_requests", True, False, False),
-            ("saved_function_runs_its_stored_config", True, False, True),
-            ("new_function_real_requests", False, False, False),
-            ("new_function_mocked_requests", False, True, False),
+            ("saved_function_real_requests", True, False, False, None),
+            ("saved_function_runs_its_stored_config", True, False, True, None),
+            ("new_function_real_requests", False, False, False, None),
+            ("new_function_mocked_requests", False, True, False, None),
+            ("native_destination_ignores_mocking", False, True, False, "native-example"),
+            ("segment_destination_ignores_mocking", True, True, False, "segment-example"),
         ]
     )
     def test_test_invocation_with_real_requests_is_logged_without_input_values(
-        self, _name: str, saved: bool, mock_async_functions: bool, omit_stored_fields: bool
+        self,
+        _name: str,
+        saved: bool,
+        mock_async_functions: bool,
+        omit_stored_fields: bool,
+        template_id: Optional[str],
     ):
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
         mapping_integration = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
@@ -2818,6 +2825,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 }
             ],
         }
+        if template_id:
+            HogFunctionTemplate.objects.create(
+                template_id=template_id,
+                sha="1.0.0",
+                name="Example",
+                description="Example destination",
+                code="return event",
+                code_language="hog",
+                inputs_schema=[],
+                type="destination",
+                status="stable",
+                category=["Other"],
+                free=True,
+            )
+            configuration["template_id"] = template_id
         function_id = "new"
         if saved:
             created = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=configuration)
@@ -2842,7 +2864,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert mock_invocation.call_count == 1, response.json()
 
         rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", activity="tested"))
-        if mock_async_functions:
+        if mock_async_functions and not template_id:
             assert rows == []
             return
         assert len(rows) == 1
@@ -2851,7 +2873,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         detail = rows[0].detail
         assert detail is not None
         assert detail["context"] == {
-            "mock_async_functions": False,
+            "mock_async_functions": mock_async_functions,
             "integration_ids": sorted([integration.id, mapping_integration.id]),
             "input_keys": ["headers", "method", "payload", "url", "workspace"],
             "mapping_input_keys": ["mapping_text", "mapping_workspace"],

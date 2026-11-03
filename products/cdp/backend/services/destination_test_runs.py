@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 _CONTEXT_FIELDS = ("hog", "inputs", "inputs_schema", "mappings")
+# The worker runs these templates with their own executors, which send real requests even when the test mocks.
+_UNMOCKED_TEMPLATE_PREFIXES = ("native-", "segment-")
 # Hog templates are parsed, but the parser does not read Liquid, so a Liquid input is matched by pattern.
 _LIQUID_INPUT_REFERENCE = re.compile(r"""inputs(?:\.([A-Za-z_]\w*)|\[\s*['"]([^'"]+)['"]\s*\])""")
 
@@ -98,6 +100,13 @@ def _effective_configuration(configuration: dict[str, Any], stored: Optional["Ho
         field: configuration[field] if field in configuration else getattr(stored, field, None)
         for field in _CONTEXT_FIELDS
     }
+
+
+def sends_real_requests(configuration: dict[str, Any], *, mock_async_functions: bool) -> bool:
+    template_id = configuration.get("template_id")
+    return not mock_async_functions or (
+        isinstance(template_id, str) and template_id.startswith(_UNMOCKED_TEMPLATE_PREFIXES)
+    )
 
 
 def destination_test_run_context(

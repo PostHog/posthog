@@ -70,7 +70,7 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
-from products.cdp.backend.services.destination_test_runs import destination_test_run_context
+from products.cdp.backend.services.destination_test_runs import destination_test_run_context, sends_real_requests
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
@@ -1434,7 +1434,7 @@ class HogFunctionViewSet(
         configuration.pop("team")
 
         mock_async_functions = serializer.validated_data["mock_async_functions"]
-        if not mock_async_functions:
+        if sends_real_requests(configuration, mock_async_functions=mock_async_functions):
             # The row is written before the worker call, so a test that then fails is still recorded.
             log_activity(
                 organization_id=self.organization.id,
