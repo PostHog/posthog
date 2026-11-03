@@ -19,18 +19,22 @@ import type {
     BulkUpdateTagsUUIDResponseApi,
     ComposeTicketApi,
     ComposeTicketResponseApi,
+    ConversationsMacrosListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     PaginatedTicketListApi,
+    PaginatedTicketMacroListApi,
     PaginatedTicketMessageListApi,
     PaginatedTicketViewListApi,
+    PatchedTicketMacroApi,
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
     SigningSecretApi,
     TicketApi,
     TicketFullEmailApi,
+    TicketMacroApi,
     TicketMessageApi,
     TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
@@ -92,6 +96,113 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     })
 }
 
+export const getConversationsMacrosListUrl = (projectId: string, params?: ConversationsMacrosListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/macros/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/macros/`
+}
+
+export const conversationsMacrosList = async (
+    projectId: string,
+    params?: ConversationsMacrosListParams,
+    options?: RequestInit
+): Promise<PaginatedTicketMacroListApi> => {
+    return apiMutator<PaginatedTicketMacroListApi>(getConversationsMacrosListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/macros/`
+}
+
+export const conversationsMacrosCreate = async (
+    projectId: string,
+    ticketMacroApi: NonReadonly<TicketMacroApi>,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketMacroApi),
+    })
+}
+
+export const getConversationsMacrosRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/`
+}
+
+export const conversationsMacrosRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsMacrosPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/`
+}
+
+export const conversationsMacrosPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTicketMacroApi?: NonReadonly<PatchedTicketMacroApi>,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketMacroApi),
+    })
+}
+
+export const getConversationsMacrosDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/`
+}
+
+export const conversationsMacrosDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsMacrosDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getConversationsMacrosUsedCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/macros/${id}/used/`
+}
+
+export const conversationsMacrosUsedCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TicketMacroApi> => {
+    return apiMutator<TicketMacroApi>(getConversationsMacrosUsedCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getConversationsSigningSecretRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/signing_secret/`
 }
@@ -109,12 +220,29 @@ export const conversationsSigningSecretRetrieve = async (
     })
 }
 
+export const getConversationsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/signing_secret/expire_previous/`
+}
+
+/**
+ * End the rotation grace window now: the previous secret stops verifying immediately. Use it when the replaced secret may be compromised, or once every server runs the new one.
+ */
+export const conversationsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SigningSecretApi> => {
+    return apiMutator<SigningSecretApi>(getConversationsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getConversationsSigningSecretRotateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/signing_secret/rotate/`
 }
 
 /**
- * Generate a new signing secret. Identity hashes signed with the previous secret stop verifying immediately.
+ * Generate a new signing secret. The previous secret keeps verifying identity hashes for 48 hours, then expires.
  */
 export const conversationsSigningSecretRotateCreate = async (
     projectId: string,

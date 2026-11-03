@@ -15,6 +15,7 @@ from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -285,40 +286,57 @@ def test_fetch_page_waits_for_egress_budget_before_asking_for_it(installation_id
     # of the window, and waiting when there is headroom slows every small sync instead.
     identity = github.GithubEgressIdentity(installation_id=installation_id)
 
-    shutdown_wait = mock.Mock()
     with (
         mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as pace_for,
+        mock.patch.object(github, "interruptible_wait") as wait,
         mock.patch.object(GithubSource, "_egress_identity", return_value=identity),
     ):
-        result = _drive("issues", [ScriptedResponse(json=[])], shutdown_wait=shutdown_wait)
+        result = _drive("issues", [ScriptedResponse(json=[])])
 
     assert result.raised is None
     expected_waits = [] if expected_wait is None else [mock.call(expected_wait)]
-    assert shutdown_wait.call_args_list == expected_waits
+    assert wait.call_args_list == expected_waits
     assert pace_for.called is (installation_id is not None)
     assert result.paths == ["/repos/o/r/issues"]
 
 
-def test_fetch_page_budget_wait_yields_to_the_runtime_shutdown_control():
-    # The pipeline tests for worker shutdown only between the chunks a source yields, so a wait that
-    # slept would hold a draining pod for its full duration and delay the hand-off by that much.
-    # Waiting on the runtime's shutdown event returns the moment the pod starts draining.
+@pytest.mark.parametrize(
+    "clock_at_signal,expected_sleeps",
+    [
+        # The signal comes after the wait ends, so the wait takes its full length.
+        (100.0, [1.0] * 5),
+        # The signal comes in the middle of the wait, which is the end of the shutdown grace.
+        (3.0, [1.0] * 3),
+        # The signal came before the wait, so the wait returns at once.
+        (0.0, []),
+    ],
+)
+def test_fetch_page_budget_wait_holds_during_the_shutdown_grace_and_ends_after_it(clock_at_signal, expected_sleeps):
+    # The signal is the hand-off gate, which stays false for the whole grace. A wait on the raw worker
+    # shutdown event returned at the SIGTERM instead, so imports skipped their pacing during the grace.
     session = mock.Mock()
     session.request.return_value = _ok_response()
     identity = github.GithubEgressIdentity(installation_id="123")
-    shutdown_wait = mock.Mock()
+    clock = {"now": 0.0}
+    sleeps: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        clock["now"] += seconds
 
     with (
-        mock.patch.object(github, "github_installation_pace_seconds", return_value=30.0),
-        mock.patch.object(github.time, "sleep") as sleep,
+        mock.patch.object(github, "github_installation_pace_seconds", return_value=5.0),
         mock.patch.object(github, "make_tracked_session", return_value=session),
+        mock.patch("time.sleep", side_effect=fake_sleep),
+        activate_safe_point(
+            lambda: None,
+            covers_framework_checkpoints=False,
+            is_shutting_down=lambda: clock["now"] >= clock_at_signal,
+        ),
     ):
-        github._fetch_page(
-            "https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity, shutdown_wait=shutdown_wait
-        )
+        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
 
-    shutdown_wait.assert_called_once_with(30.0)
-    sleep.assert_not_called()
+    assert sleeps == expected_sleeps
 
 
 def _error_response(status_code: int, message: str, headers: dict[str, str] | None = None) -> mock.Mock:

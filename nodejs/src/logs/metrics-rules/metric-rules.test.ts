@@ -1,6 +1,14 @@
 import type { LogRecord } from '../log-record-avro'
 import { type MetricRuleRow, compileMetricRules } from './compile-metric-rules'
-import { MAX_LABEL_SETS_PER_RULE, MAX_LABEL_VALUE_LENGTH, createBatchTallies, tallyRecords } from './tally'
+import {
+    DEFAULT_HISTOGRAM_BOUNDS,
+    MAX_LABEL_SETS_PER_RULE,
+    MAX_LABEL_VALUE_LENGTH,
+    MetricSeriesAdmission,
+    OVERFLOW_LABEL_KEY,
+    createBatchTallies,
+    tallyRecords,
+} from './tally'
 
 const NOW_MS = 1_700_000_000_000
 
@@ -167,15 +175,98 @@ describe('metric rules compile + tally', () => {
             expect(entries[0]!.count).toBe(2)
         })
 
-        it('caps distinct label sets per rule and counts the overflow', () => {
+        it('folds label sets past the cap into one overflow series instead of dropping them', () => {
             const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['attributes.request_id'] })])
             const tallies = createBatchTallies()
             const records = Array.from({ length: MAX_LABEL_SETS_PER_RULE + 3 }, (_, i) =>
                 record({ attributes: { request_id: `req-${i}` } })
             )
             tallyRecords(rules, records, tallies, NOW_MS)
-            expect(tallies.byRule.get('rule-1')!.size).toBe(MAX_LABEL_SETS_PER_RULE)
+            const ruleTallies = tallies.byRule.get('rule-1')!
+            expect(ruleTallies.size).toBe(MAX_LABEL_SETS_PER_RULE + 1)
+            const overflow = ruleTallies.get(OVERFLOW_LABEL_KEY)!
+            expect(overflow.overflow).toBe(true)
+            expect(overflow.count).toBe(3)
             expect(tallies.seriesOverflow.get('rule-1')).toBe(3)
+        })
+
+        it('keeps known label sets on their own series after the cap is reached', () => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['attributes.request_id'] })])
+            const tallies = createBatchTallies()
+            const records = Array.from({ length: MAX_LABEL_SETS_PER_RULE + 1 }, (_, i) =>
+                record({ attributes: { request_id: `req-${i}` } })
+            )
+            records.push(record({ attributes: { request_id: 'req-0' } }))
+            tallyRecords(rules, records, tallies, NOW_MS)
+            const ruleTallies = tallies.byRule.get('rule-1')!
+            expect(ruleTallies.get(JSON.stringify(['req-0']))!.count).toBe(2)
+            expect(ruleTallies.get(OVERFLOW_LABEL_KEY)!.count).toBe(1)
+        })
+
+        it('bounds label sets per rule across batches until the hour changes', () => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['attributes.request_id'] })])
+            const admission = new MetricSeriesAdmission()
+            const tallyBatch = (ids: string[], nowMs: number): Map<string, { count: number }> => {
+                const tallies = createBatchTallies()
+                const records = ids.map((id) => record({ attributes: { request_id: id }, timestamp: nowMs * 1000 }))
+                tallyRecords(rules, records, tallies, nowMs, (ruleId, labelKey) =>
+                    admission.admit(1, ruleId, labelKey, nowMs)
+                )
+                return tallies.byRule.get('rule-1')!
+            }
+            tallyBatch(
+                Array.from({ length: MAX_LABEL_SETS_PER_RULE }, (_, i) => `req-${i}`),
+                NOW_MS
+            )
+
+            const sameHour = tallyBatch(['req-0', 'req-new'], NOW_MS + 1000)
+            expect(sameHour.get(JSON.stringify(['req-0']))!.count).toBe(1)
+            expect(sameHour.get(JSON.stringify(['req-new']))).toBeUndefined()
+            expect(sameHour.get(OVERFLOW_LABEL_KEY)!.count).toBe(1)
+
+            const nextHour = tallyBatch(['req-new'], NOW_MS + 60 * 60 * 1000)
+            expect(nextHour.get(JSON.stringify(['req-new']))!.count).toBe(1)
+        })
+
+        it('counts colliding label sets separately, so crafted FNV-1a collisions cannot pass the cap', () => {
+            const admission = new MetricSeriesAdmission(1)
+            expect(admission.admit(1, 'rule-a', 'costarring', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-a', 'liquid', NOW_MS)).toBe(false)
+        })
+
+        it('caps a team across all its rules, so rule churn cannot take the budget of other teams', () => {
+            const admission = new MetricSeriesAdmission(2, 3, 10)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-a', 'y', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-b', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-c', 'x', NOW_MS)).toBe(false)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-a', 'x', NOW_MS)).toBe(true)
+        })
+
+        it('stops admitting new label sets when the process-wide budget is spent', () => {
+            const admission = new MetricSeriesAdmission(2, 2, 3)
+            expect(admission.admit(1, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(1, 'rule-a', 'y', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-a', 'x', NOW_MS)).toBe(true)
+            expect(admission.admit(2, 'rule-b', 'z', NOW_MS)).toBe(false)
+            expect(admission.admit(2, 'rule-b', 'z', NOW_MS + 60 * 60 * 1000)).toBe(true)
+        })
+
+        it.each([
+            [0, 0],
+            [5, 1],
+            [5.01, 2],
+            [10_000, DEFAULT_HISTOGRAM_BOUNDS.length - 1],
+            [10_001, DEFAULT_HISTOGRAM_BOUNDS.length],
+        ])('puts value %p in histogram bucket %p (upper bound inclusive)', (value, bucket) => {
+            const rules = compileMetricRules([ruleRow({ filter_group: null, value_attribute: 'attributes.v' })])
+            const tallies = createBatchTallies()
+            tallyRecords(rules, [record({ attributes: { v: String(value) } })], tallies, NOW_MS)
+            const entry = [...tallies.byRule.get('rule-1')!.values()][0]!
+            const expected = new Array(DEFAULT_HISTOGRAM_BOUNDS.length + 1).fill(0)
+            expected[bucket] = 1
+            expect(entry.bucketCounts).toEqual(expected)
         })
 
         it('captures an exemplar trace id from a matching record and ignores zeroed trace ids', () => {

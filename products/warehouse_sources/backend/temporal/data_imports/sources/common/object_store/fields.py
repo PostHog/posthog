@@ -25,15 +25,18 @@ class _CombineFilesConfig(Protocol):
     def enabled(self) -> bool: ...
 
 
+class _FileFormatConfig(Protocol):
+    @property
+    def selection(self) -> FileFormatChoice: ...
+    @property
+    def csv_allow_double_quotes(self) -> bool: ...
+
+
 class FileOptionsConfig(Protocol):
     """The settings every object storage source's generated config carries."""
 
     @property
-    def file_pattern(self) -> str | None: ...
-    @property
-    def file_format(self) -> FileFormatChoice: ...
-    @property
-    def csv_allow_double_quotes(self) -> bool: ...
+    def file_format(self) -> _FileFormatConfig: ...
     @property
     def combine_files(self) -> _CombineFilesConfig | None: ...
 
@@ -41,9 +44,8 @@ class FileOptionsConfig(Protocol):
 def discovery_options_from(config: FileOptionsConfig) -> DiscoveryOptions:
     combine = config.combine_files
     return DiscoveryOptions(
-        file_format=config.file_format,
-        file_pattern=(config.file_pattern or "").strip() or None,
-        allow_double_quotes=config.csv_allow_double_quotes,
+        file_format=config.file_format.selection,
+        allow_double_quotes=config.file_format.csv_allow_double_quotes,
         combined_table_name=combine.table_name if combine is not None and combine.enabled else None,
     )
 
@@ -51,38 +53,39 @@ def discovery_options_from(config: FileOptionsConfig) -> DiscoveryOptions:
 def source_caption(store: str) -> str:
     return (
         f"Import CSV, JSON Lines and Parquet files, and Delta Lake tables, from {store}. PostHog creates one "
-        "table per folder, one per file at the top of the folder you choose, and one per Delta table. A full "
-        "refresh reads every file again, so the table matches the files. An incremental or append-only sync "
-        "reads only new and changed files, and keeps the rows of files you delete."
+        "table per folder, one per file directly in the folder the URL points to, and one per Delta table. A full "
+        "refresh reads every file again, so the table matches the files. An incremental sync reads only new "
+        "and changed files, and removes the rows of files you delete. For a Delta table, it also applies "
+        "deleted and updated rows. An append-only sync reads only new files and keeps every row it imported."
     )
 
 
-def folder_fields(container: str) -> list[FieldType]:
-    """The folder and file pattern fields. `container` is the provider's word for a bucket."""
-    return cast(
-        list[FieldType],
-        [
-            SourceFieldInputConfig(
-                name="path",
-                label="Folder (optional)",
-                type=SourceFieldInputConfigType.TEXT,
-                required=False,
-                placeholder="exports/",
-                caption=f"Leave it empty to import from the whole {container}.",
-                secret=False,
-            ),
-            SourceFieldInputConfig(
-                name="file_pattern",
-                label="File pattern (optional)",
-                type=SourceFieldInputConfigType.TEXT,
-                required=False,
-                placeholder="*.parquet",
-                caption=(
-                    "A glob matched against each file's path inside the folder, where * also matches "
-                    "across folders. Leave it empty to import every file."
-                ),
-                secret=False,
-            ),
+def url_field(placeholder: str, hint: str | None = None) -> FieldType:
+    caption = (
+        "Use * to match any part of a file or folder name, and ** to match across folders. A URL "
+        "without a wildcard imports the folder or file it points to."
+    )
+    return SourceFieldInputConfig(
+        name="url_pattern",
+        label="Files URL",
+        type=SourceFieldInputConfigType.TEXT,
+        required=True,
+        placeholder=placeholder,
+        caption=f"{hint} {caption}" if hint else caption,
+        secret=False,
+    )
+
+
+def _csv_quote_field() -> FieldType:
+    return SourceFieldSelectConfig(
+        name="csv_allow_double_quotes",
+        label="Do double quotes enclose CSV values?",
+        required=True,
+        defaultValue="true",
+        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+        options=[
+            SourceFieldSelectConfigOption(label="Yes", value="true"),
+            SourceFieldSelectConfigOption(label="No, treat them as plain text", value="false"),
         ],
     )
 
@@ -93,31 +96,28 @@ def file_option_fields() -> list[FieldType]:
         [
             SourceFieldSelectConfig(
                 name="file_format",
+                sync_setting=True,
                 label="File format",
                 required=True,
                 defaultValue="infer",
                 options=[
-                    SourceFieldSelectConfigOption(label="Detect from file extension", value="infer"),
-                    SourceFieldSelectConfigOption(label="CSV with a header row", value="csv"),
-                    SourceFieldSelectConfigOption(label="CSV without a header row", value="csv_no_header"),
+                    SourceFieldSelectConfigOption(
+                        label="Detect from file extension", value="infer", fields=[_csv_quote_field()]
+                    ),
+                    SourceFieldSelectConfigOption(
+                        label="CSV with a header row", value="csv", fields=[_csv_quote_field()]
+                    ),
+                    SourceFieldSelectConfigOption(
+                        label="CSV without a header row", value="csv_no_header", fields=[_csv_quote_field()]
+                    ),
                     SourceFieldSelectConfigOption(label="JSON Lines", value="jsonl"),
                     SourceFieldSelectConfigOption(label="Parquet", value="parquet"),
                     SourceFieldSelectConfigOption(label="Delta Lake", value="delta"),
                 ],
             ),
-            SourceFieldSelectConfig(
-                name="csv_allow_double_quotes",
-                label="Do double quotes enclose CSV values?",
-                required=True,
-                defaultValue="true",
-                converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
-                options=[
-                    SourceFieldSelectConfigOption(label="Yes", value="true"),
-                    SourceFieldSelectConfigOption(label="No, treat them as plain text", value="false"),
-                ],
-            ),
             SourceFieldSwitchGroupConfig(
                 name="combine_files",
+                sync_setting=True,
                 label="Combine every file into one table?",
                 caption=(
                     "Turn this on when the folder holds files that share the same columns, such as a "

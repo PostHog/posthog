@@ -6,7 +6,7 @@ use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::Offset;
+use common_kafka_consumer::{Offset, Partition};
 
 use super::request::RequestClass;
 use crate::types::{Group, SerializedKafkaMessage};
@@ -19,7 +19,8 @@ pub struct KeyRun {
 
 impl KeyRun {
     /// An unkeyed group gets a synthetic key: it has no per-key order to keep.
-    pub fn from_groups(groups: Vec<Group>) -> Vec<KeyRun> {
+    /// Each message takes its partition's generation from `generations`.
+    pub fn from_groups(groups: Vec<Group>, generations: &HashMap<Partition, u64>) -> Vec<KeyRun> {
         let mut runs: Vec<KeyRun> = Vec::with_capacity(groups.len());
         let mut index_by_key: HashMap<Arc<str>, usize> = HashMap::new();
         for group in groups {
@@ -30,7 +31,11 @@ impl KeyRun {
                     format!(":{}:{}", group.partition, first).into()
                 }
             };
-            let messages = group.messages.into_iter().map(|m| m.message);
+            let generation = generations.get(&group.partition).copied().unwrap_or(0);
+            let messages = group.messages.into_iter().map(|m| SerializedKafkaMessage {
+                generation,
+                ..m.message
+            });
             match index_by_key.get(&routing_key) {
                 Some(&index) => runs[index].messages.extend(messages),
                 None => {
@@ -591,8 +596,6 @@ impl KeyQueues {
 
 #[cfg(test)]
 impl KeyQueues {
-    /// Queues `messages` the way a failed request hands them back, so they
-    /// are ready as a replay. `routing_key` must have nothing queued.
     pub fn push_replay(
         &mut self,
         routing_key: Arc<str>,
@@ -847,16 +850,26 @@ mod tests {
                 })
                 .collect(),
         };
-        let runs = KeyRun::from_groups(vec![
-            group(0, Some("a"), &[1]),
-            group(1, None, &[5]),
-            group(2, Some("a"), &[7]),
-        ]);
+        let runs = KeyRun::from_groups(
+            vec![
+                group(0, Some("a"), &[1]),
+                group(1, None, &[5]),
+                group(2, Some("a"), &[7]),
+            ],
+            &HashMap::from([(Partition(0), 4), (Partition(2), 5)]),
+        );
         let shapes: Vec<_> = runs
             .iter()
-            .map(|run| (&*run.routing_key, offsets(&run.messages)))
+            .map(|run| {
+                let generations: Vec<u64> = run.messages.iter().map(|m| m.generation).collect();
+                (&*run.routing_key, offsets(&run.messages), generations)
+            })
             .collect();
-        assert_eq!(shapes, vec![("a", vec![1, 7]), (":1:5", vec![5])]);
+        assert_eq!(
+            shapes,
+            vec![("a", vec![1, 7], vec![4, 5]), (":1:5", vec![5], vec![0])],
+            "each message takes its partition's generation"
+        );
     }
 
     #[test]

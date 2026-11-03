@@ -13,6 +13,8 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
@@ -22,10 +24,11 @@ import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
+import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
-import { SourceCatalogModal } from './SourceCatalogModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -541,6 +544,11 @@ const AgentRow = memo(function AgentRow({
                         {enabledCount} of {entities.length} {agent.entityNoun} on
                     </span>
                 )}
+                {armed && !productOff && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                        <SourceSpendLabel sourceProduct={agent.sourceProduct} />
+                    </FlaggedFeature>
+                )}
                 {(loading || requiresSetup || hasMasterSwitch) && (
                     <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>
                         {loading ? (
@@ -613,6 +621,7 @@ export function AgentsRoster(): JSX.Element {
         externalSourceStates,
         rosterGroups,
         sourcesLoadError,
+        dataWarehouseSources,
         dataWarehouseSourcesLoading,
         conversationsConfig,
         evalReportsConfig,
@@ -641,7 +650,6 @@ export function AgentsRoster(): JSX.Element {
         linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
-        openSourceCatalog,
         loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
@@ -967,32 +975,22 @@ export function AgentsRoster(): JSX.Element {
 
             {rosterGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <div className="flex items-center justify-between gap-2">
-                        <AgentRosterGroupHeader group={group} />
-                        {group.id === 'external' && (
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconPlus />}
-                                onClick={openSourceCatalog}
-                                data-attr="signal-source-catalog-open"
-                            >
-                                Add source
-                            </LemonButton>
-                        )}
-                    </div>
-                    {group.id === 'external' && group.agents.length === 0 ? (
-                        <p className="mb-0 rounded border border-dashed border-primary px-3 py-2.5 text-xs text-secondary">
-                            No external sources yet. Add one to let agents read the issues, tickets, and feedback in the
-                            tools you already use.
-                        </p>
-                    ) : (
+                    <AgentRosterGroupHeader group={group} />
+                    {group.agents.length > 0 && (
                         <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
+                    {group.id === 'external' &&
+                        group.agents.length === 0 &&
+                        dataWarehouseSources !== null &&
+                        sourceConfigs !== null && (
+                            <p className="m-0 text-xs text-secondary">
+                                Connect external tools from the available sources below.
+                            </p>
+                        )}
                 </div>
             ))}
 
-            <SourceCatalogModal />
+            <DataSourceSetupModal />
 
             {linearTeamsPicker && (
                 <LinearTeamsModal

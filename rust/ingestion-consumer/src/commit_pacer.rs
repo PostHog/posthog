@@ -23,10 +23,6 @@ struct PendingFrontier {
 }
 
 impl CommitPacer {
-    pub fn immediate() -> Self {
-        Self::every(Duration::ZERO)
-    }
-
     pub fn every(interval: Duration) -> Self {
         Self {
             interval,
@@ -125,7 +121,7 @@ mod tests {
 
     #[test]
     fn a_pending_frontier_is_due_on_the_next_take() {
-        let mut pacer = CommitPacer::immediate();
+        let mut pacer = CommitPacer::every(Duration::ZERO);
         pacer.advance_frontier(&tp(0), taken(0, 10));
 
         let offsets = pacer.take_due(Instant::now()).expect("due");
@@ -138,7 +134,7 @@ mod tests {
 
     #[test]
     fn the_latest_frontier_per_partition_is_what_goes_out() {
-        let mut pacer = CommitPacer::immediate();
+        let mut pacer = CommitPacer::every(Duration::ZERO);
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.advance_frontier(&tp(1), taken(0, 20));
         pacer.advance_frontier(&tp(0), taken(10, 12));
@@ -152,7 +148,7 @@ mod tests {
 
     #[test]
     fn a_forgotten_partition_is_not_committed() {
-        let mut pacer = CommitPacer::immediate();
+        let mut pacer = CommitPacer::every(Duration::ZERO);
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.advance_frontier(&tp(1), taken(0, 20));
 
@@ -188,6 +184,16 @@ mod tests {
             HashMap::from([(tp(0), Offset(12)), (tp(1), Offset(20))]),
             "one take carries everything that arrived during the interval"
         );
+    }
+
+    #[test]
+    fn an_empty_take_does_not_start_the_interval() {
+        let mut pacer = CommitPacer::every(Duration::from_millis(500));
+        let start = Instant::now();
+        assert!(pacer.take_due(start).is_none());
+
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        assert!(pacer.take_due(start + Duration::from_millis(100)).is_some());
     }
 
     #[test]

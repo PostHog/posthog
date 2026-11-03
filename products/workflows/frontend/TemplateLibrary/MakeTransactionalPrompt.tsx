@@ -34,6 +34,7 @@ export function MakeTransactionalPrompt(props: MessageTemplateSceneLogicProps): 
                     Your edits save as a draft. Publishing updates the live email, and each publish keeps a version.
                 </li>
                 <li>Transactional emails ignore marketing opt-outs, so don't use them for marketing.</li>
+                <li>You can't undo this. The template stays transactional.</li>
             </ul>
             <div>
                 <LemonButton

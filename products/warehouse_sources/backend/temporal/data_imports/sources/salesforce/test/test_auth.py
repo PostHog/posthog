@@ -138,6 +138,22 @@ def test_refresh_raises_transient_token_request_after_exhausting_retries():
     assert network.elapsed == REFRESH_BACKOFF_SECONDS
 
 
+def test_refresh_retries_transient_retry_request_error_then_succeeds():
+    # Salesforce's identity service occasionally answers a momentary hiccup with a 400 asking the
+    # caller to retry; that should recover in-process instead of failing the sync.
+    responses = [
+        _token_response(400, {"error_description": "retry your request"}),
+        _token_response(200, {"access_token": "fresh-token"}),
+    ]
+
+    with scripted_network(responses) as network:
+        token = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
+
+    assert token == "fresh-token"
+    assert len(network.requests_log) == 2
+    assert network.elapsed == 0.5
+
+
 def test_refresh_retries_transient_server_error_then_succeeds():
     # Salesforce's token endpoint occasionally returns a 503 during scheduled maintenance; the
     # request never minted a token, so a retry should recover instead of failing the sync.

@@ -17,6 +17,8 @@ Use this skill for a dashboard change that affects the dashboard platform, dashb
 Use [`manage-dashboard-widgets`](../manage-dashboard-widgets/SKILL.md) for a new `widget_type` or a `WidgetCard` change.
 
 For dashboard loading, scrolling, edit-mode transitions, tile movement, resize, or chart flicker, read the [dashboard performance guide](../../../products/dashboards/PERFORMANCE.md) before implementation.
+For drag or resize delays, measure start, movement, and release separately. On a long dashboard, repeat after scrolling through every tile before accepting a fix.
+For loading or scroll delays, compare a cold fast scroll with a settled repeat. Measure frame stalls and time until visible tiles display results.
 
 ## 1. Route the request
 

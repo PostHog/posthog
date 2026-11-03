@@ -1,5 +1,4 @@
 import typing
-import datetime as dt
 
 from django.conf import settings
 
@@ -17,7 +16,12 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 # Generic temporal metric helpers live in common so other subsystems (e.g. session-replay
 # delete-recordings) can import them without pulling this package's eager worker registration.
-from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.common.metrics import (
+    Attributes,
+    ExecutionTimeRecorder,
+    get_metric_meter,
+    record_schedule_to_start_latency,
+)
 
 __all__ = ["Attributes", "ExecutionTimeRecorder", "get_metric_meter"]
 
@@ -175,17 +179,6 @@ def increment_backfill_remainder_outcome(outcome: str) -> None:
     counter.add(1)
 
 
-def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> None:
-    """Record queue depth indicator for alerting."""
-    meter = get_metric_meter({"activity_type": activity_type})
-    hist = meter.create_histogram_timedelta(
-        name="llma_eval_activity_schedule_to_start_latency",
-        description="Time between activity scheduling and start (queue depth indicator)",
-        unit="ms",
-    )
-    hist.record(dt.timedelta(milliseconds=latency_ms))
-
-
 class EvalsMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for evals workflows."""
 
@@ -209,11 +202,13 @@ class _EvalsMetricsActivityInboundInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
 
         # Record schedule-to-start latency (queue depth indicator)
-        scheduled_time = activity_info.scheduled_time
-        started_time = activity_info.started_time
-        if scheduled_time and started_time:
-            schedule_to_start_ms = int((started_time - scheduled_time).total_seconds() * 1000)
-            record_schedule_to_start_latency(activity_type, schedule_to_start_ms)
+        record_schedule_to_start_latency(
+            "llma_eval_activity_schedule_to_start_latency",
+            scheduled_time=activity_info.scheduled_time,
+            started_time=activity_info.started_time,
+            description="Time between activity scheduling and start (queue depth indicator)",
+            attributes={"activity_type": activity_type},
+        )
 
         histogram_attributes: Attributes = {"activity_type": activity_type}
 

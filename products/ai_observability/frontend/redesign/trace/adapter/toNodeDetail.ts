@@ -1,5 +1,4 @@
-import { EvaluationConfig, EvaluationRun } from '../../../evaluations/types'
-import type { TraceNodeApi, TraceNodeDetailApi } from '../../../generated/api.schemas'
+import type { TraceEvaluationResultApi, TraceNodeApi, TraceNodeDetailApi } from '../../../generated/api.schemas'
 import { NodeDetailProps } from '../components/NodeDetail'
 import { EvalsState, LoadFailure, NodeContent, NodeLoad, NodeProperties } from '../types'
 import { NodeIO, readNodeIO } from './nodeIO'
@@ -8,7 +7,10 @@ import { toEvalResults } from './toEvalResults'
 import { toMessageIO } from './toThread'
 import { isMessageIO } from './toThreadMessages'
 
-export type NodeDetailData = Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'onViewInThread' | 'onSelectNode'>
+export type NodeDetailData = Omit<
+    NodeDetailProps,
+    'tab' | 'onTabChange' | 'onViewInThread' | 'onSelectNode' | 'actions'
+>
 
 const NODE_LOAD_ERRORS: Record<LoadFailure, string> = {
     not_found: 'This step could not be found. It may have been deleted, or it is outside the retention period.',
@@ -19,11 +21,8 @@ interface NodeDetailArgs {
     node: TraceNodeApi
     load: NodeLoad
     tree: TraceNodeApi[]
-    evalRuns: EvaluationRun[]
-    evalRunsLoading: boolean
-    evaluations: EvaluationConfig[]
-    detectorEvaluationIds: string[]
-    evaluationsSettled: boolean
+    evaluationResults: TraceEvaluationResultApi[] | null
+    evaluationResultsFailed: boolean
     teamId: TeamId
     person: string | null
     trace: { createdAt: string; sessionId: string | null }
@@ -78,31 +77,30 @@ function rawEvent(detail: TraceNodeDetailApi): Record<string, unknown> | null {
         : null
 }
 
-// Detector polarity comes from the evaluation configs, so results wait for them to avoid showing a flipped verdict.
-function evalsState(runs: EvaluationRun[], node: TraceNodeApi, args: NodeDetailArgs): EvalsState {
-    if (args.evalRunsLoading || !args.evaluationsSettled) {
+const EVALS_LOAD_ERROR = 'Evaluation results could not be loaded. Reload the page to try again.'
+
+function evalsState(node: TraceNodeApi, args: NodeDetailArgs): EvalsState {
+    if (args.evaluationResultsFailed) {
+        return { status: 'error', errorMessage: EVALS_LOAD_ERROR }
+    }
+    if (!args.evaluationResults) {
         return { status: 'loading' }
     }
-    return {
-        status: 'ready',
-        results: toEvalResults(runs, {
-            tree: args.tree,
-            viewedNodeId: node.id,
-            evaluations: args.evaluations,
-            detectorEvaluationIds: args.detectorEvaluationIds,
-        }),
-    }
+    const results =
+        node.kind === 'trace'
+            ? args.evaluationResults
+            : args.evaluationResults.filter((result) => result.targetNodeId === node.id)
+    return { status: 'ready', results: toEvalResults(results, { tree: args.tree, viewedNodeId: node.id }) }
 }
 
 export function toNodeDetail(args: NodeDetailArgs): NodeDetailData {
-    const { node, load, evalRuns, teamId } = args
-    const runs = node.kind === 'trace' ? evalRuns : evalRuns.filter((run) => run.generation_id === node.id)
+    const { node, load, teamId } = args
     return {
         node,
         content: loadedContent(load, node, teamId),
         error: load.status === 'ready' ? load.node.error : null,
         properties: nodeProperties(load, node, args),
-        evals: evalsState(runs, node, args),
+        evals: evalsState(node, args),
         raw: load.status === 'ready' ? rawEvent(load.node) : null,
     }
 }

@@ -60,6 +60,7 @@ Report an outage as an outage, name the component, and stop recommending reruns.
 Do not do any of these without explicit approval in the current conversation:
 
 - Rerun or cancel a GitHub Actions run, or retry, rerun, or cancel a Depot CI run.
+  The exception is a check-job run from your working tree, see "Run a Depot CI check job from your working tree".
 - Post a GitHub comment, PR review, or issue comment through any CLI, MCP, or
   API tool.
 - Push commits, force-push, rename branches, or delete branches.
@@ -153,7 +154,7 @@ practice that is most of the queue. So:
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
-  Backend CI is the exception when `CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT` hands the batch to Depot CI: the backend tests then run on Depot, and the `Django Tests Pass` check links that run.
+  Backend tests run on Depot CI. The `Backend CI on Depot / Django Tests Pass on Depot` check links to the Depot run.
 - The PR's own checks can be green with the failing job **skipped** or
   narrowed. On the PR, path filters see only that diff and the Django suite runs
   a selected subset; on the queue branch the diff is every carried PR's and the
@@ -224,7 +225,7 @@ has pushed, so an earlier push's failure is still there.
 
 Extract these before classifying:
 
-- Workflow name or file, e.g. `.github/workflows/ci-backend.yml`.
+- Workflow name or file, e.g. `.depot/workflows/ci-backend.yml`.
 - Job name, e.g. `backend-tests (4/10)`.
 - Step name, e.g. `Run pytest`.
 - Failing command and the smallest useful output excerpt.
@@ -247,11 +248,18 @@ token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
 
-#### Backend tests that ran on Depot CI
+#### Backend tests on Depot CI
 
-Depot CI runs the backend tests of every same-repo PR.
-The required check is `Backend CI on Depot / Django Tests Pass on Depot`, and the `Backend CI on Depot / Test results` check lists each failed step with its log lines.
-`Django Tests Pass` on GitHub Actions only prints a notice on a PR.
+Use the Depot CLI for Backend CI runs and logs. `gh run` only lists GitHub Actions runs.
+The required checks are `Backend CI on Depot / Test results` and `Backend CI on Depot / Django Tests Pass on Depot`.
+`Test results` lists failing tests in its summary:
+
+```bash
+gh api 'repos/PostHog/posthog/commits/<sha>/check-runs?check_name=Backend%20CI%20on%20Depot%20/%20Test%20results' \
+  --jq '.check_runs[0].output.summary'
+```
+
+A passing draft run does not post `Test results`. GitHub shows it as expected until the PR is ready for review, so do not wait for that check on a draft.
 
 GitHub's Re-run button does nothing on a Depot check.
 A `/depot retry` comment on the PR from an organization member or collaborator retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
@@ -268,7 +276,7 @@ If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overri
 Without it, ask the user to run `! depot login --clear`.
 Do not run it yourself: it waits on a browser sign-in.
 Every PostHog engineer gets an invite to the Depot org. A user without access checks their email for it, or requests one in #team-devex.
-Until then, retry with the `/depot retry` comment.
+Without Depot access, use `/depot retry` to retry the run and read its `Test results` summary through the GitHub API.
 
 ## Classification
 
@@ -344,6 +352,28 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
 `hogli dev:reset` as a shortcut. Do NOT bypass hooks with `--no-verify`.
 
+### Run a Depot CI check job from your working tree
+
+Fix with the local `hogli` command first.
+Use `depot ci run` only when that command passes locally and the job still fails in CI.
+It tests your working tree on Depot without a push. The `depot-ci` skill has the flags.
+
+```bash
+depot ci run --workflow .depot/workflows/ci-backend.yml --job <job>
+```
+
+- `<job>` is `repo-checks` or `sdk-major-guard`. Always pass `--job`: the whole workflow is over Depot's inline size limit.
+- Any other job needs approval. CLI runs skip test selection, and `check-migrations` and `check-openapi-types` mishandle the patch.
+- `repo-checks` skips its pull-request-only steps on a CLI run, so a green run does not cover them.
+- At most 2 runs per task without approval.
+- Ask before every run when `HEAD` is an open PR's head: the run posts its checks to that commit.
+- Only tracked files reach the patch. `git add` new files first.
+- `--ssh-after-step` bills for the whole pause. Use it only with approval, then `depot ci cancel`.
+
+After each run, poll `depot ci status <run-id>` (`--wait` needs CLI 2.102.19+).
+On failure, read `depot ci diagnose --job <job-id> --output json`, and confirm it against `depot ci logs <attempt-id>`.
+Reproduce and fix locally before the next run. At the cap, stop and report the run ids and the remaining blocker.
+
 ## PostHog CI notes
 
 - Most PostHog jobs run on `depot-ubuntu-latest` or `depot-ubuntu-latest-16`.
@@ -356,7 +386,7 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
 - A PR can route its backend tests to Depot CI.
-  Read the failure there, see "Backend tests that ran on Depot CI" above.
+  Read the failure there, see "Backend tests on Depot CI" above.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards
@@ -377,13 +407,12 @@ Excerpt:
   <up to 40 lines, trimmed around the failure>
 
 Classification: <class from the table>
-Shadow run:     <yes | no>
 Likely cause:   <one sentence>
 Local repro:    <exact command, or "none">
 Next action (needs your approval):
   - <push fix | rerun job | update snapshot | none>
 ```
 
-If the classification is `infra / runner` or a shadow run, say so and stop;
+If the classification is `infra / runner`, say so and stop;
 do not propose a code change. For `infra / runner`, include the base rate and
 whether a retry is warranted.

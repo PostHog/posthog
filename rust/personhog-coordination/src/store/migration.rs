@@ -5,7 +5,8 @@ use etcd_client::{Compare, CompareOp, DeleteOptions, Txn, TxnOp, WatchStream};
 use super::{count_call, PersonhogStore, StoreKey};
 use crate::error::Result;
 use crate::types::{
-    ChangelogConfig, Generation, MigrationPhase, MigrationRequest, MigrationState, SealAck,
+    ChangelogConfig, DrainReport, Generation, MigrationPhase, MigrationRequest, MigrationState,
+    SealAck,
 };
 
 impl PersonhogStore {
@@ -151,6 +152,7 @@ impl PersonhogStore {
             partitions: migration.to.partitions,
             epoch: config.epoch + 1,
             writer_group: config.writer_group.clone(),
+            retire_groups: config.retire_groups.clone(),
             draining,
         };
         let mut record = migration.clone();
@@ -234,19 +236,46 @@ impl PersonhogStore {
         Ok(self.inner.list(&key).await?)
     }
 
-    /// Drop a drained generation from the config, guarded on its revision.
-    pub async fn retire_changelog_topic(&self, topic: &str) -> Result<bool> {
-        count_call("retire_changelog_topic");
+    /// Add a consumer group that retire waits on: false when the config is not
+    /// seeded or moved. A group the config already gates on is a no-op.
+    pub async fn add_changelog_retire_group(&self, group: &str) -> Result<bool> {
+        count_call("add_changelog_retire_group");
         let Some((mut config, mod_revision)) =
             self.get_changelog_config_with_mod_revision().await?
         else {
             return Ok(false);
         };
-        let before = config.draining.len();
-        config.draining.retain(|g| g.topic != topic);
-        if config.draining.len() == before {
-            return Ok(false);
+        if config.gated_groups().any(|g| g == group) {
+            return Ok(true);
         }
+        config.retire_groups.push(group.to_string());
+        self.put_changelog_config_if_unchanged(&config, mod_revision)
+            .await
+    }
+
+    /// Stop retire waiting on a group: false when the config is not seeded or
+    /// moved. A group the list does not hold is a no-op.
+    pub async fn remove_changelog_retire_group(&self, group: &str) -> Result<bool> {
+        count_call("remove_changelog_retire_group");
+        let Some((mut config, mod_revision)) =
+            self.get_changelog_config_with_mod_revision().await?
+        else {
+            return Ok(false);
+        };
+        let before = config.retire_groups.len();
+        config.retire_groups.retain(|g| g != group);
+        if config.retire_groups.len() == before {
+            return Ok(true);
+        }
+        self.put_changelog_config_if_unchanged(&config, mod_revision)
+            .await
+    }
+
+    async fn put_changelog_config_if_unchanged(
+        &self,
+        config: &ChangelogConfig,
+        mod_revision: i64,
+    ) -> Result<bool> {
         let key = self.key(StoreKey::ChangelogConfig);
         let txn = Txn::new()
             .when(vec![Compare::mod_revision(
@@ -254,8 +283,68 @@ impl PersonhogStore {
                 CompareOp::Equal,
                 mod_revision,
             )])
-            .and_then(vec![TxnOp::put(key, serde_json::to_vec(&config)?, None)]);
+            .and_then(vec![TxnOp::put(key, serde_json::to_vec(config)?, None)]);
         Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    /// Drop a drained generation, and its drain reports, from the config the
+    /// caller's drain checks read: only while that config is still current and
+    /// no saga exists. A saga completes only once every partition it created
+    /// has an owner, which routers rely on once nothing drains.
+    pub async fn retire_changelog_topic(
+        &self,
+        config: &ChangelogConfig,
+        mod_revision: i64,
+        topic: &str,
+    ) -> Result<bool> {
+        count_call("retire_changelog_topic");
+        let mut retired = config.clone();
+        retired.draining.retain(|g| g.topic != topic);
+        if retired.draining.len() == config.draining.len() {
+            return Ok(false);
+        }
+        let key = self.key(StoreKey::ChangelogConfig);
+        let txn = Txn::new()
+            .when(vec![
+                Compare::mod_revision(key.clone(), CompareOp::Equal, mod_revision),
+                Compare::create_revision(self.key(StoreKey::Migration), CompareOp::Equal, 0),
+            ])
+            .and_then(vec![
+                TxnOp::put(key, serde_json::to_vec(&retired)?, None),
+                TxnOp::delete(
+                    self.key(StoreKey::DrainReportsForTopic(topic)),
+                    Some(DeleteOptions::new().with_prefix()),
+                ),
+            ]);
+        Ok(self.inner.txn(txn).await?.succeeded())
+    }
+
+    pub async fn put_drain_report(&self, report: &DrainReport) -> Result<()> {
+        count_call("put_drain_report");
+        let key = self.key(StoreKey::DrainReport {
+            topic: &report.topic,
+            group: &report.group,
+        });
+        Ok(self.inner.put(&key, report, None).await?)
+    }
+
+    pub async fn list_drain_reports(&self) -> Result<Vec<DrainReport>> {
+        count_call("list_drain_reports");
+        let key = self.key(StoreKey::DrainReportsPrefix);
+        Ok(self.inner.list(&key).await?)
+    }
+
+    pub async fn delete_drain_reports_for(&self, topic: &str) -> Result<()> {
+        count_call("delete_drain_reports_for");
+        let key = self.key(StoreKey::DrainReportsForTopic(topic));
+        self.inner.delete_prefix(&key).await?;
+        Ok(())
+    }
+
+    pub async fn watch_drain_reports_from(&self, start_revision: i64) -> Result<WatchStream> {
+        count_call("watch_drain_reports_from");
+        let key = self.key(StoreKey::DrainReportsPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
     }
 
     /// Write a request, refused while another request or a saga exists.

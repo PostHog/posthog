@@ -58,7 +58,8 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import (
     GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
     InvalidGoogleTokenUriError,
@@ -79,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credentials_service import get_secret
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -263,6 +265,16 @@ BIGQUERY_IMPERSONATION_PERMISSION_ERROR = (
     "PostHog cannot read your Google Cloud service account. Grant the PostHog service account the "
     "iam.serviceAccounts.get and Service Account Token Creator permissions on it, then reconnect "
     "the source."
+)
+
+# Raised when the PostHog worker cannot get PostHog's own Google Cloud credentials, the first hop of
+# the impersonation chain. The customer's service account is never contacted, so no change on their
+# side can fix it. Deliberately absent from `get_non_retryable_errors`, so the sync retries and the
+# failure still reaches error tracking.
+BIGQUERY_POSTHOG_CREDENTIALS_ERROR = (
+    "PostHog could not get its own Google Cloud credentials, so it could not connect to your "
+    "service account. This is a problem on PostHog's side, and you don't need to change your service "
+    "account. Syncs retry automatically. If you are setting up the source, try again in a few minutes."
 )
 
 # Stable prefix of the ownership failure raised when the service account description does not name
@@ -662,15 +674,26 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     # Imported here so the source registry — which the API imports on every request path — does not
     # pull in the batch-export Temporal module.
     from products.batch_exports.backend.facade.destinations.bigquery import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+        GoogleCloudCredentialsError,
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,
+        ensure_our_google_cloud_credentials_are_valid,
         get_our_google_cloud_credentials,
         verify_impersonated_service_account_ownership,
     )
 
-    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT:
+    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not get_secret("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT"):
         raise BigQueryAuthResolutionError(BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR)
+
+    # The ownership check below authenticates with PostHog's own credentials. If this worker cannot
+    # get them, the check fails with the same "getAccessToken denied" text that a missing grant on
+    # the customer's service account produces, and the sync tells the customer to fix IAM they
+    # already set up. Batch exports run the same check first for the same reason.
+    try:
+        async_to_sync(ensure_our_google_cloud_credentials_are_valid)()
+    except GoogleCloudCredentialsError as e:
+        raise BigQueryAuthResolutionError(BIGQUERY_POSTHOG_CREDENTIALS_ERROR) from e
 
     # Confirm the team owns the account before impersonating it, or a team that merely knows another
     # org's service account email could have PostHog read that org's data on its behalf. Batch
@@ -694,13 +717,10 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
 
 
 def _resolve_auth_from_integration(integration_id: int, team_id: int) -> BigQueryAuthInfo:
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team_id=team_id,
-        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
-    ).first()
-    if integration is None:
-        raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR)
+    try:
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(team_id, integration_id)
+    except IntegrationNotFound:
+        raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR) from None
 
     google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
     if google_cloud_integration.has_key():

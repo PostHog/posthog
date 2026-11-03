@@ -6,6 +6,7 @@ import {
     requiredConnections,
     sendingRulesToSave,
     wizardSteps,
+    ReachChannel,
 } from './onboardingWizardSteps'
 
 describe('onboardingWizardSteps', () => {
@@ -33,28 +34,45 @@ describe('onboardingWizardSteps', () => {
         expect(firstOpenStepIndex(MESSAGING_WIZARD_STEPS, done)).toBe(expected)
     })
 
-    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, string[]]>([
+    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, ReachChannel[] | null, string[]]>([
         [
-            'messaging asks about push before the journey',
+            'messaging asks which channels before any channel setup',
             'messaging',
             true,
-            ['channel', 'domain', 'opt-outs', 'sending-rules', 'push', 'journey'],
+            null,
+            ['reach', 'opt-outs', 'sending-rules', 'journey'],
+        ],
+        [
+            'push only skips the email steps',
+            'messaging',
+            true,
+            ['push'],
+            ['reach', 'push', 'opt-outs', 'sending-rules', 'journey'],
+        ],
+        [
+            'email and push set up email first',
+            'messaging',
+            true,
+            ['email', 'push'],
+            ['reach', 'channel', 'domain', 'push', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
             'messaging without push keeps the email steps',
             'messaging',
             false,
+            ['push'],
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'],
         ],
-        ['automation never asks about push', 'automation', true, ['template', 'connect', 'create']],
+        ['automation never asks about push', 'automation', true, ['push'], ['template', 'connect', 'create']],
         [
             'broadcasts send email only, so they never ask about push',
             'broadcast',
             true,
+            ['push'],
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'],
         ],
-    ])('%s', (_, path, pushEnabled, expected) => {
-        expect(wizardSteps(path, pushEnabled)).toEqual(expected)
+    ])('%s', (_, path, pushEnabled, reachChannels, expected) => {
+        expect(wizardSteps(path, pushEnabled, reachChannels)).toEqual(expected)
     })
 
     const unset = { maxMessages: null, windowDays: null }

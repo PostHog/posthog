@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { AnalyticsListUrlParams, urls } from 'scenes/urls'
@@ -15,7 +14,12 @@ import { userLogic } from 'scenes/userLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { isPathUnder, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
+import {
+    AnalyticsListDisplayConfiguration,
+    FileSystemEntry,
+    UserUIConfiguration,
+} from '~/queries/schema/schema-general'
 import type { UserBasicType, UserType } from '~/types'
 
 import {
@@ -41,10 +45,7 @@ import {
 export const ANALYTICS_PREFETCH_COUNT = ANALYTICS_FEED_PAGE_SIZE
 // A folder lists its direct children in one request. Deeper folders are opened by drilling in.
 const FOLDER_PAGE_SIZE = ANALYTICS_FEED_PAGE_SIZE
-const SORT_TEAM_ID = getCurrentTeamIdOrNone()
-const SORT_USER_ID = getCurrentUserIdOrNone()
-const SORT_PERSIST_OPTIONS =
-    SORT_TEAM_ID && SORT_USER_ID ? { persist: true, prefix: `${SORT_TEAM_ID}__${SORT_USER_ID}__` } : { persist: false }
+export const DEFAULT_ANALYTICS_SORT: NonNullable<AnalyticsListDisplayConfiguration['default_sort']> = '-last_viewed_at'
 
 export interface AnalyticsListFilters {
     type: AnalyticsTypeFilter
@@ -68,7 +69,6 @@ export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
 export type AnalyticsListMode = 'feed' | 'folder'
 /** `all` lists what the project shares; `mine` lists everything the person created, shared or not. */
 export type AnalyticsListScope = 'all' | 'mine'
-type AnalyticsSortChoices = Partial<Record<AnalyticsListScope, NonNullable<AnalyticsFeedQuery['orderBy']>>>
 
 export interface FolderContents {
     /** The folder these rows belong to, so a failed or slow load never shows another folder's rows. */
@@ -121,7 +121,7 @@ export function analyticsListUrlParams(filters: AnalyticsListFilters): Analytics
     return {
         orderBy: filters.orderBy,
         type: filters.type === 'all' ? undefined : filters.type,
-        search: filters.search.trim() || undefined,
+        search: filters.search || undefined,
         createdBy: filters.createdBy.length ? filters.createdBy : undefined,
         folder: filters.folder ?? undefined,
         tags: filters.tags.length ? filters.tags : undefined,
@@ -133,13 +133,17 @@ export function analyticsListFiltersActive(filters: AnalyticsListFilters): boole
 }
 
 /** Narrows rows the server did not filter: folder contents come back whole. */
-export function filterAnalytics(items: AnalyticsItem[], filters: AnalyticsListFilters): AnalyticsItem[] {
+export function filterAnalytics(
+    items: AnalyticsItem[],
+    filters: AnalyticsListFilters,
+    insightsHidden = false
+): AnalyticsItem[] {
     const needle = filters.search.trim().toLowerCase()
     const createdBy = filters.createdBy
     return items.filter(
         (item) =>
             filters.tags.every((tag) => item.tags.includes(tag)) &&
-            (filters.type === 'all' || item.type === filters.type) &&
+            (filters.type === 'all' ? !insightsHidden || item.type !== 'insight' : item.type === filters.type) &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
             (!createdBy.length || (!!item.createdBy && createdBy.includes(item.createdBy.uuid)))
     )
@@ -150,10 +154,13 @@ export interface analyticsListLogicValues {
     sources: Record<string, AnalyticsSourceState> // analyticsFeedLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    uiConfiguration: UserUIConfiguration | null // uiCustomizationLogic
     user: UserType | null // userLogic
     creators: string[]
     currentFeed: AnalyticsFeed
     currentUserUuid: string | null
+    defaultSort: NonNullable<AnalyticsListDisplayConfiguration['default_sort']>
+    displayConfiguration: AnalyticsListDisplayConfiguration
     failedTypes: AnalyticsFeed['failedTypes']
     feed: AnalyticsFeed
     feedQuery: AnalyticsFeedQuery
@@ -166,6 +173,7 @@ export interface analyticsListLogicValues {
     folderContentsLoading: boolean
     folderFailed: boolean
     hasMore: boolean
+    insightsHidden: boolean
     items: AnalyticsItem[]
     listState: AnalyticsListState
     loadedCount: number
@@ -174,7 +182,6 @@ export interface analyticsListLogicValues {
     scope: AnalyticsListScope
     searchInput: string
     shownQuery: AnalyticsFeedQuery | null
-    sortChoicesByScope: AnalyticsSortChoices
     subfolders: FolderRow[]
 }
 
@@ -211,6 +218,15 @@ export interface analyticsListLogicActions {
     folderCreated: () => {
         value: true
     } // todayAnalyticsLogic
+    updateUiConfiguration: (
+        configuration: UserUIConfiguration,
+        successCallback?: (() => void) | undefined,
+        failureCallback?: (() => void) | undefined
+    ) => {
+        configuration: UserUIConfiguration
+        failureCallback: (() => void) | undefined
+        successCallback: (() => void) | undefined
+    } // uiCustomizationLogic
     clearFilters: () => {
         value: true
     }
@@ -260,12 +276,8 @@ export interface analyticsListLogicActions {
         folderContents: FolderContents | null
         payload?: void
     }
-    rememberOrderBy: (
-        scope: AnalyticsListScope,
-        orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>
-    ) => {
-        orderBy: NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
-        scope: AnalyticsListScope
+    setDefaultSort: (orderBy: NonNullable<AnalyticsListDisplayConfiguration['default_sort']>) => {
+        orderBy: NonNullable<'-created_at' | '-last_viewed_at' | undefined>
     }
     setFeedSearch: (search: string) => {
         search: string
@@ -275,6 +287,9 @@ export interface analyticsListLogicActions {
     }
     setFiltersFromUrl: (filters: AnalyticsListFilters) => {
         filters: AnalyticsListFilters
+    }
+    setInsightsHidden: (hidden: boolean) => {
+        hidden: boolean
     }
     setScope: (scope: AnalyticsListScope) => {
         scope: AnalyticsListScope
@@ -297,18 +312,18 @@ export interface analyticsListLogicMeta {
         filtersActive: (filters: AnalyticsListFilters) => boolean
         currentUserUuid: (user: UserType | null) => string | null
         creators: (filters: AnalyticsListFilters, currentUserUuid: string | null, scope: AnalyticsListScope) => string[]
+        displayConfiguration: (uiConfiguration: UserUIConfiguration | null) => AnalyticsListDisplayConfiguration
+        insightsHidden: (displayConfiguration: AnalyticsListDisplayConfiguration) => boolean
+        defaultSort: (
+            displayConfiguration: AnalyticsListDisplayConfiguration
+        ) => NonNullable<AnalyticsListDisplayConfiguration['default_sort']>
         feedQuery: (
             filters: AnalyticsListFilters,
             feedSearch: string,
             creators: string[],
             currentUserUuid: string | null,
-            scope: AnalyticsListScope,
-            sortChoicesByScope: Partial<
-                Record<
-                    AnalyticsListScope,
-                    NonNullable<'-created_at' | '-last_viewed_at' | 'last_viewed_at' | undefined>
-                >
-            >
+            defaultSort: NonNullable<'-created_at' | '-last_viewed_at' | undefined>,
+            insightsHidden: boolean
         ) => AnalyticsFeedQuery
         currentFeed: (
             sources: Record<string, AnalyticsSourceState>,
@@ -326,7 +341,8 @@ export interface analyticsListLogicMeta {
             mode: AnalyticsListMode,
             feed: AnalyticsFeed,
             folderContents: FolderContents | null,
-            filters: AnalyticsListFilters
+            filters: AnalyticsListFilters,
+            insightsHidden: boolean
         ) => AnalyticsItem[]
         subfolders: (
             mode: AnalyticsListMode,
@@ -380,8 +396,12 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             ['user'],
             analyticsFeedLogic,
             ['sources'],
+            uiCustomizationLogic,
+            ['uiConfiguration'],
         ],
         actions: [
+            uiCustomizationLogic,
+            ['updateUiConfiguration'],
             analyticsFeedLogic,
             ['ensureFeed', 'refreshFeed', 'sourceRefreshed'],
             analyticsShareLogic,
@@ -394,11 +414,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     })),
     actions({
         setScope: (scope: AnalyticsListScope) => ({ scope }),
+        setInsightsHidden: (hidden: boolean) => ({ hidden }),
         setFilters: (filters: Partial<AnalyticsListFilters>) => ({ filters }),
-        rememberOrderBy: (scope: AnalyticsListScope, orderBy: NonNullable<AnalyticsFeedQuery['orderBy']>) => ({
-            scope,
-            orderBy,
-        }),
+        setDefaultSort: (orderBy: NonNullable<AnalyticsListDisplayConfiguration['default_sort']>) => ({ orderBy }),
         setFiltersFromUrl: (filters: AnalyticsListFilters) => ({ filters }),
         /** Remembers URL filters without reading anything, for a visit the flag does not render yet. */
         storeFilters: (filters: AnalyticsListFilters) => ({ filters }),
@@ -456,13 +474,6 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         ],
     })),
     reducers({
-        sortChoicesByScope: [
-            {} as AnalyticsSortChoices,
-            SORT_PERSIST_OPTIONS,
-            {
-                rememberOrderBy: (state, { scope, orderBy }) => ({ ...state, [scope]: orderBy }),
-            },
-        ],
         scope: ['all' as AnalyticsListScope, { setScope: (_, { scope }) => scope }],
         filters: [
             DEFAULT_ANALYTICS_LIST_FILTERS,
@@ -511,22 +522,41 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (filters: AnalyticsListFilters, currentUserUuid: string | null, scope: AnalyticsListScope): string[] =>
                 scope === 'mine' ? (currentUserUuid ? [currentUserUuid] : []) : filters.createdBy,
         ],
+        // Saved on the person, so the choices follow them across browsers and apply to every Analytics list.
+        displayConfiguration: [
+            (s) => [s.uiConfiguration],
+            (uiConfiguration: UserUIConfiguration | null): AnalyticsListDisplayConfiguration =>
+                uiConfiguration?.analytics_list ?? {},
+        ],
+        insightsHidden: [
+            (s) => [s.displayConfiguration],
+            (display: AnalyticsListDisplayConfiguration): boolean => !!display.hide_insights,
+        ],
+        defaultSort: [
+            (s) => [s.displayConfiguration],
+            (
+                display: AnalyticsListDisplayConfiguration
+            ): NonNullable<AnalyticsListDisplayConfiguration['default_sort']> =>
+                display.default_sort ?? DEFAULT_ANALYTICS_SORT,
+        ],
         feedQuery: [
-            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid, s.scope, s.sortChoicesByScope],
+            (s) => [s.filters, s.feedSearch, s.creators, s.currentUserUuid, s.defaultSort, s.insightsHidden],
             (
                 filters: AnalyticsListFilters,
                 feedSearch: string,
                 creators: string[],
                 currentUserUuid: string | null,
-                scope: AnalyticsListScope,
-                sortChoicesByScope: AnalyticsSortChoices
+                defaultSort: NonNullable<AnalyticsListDisplayConfiguration['default_sort']>,
+                insightsHidden: boolean
             ): AnalyticsFeedQuery => ({
                 type: filters.type,
-                orderBy: filters.orderBy ?? sortChoicesByScope[scope] ?? '-last_viewed_at',
+                // A header click sorts this visit through the URL; the next visit opens on the default again.
+                orderBy: filters.orderBy ?? defaultSort,
                 search: feedSearch.trim(),
                 createdBy: creators,
                 createdByMe: !!currentUserUuid && creators.length === 1 && creators[0] === currentUserUuid,
                 tags: filters.tags,
+                hideInsights: insightsHidden,
             }),
         ],
         currentFeed: [
@@ -558,12 +588,13 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (currentFeed: AnalyticsFeed, feed: AnalyticsFeed): boolean => !currentFeed.initialized && feed.initialized,
         ],
         items: [
-            (s) => [s.mode, s.feed, s.folderContents, s.filters],
+            (s) => [s.mode, s.feed, s.folderContents, s.filters, s.insightsHidden],
             (
                 mode: AnalyticsListMode,
                 feed: AnalyticsFeed,
                 folderContents: FolderContents | null,
-                filters: AnalyticsListFilters
+                filters: AnalyticsListFilters,
+                insightsHidden: boolean
             ): AnalyticsItem[] => {
                 if (mode === 'feed') {
                     return feed.items
@@ -575,7 +606,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                         : null
                     return item ? [item] : []
                 })
-                return filterAnalytics(items, filters)
+                return filterAnalytics(items, filters, insightsHidden)
             },
         ],
         subfolders: [
@@ -724,6 +755,24 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 reportListLoaded(values.currentFeed.items.length, values.currentFeed.hasMore)
             }
         }
+        // The setting is one JSON value on the user, so other UI settings in it must survive the write.
+        const updateDisplay = (change: AnalyticsListDisplayConfiguration): void => {
+            const current = values.uiConfiguration
+            actions.updateUiConfiguration(
+                {
+                    ...current,
+                    version: current?.version ?? 1,
+                    analytics_list: { ...current?.analytics_list, ...change },
+                },
+                undefined,
+                () => {
+                    // A failed save puts the old setting back, and the list may never have loaded for it.
+                    if (values.mode === 'feed') {
+                        loadCurrentMode()
+                    }
+                }
+            )
+        }
         const loadCurrentMode = (): void => {
             if (values.mode === 'feed') {
                 actions.ensureFeed(values.feedQuery, ANALYTICS_PREFETCH_COUNT)
@@ -772,10 +821,32 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 }
                 actions.setFilters({ search })
             },
-            setFilters: ({ filters }) => {
-                if (filters.orderBy) {
-                    actions.rememberOrderBy(values.scope, filters.orderBy)
+            setInsightsHidden: ({ hidden }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('analytics insights toggled', {
+                    hidden,
+                    scope: values.scope,
+                    folder: values.filters.folder !== null,
+                })
+                updateDisplay({ hide_insights: hidden })
+                if (hidden && values.filters.type === 'insight') {
+                    // The insight tab goes away, so the list cannot stay on it.
+                    actions.setFilters({ type: 'all' })
+                } else if (values.mode === 'feed') {
+                    // A folder's rows are already loaded and narrowed on the client.
+                    loadCurrentMode()
                 }
+            },
+            setDefaultSort: ({ orderBy }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('analytics default sort changed', { order_by: orderBy, scope: values.scope })
+                updateDisplay({ default_sort: orderBy })
+                // A sort in the URL is this visit's choice, so only a list on the default sort changes now.
+                if (values.mode === 'feed' && !values.filters.orderBy) {
+                    loadCurrentMode()
+                }
+            },
+            setFilters: ({ filters }) => {
                 if (filters.search !== undefined) {
                     actions.setFeedSearch(filters.search)
                 }

@@ -1,3 +1,4 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -13,6 +14,7 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { AccountSessionReplays } from './AccountSessionReplays'
+import { AccountUsersTable } from './AccountUsersTable'
 import type { AccountViewComponentKind } from './accountViewComponents'
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
@@ -38,6 +40,7 @@ export function AccountViewComponent({
     embedded = true,
 }: AccountViewComponentProps): JSX.Element {
     const tileProps = { instanceId, initialConfig, onConfigChange }
+    const isUsersTableEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_ACCOUNT_USERS_TABLE')
     switch (kind) {
         case 'properties':
             return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
@@ -56,7 +59,11 @@ export function AccountViewComponent({
                 />
             )
         case 'users':
-            return <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} {...tileProps} />
+            return isUsersTableEnabled ? (
+                <AccountUsersTable accountId={accountId} embedded={embedded} {...tileProps} />
+            ) : (
+                <AccountRelatedUsersExpansion externalId={externalId} embedded={embedded} {...tileProps} />
+            )
         case 'relationships':
             return <AccountRelationshipsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'feature_requests':

@@ -14,7 +14,7 @@ from unittest.mock import call, patch
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
-from django.http import HttpRequest
+from django.http import HttpRequest, QueryDict
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
@@ -214,7 +214,7 @@ class TestFormatUrls(SimpleTestCase):
                 "HTTP_HOST": "www.testserver",
                 "HTTP_X_FORWARDED_PROTO": "https",
             }
-            request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
+            request: Request = Request(build_req)
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
 
 
@@ -817,22 +817,22 @@ class TestLoadDataFromRequest(TestCase):
 class TestShouldRefresh(SimpleTestCase):
     def test_refresh_requested_by_client_with_refresh_true(self):
         request = HttpRequest()
-        request.GET["refresh"] = "true"
+        request.GET = QueryDict("refresh=true")
         self.assertTrue(refresh_requested_by_client(Request(request)))
 
     def test_refresh_requested_by_client_with_refresh_empty(self):
         request = HttpRequest()
-        request.GET["refresh"] = ""
+        request.GET = QueryDict("refresh=")
         self.assertTrue(refresh_requested_by_client(Request(request)))
 
     def test_should_not_refresh_with_refresh_false(self):
         request = HttpRequest()
-        request.GET["refresh"] = "false"
+        request.GET = QueryDict("refresh=false")
         self.assertFalse(refresh_requested_by_client(Request(request)))
 
     def test_should_not_refresh_with_refresh_gibberish(self):
         request = HttpRequest()
-        request.GET["refresh"] = "2132klkl"
+        request.GET = QueryDict("refresh=2132klkl")
         self.assertFalse(refresh_requested_by_client(Request(request)))
 
     def test_refresh_requested_by_client_with_data_true(self):

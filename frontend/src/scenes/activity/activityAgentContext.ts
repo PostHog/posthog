@@ -1,7 +1,6 @@
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter } from '~/types'
-
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 // Closing the chip must also detach the instruction it stands for, so they share a dismiss group.
 const EXPLORE_DISMISS_GROUP = 'activity-explore-query'

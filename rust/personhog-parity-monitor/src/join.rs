@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use personhog_common::cdc_parity::{
-    compare_mapping, compare_survivor, DistinctIdKey, DistinctIdRow, FeedState, Mapping,
-    MappingOutcome, MergeEvent, PersonKey, Side, SurvivorOutcome,
+    compare_mapping, compare_person, compare_survivor, DistinctIdKey, DistinctIdRow, FeedState,
+    Mapping, MappingOutcome, MergeEvent, PersonFeed, PersonKey, PersonOutcome, PersonRow,
+    PersonSnapshot, Side, SurvivorOutcome,
 };
 use personhog_common::partitioning::partition_for_key;
 use serde_json::{json, Value};
@@ -17,6 +18,7 @@ use serde_json::{json, Value};
 pub enum Kind {
     DistinctIds,
     MergeEvents,
+    Persons,
 }
 
 impl Kind {
@@ -24,6 +26,7 @@ impl Kind {
         match self {
             Kind::DistinctIds => "distinct_ids",
             Kind::MergeEvents => "merge_events",
+            Kind::Persons => "persons",
         }
     }
 }
@@ -38,6 +41,7 @@ pub struct Topic {
 pub enum Record {
     Mapping(DistinctIdRow),
     Merge(MergeEvent),
+    Person(PersonRow),
 }
 
 #[derive(Debug, Clone)]
@@ -50,12 +54,20 @@ pub enum Event {
         timestamp_ms: i64,
         record: Record,
     },
+    /// A row outside the person sample, which still moves the watermark.
+    Skipped {
+        topic: Topic,
+        partition: i32,
+        timestamp_ms: i64,
+    },
 }
 
 impl Event {
     pub fn topic(&self) -> Topic {
         match self {
-            Event::Assigned { topic, .. } | Event::Arrival { topic, .. } => *topic,
+            Event::Assigned { topic, .. }
+            | Event::Arrival { topic, .. }
+            | Event::Skipped { topic, .. } => *topic,
         }
     }
 }
@@ -73,11 +85,13 @@ pub struct JoinConfig {
     /// unjudged, because a counterpart may predate the readers. Zero
     /// turns the warmup off.
     pub warmup: Duration,
+    pub person_ignored_properties: HashSet<String>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObserveReport {
     pub filtered: bool,
+    pub sampled_out: bool,
     pub version_tie: Option<Side>,
     pub merge_conflict: Option<Side>,
     /// Whether the merge event sits on the partition its key selects.
@@ -104,14 +118,17 @@ pub struct SweepReport {
     pub mapping_outcomes: BTreeMap<MappingOutcome, u64>,
     pub merge_outcomes: BTreeMap<SurvivorOutcome, u64>,
     pub merge_partitions: BTreeMap<PartitionAgreement, u64>,
+    pub person_outcomes: BTreeMap<PersonOutcome, u64>,
     pub overflow_evictions: u64,
     pub warmup_evictions: u64,
     pub pending_mappings: usize,
     pub pending_merges: usize,
+    pub pending_persons: usize,
     /// The global watermark the sweep settled against.
     pub watermark_ms: Option<i64>,
     /// Each feed's own watermark, indexed by [`side_index`].
     pub feed_watermarks_ms: [Option<i64>; 2],
+    pub person_watermarks_ms: [Option<i64>; 2],
 }
 
 pub fn side_index(side: Side) -> usize {
@@ -204,6 +221,10 @@ struct MappingEntry {
     last_update_ms: i64,
 }
 
+struct PersonEntry {
+    last_update_ms: i64,
+}
+
 struct MergeEntry {
     last_update_ms: i64,
     partitions: [Option<i32>; 2],
@@ -219,6 +240,9 @@ pub struct Join {
     personhog: FeedState,
     mappings: HashMap<DistinctIdKey, MappingEntry>,
     merges: HashMap<PersonKey, MergeEntry>,
+    node_persons: PersonFeed,
+    personhog_persons: PersonFeed,
+    persons: HashMap<PersonKey, PersonEntry>,
     /// How many merge entries point at each person on either feed.
     target_refs: HashMap<PersonKey, usize>,
     progress: HashMap<Topic, TopicProgress>,
@@ -234,6 +258,9 @@ impl Join {
             personhog: FeedState::new(),
             mappings: HashMap::new(),
             merges: HashMap::new(),
+            node_persons: PersonFeed::default(),
+            personhog_persons: PersonFeed::default(),
+            persons: HashMap::new(),
             target_refs: HashMap::new(),
             progress: HashMap::new(),
             warmup_until_ms: None,
@@ -262,6 +289,15 @@ impl Join {
                 self.progress.entry(topic).or_default().partition_count = Some(partitions);
                 return report;
             }
+            Event::Skipped {
+                topic,
+                partition,
+                timestamp_ms,
+            } => {
+                self.record_progress(topic, partition, timestamp_ms, now);
+                report.sampled_out = true;
+                return report;
+            }
             Event::Arrival {
                 topic,
                 partition,
@@ -270,21 +306,12 @@ impl Join {
             } => (topic, partition, timestamp_ms, record),
         };
 
-        let progress = self.progress.entry(topic).or_default();
-        let partition_count = progress.partition_count;
-        let seen = progress
-            .partitions
-            .entry(partition)
-            .or_insert(PartitionProgress {
-                max_timestamp_ms: timestamp_ms,
-                last_seen: now,
-            });
-        seen.max_timestamp_ms = seen.max_timestamp_ms.max(timestamp_ms);
-        seen.last_seen = now;
+        let partition_count = self.record_progress(topic, partition, timestamp_ms, now);
 
         let team_id = match &record {
             Record::Mapping(row) => row.team_id,
             Record::Merge(event) => event.team_id,
+            Record::Person(row) => row.team_id,
         };
         if let Some(teams) = &self.config.teams {
             if !teams.contains(&team_id) {
@@ -331,8 +358,51 @@ impl Join {
                     *self.target_refs.entry(target).or_default() += 1;
                 }
             }
+            Record::Person(row) => {
+                let ignored = &self.config.person_ignored_properties;
+                let feed = match topic.side {
+                    Side::Node => &mut self.node_persons,
+                    Side::Personhog => &mut self.personhog_persons,
+                };
+                if feed.observe(&row, ignored) {
+                    report.version_tie = Some(topic.side);
+                }
+                let entry = self.persons.entry(row.key()).or_insert(PersonEntry {
+                    last_update_ms: timestamp_ms,
+                });
+                entry.last_update_ms = entry.last_update_ms.max(timestamp_ms);
+            }
         }
         report
+    }
+
+    /// Returns the topic's partition count, which places merge keys.
+    fn record_progress(
+        &mut self,
+        topic: Topic,
+        partition: i32,
+        timestamp_ms: i64,
+        now: Instant,
+    ) -> Option<u32> {
+        let progress = self.progress.entry(topic).or_default();
+        let seen = progress
+            .partitions
+            .entry(partition)
+            .or_insert(PartitionProgress {
+                max_timestamp_ms: timestamp_ms,
+                last_seen: now,
+            });
+        seen.max_timestamp_ms = seen.max_timestamp_ms.max(timestamp_ms);
+        seen.last_seen = now;
+        progress.partition_count
+    }
+
+    fn warmup_until(&mut self, watermark: i64) -> i64 {
+        if self.config.warmup.is_zero() {
+            return i64::MIN;
+        }
+        let warmup = self.config.warmup.as_millis() as i64;
+        *self.warmup_until_ms.get_or_insert(watermark + warmup)
     }
 
     /// Merges settle first and mappings a little later, so a merge's
@@ -340,19 +410,14 @@ impl Join {
     /// cap evicts are not counted: they never got their grace.
     pub fn settle(&mut self, now: Instant) -> SweepReport {
         let mut report = SweepReport {
-            feed_watermarks_ms: self.feed_watermarks(now),
+            feed_watermarks_ms: self.feed_watermarks(Kind::DistinctIds, now),
+            person_watermarks_ms: self.feed_watermarks(Kind::Persons, now),
             ..Default::default()
         };
         if let [Some(node), Some(personhog)] = report.feed_watermarks_ms {
             let watermark = node.min(personhog);
             report.watermark_ms = Some(watermark);
-            let warmup_until = if self.config.warmup.is_zero() {
-                i64::MIN
-            } else {
-                *self
-                    .warmup_until_ms
-                    .get_or_insert(watermark + self.config.warmup.as_millis() as i64)
-            };
+            let warmup_until = self.warmup_until(watermark);
             let merge_cutoff = watermark - self.config.grace.as_millis() as i64;
             let mapping_cutoff = merge_cutoff - self.config.mapping_lag.as_millis() as i64;
             let due: Vec<(PersonKey, i64)> = self
@@ -385,24 +450,41 @@ impl Join {
                 }
             }
         }
+        if let [Some(node), Some(personhog)] = report.person_watermarks_ms {
+            let watermark = node.min(personhog);
+            let warmup_until = self.warmup_until(watermark);
+            let cutoff = watermark - self.config.grace.as_millis() as i64;
+            let due: Vec<(PersonKey, i64)> = self
+                .persons
+                .iter()
+                .filter(|(_, entry)| entry.last_update_ms <= cutoff)
+                .map(|(key, entry)| (*key, entry.last_update_ms))
+                .collect();
+            for (key, last_update_ms) in due {
+                if last_update_ms < warmup_until {
+                    self.evict_person(&key);
+                    report.warmup_evictions += 1;
+                } else {
+                    self.settle_person(&key, last_update_ms, &mut report);
+                }
+            }
+        }
         self.enforce_cap(&mut report);
+        report.pending_persons = self.persons.len();
         report.pending_mappings = self.mappings.len();
         report.pending_merges = self.merges.values().filter(|entry| !entry.settled).count();
         report
     }
 
-    /// Only the distinct id topic counts: the sparse merge topic would hold
-    /// the watermark an idle window behind. A quiet feed advances by the
-    /// wall clock only while the other feed is quiet too; next to a live
-    /// feed it has stalled, so its watermark holds and nothing settles.
-    fn feed_watermarks(&self, now: Instant) -> [Option<i64>; 2] {
+    /// Mappings and merges settle on the distinct id topics: the sparse
+    /// merge topic would hold the watermark an idle window behind. Persons
+    /// settle on the person topics. A quiet feed advances by the wall clock
+    /// only while the other feed is quiet too; next to a live feed it has
+    /// stalled, so its watermark holds and nothing settles.
+    fn feed_watermarks(&self, kind: Kind, now: Instant) -> [Option<i64>; 2] {
         let idle = self.config.idle_partition;
-        let progress = [Side::Node, Side::Personhog].map(|side| {
-            self.progress.get(&Topic {
-                side,
-                kind: Kind::DistinctIds,
-            })
-        });
+        let progress =
+            [Side::Node, Side::Personhog].map(|side| self.progress.get(&Topic { side, kind }));
         let active = progress.map(|topic| topic.and_then(|topic| topic.active_min(now, idle)));
         let both_quiet = active.iter().all(Option::is_none);
         let mut watermarks = [None, None];
@@ -438,6 +520,35 @@ impl Join {
         }
         *report.mapping_outcomes.entry(outcome).or_default() += 1;
         self.evict_mapping(key);
+    }
+
+    fn settle_person(&mut self, key: &PersonKey, last_update_ms: i64, report: &mut SweepReport) {
+        let (node, personhog) = (self.node_persons.get(key), self.personhog_persons.get(key));
+        let outcome = compare_person(node, personhog);
+        if outcome != PersonOutcome::Agree {
+            let differing_keys = match (node, personhog) {
+                (Some(node), Some(personhog)) => node.differing_keys(personhog),
+                _ => Vec::new(),
+            };
+            self.samples.push(json!({
+                "kind": "person",
+                "team_id": key.team_id,
+                "person_uuid": key.person_uuid.to_string(),
+                "outcome": outcome.label(),
+                "last_update_ms": last_update_ms,
+                "differing_properties": differing_keys,
+                "node": node.map(person_json),
+                "personhog": personhog.map(person_json),
+            }));
+        }
+        *report.person_outcomes.entry(outcome).or_default() += 1;
+        self.evict_person(key);
+    }
+
+    fn evict_person(&mut self, key: &PersonKey) {
+        self.node_persons.remove(key);
+        self.personhog_persons.remove(key);
+        self.persons.remove(key);
     }
 
     fn settle_merge(&mut self, old: PersonKey, last_update_ms: i64, report: &mut SweepReport) {
@@ -532,18 +643,23 @@ impl Join {
     /// pass per tenth rather than one per sweep, by key age; every key holds
     /// at least one row, so evicting as many keys as the excess suffices.
     fn enforce_cap(&mut self, report: &mut SweepReport) {
-        let total = self.node.row_count() + self.personhog.row_count() + self.merges.len();
+        let total = self.node.row_count()
+            + self.personhog.row_count()
+            + self.merges.len()
+            + self.node_persons.len()
+            + self.personhog_persons.len();
         if total <= self.config.max_entries {
             return;
         }
         let target = self.config.max_entries - self.config.max_entries / 10;
-        let keys = self.mappings.len() + self.merges.len();
+        let keys = self.mappings.len() + self.merges.len() + self.persons.len();
         let excess = (total - target).min(keys);
         let mut ages: Vec<i64> = self
             .mappings
             .values()
             .map(|entry| entry.last_update_ms)
             .chain(self.merges.values().map(|entry| entry.last_update_ms))
+            .chain(self.persons.values().map(|entry| entry.last_update_ms))
             .collect();
         let (_, threshold, _) = ages.select_nth_unstable(excess - 1);
         let threshold = *threshold;
@@ -567,7 +683,28 @@ impl Join {
             self.evict_mapping(&key);
             report.overflow_evictions += 1;
         }
+        let old_persons: Vec<PersonKey> = self
+            .persons
+            .iter()
+            .filter(|(_, entry)| entry.last_update_ms <= threshold)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in old_persons {
+            self.evict_person(&key);
+            report.overflow_evictions += 1;
+        }
     }
+}
+
+/// Property values stay out of samples; the differing keys name them.
+fn person_json(person: &PersonSnapshot) -> Value {
+    json!({
+        "is_deleted": person.is_deleted,
+        "is_identified": person.is_identified,
+        "created_at": person.created_at,
+        "version": person.version,
+        "property_count": person.properties.len(),
+    })
 }
 
 fn mapping_json(mapping: &Mapping) -> Value {
@@ -601,6 +738,7 @@ mod tests {
                 teams,
                 mapping_lag: MAPPING_LAG,
                 warmup,
+                person_ignored_properties: HashSet::new(),
             },
             SampleRing::new(10),
         )
@@ -692,6 +830,83 @@ mod tests {
         for side in [Side::Node, Side::Personhog] {
             join.observe(row(side, partition, timestamp_ms, distinct_id, person), at);
         }
+    }
+
+    fn person(side: Side, timestamp_ms: i64, person: u128, properties: &str) -> Event {
+        let payload = format!(
+            r#"{{"id":"{}","created_at":"2023-11-14 22:13:20","properties":{},"team_id":{TEAM},"is_identified":1,"is_deleted":0,"version":1,"last_seen_at":null}}"#,
+            uuid(person),
+            serde_json::to_string(properties).unwrap(),
+        );
+        Event::Arrival {
+            topic: topic(side, Kind::Persons),
+            partition: 0,
+            timestamp_ms,
+            record: Record::Person(PersonRow::decode(payload.as_bytes()).unwrap()),
+        }
+    }
+
+    // Persons settle against the person topics alone: a lagging person feed
+    // holds back only person verdicts, and the mappings settle regardless.
+    #[test]
+    fn persons_settle_behind_their_own_slower_feed() {
+        let t0 = Instant::now();
+        let mut join = join(usize::MAX, None);
+        join.observe(person(Side::Node, 1_000, 1, r#"{"a":1}"#), t0);
+        join.observe(person(Side::Personhog, 1_000, 1, r#"{"a":1.0}"#), t0);
+        join.observe(person(Side::Node, 1_000, 2, r#"{"a":1,"b":1}"#), t0);
+        join.observe(person(Side::Personhog, 1_000, 2, r#"{"a":2}"#), t0);
+        join.observe(person(Side::Node, 2_000, 3, "{}"), t0);
+        join.observe(person(Side::Node, 70_000, 4, "{}"), t0);
+        both(&mut join, 0, 1_000, "d", 9, t0);
+        both(&mut join, 0, 70_000, "w", 9, t0);
+
+        let report = join.settle(t0);
+        assert_eq!(mapping_outcomes(&report), vec![(MappingOutcome::Agree, 1)]);
+        assert_eq!(report.person_outcomes, BTreeMap::new());
+        assert_eq!(report.pending_persons, 4);
+
+        join.observe(person(Side::Personhog, 70_000, 4, "{}"), t0);
+        let report = join.settle(t0);
+        assert_eq!(
+            report.person_outcomes,
+            BTreeMap::from([
+                (PersonOutcome::Agree, 1),
+                (PersonOutcome::PropertiesMismatch, 1),
+                (PersonOutcome::NodeOnly, 1),
+            ])
+        );
+        assert_eq!(report.pending_persons, 1);
+        let samples = join.samples.snapshot();
+        let mismatch = samples
+            .iter()
+            .find(|s| s["outcome"] == "properties_mismatch")
+            .expect("a properties sample");
+        assert_eq!(mismatch["person_uuid"], uuid(2).to_string());
+        assert_eq!(mismatch["differing_properties"], json!(["a", "b"]));
+    }
+
+    #[test]
+    fn rows_outside_the_person_sample_still_move_the_watermark() {
+        let t0 = Instant::now();
+        let mut join = join(usize::MAX, None);
+        join.observe(person(Side::Node, 1_000, 1, "{}"), t0);
+        join.observe(person(Side::Node, 70_000, 2, "{}"), t0);
+        let report = join.observe(
+            Event::Skipped {
+                topic: topic(Side::Personhog, Kind::Persons),
+                partition: 0,
+                timestamp_ms: 70_000,
+            },
+            t0,
+        );
+        assert!(report.sampled_out);
+
+        let report = join.settle(t0);
+        assert_eq!(
+            report.person_outcomes,
+            BTreeMap::from([(PersonOutcome::NodeOnly, 1)])
+        );
     }
 
     // Nothing settles until the slower feed passes the grace; the merge
@@ -855,6 +1070,7 @@ mod tests {
                 teams: None,
                 mapping_lag: MAPPING_LAG,
                 warmup: Duration::ZERO,
+                person_ignored_properties: HashSet::new(),
             },
             SampleRing::new(10),
         );

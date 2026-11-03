@@ -769,7 +769,7 @@ export class RerunPaginatorService {
             }
             const persistedState = parsedGlobals as Record<string, any>
             if (persistedState[SENSITIVE_VARIABLES_OMITTED]) {
-                logger.warn('⚠️', 'Skipping rerun of a sensitive email whose message data was not stored', {
+                logger.warn('⚠️', 'Skipping rerun of a sensitive message whose data was not stored', {
                     functionId,
                     teamId,
                     invocation_id: row.invocation_id,
@@ -837,6 +837,8 @@ export class RerunPaginatorService {
                     ? (restoredCurrentAction as CyclotronJobInvocationHogFlow['state']['currentAction'])
                     : undefined,
                 personId: persistedState.personId,
+                // Later message steps check these before the per-worker preferences cache, which can predate them.
+                messageOptOuts: persistedState.messageOptOuts,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

@@ -348,7 +348,11 @@ class EvaluationBackfillViewSet(
                     f"{_duration_label(settle_hold - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))}, so a "
                     "backfill has to end before that. Try a range that ends earlier."
                 )
-        window_start: datetime = max(data["window_start"], now - timedelta(days=AI_EVENTS_RETENTION_DAYS))
+        # ai_events expires at toDate(timestamp) + retention_days, so exclude the whole expired day.
+        retention_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+            days=AI_EVENTS_RETENTION_DAYS - 1
+        )
+        window_start: datetime = max(data["window_start"], retention_start)
         if window_start >= window_end:
             raise ValidationError(
                 f"The range must end in the past and start within the last {AI_EVENTS_RETENTION_DAYS} days."

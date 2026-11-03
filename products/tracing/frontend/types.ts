@@ -1,3 +1,5 @@
+import type { _SpanEventApi } from './generated/api.schemas'
+
 export interface Span {
     uuid: string
     trace_id: string
@@ -16,6 +18,8 @@ export interface Span {
     attributes: Record<string, string>
     // OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
     resource_attributes: Record<string, string>
+    // OTel span events, earliest first. Only the single-trace endpoint returns them.
+    events?: _SpanEventApi[]
     trace_start?: string
     trace_duration?: number
     // Set on a span shown in place of a root span that was not found.
@@ -40,6 +44,14 @@ export const STATUS_CODE_LABELS: Record<number, { label: string; type: 'success'
         2: { label: 'Error', type: 'danger' },
     }
 
-// The trace drawer's inspector tabs. Query, Metrics and Errors are conditional, so the active tab
-// can point at a tab the drawer is not currently rendering.
-export type SpanInspectorTab = 'attributes' | 'query' | 'logs' | 'metrics' | 'errors' | 'raw'
+// The trace drawer's inspector tabs. Query, Errors, Operations and Metrics are conditional, so the
+// active tab can point at a tab the drawer is not currently rendering. Pinned: analytics events send
+// these values as the `tab` property, so renaming one breaks the insights built on it.
+export type SpanInspectorTab = 'attributes' | 'query' | 'logs' | 'errors' | 'operations' | 'metrics' | 'raw'
+
+/**
+ * The views the left pane of a trace view can show. Pinned: the values are persisted, and analytics events send them as
+ * the `view` property.
+ */
+export const TRACE_VIEW_MODES = ['waterfall', 'calltree'] as const
+export type TraceViewMode = (typeof TRACE_VIEW_MODES)[number]

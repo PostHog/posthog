@@ -137,8 +137,10 @@
         font-size: 0.5rem;
     }
 
-    /* Line the description up with the label, past the leading icon or avatar (0.875rem + the 0.5rem gap). */
-    .quill-menu-item__title:has(> svg:first-child, > [data-slot='avatar']:first-child) + .quill-menu-item__description {
+    /* Line the description up with the label, past the leading icon or avatar (0.875rem + the 0.5rem gap).
+       CSS skips text nodes, so a trailing icon after a bare label is the first child too; `data-icon='inline-end'` marks it. */
+    .quill-menu-item__title:has(> svg:first-child:not([data-icon='inline-end']), > [data-slot='avatar']:first-child)
+        + .quill-menu-item__description {
         padding-inline-start: 1.375rem;
     }
 

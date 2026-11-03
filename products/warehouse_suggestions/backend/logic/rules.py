@@ -106,6 +106,23 @@ class MaterializeRules:
 
 
 @frozen
+class MeasurementRules:
+    max_per_team: int
+    max_per_run: int
+    max_seconds: int
+    retry_after_days: int
+
+
+@frozen
+class UnmaterializeRules:
+    min_runs: int
+    min_seconds_saved: float
+    min_bytes_saved: float
+    min_saved_share: float
+    max_read_seconds: float
+
+
+@frozen
 class RefreshRules:
     max_interval: timedelta
     min_read_day_share_below_max_interval: float
@@ -119,6 +136,7 @@ class LifecycleRules:
     max_open: int
     max_open_per_kind: int
     first_week_runs: int
+    flip_cooldown_days: int
     kind_order: tuple[WarehouseSuggestionKind, ...]
     first_week_kind_order: tuple[WarehouseSuggestionKind, ...]
 
@@ -133,6 +151,8 @@ class Rules:
     certify: CertifyRules
     deprecate: DeprecateRules
     materialize: MaterializeRules
+    measurement: MeasurementRules
+    unmaterialize: UnmaterializeRules
     refresh: RefreshRules
     lifecycle: LifecycleRules
 
@@ -203,6 +223,14 @@ RULES = Rules(
         min_saved_share=0.5,
         incremental_lookback_seconds=int(timedelta(days=3).total_seconds()),
     ),
+    measurement=MeasurementRules(max_per_team=3, max_per_run=50, max_seconds=180, retry_after_days=7),
+    unmaterialize=UnmaterializeRules(
+        min_runs=3,
+        min_seconds_saved=600.0,
+        min_bytes_saved=float(TERABYTE),
+        min_saved_share=0.5,
+        max_read_seconds=10.0,
+    ),
     refresh=RefreshRules(max_interval=timedelta(hours=24), min_read_day_share_below_max_interval=0.5),
     lifecycle=LifecycleRules(
         reproposal_score_multiple=3.0,
@@ -211,14 +239,17 @@ RULES = Rules(
         max_open=15,
         max_open_per_kind=3,
         first_week_runs=2,
+        flip_cooldown_days=30,
         kind_order=(
             WarehouseSuggestionKind.MATERIALIZE,
             WarehouseSuggestionKind.DEPRECATE,
+            WarehouseSuggestionKind.UNMATERIALIZE,
             WarehouseSuggestionKind.CERTIFY,
         ),
         first_week_kind_order=(
             WarehouseSuggestionKind.CERTIFY,
             WarehouseSuggestionKind.DEPRECATE,
+            WarehouseSuggestionKind.UNMATERIALIZE,
             WarehouseSuggestionKind.MATERIALIZE,
         ),
     ),

@@ -27,7 +27,6 @@ import requests
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     get_nonsensitive_and_sensitive_field_names,
 )
@@ -88,8 +87,10 @@ OK_ANSWERS: tuple[Answer, ...] = (
 #   connects without urllib3.
 NOT_CHECKABLE: dict[str, str] = {
     "Ably": "config",
+    "AmazonS3": "config",
     "AppStoreConnect": "config",
     "AppleSearchAds": "config",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "config",
     "AzureCostManagement": "config",
     "BigQuery": "driver",
@@ -109,6 +110,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Depot": "config",
     "Docusign": "config",
     "Dynamics365": "config",
+    "FileUpload": "config",
     "Firebase": "config",
     "Framer": "config",
     "GcpCloudBilling": "config",
@@ -116,6 +118,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Github": "config",
     "GoogleAds": "driver",
     "GoogleAnalytics": "database",
+    "GoogleCloudStorage": "config",
     "GooglePlayConsole": "config",
     "GoogleSearchConsole": "database",
     "GoogleSheets": "config",
@@ -384,15 +387,17 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Adapty",
     "AdobeAnalytics",
     "Ahrefs",
-    "AmazonS3",
+    "AmazonCloudWatch",
     "Anvil",
     "Apollo",
     "Arcade",
     "Ashby",
     "Automox",
     "Avalara",
+    "AwsAthena",
     "AwsBudgets",
     "AwsComputeOptimizer",
+    "AwsCostAndUsageReport",
     "AzureApplicationInsights",
     "Bettermode",
     "BillCom",
@@ -414,7 +419,6 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Fieldpulse",
     "GainsightCs",
     "Getdx",
-    "GoogleCloudStorage",
     "GrowthBook",
     "Gusto",
     "Harness",

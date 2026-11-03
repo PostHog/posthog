@@ -7,6 +7,7 @@ import {
     DataTableNode,
     VisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -45,7 +46,7 @@ export interface AnalyticsListUrlParams {
 
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
@@ -90,6 +91,8 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        executionTarget,
+        sendRawQuery,
         dashboard,
         filters,
         metricName,
@@ -104,6 +107,8 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        executionTarget?: HogQLQuery['executionTarget']
+        sendRawQuery?: boolean
         dashboard?: number
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
@@ -116,6 +121,10 @@ export const urls = {
 
         if (query) {
             params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
+            // With a view, the query opens as unsaved edits on top of that view
+            if (view_id) {
+                params.set('open_view', view_id)
+            }
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {
@@ -155,6 +164,12 @@ export const urls = {
         const hashParams = new URLSearchParams()
         if (connectionId) {
             hashParams.set('c', connectionId)
+        }
+        if (executionTarget) {
+            hashParams.set('engine', executionTarget === 'managed_trino' ? 'managed_trino' : 'posthog')
+        }
+        if (sendRawQuery) {
+            hashParams.set('raw', '1')
         }
         if (filters) {
             hashParams.set('filters', JSON.stringify(filters))

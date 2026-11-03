@@ -54,19 +54,40 @@ class TestRequestParams:
         assert result.requests[0].param("_updated_since") == "2026-03-04T00:00:00Z"
 
 
+TICKETS_PAGE_2 = "https://acme.freshdesk.com/api/v2/tickets?per_page=100&page=2"
+SURVEYS_PAGE_2 = "https://acme.freshdesk.com/api/v2/customer-satisfaction/surveys?per_page=100&next_token=t2"
+
+
 class TestPagination:
-    def test_paginates_via_link_header_and_saves_state(self) -> None:
-        next_url = "https://acme.freshdesk.com/api/v2/tickets?per_page=100&page=2"
-        result = _driver().run(
-            "tickets",
-            [
-                ScriptedResponse(json=[{"id": 1}], headers={"Link": f'<{next_url}>; rel="next"'}),
-                ScriptedResponse(json=[{"id": 2}]),
-            ],
-        )
+    @pytest.mark.parametrize(
+        "endpoint, script, next_url",
+        [
+            (
+                "tickets",
+                [
+                    ScriptedResponse(json=[{"id": 1}], headers={"Link": f'<{TICKETS_PAGE_2}>; rel="next"'}),
+                    ScriptedResponse(json=[{"id": 2}]),
+                ],
+                TICKETS_PAGE_2,
+            ),
+            (
+                "csat_surveys",
+                [
+                    ScriptedResponse(json={"data": [{"id": 1}], "paging": {"next": SURVEYS_PAGE_2, "previous": None}}),
+                    ScriptedResponse(json={"data": [{"id": 2}], "paging": {"next": None, "previous": SURVEYS_PAGE_2}}),
+                ],
+                SURVEYS_PAGE_2,
+            ),
+        ],
+    )
+    def test_paginates_to_the_last_page_and_saves_state(
+        self, endpoint: str, script: list[ScriptedResponse], next_url: str
+    ) -> None:
+        result = _driver().run(endpoint, script)
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.urls[1] == next_url
         # State saved once, after the first (only non-terminal) page.
         assert result.saved_states == [FreshdeskResumeConfig(next_url=next_url)]
 
@@ -144,3 +165,80 @@ class TestFanout:
             "/api/v2/solutions/categories/3/folders",
             "/api/v2/solutions/folders/4/articles",
         ]
+
+    @pytest.mark.parametrize(
+        "endpoint, script, expected_paths, parent_key, parent_value",
+        [
+            (
+                "custom_object_records",
+                [
+                    ScriptedResponse(json={"schemas": [{"id": 30}]}),
+                    ScriptedResponse(
+                        json={
+                            "records": [{"display_id": "BKG-1"}],
+                            "_links": {"next": {"href": "/schemas/30/records?page_size=100&next_token=t2"}},
+                        }
+                    ),
+                    ScriptedResponse(
+                        json={
+                            "records": [{"display_id": "BKG-2"}],
+                            "_links": {"next": {"href": "/schemas/30/records?page_size=100&prev_token=t2&next_token="}},
+                        }
+                    ),
+                ],
+                ["/api/v2/custom_objects/schemas"] + ["/api/v2/custom_objects/schemas/30/records"] * 2,
+                "schema_id",
+                30,
+            ),
+            (
+                "custom_object_records",
+                [
+                    ScriptedResponse(json={"schemas": [{"id": 30}]}),
+                    ScriptedResponse(
+                        json={
+                            "records": [{"display_id": "BKG-1"}],
+                            "_links": {"next": {"href": "/schemas/30/records?page_size=100&next_token=t2"}},
+                        }
+                    ),
+                    ScriptedResponse(json={"records": [{"display_id": "BKG-2"}], "_links": {}}),
+                ],
+                ["/api/v2/custom_objects/schemas"] + ["/api/v2/custom_objects/schemas/30/records"] * 2,
+                "schema_id",
+                30,
+            ),
+            (
+                "csat_survey_responses",
+                [
+                    ScriptedResponse(json={"data": [{"id": "s-1"}], "paging": {"next": None}}),
+                    ScriptedResponse(
+                        json={
+                            "data": [{"id": "r-1"}],
+                            "paging": {
+                                "next": "https://acme.freshdesk.com/api/v2/customer-satisfaction/surveys/s-1/responses?per_page=100&next_token=t2"
+                            },
+                        }
+                    ),
+                    ScriptedResponse(json={"data": [{"id": "r-2", "survey_id": "s-1"}], "paging": {"next": None}}),
+                ],
+                ["/api/v2/customer-satisfaction/surveys"] + ["/api/v2/customer-satisfaction/surveys/s-1/responses"] * 2,
+                "survey_id",
+                "s-1",
+            ),
+        ],
+    )
+    def test_fan_out_pages_the_child_through_its_body_link(
+        self,
+        endpoint: str,
+        script: list[ScriptedResponse],
+        expected_paths: list[str],
+        parent_key: str,
+        parent_value: Any,
+    ) -> None:
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.requests[2].param("next_token") == "t2"
+        assert len(result.rows) == 2
+        # The parent id is part of the child's primary key, so every row must carry it.
+        assert {row[parent_key] for row in result.rows} == {parent_value}

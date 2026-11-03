@@ -8,15 +8,17 @@ import type { ResourceTagFilters } from './resourceTagFilters'
 export function ResourceTagFilter({
     filters,
     onChange,
+    size = 'medium',
 }: {
     filters: ResourceTagFilters
     onChange: (filters: ResourceTagFilters) => void
+    size?: 'small' | 'medium'
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
             <TagSelect
                 defaultLabel="Tags"
-                size="medium"
+                size={size}
                 value={filters.tags}
                 onChange={(tags) => {
                     if (tags.length > 20) {
@@ -29,6 +31,7 @@ export function ResourceTagFilter({
             />
             {filters.tags.length > 1 && (
                 <LemonSelect
+                    size={size}
                     value={filters.tag_match}
                     onChange={(tag_match) => onChange({ tags: filters.tags, tag_match })}
                     options={[

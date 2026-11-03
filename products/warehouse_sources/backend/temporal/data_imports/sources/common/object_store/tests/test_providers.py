@@ -8,6 +8,7 @@ from unittest.mock import patch
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 
+from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_blob.source import AzureBlobSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_r2.source import CloudflareR2Source
@@ -35,15 +36,18 @@ AZURE_KEY = "c2VjcmV0LWtleQ=="
 
 S3_KEYS = {"access_key_id": "AKIAEXAMPLE", "secret_access_key": "secret"}
 PROVIDERS: dict[str, tuple[ObjectStorageSource[Any], dict[str, Any]]] = {
-    "s3": (AmazonS3Source(), {"bucket": "customer-data", "region": "eu-west-1", "path": "exports/", **S3_KEYS}),
-    "gcs": (GoogleCloudStorageSource(), {"bucket": "customer_data", "path": "exports/", **S3_KEYS}),
+    "s3": (
+        AmazonS3Source(),
+        {"url_pattern": "https://customer-data.s3.eu-west-1.amazonaws.com/exports/", **S3_KEYS},
+    ),
+    "gcs": (GoogleCloudStorageSource(), {"url_pattern": "gs://customer_data/exports/", **S3_KEYS}),
     "r2": (
         CloudflareR2Source(),
-        {"account_id": R2_ACCOUNT_ID, "bucket": "customer-data", "path": "exports/", **S3_KEYS},
+        {"url_pattern": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/customer-data/exports/", **S3_KEYS},
     ),
     "azure": (
         AzureBlobSource(),
-        {"account_name": "customerstore", "container": "customer-data", "path": "exports/", "account_key": AZURE_KEY},
+        {"url_pattern": "https://customerstore.blob.core.windows.net/customer-data/exports/", "account_key": AZURE_KEY},
     ),
 }
 
@@ -103,19 +107,20 @@ def test_each_provider_reads_from_its_own_endpoint(
 @pytest.mark.parametrize(
     "provider, overrides",
     [
-        ("gcs", {"bucket": "storage.googleapis.com/other"}),
-        ("gcs", {"bucket": "data@evil.example.com"}),
-        ("r2", {"account_id": "evil.example.com/"}),
-        ("r2", {"account_id": f"{R2_ACCOUNT_ID}.evil.example.com"}),
-        ("r2", {"account_id": R2_ACCOUNT_ID[:-1]}),
-        ("r2", {"bucket": "data_with_underscore"}),
-        ("azure", {"account_name": "store.evil.example.com"}),
-        ("azure", {"account_name": "store/x"}),
-        ("azure", {"container": "data/../other"}),
-        ("azure", {"container": "$root"}),
+        ("s3", {"url_pattern": "https://customer-data.s3.us-east-1.amazonaws.com.evil.example.com/a.csv"}),
+        ("s3", {"url_pattern": "https://evil.example.com/customer-data/a.csv"}),
+        ("s3", {"url_pattern": "https://s3.us-east-1.amazonaws.com/Not_A_Bucket/a.csv"}),
+        ("gcs", {"url_pattern": "https://storage.googleapis.com.evil.example.com/data/a.csv"}),
+        ("gcs", {"url_pattern": "https://user@storage.googleapis.com/data/a.csv"}),
+        ("gcs", {"url_pattern": "https://storage.googleapis.com:8443/data/a.csv"}),
+        ("r2", {"url_pattern": f"https://{R2_ACCOUNT_ID}.evil.example.com/data/a.csv"}),
+        ("r2", {"url_pattern": f"https://{R2_ACCOUNT_ID[:-1]}.r2.cloudflarestorage.com/data/a.csv"}),
+        ("r2", {"url_pattern": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/data_with_underscore/a.csv"}),
+        ("azure", {"url_pattern": "https://store.evil.example.com/data/a.csv"}),
+        ("azure", {"url_pattern": "https://customerstore.blob.core.windows.net/$root/a.csv"}),
+        ("azure", {"url_pattern": "https://customerstore.blob.core.windows.net/data/a/../b/x.csv"}),
         ("azure", {"account_key": f"{AZURE_KEY};BlobEndpoint=https://evil.example.com"}),
         ("azure", {"account_key": " "}),
-        ("azure", {"path": "a/../b"}),
     ],
 )
 def test_provider_settings_that_could_retarget_the_request_are_rejected(
@@ -142,11 +147,12 @@ def test_provider_settings_that_could_retarget_the_request_are_rejected(
     ],
 )
 def test_gcs_bucket_name_length(bucket: str, valid: bool) -> None:
+    url_pattern = f"https://storage.googleapis.com/{bucket}/exports/"
     if valid:
-        assert _store_config("gcs", bucket=bucket).bucket == bucket
+        assert _store_config("gcs", url_pattern=url_pattern).bucket == bucket
     else:
         with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
-            _store_config("gcs", bucket=bucket)
+            _store_config("gcs", url_pattern=url_pattern)
 
 
 @pytest.mark.parametrize("provider", list(PROVIDERS))
@@ -167,6 +173,45 @@ def test_a_blocked_location_is_never_opened(provider: str) -> None:
     assert message is not None and message.startswith(BLOCKED_LOCATION_ERROR)
     assert is_url_allowed.call_args.args[0] == _store_config(provider).location_url
     opened.assert_not_called()
+
+
+CSV_FORMATS = ["infer", "csv", "csv_no_header"]
+NON_CSV_FORMATS = ["jsonl", "parquet", "delta"]
+
+
+@pytest.mark.parametrize("provider", list(PROVIDERS))
+@pytest.mark.parametrize("file_format", CSV_FORMATS + NON_CSV_FORMATS)
+def test_the_csv_quote_option_shows_only_under_csv_formats(provider: str, file_format: str) -> None:
+    source, _ = PROVIDERS[provider]
+    fields = source.get_source_config.fields
+
+    [select] = [f for f in fields if isinstance(f, SourceFieldSelectConfig) and f.name == "file_format"]
+    [option] = [o for o in select.options if o.value == file_format]
+
+    assert [f.name for f in option.fields or []] == (["csv_allow_double_quotes"] if file_format in CSV_FORMATS else [])
+    assert "csv_allow_double_quotes" not in {f.name for f in fields}
+
+
+@pytest.mark.parametrize("provider", list(PROVIDERS))
+@pytest.mark.parametrize(
+    "file_format, expected_format, expected_allow_double_quotes",
+    [
+        *[({"selection": f, "csv_allow_double_quotes": "false"}, f, False) for f in CSV_FORMATS],
+        *[({"selection": f, "csv_allow_double_quotes": "true"}, f, True) for f in CSV_FORMATS],
+        *[({"selection": f}, f, True) for f in CSV_FORMATS + NON_CSV_FORMATS],
+        ("parquet", "parquet", True),
+        ({}, "infer", True),
+    ],
+)
+def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
+    provider: str, file_format: Any, expected_format: str, expected_allow_double_quotes: bool
+) -> None:
+    source, values = PROVIDERS[provider]
+
+    options = source.discovery_options(source.parse_config({**values, "file_format": file_format}))
+
+    assert options.file_format == expected_format
+    assert options.allow_double_quotes is expected_allow_double_quotes
 
 
 class _FakeContainerClient:

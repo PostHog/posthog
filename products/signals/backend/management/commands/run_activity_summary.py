@@ -7,6 +7,7 @@ import json
 
 from django.core.management.base import BaseCommand
 
+from products.signals.backend.activity_summary.config import parse_limits
 from products.signals.backend.activity_summary.logic import update_activity_summary
 
 
@@ -18,10 +19,27 @@ class Command(BaseCommand):
         parser.add_argument("--user-id", type=int, required=True)
         parser.add_argument("--dry-run", action="store_true", help="Call the model, but write nothing.")
         parser.add_argument("--force", action="store_true", help="Ignore next_eligible_at.")
+        parser.add_argument(
+            "--limits",
+            type=json.loads,
+            default=None,
+            help="Render limits as JSON, with the clamps of the flag payload, e.g. '{\"max_completion_tokens\": 2000}'.",
+        )
+        parser.add_argument(
+            "--mcp-buffer-days",
+            type=int,
+            default=None,
+            help="Read this many days of the MCP intent buffer into the input. Off by default.",
+        )
 
     def handle(self, *args, **options):
         result = update_activity_summary(
-            options["team_id"], options["user_id"], dry_run=options["dry_run"], force=options["force"]
+            options["team_id"],
+            options["user_id"],
+            dry_run=options["dry_run"],
+            force=options["force"],
+            limits=parse_limits(options["limits"]),
+            mcp_buffer_days=options["mcp_buffer_days"],
         )
         self.stdout.write(f"status: {result.status}")
         if result.rendered_input is not None:

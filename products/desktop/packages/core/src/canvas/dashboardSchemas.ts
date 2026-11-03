@@ -266,6 +266,27 @@ export const canvasActionResultSchema = z.object({
 });
 export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;
 
+// One PostHog MCP tool a canvas may run, as the host renders it before running it.
+export const canvasToolDefinitionSchema = z.object({
+  name: z.string(),
+  summary: z.string(),
+  read_only: z.boolean(),
+  destructive: z.boolean(),
+});
+export type CanvasToolDefinition = z.infer<typeof canvasToolDefinitionSchema>;
+
+export const canvasToolInvokeInput = z.object({
+  id: z.string().min(1),
+  tool: z.string().min(1).max(200),
+  arguments: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const canvasToolResultSchema = z.object({
+  tool: z.string(),
+  result: z.record(z.string(), z.unknown()),
+});
+export type CanvasToolResult = z.infer<typeof canvasToolResultSchema>;
+
 export const requestCanvasAgentInput = canvasAgentRequestInputSchema.extend({
   id: z.string().min(1),
 });

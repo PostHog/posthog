@@ -62,7 +62,7 @@ def test_csv_rendering(
         assert csv_rows == fixture["csv_rows"]
 
     if mode == "hogql":
-        export_context["source"] = {"some": "query"}
+        export_context["source"] = fixture["response"].get("query", {"some": "query"})
         asset.save()
         if fixture.get("hogql_response"):
             # If HogQL has a different response structure, add it to the fixture as `hogql_response`

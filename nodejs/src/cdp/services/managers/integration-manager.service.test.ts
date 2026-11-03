@@ -1,4 +1,5 @@
 import { IntegrationType } from '~/cdp/types'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -56,6 +57,17 @@ describe('IntegrationManager', () => {
                 team_id: teamId1,
             },
         })
+    })
+
+    it('retries the lookup when the read replica cancels it', async () => {
+        const cancelled = new Error('Canceling statement due to conflict with recovery.')
+        jest.spyOn(hub.postgres, 'query').mockRejectedValueOnce(
+            new DependencyUnavailableError(cancelled.message, 'Postgres', cancelled)
+        )
+
+        const item = await manager.get(integrations[0].id)
+
+        expect(item?.config).toEqual({ team: 'foobar' })
     })
 
     it('updates cached integration data when integration changes', async () => {

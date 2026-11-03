@@ -34,8 +34,13 @@ import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogF
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
-import type { IntegrationType, TeamPublicType, TeamType } from '../../../../../frontend/src/types'
+import type {
+    HogFunctionTemplateType,
+    IntegrationType,
+    TeamPublicType,
+    TeamType,
+    UserBasicType,
+} from '../../../../../frontend/src/types'
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
@@ -51,6 +56,9 @@ import {
     TOP_HANDLE_POSITION,
 } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
+import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
+import type { UtmTagValues } from './steps/components/UtmTagFields'
+import type { UtmTagKey } from './steps/components/UtmTagFields'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
 import { isWorkflowTreeComplete } from './tree/workflowTree'
@@ -246,6 +254,7 @@ export type OutputMappingSuggestion = {
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
+    on_error?: HogFlowAction['on_error']
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
     getOutputMappingSuggestions?: () => Promise<OutputMappingSuggestion[]>
 }
@@ -697,54 +706,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-native-push'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_push'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-twilio'
                                 template_uuid?: string | undefined
                             }
@@ -793,6 +754,55 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -803,6 +813,9 @@ export interface hogFlowEditorLogicActions {
                                           utm_medium?: string | undefined
                                           utm_source?: string | undefined
                                       }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                                     | undefined
                                 utm_tags_enabled?: boolean | undefined
                             }
@@ -1580,54 +1593,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-native-push'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_push'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-twilio'
                                 template_uuid?: string | undefined
                             }
@@ -1676,6 +1641,55 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -1686,6 +1700,9 @@ export interface hogFlowEditorLogicActions {
                                           utm_medium?: string | undefined
                                           utm_source?: string | undefined
                                       }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                                     | undefined
                                 utm_tags_enabled?: boolean | undefined
                             }
@@ -2135,6 +2152,13 @@ export interface hogFlowEditorLogicActions {
             timezone: string
         }
     }
+    markUtmSavedAsTeamDefault: (
+        actionId: string,
+        saved: UtmTagValues
+    ) => {
+        actionId: string
+        saved: Partial<Record<UtmTagKey, string>>
+    }
     moveNodeToEdge: (
         movingNodeId: string,
         targetEdge: HogFlowEdge,
@@ -2345,6 +2369,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             joinEdges,
         }),
         duplicateNodeBelow: (actionId: string) => ({ actionId }),
+        markUtmSavedAsTeamDefault: (actionId: string, saved: UtmTagValues) => ({ actionId, saved }),
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
             timezone: string
@@ -2854,6 +2879,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     let config = partialNewAction.config
                     if (!isHogFlowActionNode) {
+                        // pinned: analytics event name
+                        posthog.capture('workflow step added', {
+                            step_type: partialNewAction.type,
+                            template_id: 'template_id' in config ? config.template_id : undefined,
+                        })
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
                             config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
@@ -2869,6 +2899,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ...config,
                                 inputs: { ...defaults, ...('inputs' in config ? config.inputs : {}) },
                             }
+                        }
+                    }
+
+                    // A copied email keeps its own UTM choice. Without the team loaded the UTM keys stay out, so
+                    // the API copies the team defaults on save.
+                    if (
+                        !isHogFlowActionNode &&
+                        partialNewAction.type === 'function_email' &&
+                        !('utm_tags_enabled' in config) &&
+                        values.currentTeam
+                    ) {
+                        config = {
+                            ...config,
+                            ...newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam.workflows_config)),
                         }
                     }
 
@@ -2912,6 +2956,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         updated_at: Date.now(),
                         ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).output_variable
                             ? { output_variable: (partialNewAction as CreateActionType).output_variable }
+                            : {}),
+                        ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).on_error
+                            ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
 
@@ -3135,6 +3182,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
                 actions.setSelectedNodeId(movingNodeId)
+            },
+            markUtmSavedAsTeamDefault: ({ actionId, saved }) => {
+                // The save takes a round trip, so start from the step as it is now to keep edits made meanwhile.
+                const latest = values.workflow.actions.find((action) => action.id === actionId)
+                if (!latest || latest.type !== 'function_email') {
+                    return
+                }
+                actions.setWorkflowAction(actionId, {
+                    ...latest,
+                    config: {
+                        ...latest.config,
+                        utm_params_from_default: utmKeysFollowingSavedDefault(latest.config.utm_params ?? {}, saved),
+                    },
+                })
             },
             duplicateNodeBelow: ({ actionId }) => {
                 const action = values.workflow.actions.find((action) => action.id === actionId)

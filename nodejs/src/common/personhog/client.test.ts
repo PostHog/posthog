@@ -152,11 +152,15 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     ensurePersonVersionFloors: () => ({ results: [] }),
     getDistinctIdRows: () => ({ rows: [] }),
     listPersonsForTeam: () => ({ persons: [] }),
+    raisePersonVersionFloors: () => ({ results: [] }),
+    restorePersons: () => ({ results: [] }),
+    writeDistinctIds: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),
     releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
+    raisePersonVersion: () => ({ raised: false }),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {

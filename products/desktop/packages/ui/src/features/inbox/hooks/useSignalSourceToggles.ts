@@ -214,7 +214,7 @@ export function useSignalSourceToggles() {
 
       for (const table of dwConfig.requiredTables) {
         const requiredSchema = source.schemas.find(
-          (s) => s.name.toLowerCase() === table,
+          (s) => s.name.toLowerCase() === table.toLowerCase(),
         );
         if (!requiredSchema) continue;
 

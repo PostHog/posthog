@@ -99,6 +99,8 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
  */
 export interface InboxRankingScore {
     field: InboxRankingSortField
+    outcome: string
+    /** The model head in raw `ranking_score` artefacts. It differs from the outcome for `fix`, which reads `fixed`. */
     head: string
     name: string
     sortLabel: string
@@ -110,6 +112,7 @@ export interface InboxRankingScore {
 export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
     {
         field: 'ranking_open',
+        outcome: 'open',
         head: 'open',
         name: 'Open',
         sortLabel: 'Most likely to be opened',
@@ -118,14 +121,16 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
     },
     {
         field: 'ranking_action',
+        outcome: 'action',
         head: 'action',
-        name: 'Engage',
+        name: 'Action',
         sortLabel: 'Most likely to be acted on',
-        tagLabel: 'engage',
-        description: 'A person acts on the report within 14 days.',
+        tagLabel: 'action',
+        description: 'A person or their agent acts on the report within 14 days.',
     },
     {
-        field: 'ranking_fixed',
+        field: 'ranking_fix',
+        outcome: 'fix',
         head: 'fixed',
         name: 'Fix',
         sortLabel: 'Most likely to be fixed',

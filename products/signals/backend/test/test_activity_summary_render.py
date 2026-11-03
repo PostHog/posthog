@@ -9,12 +9,14 @@ import pytest
 from openai import APIConnectionError
 from parameterized import parameterized
 
+from products.signals.backend.activity_summary.computed import MAX_OWNED, compute_fields
 from products.signals.backend.activity_summary.prompt import (
-    MAX_PRODUCT_CHARS,
+    MAX_LABEL_CHARS,
     MAX_RECENT_SHIFT_CHARS,
-    MAX_TOPIC_CHARS,
+    EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
+    summary_profile_text,
     summary_text,
     user_message,
 )
@@ -22,30 +24,37 @@ from products.signals.backend.activity_summary.render import (
     ACTIVITY_HEADER,
     ACTIVITY_LINE_CHARS,
     ACTIVITY_LINES,
+    DEFAULT_LIMITS,
+    MAX_ACTIVITY_LINES_PER_DAY,
+    MAX_COMPLETION_TOKENS,
     MAX_UNITS_PER_DAY,
-    SECTIONS_MAX_CHARS,
-    TASK_LINE_CHARS,
+    MCP_HEADER,
     TASK_LINES,
     TASKS_HEADER,
+    VIEWS_HEADER,
     ActivityItem,
     Drop,
+    LineRef,
+    McpItem,
+    Parent,
+    Product,
+    RenderLimits,
     TaskItem,
     Unit,
+    ViewItem,
     activity_units,
     build_input,
     burst_cap,
+    cap_line,
     clean_text,
+    mcp_units,
     sample_units,
     sampling_seed,
     task_units,
+    view_units,
+    without_products,
 )
-from products.signals.backend.activity_summary.summaries import (
-    MAX_COMPLETION_TOKENS,
-    PIPELINE_DISTINCT_ID,
-    SummaryPrices,
-    cost_usd,
-    summarize,
-)
+from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue?sig=abc"
@@ -66,8 +75,36 @@ def _change(
     client: str | None = None,
     days_ago: float = 1,
     intent: str | None = None,
+    item_id: str | None = None,
+    credential_type: str | None = None,
+    short_id: str | None = None,
 ) -> ActivityItem:
-    return ActivityItem(at=_at(days_ago), scope=scope, activity=activity, name=name, client=client, intent=intent)
+    return ActivityItem(
+        at=_at(days_ago),
+        scope=scope,
+        activity=activity,
+        name=name,
+        client=client,
+        intent=intent,
+        item_id=item_id,
+        credential_type=credential_type,
+        short_id=short_id,
+    )
+
+
+QUALITY = Parent(scope="Dashboard", item_id="10", name="Quality review")
+GROWTH = Parent(scope="Dashboard", item_id="11", name="Growth overview")
+
+
+def _mcp(session_id: str, intent: str, days_ago: float = 1, minutes: int = 0, route: str = "insight-list") -> McpItem:
+    return McpItem(at=_at(days_ago, minutes), session_id=session_id, route_name=route, intent=intent)
+
+
+def _view(
+    view_type: str, ref: str, name: str | None = None, days: int = 1, days_ago: float = 1, not_theirs: bool = False
+) -> ViewItem:
+    opened = tuple(sorted(_at(days_ago + n).date() for n in range(days)))
+    return ViewItem(at=_at(days_ago), type=view_type, ref=ref, name=name, days=opened, not_theirs=not_theirs)
 
 
 @parameterized.expand(
@@ -106,6 +143,29 @@ def test_task_units(_name: str, task: TaskItem, expected: str | None, expected_d
     assert dict(drops) == expected_drops
 
 
+@parameterized.expand(
+    [
+        ("a goal on a few days is kept on each day", 3, 3, {}),
+        ("a goal on most days is a scheduled job", 4, 1, {Drop.REPEATED_TASK: 3}),
+    ]
+)
+def test_a_goal_repeated_on_many_days_collapses_to_one_line(
+    _name: str, days: int, expected_lines: int, expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+    tasks = [
+        _task("digest", summary=f"Goal: post the digest of {10 + day} new signups.", days_ago=1 + day)
+        for day in range(days)
+    ]
+
+    units = task_units(tasks, drops)
+
+    assert len(units) == expected_lines
+    if expected_drops:
+        assert units[0].text == f"- 2026-10-18 post the digest of 10 new signups. (x{days})"
+    assert dict(drops) == expected_drops
+
+
 def test_templated_task_titles_collapse_to_one_line_with_a_count() -> None:
     tasks = [_task(f"Fix failing CI checks in PR #{number}", days_ago=number) for number in (1, 2, 3)]
     units = task_units(tasks, Counter())
@@ -128,7 +188,7 @@ def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
 
     assert [unit.text for unit in units] == [
         '- 2026-10-16 created Dashboard "Growth overview"',
-        '- 2026-10-18 updated Notebook "Pricing notes" (x2)',
+        '- 2026-10-17 to 2026-10-18 updated Notebook "Pricing notes" (x2)',
     ]
     assert dict(drops) == {
         Drop.NOISY_SCOPE: 1,
@@ -136,6 +196,141 @@ def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
         Drop.AUTO_NAMED_OBJECT: 1,
         Drop.UNNAMED_OBJECT: 1,
     }
+
+
+def _bulk(count: int, spacing_days: float, intent: str | None = None) -> list[ActivityItem]:
+    return [
+        _change(
+            "KnowledgeSource",
+            "updated",
+            f"Account {n} docs",
+            days_ago=1 - n * spacing_days,
+            item_id=str(n),
+            intent=intent if n == count - 1 else None,
+        )
+        for n in range(count)
+    ]
+
+
+@parameterized.expand(
+    [
+        (
+            "a scout config that onboarding created is dropped",
+            [_change("SignalScoutConfig", "created", "signals-scout-error-tracking")],
+            [],
+            {Drop.ONBOARDING_SCOUT_CONFIG: 1},
+        ),
+        (
+            "a scout config the person named is kept",
+            [_change("SignalScoutConfig", "created", "checkout-watch")],
+            ['- 2026-10-18 created SignalScoutConfig "checkout-watch"'],
+            {},
+        ),
+        (
+            "a personal API key change is dropped",
+            [_change("PersonalAPIKey", "created", "CI deploy key")],
+            [],
+            {Drop.API_KEY_CHANGE: 1},
+        ),
+        (
+            "a setup change is dropped",
+            [
+                _change("Integration", "created", "Slack"),
+                _change("SignalTeamConfig", "updated", "Inbox settings"),
+                _change("Person", "deleted", "Test user"),
+            ],
+            [],
+            {Drop.SETUP_SCOPE: 3},
+        ),
+        (
+            "a setup change with an intent is kept",
+            [_change("Integration", "created", "Slack", intent="Send alerts to the team channel")],
+            ['- 2026-10-18 created Integration "Slack" (agent: Send alerts to the team channel)'],
+            {},
+        ),
+        (
+            "an object named only by a token or digits is dropped",
+            [
+                _change("Insight", "created", "12345"),
+                _change("Insight", "created", "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
+            ],
+            [],
+            {Drop.UNNAMED_OBJECT: 2},
+        ),
+        (
+            "an annotation written through a personal API key is dropped",
+            [_change("Annotation", "created", "Deploy v1.4.2", credential_type="personal_api_key")],
+            [],
+            {Drop.API_KEY_ANNOTATION: 1},
+        ),
+        (
+            "an annotation written in the app is kept",
+            [_change("Annotation", "created", "Deploy v1.4.2", credential_type="session")],
+            ['- 2026-10-18 created Annotation "Deploy v1.4.2"'],
+            {},
+        ),
+        (
+            "repeated team settings updates without an intent are dropped",
+            [
+                _change("Team", "updated", "Default project", days_ago=1),
+                _change("Team", "updated", "Default project", days_ago=2),
+            ],
+            [],
+            {Drop.TEAM_SETTINGS: 2},
+        ),
+        (
+            "repeated project settings updates without an intent are dropped",
+            [
+                _change("Project", "updated", "Default project", days_ago=1),
+                _change("Team", "updated", "Default project", days_ago=2),
+            ],
+            [],
+            {Drop.TEAM_SETTINGS: 2},
+        ),
+        (
+            "one team settings update is kept",
+            [_change("Team", "updated", "Default project")],
+            ['- 2026-10-18 updated Team "Default project"'],
+            {},
+        ),
+        (
+            "a bulk update with no intent is dropped",
+            _bulk(12, 0.001),
+            [],
+            {Drop.BULK_SAME_TYPE: 12},
+        ),
+        (
+            "a bulk update with an intent collapses to one line",
+            _bulk(12, 0.001, intent="Sync the account docs"),
+            ["- 2026-10-18 updated 12 knowledge sources (agent: Sync the account docs)"],
+            {Drop.BULK_SAME_TYPE: 11},
+        ),
+        (
+            "updates spread over the day are kept one per object",
+            _bulk(10, 0.05),
+            [f'- 2026-10-1{8 if n < 10 else 9} updated KnowledgeSource "Account {n} docs"' for n in range(10)],
+            {},
+        ),
+        (
+            "a ticket burst collapses to one line with a count",
+            [_change("Ticket", "updated", f"Ticket #{n}", days_ago=1 - n / 100, item_id=str(n)) for n in range(3)],
+            ["- 2026-10-18 updated 3 support tickets"],
+            {Drop.TICKET_BURST: 2},
+        ),
+        (
+            "two ticket updates are kept one per ticket",
+            [_change("Ticket", "updated", f"Ticket #{n}", days_ago=1 - n / 100, item_id=str(n)) for n in range(2)],
+            ['- 2026-10-18 updated Ticket "Ticket #0"', '- 2026-10-18 updated Ticket "Ticket #1"'],
+            {},
+        ),
+    ]
+)
+def test_activity_units_drop_automated_activity(
+    _name: str, items: list[ActivityItem], expected: list[str], expected_drops: dict[str, int]
+) -> None:
+    drops: Counter[str] = Counter()
+    assert [unit.text for unit in activity_units(items, drops)] == expected
+    assert dict(drops) == expected_drops
 
 
 @parameterized.expand(
@@ -147,9 +342,9 @@ def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
             '- 2026-10-18 updated Insight "Signup funnel" (agent: Split the funnel by plan)',
         ),
         (
-            "collapsed rows carry the newest intent",
+            "collapsed rows carry their intents newest first",
             ["Add a breakdown", None, "Split the funnel by plan"],
-            '- 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown)',
+            '- 2026-10-17 to 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown; Split the funnel by plan)',
         ),
         (
             "an intent keeps only the host of a link",
@@ -166,13 +361,213 @@ def test_activity_units_render_the_agent_intent(_name: str, intents: list[str | 
     assert [unit.text for unit in activity_units(items, Counter())] == [expected]
 
 
-def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
+@parameterized.expand(
+    [
+        (
+            "insights on one dashboard merge with the dashboard's created row",
+            [
+                _change("Dashboard", "created", "Quality review", days_ago=3, item_id="10"),
+                _change("Insight", "created", "Records judged per day", days_ago=2.9, item_id="1"),
+                _change("Insight", "created", "Suggestion defect rates", days_ago=2.8, item_id="2"),
+                _change("Insight", "updated", "Suggestion defect rates", days_ago=2.7, item_id="2"),
+                _change("Insight", "created", "Unplaced funnel", days_ago=1, item_id="3"),
+            ],
+            {("Insight", "1"): (QUALITY,), ("Insight", "2"): (QUALITY,)},
+            [
+                '- 2026-10-16 created Dashboard "Quality review" with 2 Insights: '
+                '"Suggestion defect rates", "Records judged per day"',
+                '- 2026-10-18 created Insight "Unplaced funnel"',
+            ],
+            {Drop.GROUPED_INTO_PARENT: 3},
+        ),
+        (
+            "insights on a dashboard the person did not create group under it",
+            [
+                _change("Insight", "created", "Records judged per day", item_id="1"),
+                _change("Insight", "updated", "Suggestion defect rates", item_id="2"),
+            ],
+            {("Insight", "1"): (QUALITY,), ("Insight", "2"): (QUALITY,)},
+            [
+                '- 2026-10-18 created and updated 2 Insights on Dashboard "Quality review": '
+                '"Records judged per day", "Suggestion defect rates"'
+            ],
+            {Drop.GROUPED_INTO_PARENT: 1},
+        ),
+        (
+            "a lone insight names its dashboard and how many more it sits on",
+            [_change("Insight", "created", "Signup funnel", item_id="1")],
+            {("Insight", "1"): (GROWTH, QUALITY)},
+            ['- 2026-10-18 created Insight "Signup funnel" on Dashboard "Growth overview" (+1 more)'],
+            {},
+        ),
+        (
+            "an insight joins the dashboard that holds the other changed insights",
+            [
+                _change("Insight", "created", "Signup funnel", item_id="1"),
+                _change("Insight", "created", "Defect rates", item_id="2"),
+            ],
+            {("Insight", "1"): (GROWTH, QUALITY), ("Insight", "2"): (QUALITY,)},
+            ['- 2026-10-18 created 2 Insights on Dashboard "Quality review": "Defect rates", "Signup funnel"'],
+            {Drop.GROUPED_INTO_PARENT: 1},
+        ),
+        (
+            "an auto-named dashboard gives no context",
+            [_change("Insight", "created", "Signup funnel", item_id="1")],
+            {("Insight", "1"): (Parent(scope="Dashboard", item_id="12", name="Daily report 2026-10-18"),)},
+            ['- 2026-10-18 created Insight "Signup funnel"'],
+            {},
+        ),
+    ]
+)
+def test_activity_units_group_children_under_their_parent(
+    _name: str,
+    items: list[ActivityItem],
+    parents: dict[tuple[str, str], tuple[Parent, ...]],
+    expected: list[str],
+    expected_drops: dict[str, int],
+) -> None:
     drops: Counter[str] = Counter()
-    units = [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)]
+    assert [unit.text for unit in activity_units(items, drops, parents)] == expected
+    assert dict(drops) == expected_drops
+
+
+def _object_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Insight", "updated", name, days_ago=1 + n / 100, intent=intent, item_id="1")
+        for n, intent in enumerate(intents)
+    ]
+
+
+def _group_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Insight", "updated", f"{name} {n % 2}", days_ago=1 + n / 100, intent=intent, item_id=str(n % 2))
+        for n, intent in enumerate(intents)
+    ]
+
+
+def _count_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Ticket", "updated", f"{name} #{n}", days_ago=0.5 + n / 100, intent=intent, item_id=str(n))
+        for n, intent in enumerate(intents)
+    ]
+
+
+LINE_TYPES = [("object line", _object_rows), ("group line", _group_rows), ("count line", _count_rows)]
+GROUP_PARENTS = {("Insight", "0"): (QUALITY,), ("Insight", "1"): (QUALITY,)}
+
+
+@parameterized.expand(LINE_TYPES)
+def test_an_activity_line_keeps_the_intent_after_a_long_name(_name: str, rows: Any) -> None:
+    intent = "Split the funnel by plan to see which plan dropped after the pricing change"
+    items = rows("word " * 60, [intent, None, None, None])
+
+    [unit] = activity_units(items, Counter(), GROUP_PARENTS)
+
+    assert len(unit.text) <= ACTIVITY_LINE_CHARS
+    assert unit.text.endswith(f" (agent: {intent})")
+    assert unit.intent_chars == len(intent)
+
+
+@parameterized.expand(
+    [
+        (f"{line_type}, {case}", rows, max_intents, expected)
+        for line_type, rows in LINE_TYPES
+        for case, max_intents, expected in [
+            ("two intents", 2, "Add a breakdown; Split by plan"),
+            ("one intent", 1, "Add a breakdown"),
+        ]
+    ]
+)
+def test_an_activity_line_keeps_the_newest_distinct_intents(
+    _name: str, rows: Any, max_intents: int, expected: str
+) -> None:
+    items = rows("Signup funnel", ["Add a breakdown", "Split by plan", "add  a BREAKDOWN", "Fix the date range"])
+    limits = RenderLimits(activity_max_intents=max_intents)
+
+    [unit] = activity_units(items, Counter(), GROUP_PARENTS, limits)
+
+    assert unit.text.endswith(f" (agent: {expected})")
+
+
+def test_a_group_line_lists_the_names_that_fit_and_marks_the_rest() -> None:
+    items = [
+        _change(
+            "Insight", "created", f"Insight number {n} with a fairly long name", days_ago=1 + n / 100, item_id=str(n)
+        )
+        for n in range(12)
+    ]
+    parents = {("Insight", str(n)): (QUALITY,) for n in range(12)}
+
+    [unit] = activity_units(items, Counter(), parents)
+
+    assert unit.text.startswith(
+        '- 2026-10-17 to 2026-10-18 created 12 Insights on Dashboard "Quality review": "Insight number 0'
+    )
+    assert unit.text.endswith('", …')
+    assert len(unit.text) <= ACTIVITY_LINE_CHARS
+
+
+@parameterized.expand(
+    [
+        ("other days take the slots a burst would fill", 12, MAX_ACTIVITY_LINES_PER_DAY),
+        ("a burst fills the slots no other day takes", 3, ACTIVITY_LINES - 3),
+        ("a lone busy day still fills the section", 0, ACTIVITY_LINES),
+    ]
+)
+def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, expected_burst_lines: int) -> None:
+    drops: Counter[str] = Counter()
+    burst = [_change("Insight", "created", f"Burst {n}", days_ago=1 - n / 1000) for n in range(ACTIVITY_LINES + 5)]
+    older = [_change("Notebook", "updated", f"Older {day}", days_ago=day) for day in range(2, 2 + older_days)]
+
+    units = activity_units(burst + older, drops)
+
+    assert len(units) == ACTIVITY_LINES
+    assert sum(1 for unit in units if "Burst" in unit.text) == expected_burst_lines
+    assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
+
+
+def test_without_products_drops_inbox_rows_and_views_and_counts_them() -> None:
+    drops: Counter[str] = Counter()
+    activity, views = without_products(
+        [_change("SignalReport", "updated", "Weekly digest"), _change("Insight", "created", "Signup funnel")],
+        [_view("scene", "Inbox"), _view("scene", "Dashboards"), _view("insight", "abc", "Signup funnel")],
+        frozenset({Product.INBOX}),
+        drops,
+    )
+
+    assert [item.scope for item in activity] == ["Insight"]
+    assert [view.ref for view in views] == ["Dashboards", "abc"]
+    assert drops == {Drop.EXCLUDED_PRODUCT: 2}
+
+
+@parameterized.expand(
+    [
+        (
+            "equal weights keep the newest",
+            [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)],
+            [f"unit {minute}" for minute in range(2, MAX_UNITS_PER_DAY + 2)],
+        ),
+        (
+            "a heavy unit keeps its slot over newer light ones",
+            [
+                Unit(at=_at(1), text="investigation", weight=3.0),
+                *(
+                    Unit(at=_at(1, minutes=minute), text=f"lookup {minute}")
+                    for minute in range(1, MAX_UNITS_PER_DAY + 2)
+                ),
+            ],
+            ["investigation", *(f"lookup {minute}" for minute in range(3, MAX_UNITS_PER_DAY + 2))],
+        ),
+    ]
+)
+def test_burst_cap_keeps_the_heaviest_then_newest_units_of_a_day(
+    _name: str, units: list[Unit], expected: list[str]
+) -> None:
+    drops: Counter[str] = Counter()
 
     kept = burst_cap(units, drops)
 
-    assert [unit.text for unit in kept] == [f"unit {minute}" for minute in range(2, MAX_UNITS_PER_DAY + 2)]
+    assert [unit.text for unit in kept] == expected
     assert drops[Drop.BURST_CAP] == 2
 
 
@@ -188,6 +583,21 @@ def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
         ("an angle-bracketed slack link", "See <https://example.com/a/b> now", "See [link example.com] now"),
         ("credentials in a url are gone", "Use https://user:pass@db.example.com/x", "Use [link db.example.com]"),
         ("token-like string", "Use key phx_9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c", "Use key <token>"),
+        ("uuid", "Run 3f2b8c1e-9a4d-4e7f-b6c5-1d2e3f4a5b6c failed", "Run <token> failed"),
+        ("hex hash", "Commit 4e1f9a7c2b8d3e6f0a5c9b1d7e2f8a4c6b3d0e9f", "Commit <token>"),
+        ("sk-style key", "Use sk-live-Zq8xW2vR7tY4uP1oL6kJ3h", "Use <token>"),
+        (
+            "jwt",
+            "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0dXNlcjEyMyJ9.c2lnbmF0dXJlMTIzNDU2Nzg5",
+            "Bearer <token>.<token>.<token>",
+        ),
+        ("short numeric segments of a key", "Use botx-123456789012-1234567890123456-abcdef", "Use <token>"),
+        ("evenly split key", "Use abcd-1234-efgh-5678-ijkl-9012", "Use <token>"),
+        ("url-safe key with short segments", "Use phx_aB3d-Xy9kQ_w2eRt-Lm8nP_zT4v-Hj6s", "Use <token>"),
+        ("a hyphenated name is kept", "checkout-redesign-test-2026", "checkout-redesign-test-2026"),
+        ("a capitalized name is kept", "Q4-Revenue-Forecast-Review-2026", "Q4-Revenue-Forecast-Review-2026"),
+        ("a snake case name is kept", "activity_summary_mcp_pairs_v2", "activity_summary_mcp_pairs_v2"),
+        ("a name with a quarter is kept", "new-onboarding-flow-q4-2026", "new-onboarding-flow-q4-2026"),
         ("multiline text folds onto one line", "First line\n\n  second\tline ", "First line second line"),
         (
             "ordinary text is untouched",
@@ -224,72 +634,547 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
     ]
     assert sum(1 for age in picked_ages if age < 7) > sum(1 for age in picked_ages if age >= 21)
 
+    weighted = [Unit(at=_at(1), text=f"unit {n}", weight=4.0 if n % 2 else 1.0) for n in range(20)]
+    picked_weights = [
+        unit.weight
+        for partition in range(50)
+        for unit in sample_units(weighted, limit=5, as_of=AS_OF, seed=sampling_seed(str(partition), 2, 7))
+    ]
+    assert picked_weights.count(4.0) > 2 * picked_weights.count(1.0) > 0
 
-def test_build_input_renders_the_two_sections_in_order() -> None:
+
+def test_build_input_renders_the_four_sections_in_order() -> None:
     rendered = build_input(
         [_task("why", summary="Asked: why did signups drop?", tags=("growth",), days_ago=3)],
         [_change("Dashboard", "created", "Growth overview", days_ago=1)],
         as_of=AS_OF,
         seed=1,
+        views=[
+            _view("insight", "abc", "Weekly signups", days_ago=1),
+            _view("dashboard", "9", "Growth overview", days=3, days_ago=2),
+        ],
+        mcp=[_mcp("s1", "signups by country", days_ago=2)],
     )
 
     assert rendered is not None
     assert rendered.text == "\n".join(
         [
             TASKS_HEADER,
-            "- 2026-10-16 [growth] why did signups drop?",
+            "- t1 2026-10-16 [growth] why did signups drop?",
             "",
             ACTIVITY_HEADER,
             '- 2026-10-18 created Dashboard "Growth overview"',
+            "",
+            MCP_HEADER,
+            "- m1 2026-10-17, 1 call: signups by country",
+            "",
+            VIEWS_HEADER,
+            '- Dashboard "Growth overview": opened 3 days, last 2026-10-17, edited 1 day',
+            '- Insight "Weekly signups": opened 1 day, last 2026-10-18',
         ]
     )
-    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.units) == (1, 1, 2)
+    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_mcp_lines, rendered.n_view_lines) == (1, 1, 1, 2)
+    assert rendered.units == 5
+    assert (rendered.task_refs, rendered.mcp_refs) == (
+        (LineRef(ref="t1", last_at="2026-10-16"),),
+        (LineRef(ref="m1", last_at="2026-10-17"),),
+    )
     assert rendered.input_chars == len(rendered.text)
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
+    assert build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "Settings")]) is None
+    pages_only = build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "ErrorTracking", days=3)])
+    assert pages_only is not None
+    assert (pages_only.text, pages_only.units) == ("", 1)
 
 
-def test_build_input_stays_inside_its_bounds_for_a_very_active_person() -> None:
+def test_mcp_units_assemble_each_session_in_order_and_cap_a_long_chain() -> None:
+    records = [
+        _mcp("s1", "signups by country", days_ago=0, minutes=5),
+        _mcp("s1", "why signups dropped", days_ago=0, minutes=-10),
+        _mcp("s2", "check error rates", days_ago=0, minutes=-8),
+        _mcp("s1", "Why signups dropped", days_ago=0, minutes=-5),
+        *(_mcp("s3", f"step {n}", days_ago=2, minutes=n) for n in range(1, 9)),
+        _mcp("s4", "list the export failures", days_ago=3),
+        _mcp("s4", "query the export rows", days_ago=3, minutes=1),
+        _mcp("s4", "draft the weekly report", days_ago=3, minutes=120),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; read the logs", days_ago=5),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; query the table", days_ago=5, minutes=1),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; read the logs", days_ago=5, minutes=2),
+    ]
+    long_records = [
+        _mcp("s6", f"{'long ' if n in (3, 5) else ''}intent {n} " + "word " * 30, days_ago=6, minutes=n)
+        for n in range(1, 8)
+    ]
+    drops: Counter[str] = Counter()
+
+    units = mcp_units(records, [], drops, RenderLimits(mcp_chain_max_intents=3))
+    long_chain = mcp_units(long_records, [], Counter())[0].text
+
+    assert [unit.text for unit in units] == [
+        "- 2026-10-14, 3 calls: investigate a failed export for the billing team; read the logs --> query the table",
+        "- 2026-10-16, 2 calls: list the export failures --> query the export rows",
+        "- 2026-10-16, 1 call: draft the weekly report",
+        "- 2026-10-17, 8 calls: step 1 --> step 2 --> … --> step 8",
+        "- 2026-10-18, 1 call: check error rates",
+        "- 2026-10-19, 3 calls: why signups dropped --> signups by country",
+    ]
+    assert drops == Counter()
+    assert long_chain.startswith("- 2026-10-13, 7 calls: intent 1 word")
+    assert [part.split(" word")[0] for part in long_chain.split(" --> ")[1:]] == [
+        "…",
+        "long intent 3",
+        "…",
+        "long intent 5",
+        "…",
+        "intent 7",
+    ]
+    assert len(long_chain) <= DEFAULT_LIMITS.mcp_line_chars
+
+
+INVESTIGATION = [
+    _mcp("investigation", "find the failed export", minutes=0),
+    _mcp("investigation", "read the export logs", minutes=1),
+    _mcp("investigation", "query the rows it skipped", minutes=2),
+]
+POLL_LOOP = [_mcp("poll", "poll the export status", minutes=10 + n) for n in range(64)]
+LOOKUPS = [_mcp(f"lookup {n}", f"count signups {n}", minutes=100 + 10 * n) for n in range(3)]
+
+
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS, (3, 2, 0, 0), 3),
+        ("a sample cap of one line", RenderLimits(mcp_lines=1), (3, 2, 2, 0), 1),
+        ("a budget below the section overhead", RenderLimits(sections_max_chars=1), (3, 2, 0, 3), 0),
+    ]
+)
+def test_build_input_keeps_the_richest_mcp_sessions_of_a_day_and_counts_their_drops(
+    _name: str, limits: RenderLimits, expected_counts: tuple[int, int, int, int], expected_lines: int
+) -> None:
+    rendered = build_input([], [], as_of=AS_OF, seed=1, limits=limits, mcp=[*INVESTIGATION, *POLL_LOOP, *LOOKUPS])
+
+    assert rendered is not None
+    assert (
+        rendered.mcp_pool,
+        rendered.mcp_burst_cap_drops,
+        rendered.mcp_sample_cap_drops,
+        rendered.mcp_budget_drops,
+    ) == expected_counts
+    assert rendered.n_mcp_lines == expected_lines
+    if limits == DEFAULT_LIMITS:
+        assert rendered.text.split("\n")[1:] == [
+            "- m1 2026-10-18, 3 calls: find the failed export --> read the export logs --> query the rows it skipped",
+            "- m2 2026-10-18, 64 calls: poll the export status",
+            "- m3 2026-10-18, 1 call: count signups 2",
+        ]
+
+
+KEEPER = _mcp("k", "why signups dropped", days_ago=3)
+
+
+@parameterized.expand(
+    [
+        (
+            "a plumbing route says nothing about the work",
+            [
+                _mcp("s1", "who am I", route="users-detail"),
+                _mcp("s1", "load the skill", route="project_llm_skills-list"),
+            ],
+            [],
+            [],
+            {Drop.MCP_PLUMBING_ROUTE: 2},
+        ),
+        (
+            "an intent an activity line shows is not shown twice",
+            [_mcp("s1", "Split the funnel by plan"), _mcp("s1", "check the split", minutes=1)],
+            [_change("Insight", "updated", "Signup funnel", intent="split the funnel  by plan")],
+            ["- 2026-10-18, 2 calls: check the split"],
+            {Drop.MCP_IN_ACTIVITY: 1},
+        ),
+        (
+            "a session left with no intent goes",
+            [_mcp("s1", "Split the funnel by plan")],
+            [_change("Insight", "updated", "Signup funnel", intent="Split the funnel by plan")],
+            [],
+            {Drop.MCP_IN_ACTIVITY: 1, Drop.MCP_THIN_SESSION: 1},
+        ),
+        (
+            "a chain repeated in many sessions is a scheduled job",
+            [_mcp(f"s{n}", f"refresh digest {n}", days_ago=n) for n in range(1, 5)],
+            [],
+            [],
+            {Drop.MCP_REPEATED_CHAIN: 4},
+        ),
+        (
+            "a scheduled job in one long session is still a scheduled job",
+            [_mcp("job", f"refresh digest {n}", days_ago=1, minutes=60 * n) for n in range(1, 5)],
+            [],
+            [],
+            {Drop.MCP_REPEATED_CHAIN: 4},
+        ),
+    ]
+)
+def test_mcp_units_drop_rules(
+    _name: str,
+    records: list[McpItem],
+    activity: list[ActivityItem],
+    expected: list[str],
+    expected_drops: dict[str, int],
+) -> None:
+    drops: Counter[str] = Counter()
+    activity_lines = activity_units(activity, Counter())
+
+    units = mcp_units([*records, KEEPER], activity_lines, drops)
+
+    assert [unit.text for unit in units] == ["- 2026-10-16, 1 call: why signups dropped", *expected]
+    assert dict(drops) == expected_drops
+
+
+def test_view_units_leave_pages_out_count_edits_and_drop_what_says_nothing() -> None:
+    drops: Counter[str] = Counter()
+    views = [
+        _view("scene", "ErrorTrackingIssue", days=2),
+        _view("scene", "ErrorTracking", days=3, days_ago=2),
+        _view("scene", "Settings"),
+        _view("scene", "ProjectHomepage"),
+        _view("insight", "abc", "Weekly signups", days=5, not_theirs=True),
+        _view("feature_flag", "7", "new-checkout", days=2),
+        _view("notebook", "n1", "Daily report 2026-10-18"),
+        _view("dashboard", "9", None),
+    ]
+    activity = [
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=1),
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=1.5),
+        _change("FeatureFlag", "updated", "new-checkout", days_ago=3, client="scout:feature-flags"),
+    ]
+
+    units = view_units(views, activity, drops)
+
+    assert sorted(unit.text for unit in units) == [
+        '- Feature flag "new-checkout": opened 2 days, last 2026-10-18, edited 2 days',
+        '- Insight "Weekly signups": opened 5 days, last 2026-10-18, not theirs',
+    ]
+    assert dict(drops) == {Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
+
+
+def test_compute_fields_split_owned_watched_and_visited() -> None:
+    activity = (
+        [_change("FeatureFlag", "updated", "new-checkout", days_ago=day, item_id="7") for day in (1, 2, 3)]
+        + [
+            _change("Dashboard", "created", "Growth overview", days_ago=2, item_id="9"),
+            _change("Insight", "updated", "Signup funnel", client="scout:product-analytics", item_id="1"),
+            _change("PersonalAPIKey", "created", "CI deploy key", item_id="k1"),
+            _change("Insight", "updated", "Weekly signups", item_id="42", short_id="abc"),
+        ]
+        + [_change("Ticket", "updated", f"Ticket #{n}", item_id=f"t{n}") for n in (1, 2, 3)]
+    )
+    views = [
+        _view("insight", "abc", "Weekly signups", days=4, not_theirs=True),
+        _view("insight", "def", "Churn by plan", days=2),
+        _view("scene", "Replay", days=1),
+    ]
+    tasks = [_task("why", summary="Goal: find why signups dropped.", tags=("Product analytics",))]
+
+    computed = compute_fields(tasks, activity, views).as_json()
+
+    assert computed == {
+        "schema_version": 2,
+        "owned": [
+            {
+                "ref": "o1",
+                "type": "feature_flag",
+                "id": "7",
+                "name": "new-checkout",
+                "edit_days": 3,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            {
+                "ref": "o2",
+                "type": "dashboard",
+                "id": "9",
+                "name": "Growth overview",
+                "edit_days": 1,
+                "last_at": "2026-10-17",
+                "created": True,
+            },
+            {
+                "ref": "o3",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "edit_days": 1,
+                "last_at": "2026-10-18",
+                "created": False,
+            },
+            *(
+                {
+                    "ref": f"o{n + 3}",
+                    "type": "ticket",
+                    "id": f"t{n}",
+                    "name": f"Ticket #{n}",
+                    "edit_days": 1,
+                    "last_at": "2026-10-18",
+                    "created": False,
+                }
+                for n in (1, 2, 3)
+            ),
+        ],
+        "watched": [
+            {
+                "ref": "o3",
+                "type": "insight",
+                "id": "abc",
+                "name": "Weekly signups",
+                "open_days": 4,
+                "last_at": "2026-10-18",
+                "not_theirs": True,
+            }
+        ],
+        "pages": [{"ref": "p1", "product": "session_replay", "open_days": 1, "last_at": "2026-10-18"}],
+        "products": {
+            "works_in": ["feature_flags", "product_analytics", "dashboards", "support"],
+            "visits": ["session_replay"],
+        },
+        "task_count": 1,
+        "tasks": [],
+        "mcp_sessions": [],
+    }
+
+
+def test_compute_fields_cap_one_type_and_merge_objects_with_the_same_name() -> None:
+    insights = [
+        _change("Insight", "created", f"Tile {n}", days_ago=1 - n / 1000, item_id=str(n)) for n in range(MAX_OWNED)
+    ]
+    flags = [_change("FeatureFlag", "updated", f"flag-{n}", days_ago=3, item_id=f"f{n}") for n in range(4)]
+    copies = [
+        _change("Notebook", "updated", "Pricing notes", days_ago=4, item_id="n1"),
+        _change("Notebook", "updated", "pricing notes", days_ago=2, item_id="n2"),
+    ]
+    same_day_copies = [
+        _change("Subscription", "created", "Weekly report", days_ago=1.2, item_id=f"s{n}") for n in range(3)
+    ]
+    dashboard = [_change("Dashboard", "created", "Quality review", days_ago=1.5, item_id="d1")]
+
+    owned = compute_fields([], insights + flags + copies + same_day_copies + dashboard, []).as_json()["owned"]
+
+    assert len(owned) == MAX_OWNED
+    assert [(item["type"], item["id"], item["edit_days"]) for item in owned[:2]] == [
+        ("notebook", "n2", 1),
+        ("dashboard", "d1", 1),
+    ]
+    assert Counter(item["type"] for item in owned) == {
+        "insight": MAX_OWNED - 7,
+        "feature_flag": 4,
+        "notebook": 1,
+        "subscription": 1,
+        "dashboard": 1,
+    }
+
+
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS),
+        (
+            "limits from the flag",
+            RenderLimits(
+                task_lines=5,
+                activity_lines=30,
+                max_units_per_day=1,
+                sections_max_chars=20000,
+                task_line_chars=240,
+                activity_line_chars=400,
+            ),
+        ),
+    ]
+)
+def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str, limits: RenderLimits) -> None:
     runaway = "word " * 2000
     tasks = [
-        _task(runaway, summary=f"{day} {n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
+        _task(runaway, summary=f"{'x' * day}{'y' * n} {runaway}", tags=(runaway,) * 20, days_ago=day + 0.01 * n)
         for day in range(28)
         for n in range(20)
     ]
     activity = [_change("Insight", "created", f"{runaway} {n}", days_ago=n % 28, intent=runaway) for n in range(500)]
 
-    rendered = build_input(tasks, activity, as_of=AS_OF, seed=1)
+    rendered = build_input(tasks, activity, as_of=AS_OF, seed=1, limits=limits)
 
     assert rendered is not None
-    assert (rendered.n_tasks, rendered.n_activity_lines) == (TASK_LINES, ACTIVITY_LINES)
+    assert (rendered.n_tasks, rendered.n_activity_lines) == (limits.task_lines, limits.activity_lines)
     tasks_text, activity_text = rendered.text.split("\n\n")
-    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= TASK_LINE_CHARS
-    assert max(len(line) for line in activity_text.split("\n")[1:]) <= ACTIVITY_LINE_CHARS
-    assert rendered.input_chars <= SECTIONS_MAX_CHARS
+    assert max(len(line) for line in tasks_text.split("\n")[1:]) <= limits.task_line_chars
+    assert max(len(line) for line in activity_text.split("\n")[1:]) <= limits.activity_line_chars
+    assert rendered.input_chars <= limits.sections_max_chars
+    assert rendered.intent_lines == limits.activity_lines and rendered.intent_chars > 0
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
 
 
-PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
+def test_build_input_numbers_the_task_refs_that_survive_the_budget_from_one() -> None:
+    tasks = [
+        _task("old", summary="Asked: why did signups drop last month?", days_ago=3),
+        _task("new", summary="Asked: why did signups drop?", days_ago=1),
+    ]
+    expected = f"{TASKS_HEADER}\n- t1 2026-10-18 why did signups drop?"
+    # Each of the four sections adds a two-character separator to the budget, empty or not.
+    budget = len(expected.replace("t1", "t2")) + 2 * 4
+
+    rendered = build_input(tasks, [], as_of=AS_OF, seed=1, limits=RenderLimits(sections_max_chars=budget))
+
+    assert rendered is not None
+    assert rendered.text == expected
+    assert rendered.task_refs == (LineRef(ref="t1", last_at="2026-10-18"),)
+    assert rendered.drops[Drop.SECTIONS_BUDGET] == 1
 
 
-@parameterized.expand([("with a previous summary", PREVIOUS), ("cold start", None)])
+def test_build_input_stays_inside_the_budget_when_a_shorter_ref_would_fit_another_word() -> None:
+    goal = f"check the revenue report {'w' * 40}"
+    tasks = [
+        *[
+            _task(topic, summary=f"Asked: why did {topic} change?", days_ago=index + 2)
+            for index, topic in enumerate(
+                ("signups", "churn", "pricing", "invoices", "retention", "referrals", "trials", "refunds", "upgrades")
+            )
+        ],
+        _task("newest", summary=f"Asked: {goal}", days_ago=1),
+    ]
+    line_chars = len(f"- t1 2026-10-18 {goal}")
+    cut_line = cap_line(f"- t10 2026-10-18 {goal}", line_chars)
+    # Each of the four sections adds a two-character separator to the budget, empty or not.
+    budget = len(f"{TASKS_HEADER}\n{cut_line}") + 2 * 4
+
+    rendered = build_input(
+        tasks,
+        [],
+        as_of=AS_OF,
+        seed=1,
+        limits=RenderLimits(task_line_chars=line_chars, task_lines=10, sections_max_chars=budget),
+    )
+
+    assert rendered is not None
+    assert rendered.task_refs == (LineRef(ref="t1", last_at="2026-10-18"),)
+    assert rendered.text == f"{TASKS_HEADER}\n{cut_line.replace('- t10', '- t1', 1)}"
+
+
+def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() -> None:
+    rendered = build_input(
+        [_task("why", summary="Asked: why did signups drop?", days_ago=3)],
+        [_change("Dashboard", "created", "Growth overview", days_ago=1)],
+        as_of=AS_OF,
+        seed=1,
+        limits=RenderLimits(sections_max_chars=1),
+    )
+
+    assert rendered is not None
+    assert (rendered.text, rendered.units, rendered.drops[Drop.SECTIONS_BUDGET]) == ("", 0, 2)
+
+
+PREVIOUS = {
+    "profile": "## Funnels\n- Builds the signup funnel.",
+    "headline": "Builds the signup funnel.",
+    "themes": [
+        {"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o9"], "last_seen": "2026-10-16"}
+    ],
+    "modes": ["building"],
+    "recent_shift": "Moved from flags to funnels.",
+}
+COMPUTED: dict[str, Any] = {
+    "schema_version": 1,
+    "owned": [
+        {
+            "ref": "o1",
+            "type": "insight",
+            "id": "12",
+            "name": "Signup funnel",
+            "edit_days": 3,
+            "last_at": "2026-10-16",
+            "created": True,
+        }
+    ],
+    "watched": [
+        {
+            "ref": "o2",
+            "type": "dashboard",
+            "id": "34",
+            "name": "Growth overview",
+            "open_days": 4,
+            "last_at": "2026-10-17",
+            "not_theirs": True,
+        }
+    ],
+    "pages": [
+        {"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-18"},
+        {"ref": "p2", "product": "feature_flags", "open_days": 3, "last_at": "2026-10-15"},
+    ],
+    "products": {"works_in": ["product_analytics"], "visits": ["session_replay"]},
+    "task_count": 1,
+    "tasks": [{"ref": "t1", "last_at": "2026-10-17"}],
+    "mcp_sessions": [{"ref": "m1", "last_at": "2026-10-19"}],
+}
+PREVIOUS_BEFORE_PROFILES = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": []}
+
+
+@parameterized.expand(
+    [
+        (
+            "with a previous summary",
+            PREVIOUS,
+            ["## Funnels\\n- Builds the signup funnel.", "Builds the signup funnel.", '"label": "Signup funnel"'],
+        ),
+        ("with a summary from before profiles", PREVIOUS_BEFORE_PROFILES, ['"headline": "Builds the signup funnel."']),
+        ("cold start", None, ["Previous summary:\nNone"]),
+    ]
+)
 def test_user_message_sends_only_the_rendered_input_and_the_previous_summary(
-    _name: str, previous: dict[str, Any] | None
+    _name: str, previous: dict[str, Any] | None, expected: list[str]
 ) -> None:
     message = user_message("- 2026-10-17 Build a funnel", previous, datetime.date(2026, 10, 18))
     assert message.startswith("Today is 2026-10-18.")
-    assert message.endswith("Recent activity:\n- 2026-10-17 Build a funnel")
-    if previous:
-        assert json.dumps(PREVIOUS["summary"]) in message
-    else:
-        assert "Previous summary:\nNone" in message
+    assert message.endswith("Objects and pages:\nNone\n\nRecent activity:\n- 2026-10-17 Build a funnel")
+    assert all(text in message for text in expected)
+    assert "Moved from flags" not in message
+    assert "o9" not in message
+
+
+def test_user_message_lists_the_computed_objects_and_pages_with_their_refs() -> None:
+    visits = [f"product_{n}_with_a_long_key" for n in range(8)]
+    computed = COMPUTED | {
+        "owned": [*COMPUTED["owned"], {**COMPUTED["owned"][0], "ref": "o3", "name": "Churn", "edit_days": 1}],
+        "watched": [
+            *COMPUTED["watched"],
+            {**COMPUTED["watched"][0], "ref": "o1", "name": "Signup funnel", "open_days": 9, "last_at": "2026-10-18"},
+        ],
+        "pages": [*COMPUTED["pages"], {"ref": "p2", "product": "surveys", "open_days": 1, "last_at": "2026-10-18"}],
+        "products": {"works_in": ["product_analytics"], "visits": ["session_replay", *visits]},
+    }
+    message = user_message("- a line", None, datetime.date(2026, 10, 18), computed=computed)
+    assert (
+        "Objects and pages:\n"
+        "Products they work in: Product analytics\n"
+        f"Products they only visit: Session replay, {', '.join(visits)}\n"
+        '- o1 insight "Signup funnel": edited on 3 days, opened on 9 days, last 2026-10-18, created\n'
+        '- o3 insight "Churn": edited on 1 day, last 2026-10-16, created\n'
+        '- o2 dashboard "Growth overview": opened on 4 days, last 2026-10-17, not theirs\n'
+        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n"
+        "- p2 Feature flags pages: opened on 3 days, last 2026-10-15\n\n"
+    ) in message
+
+
+def _theme(label: str | None = "Signup funnel", refs: list[Any] | None = None, **overrides: Any) -> dict[str, Any]:
+    return {
+        "label": label,
+        "mode": "building",
+        "strength": "high",
+        "refs": ["o1"] if refs is None else refs,
+        **overrides,
+    }
 
 
 def _answer(**overrides: Any) -> str:
     return json.dumps(
         {
-            "summary": "Builds the signup funnel.",
-            "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-17"}],
-            "products": ["product_analytics"],
+            "profile": "## Funnels\n- Builds the signup funnel.",
+            "headline": "Builds the signup funnel.",
+            "themes": [_theme()],
+            "modes": ["building"],
             "recent_shift": "Moved from flags to funnels.",
             **overrides,
         }
@@ -308,69 +1193,106 @@ def _answer(**overrides: Any) -> str:
         ("a 'None' recent_shift becomes null", _answer(recent_shift="None"), True, {"recent_shift": None}),
         ("a 'null' recent_shift becomes null", _answer(recent_shift=" null "), True, {"recent_shift": None}),
         (
-            "the summary is cut to the word cap",
-            _answer(summary="word " * 80),
+            "a long profile keeps its line breaks and is cut at a word boundary",
+            _answer(profile="## Funnels\n" + "word " * 2000),
             False,
-            {"summary": " ".join(["word"] * 60)},
+            {"profile": "## Funnels\n" + " ".join(["word"] * 1197) + "…"},
         ),
         (
-            "at most six focus areas, an unknown strength is low and a bad date is null",
-            _answer(focus_areas=[{"topic": f"t{i}", "strength": "huge", "last_seen": "soon"} for i in range(8)]),
+            "a theme keeps only known refs, once each, and its last_seen is the last day of its refs",
+            _answer(themes=[_theme(refs=["o1", "o7", "t1", "o1", 3, "m1", "m9"])]),
             False,
-            {"focus_areas": [{"topic": f"t{i}", "strength": "low", "last_seen": None} for i in range(6)]},
+            {"themes": [{**_theme(refs=["o1", "t1", "m1"]), "last_seen": "2026-10-19"}]},
         ),
         (
-            "a focus area without a topic is dropped",
-            _answer(focus_areas=[{"strength": "high"}]),
+            "a theme drops its page refs when it has another ref",
+            _answer(themes=[_theme(refs=["p2", "t1"])]),
             False,
-            {"focus_areas": []},
+            {"themes": [{**_theme(refs=["t1"]), "last_seen": "2026-10-17"}]},
         ),
         (
-            "topic, product and recent_shift are cut to their caps",
-            _answer(
-                focus_areas=[{"topic": "t" * 500, "strength": "high", "last_seen": "2026-10-17"}],
-                products=["p" * 500],
-                recent_shift="s" * 2000,
-            ),
+            "a theme with only page refs keeps the pages opened on enough days",
+            _answer(themes=[_theme("Flags", refs=["p1", "p2"]), _theme("Replay", refs=["p1"])]),
+            False,
+            {"themes": [{**_theme("Flags", refs=["p2"]), "last_seen": "2026-10-15"}]},
+        ),
+        (
+            "a theme with no known ref or no label is dropped",
+            _answer(themes=[_theme("Unknown", refs=["o7"]), _theme("No refs", refs=[]), _theme(None)]),
+            False,
+            {"themes": []},
+        ),
+        (
+            "at most six themes, an unknown mode is null and an unknown strength is low",
+            _answer(themes=[_theme(f"t{i}", mode="leading", strength="huge") for i in range(8)]),
+            False,
+            {
+                "themes": [
+                    {"label": f"t{i}", "mode": None, "strength": "low", "refs": ["o1"], "last_seen": "2026-10-16"}
+                    for i in range(6)
+                ]
+            },
+        ),
+        (
+            "modes keep only known modes, once each, and at most three",
+            _answer(modes=["Building", "leading", "building", "monitoring", "operating", "analyzing"]),
+            False,
+            {"modes": ["building", "monitoring", "operating"]},
+        ),
+        (
+            "label and recent_shift are cut at a word boundary inside their caps",
+            _answer(themes=[_theme("adoption " * 50)], recent_shift="shift " * 400),
             True,
             {
-                "focus_areas": [{"topic": "t" * MAX_TOPIC_CHARS, "strength": "high", "last_seen": "2026-10-17"}],
-                "products": ["p" * MAX_PRODUCT_CHARS],
-                "recent_shift": "s" * MAX_RECENT_SHIFT_CHARS,
+                "themes": [
+                    {
+                        **_theme(" ".join(["adoption"] * ((MAX_LABEL_CHARS - 1) // 9)) + "…"),
+                        "last_seen": "2026-10-16",
+                    }
+                ],
+                "recent_shift": " ".join(["shift"] * ((MAX_RECENT_SHIFT_CHARS - 1) // 6)) + "…",
             },
         ),
     ]
 )
 def test_normalize_summary(_name: str, content: str, had_previous: bool, expected: dict[str, Any]) -> None:
-    assert normalize_summary(content, had_previous_summary=had_previous).items() >= expected.items()
+    summary = normalize_summary(content, had_previous_summary=had_previous, computed=COMPUTED)
+    assert summary.items() >= expected.items()
+    assert "products" not in summary
 
 
 @parameterized.expand(
     [
-        ("empty", None),
-        ("not JSON", "Here is the summary: ..."),
-        ("not an object", "[1, 2]"),
-        ("no summary", _answer(summary="  ")),
+        ("empty", None, False, MalformedSummaryError),
+        ("not JSON", "Here is the summary: ...", False, MalformedSummaryError),
+        ("not an object", "[1, 2]", False, MalformedSummaryError),
+        ("no profile on a first summary", _answer(profile="  "), False, EmptyProfileError),
+        ("no profile with a previous summary", _answer(profile="  "), True, MalformedSummaryError),
+        ("no headline", _answer(headline=None), False, MalformedSummaryError),
+        ("no headline and no profile", _answer(headline=None, profile=""), False, MalformedSummaryError),
     ]
 )
-def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str | None) -> None:
-    with pytest.raises(MalformedSummaryError):
-        normalize_summary(content, had_previous_summary=False)
+def test_normalize_summary_rejects_a_malformed_answer(
+    _name: str, content: str | None, had_previous: bool, error: type[Exception]
+) -> None:
+    with pytest.raises(error):
+        normalize_summary(content, had_previous_summary=had_previous)
 
 
-def test_summary_text_is_deterministic_and_keeps_the_focus_order() -> None:
+def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
     summary = normalize_summary(
-        _answer(
-            focus_areas=[
-                {"topic": "b", "strength": "high", "last_seen": ""},
-                {"topic": "a", "strength": "low", "last_seen": ""},
-            ]
-        ),
-        had_previous_summary=False,
+        _answer(themes=[_theme("b"), _theme("a", refs=["o2"])]), had_previous_summary=False, computed=COMPUTED
     )
     reloaded = json.loads(json.dumps(summary, sort_keys=True))
-    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nFocus areas: b; a"
-    assert summary_text({**summary, "focus_areas": []}) == "Builds the signup funnel."
+    assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nThemes: b; a"
+    assert summary_text({**summary, "themes": []}) == "Builds the signup funnel."
+    assert (
+        summary_profile_text(reloaded)
+        == "Builds the signup funnel.\nThemes: b; a\n\n## Funnels\n- Builds the signup funnel."
+    )
+    without_profile = {key: value for key, value in summary.items() if key != "profile"}
+    for profile in ({}, {"profile": None}, {"profile": "  "}):
+        assert summary_profile_text({**without_profile, **profile}) is None
 
 
 _PRICES = SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=0.5)
@@ -448,6 +1370,7 @@ _CONNECTION_ERROR = APIConnectionError(request=SimpleNamespace())  # type: ignor
             "api_error: APIConnectionError",
             (None, None),
         ),
+        ("an empty first profile is not retried", [_answer(profile="")], False, 1, None, (100, 20)),
     ]
 )
 def test_summarize_retries_a_malformed_or_truncated_answer_once(
@@ -471,6 +1394,7 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
     assert {req["user"] for req in llm.requests} == {PIPELINE_DISTINCT_ID}
     assert {req["max_completion_tokens"] for req in llm.requests} == {MAX_COMPLETION_TOKENS}
     assert (outcome.summary is not None, outcome.error) == (succeeds, error)
+    assert outcome.empty_profile == (not succeeds and error is None)
     assert (outcome.tokens_in, outcome.tokens_out) == tokens
 
 
@@ -484,3 +1408,23 @@ def test_summarize_reports_null_tokens_when_the_response_has_no_usage() -> None:
     )
     assert outcome.summary is not None
     assert (outcome.tokens_in, outcome.tokens_out) == (None, None)
+
+
+def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
+    stored_profile = "## Funnels\n" + "Builds the signup funnel. " * 230
+    assert len(stored_profile) > 5000
+    llm = FakeLLM([_answer()])
+
+    summarize(
+        llm,  # type: ignore[arg-type]
+        rendered_input="- a line",
+        previous_summary={**PREVIOUS, "profile": stored_profile},
+        model="gpt-6-luna",
+        as_of=datetime.date(2026, 10, 18),
+        profile_max_chars=500,
+    )
+
+    user_turn = llm.requests[0]["messages"][1]["content"]
+    previous = json.loads(user_turn.split("Previous summary:\n", 1)[1].split("\n\nObjects and pages:", 1)[0])
+    assert len(previous["profile"]) <= 500
+    assert previous["profile"].startswith("## Funnels\nBuilds the signup funnel.")

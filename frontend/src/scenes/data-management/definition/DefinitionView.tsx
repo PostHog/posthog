@@ -19,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import {
@@ -395,6 +396,18 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                 <Spinner textColored />
                             ) : (
                                 <>{metrics?.query_usage_30_day ? metrics.query_usage_30_day.toLocaleString() : '-'}</>
+                            )}
+                        </b>
+                    </div>
+                )}
+                {'owner' in definition && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48" data-attr="definition-owner-view">
+                        <h5>Owner</h5>
+                        <b>
+                            {definition.owner ? (
+                                <ProfilePicture user={definition.owner} size="md" showName />
+                            ) : (
+                                <span className="text-secondary italic">No owner</span>
                             )}
                         </b>
                     </div>

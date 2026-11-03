@@ -20,7 +20,6 @@ import pytest
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     _BaseSource,
@@ -78,14 +77,18 @@ NOT_CHECKABLE: dict[str, str] = {
     "AppStoreConnect": "no-request",
     "AppleSearchAds": "no-request",
     "Attentive": "no-request",
+    "AwsAthena": "schemas",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "schemas",
     "AzureCostManagement": "no-request",
+    "AzureLogAnalytics": "no-request",
     "Baserow": "schemas",
     "BigQuery": "driver",
     "BingAds": "database",
     "Breezometer": "no-request",
     "CiscoDuo": "no-request",
     "ClickHouse": "schemas",
+    "CloudflareD1": "schemas",
     "CloudflareR2": "schemas",
     "Convex": "schemas",
     "CosmosDB": "schemas",
@@ -98,6 +101,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Dynamics365": "no-request",
     "DynamoDB": "schemas",
     "Elasticsearch": "schemas",
+    "FileUpload": "no-request",
     "Firebase": "schemas",
     "Framer": "no-request",
     "GcpCloudBilling": "no-request",
@@ -161,6 +165,7 @@ ONE_AUTH_STATUS_CLASSIFIED: dict[str, str] = {
     "AmazonAds": "401",
     "AssemblyAI": "401",
     "BlandAI": "401",
+    "Bluesky": "403",
     "Braintree": "401",
     "Bugherd": "401",
     "CdcOpenData": "403",

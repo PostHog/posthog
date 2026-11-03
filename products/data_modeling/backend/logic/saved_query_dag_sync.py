@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 import structlog
 
@@ -187,13 +188,6 @@ def delete_orphaned_table_nodes(team_id: int, node_ids: Iterable[UUID]) -> None:
         orphans.delete()
 
 
-def _delete_incoming_edges(team_id: int, target: Node) -> list[UUID]:
-    edges = Edge.objects.filter(team_id=team_id, target=target)
-    source_ids = list(edges.values_list("source_id", flat=True))
-    edges.delete()
-    return source_ids
-
-
 def delete_nodes(team_id: int, nodes: QuerySet[Node]) -> None:
     source_ids = list(Edge.objects.filter(team_id=team_id, target__in=nodes).values_list("source_id", flat=True))
     nodes.delete()
@@ -239,9 +233,9 @@ def replace_incoming_edges(
     on_unresolved: Literal["raise", "skip"],
     extra_properties: dict | None = None,
 ) -> list[str]:
-    """Rebuild every incoming edge of `target` from `dependency_names`, and report what did not resolve.
+    """Sync the incoming edges of `target` with `dependency_names`, and report what did not resolve.
 
-    The whole replacement runs in one transaction behind the advisory lock `Edge.save` already takes,
+    The whole sync runs in one transaction behind the advisory lock `Edge.save` already takes,
     so two concurrent syncs of the same node run one after the other instead of leaving the union of
     both edge sets, and a failure part-way through leaves the previous edges in place rather than an
     edge-less node.
@@ -253,7 +247,7 @@ def replace_incoming_edges(
     with transaction.atomic():
         lock_dag(team.pk, dag.id)
         Node.objects.select_for_update().filter(pk=target.pk).first()
-        previous_source_ids = _delete_incoming_edges(team.pk, target)
+        resolved_sources: dict[UUID, Node] = {}
         for dependency_name in dependency_names:
             try:
                 source = resolve_dependency_to_node(dependency_name, team, database, dag)
@@ -268,6 +262,18 @@ def replace_incoming_edges(
                 )
                 unresolved.append(dependency_name)
                 continue
+            resolved_sources[source.pk] = source
+
+        current_source_ids = set(
+            Edge.objects.filter(team_id=team.pk, target=target).values_list("source_id", flat=True)
+        )
+        resolved_source_ids = set(resolved_sources)
+        removed_source_ids = current_source_ids - resolved_source_ids
+        Edge.objects.filter(team_id=team.pk, target=target, source_id__in=removed_source_ids).delete()
+
+        for source_id, source in resolved_sources.items():
+            if source_id in current_source_ids:
+                continue
             Edge.objects.create(
                 team=team,
                 dag=dag,
@@ -275,7 +281,7 @@ def replace_incoming_edges(
                 target=target,
                 properties=extra_properties or {},
             )
-        delete_orphaned_table_nodes(team.pk, previous_source_ids)
+        delete_orphaned_table_nodes(team.pk, removed_source_ids)
     return unresolved
 
 
@@ -302,8 +308,8 @@ def sync_saved_query_to_dag(
     1. Validate and parse the query to extract dependencies
     2. Get or create the Node for this SavedQuery
     3. Resolve each dependency to a Node (creating TABLE nodes for sources)
-    4. Delete existing incoming edges (dependencies may have changed)
-    5. Create new edges for each dependency
+    4. Delete incoming edges for removed dependencies
+    5. Create incoming edges for new dependencies
 
     Args:
         saved_query: The SavedQuery to sync to the DAG
@@ -480,8 +486,14 @@ def _dependent_metrics(nodes: QuerySet[Node]) -> list[Dependent]:
     ]
 
 
-def describe_dependents(view_name: str, dependents: Sequence[Dependent], *, any_hidden: bool = False) -> str:
-    """The message a person reads when a delete is refused, naming at most three dependents.
+def describe_dependents(
+    view_name: str,
+    dependents: Sequence[Dependent],
+    *,
+    any_hidden: bool = False,
+    action: Literal["delete", "turn off materialization for"] = "delete",
+) -> str:
+    """The message a person reads when an action is refused, naming at most three dependents.
 
     `dependents` must already be filtered to what the reader may see, and the count in the overflow
     tail is taken over that list, so the tail cannot report how many were withheld.
@@ -489,10 +501,12 @@ def describe_dependents(view_name: str, dependents: Sequence[Dependent], *, any_
     if not dependents:
         if any_hidden:
             return (
-                f"Can't delete {view_name} yet. Something you don't have access to reads from it. "
+                f"Can't {action} {view_name} yet. Something you don't have access to reads from it. "
                 "Ask a project admin to find what depends on it."
             )
-        return _nameless_refusal(view_name)
+        if action == "delete":
+            return _nameless_refusal(view_name)
+        return f"Can't {action} {view_name} yet. Something else reads from it. Update or delete it first."
 
     named = dependents[:MAX_NAMED_DEPENDENTS]
     listed = ", ".join(f"{dependent.name} ({DEPENDENT_KIND_LABELS.get(dependent.kind, 'view')})" for dependent in named)
@@ -501,10 +515,10 @@ def describe_dependents(view_name: str, dependents: Sequence[Dependent], *, any_
         listed = f"{listed}, and {remaining} more"
     if any_hidden:
         return (
-            f"Can't delete {view_name} yet. These read from it: {listed}. Something you don't have access to "
+            f"Can't {action} {view_name} yet. These read from it: {listed}. Something you don't have access to "
             "reads from it too. Update or delete the ones listed, then ask a project admin about the rest."
         )
-    return f"Can't delete {view_name} yet. These read from it: {listed}. Update or delete them first."
+    return f"Can't {action} {view_name} yet. These read from it: {listed}. Update or delete them first."
 
 
 def blocked_lineage_node_id(dependents: Sequence[Dependent], fallback_node_id: str | None) -> str | None:
@@ -610,6 +624,31 @@ def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
         nodes.filter(_materializes_q(), type=NodeType.VIEW)
         .exclude(saved_query__deleted=True)
         .update(type=NodeType.MAT_VIEW)
+    )
+
+
+def link_table_if_materializing(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> bool:
+    """Link a published table to the saved query, unless the query stopped asking to materialize."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+    with transaction.atomic():
+        intent = saved_query.select_for_update().values_list("is_materialized", "origin").first()
+        if intent is None:
+            return False
+        is_materialized, origin = intent
+        if not is_materialized and origin != DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
+            return False
+        saved_query.update(table_id=table_id, updated_at=timezone.now())
+    return True
+
+
+def unlink_table(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> None:
+    """Clear the saved query's table link if it still points at this table."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id, table_id=table_id).update(
+        table_id=None, updated_at=timezone.now()
     )
 
 

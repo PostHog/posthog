@@ -2,6 +2,8 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgeDocumentsSearchList,
+    businessKnowledgeDocumentsWindowList,
     businessKnowledgeLibrariesCreate,
     businessKnowledgeLibrariesDestroy,
     businessKnowledgeLibrariesList,
@@ -21,11 +23,15 @@ import {
     businessKnowledgeSourcesTextRetrieve,
 } from './generated/api'
 import type {
+    BusinessKnowledgeDocumentsSearchListParams,
+    BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeSourcesListAddedBy,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
+    KnowledgeDocumentWindowApi,
     KnowledgeLibraryApi,
+    KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PlaygroundChatApi,
     PlaygroundChatListApi,
@@ -162,6 +168,19 @@ export async function askPlaygroundChat(chatId: string, question: string): Promi
 
 export async function deletePlaygroundChat(chatId: string): Promise<void> {
     await businessKnowledgePlaygroundChatsDestroy(String(getCurrentTeamId()), chatId)
+}
+
+export async function searchKnowledge(
+    params: BusinessKnowledgeDocumentsSearchListParams
+): Promise<KnowledgeSearchResultApi[]> {
+    return await businessKnowledgeDocumentsSearchList(String(getCurrentTeamId()), params)
+}
+
+export async function getDocumentWindow(
+    documentId: string,
+    params: BusinessKnowledgeDocumentsWindowListParams
+): Promise<KnowledgeDocumentWindowApi[]> {
+    return await businessKnowledgeDocumentsWindowList(String(getCurrentTeamId()), documentId, params)
 }
 
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {

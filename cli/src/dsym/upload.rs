@@ -191,7 +191,7 @@ pub fn upload(args: &Args) -> Result<()> {
     for dsym_path in dsym_paths {
         info!("Processing dSYM: {}", dsym_path.display());
 
-        match DsymFile::new(&dsym_path, *include_source) {
+        match DsymFile::new(&dsym_path, *include_source, None) {
             Ok(mut dsym_file) => {
                 dsym_file.release_id = chunk_release_id.clone();
                 info!(

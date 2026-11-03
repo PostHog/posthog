@@ -368,6 +368,7 @@ class TestForwardPendingUserMessage(TestCase):
             user_message_ts="1234.5",
             trace_id="f960aead-b2af-4ee0-b0eb-630109a1b2a0",
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
         run.refresh_from_db()
         assert "pending_user_message" not in run.state

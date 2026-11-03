@@ -95,7 +95,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             # pnpm installs native optional packages for the host CPU only, and the x64
             # build runs on an Apple silicon runner.
@@ -256,7 +256,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Install e2e dependencies
               run: pnpm install --frozen-lockfile --ignore-scripts --filter code
@@ -335,7 +335,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -461,7 +461,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
               with:
-                  node-version: 22
+                  node-version-file: products/desktop/.node-version
 
             - name: Get pnpm store path
               id: pnpm-store

@@ -212,6 +212,17 @@ async fn forward_read(
 /// a write for it parks and drains with that handoff instead of bouncing.
 #[tokio::test]
 async fn a_write_for_a_partition_born_in_the_flip_parks_until_its_handoff_drains() {
+    born_partition_write_parks(false).await;
+}
+
+/// The retire can reach a router before the born partition's route does; the
+/// write still parks rather than bouncing.
+#[tokio::test]
+async fn a_born_partition_write_parks_when_the_retire_lands_before_its_route() {
+    born_partition_write_parks(true).await;
+}
+
+async fn born_partition_write_parks(retired_first: bool) {
     let old_count = NUM_PARTITIONS / 2;
     let team_id = 1;
     let person_id = (1..)
@@ -237,12 +248,19 @@ async fn a_write_for_a_partition_born_in_the_flip_parks_until_its_handoff_drains
         partitions: NUM_PARTITIONS,
         epoch: 2,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: vec![Generation {
             topic: "personhog_updates_v1".to_string(),
             partitions: old_count,
             epoch: 1,
         }],
-    });
+    })
+    .holding_floor();
+    if retired_first {
+        let mut retired = changelog.current();
+        retired.draining.clear();
+        assert!(changelog.adopt(&retired));
+    }
     let leader_url = format!("http://{leader_addr}");
     let resolver: personhog_router::backend::AddressResolver =
         Arc::new(move |_pod: &str| Some(leader_url.clone()));
@@ -255,7 +273,7 @@ async fn a_write_for_a_partition_born_in_the_flip_parks_until_its_handoff_drains
             num_channels: 1,
             http2_windows: Http2Windows::default(),
         },
-        StashTable::with_bounds(usize::MAX, usize::MAX, changelog),
+        StashTable::with_bounds(usize::MAX, usize::MAX, changelog.clone()),
     ));
     let handler = new_test_handler(Arc::clone(&backend)).await;
 
@@ -289,6 +307,23 @@ async fn a_write_for_a_partition_born_in_the_flip_parks_until_its_handoff_drains
         .await
         .expect("the write succeeds once its partition has an owner");
     assert_eq!(response.person.expect("a person").id, person_id);
+
+    if retired_first {
+        // Once every born partition has a route, the next write drops the held floor.
+        for born in old_count..NUM_PARTITIONS {
+            routing_table
+                .write()
+                .await
+                .insert(born, "leader-0".to_string());
+        }
+        assert_eq!(changelog.draining_floor(), Some(old_count));
+        forward(
+            &backend,
+            mk_request(team_id, person_id, "after@example.com"),
+        )
+        .await;
+        assert_eq!(changelog.draining_floor(), None);
+    }
 }
 
 /// A request that arrives while the stash is open must park on a oneshot,

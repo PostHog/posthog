@@ -2,7 +2,6 @@ pub mod buffer;
 pub mod config;
 pub mod consumer;
 pub mod error;
-pub mod follow;
 pub mod kafka;
 pub mod pg;
 pub mod store;

@@ -640,6 +640,7 @@ mod tests {
             partitions,
             epoch,
             writer_group: String::new(),
+            retire_groups: vec![],
             draining: Vec::new(),
         };
         for (partition, cfg) in [(5, config("old", 8, 1)), (1, config("new", 4, 2))] {

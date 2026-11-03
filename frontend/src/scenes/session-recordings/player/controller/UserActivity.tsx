@@ -3,18 +3,19 @@ import { useValues } from 'kea'
 import { MutableRefObject, useMemo, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 
 import useIsHovering from '~/lib/hooks/useIsHovering'
 
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-
-interface ActivityPoint {
-    x: number
-    y: number
-}
+import { ActivityPoint, activityAreaPath } from './activityCurvePath'
 
 export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
-    const { activityPerSecond } = useValues(sessionRecordingPlayerLogic)
+    const { activityPerSecond, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    // The watch layout keeps the curve on screen. The classic seekbar reveals it on hover.
+    const watchLayout = playerUsesWatchLayout(replayLayout, logicProps)
 
     const seekBarRef = useRef<HTMLDivElement | null>(null)
     const [width, height] = useSize(seekBarRef)
@@ -35,7 +36,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
             className={cn(
                 'absolute bottom-0 w-full bg-gradient-to-t from-surface-primary via-surface-primary to-transparent from-0% via-96% to-100% transition-opacity duration-300',
                 {
-                    'opacity-0': !isHovering,
+                    'opacity-0': !isHovering && !watchLayout,
                 }
             )}
             ref={seekBarRef}
@@ -45,16 +46,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
         >
             <svg width="100%" height="100%" preserveAspectRatio="none">
                 <path
-                    d={
-                        points.length
-                            ? `
-                        M 0,${height}
-                        ${points.map((point) => `L ${point.x},${point.y}`).join(' ')}
-                        L ${width},${height}
-                        Z
-                    `
-                            : ''
-                    }
+                    d={activityAreaPath(points, width, height, watchLayout)}
                     fill="var(--color-bg-fill-highlight-200)"
                     stroke="none"
                 />

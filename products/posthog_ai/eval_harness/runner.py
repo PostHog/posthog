@@ -7,7 +7,7 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from temporalio.client import WorkflowFailureError
 
@@ -123,6 +123,19 @@ class EvalCaseResult:
     Slice ``i`` covers turn ``i + 1`` — that turn's prompt, tool calls, and
     ``end_turn``. ``None`` for single-turn cases and for any case whose log
     lines could not be split (malformed lines); scorers self-skip on it."""
+
+
+class SandboxedCaseRunner(Protocol):
+    async def __call__(
+        self,
+        case: SandboxedEvalCase,
+        context: CustomPromptSandboxContext,
+        *,
+        provider: SandboxProviderStrategy,
+        on_cleanup: Callable[[], Awaitable[None]] | None = None,
+        timeout_seconds: float | None = None,
+        on_poll_timeout: Callable[[TurnPollTimeout], None] | None = None,
+    ) -> EvalCaseResult: ...
 
 
 async def _report_cleanup(on_cleanup: Callable[[], Awaitable[None]] | None) -> None:

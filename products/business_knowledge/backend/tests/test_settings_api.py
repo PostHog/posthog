@@ -245,6 +245,8 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
             ("child_only_patch", "child", "PATCH", status.HTTP_403_FORBIDDEN),
             ("parent_and_child_get", "both", "GET", status.HTTP_200_OK),
             ("parent_and_child_patch", "both", "PATCH", status.HTTP_200_OK),
+            ("child_only_availability", "child", "AVAILABILITY", status.HTTP_403_FORBIDDEN),
+            ("parent_and_child_availability", "both", "AVAILABILITY", status.HTTP_200_OK),
         ]
     )
     def test_scoped_key_must_cover_canonical_parent(
@@ -264,6 +266,8 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
 
         if method == "GET":
             response = self.client.get(url)
+        elif method == "AVAILABILITY":
+            response = self.client.get(f"/api/projects/{child.id}/business_knowledge/sources/availability/")
         else:
             response = self.client.patch(url, {"learn_from_support_enabled": True}, format="json")
 
@@ -318,6 +322,11 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+    def test_a_grant_on_one_source_does_not_open_availability(self, _ff) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/availability/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
     def test_a_grant_on_one_source_does_not_change_its_libraries(self, _ff) -> None:
         library = create_library(self.team.id, "Docs")

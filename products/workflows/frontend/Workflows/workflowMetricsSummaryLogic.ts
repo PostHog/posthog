@@ -524,6 +524,7 @@ export interface workflowMetricsSummaryLogicValues {
                       utm_source?: string | undefined
                   }
                 | undefined
+            utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
             utm_tags_enabled?: boolean | undefined
         }
         created_at?: number | undefined
@@ -586,6 +587,7 @@ export interface workflowMetricsSummaryLogicValues {
             >
             message_category_id?: string | undefined
             message_category_type?: 'marketing' | 'transactional' | undefined
+            sensitive?: boolean | undefined
             template_id: 'template-native-push'
             template_uuid?: string | undefined
         }
@@ -761,6 +763,7 @@ export interface workflowMetricsSummaryLogicMeta {
                           utm_source?: string | undefined
                       }
                     | undefined
+                utm_params_from_default?: ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[] | undefined
                 utm_tags_enabled?: boolean | undefined
             }
             created_at?: number | undefined
@@ -808,6 +811,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 >
                 message_category_id?: string | undefined
                 message_category_type?: 'marketing' | 'transactional' | undefined
+                sensitive?: boolean | undefined
                 template_id: 'template-native-push'
                 template_uuid?: string | undefined
             }
@@ -860,7 +864,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            }, // appMetricsLogic
+            },
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -870,7 +874,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
+            ) => AppMetricsTimeSeriesResponse | null,
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
@@ -902,6 +906,9 @@ export interface workflowMetricsSummaryLogicMeta {
                               utm_medium?: string | undefined
                               utm_source?: string | undefined
                           }
+                        | undefined
+                    utm_params_from_default?:
+                        | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
                         | undefined
                     utm_tags_enabled?: boolean | undefined
                 }
@@ -953,6 +960,7 @@ export interface workflowMetricsSummaryLogicMeta {
                     >
                     message_category_id?: string | undefined
                     message_category_type?: 'marketing' | 'transactional' | undefined
+                    sensitive?: boolean | undefined
                     template_id: 'template-native-push'
                     template_uuid?: string | undefined
                 }

@@ -86,6 +86,37 @@
         {"name": "empty subject", "subject": {}, "expect": "AAAEA"},
         {"name": "posthog.com account", "subject": {"email": "staff@posthog.com"}, "expect": "AAAEA"}
       ]
+    },
+    {
+      "name": "email patterns",
+      "now": "2026-09-17T12:00:00Z",
+      "rules": [
+        {"id": "01920000-0000-7000-8000-000000000201", "targetType": "email_pattern", "targetValue": "farm_acct_*@*", "effect": "block", "scope": "ai_gateway", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000202", "targetType": "email_pattern", "targetValue": "abuser*@example.com", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000203", "targetType": "email_pattern", "targetValue": "farm.bot+*@example.org", "effect": "block", "scope": "signup", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000204", "targetType": "email_pattern", "targetValue": "dotted.victim*@gmail.com", "effect": "block", "scope": "all_access", "expiresAt": null},
+        {"id": "01920000-0000-7000-8000-000000000205", "targetType": "email_pattern", "targetValue": "bot?[1]*@*.example.net", "effect": "block", "scope": "all_access", "expiresAt": null}
+      ],
+      "cases": [
+        {"name": "wildcard domain", "subject": {"email": "farm_acct_x9@throwaway.example"}, "expect": "AABAA", "deciding": {"ai_gateway": "01920000-0000-7000-8000-000000000201"}},
+        {"name": "matching ignores case", "subject": {"email": " FARM_Acct_X9@Throwaway.Example "}, "expect": "AABAA"},
+        {"name": "a star can match nothing", "subject": {"email": "abuser@example.com"}, "expect": "BBBAA"},
+        {"name": "a star can match a +suffix", "subject": {"email": "abuser42+promo@example.com"}, "expect": "BBBAA"},
+        {"name": "an underscore matches only itself", "subject": {"email": "farm-acct_x9@throwaway.example"}, "expect": "AAAAA"},
+        {"name": "the pattern covers the start of the address", "subject": {"email": "xfarm_acct_1@throwaway.example"}, "expect": "AAAAA"},
+        {"name": "the pattern covers the end of the address", "subject": {"email": "abuser1@example.com.evil.example"}, "expect": "AAAAA"},
+        {"name": "a literal domain does not cover subdomains", "subject": {"email": "abuser1@sub.example.com"}, "expect": "AAAAA"},
+        {"name": "a dot and a plus match only themselves", "subject": {"email": "farm.bot+7@example.org"}, "expect": "BAAAA"},
+        {"name": "a dot is not a single-character wildcard", "subject": {"email": "farmxbot+7@example.org"}, "expect": "AAAAA"},
+        {"name": "a plus is not a repeat", "subject": {"email": "farm.bott7@example.org"}, "expect": "AAAAA"},
+        {"name": "the full address is matched, not the email root", "subject": {"email": "dottedvictim1@gmail.com"}, "expect": "AAAAA"},
+        {"name": "the dotted address matches", "subject": {"email": "dotted.victim1@gmail.com"}, "expect": "BBBAA"},
+        {"name": "question mark and brackets match only themselves", "subject": {"email": "bot?[1]x@mail.example.net"}, "expect": "BBBAA"},
+        {"name": "question mark is not a single-character wildcard", "subject": {"email": "botx[1]x@mail.example.net"}, "expect": "AAAAA"},
+        {"name": "brackets are not a character class", "subject": {"email": "bot?1x@mail.example.net"}, "expect": "AAAAA"},
+        {"name": "a domain alone matches no pattern", "subject": {"domain": "example.com"}, "expect": "AAAAA"},
+        {"name": "a posthog.com account is never blocked", "subject": {"email": "farm_acct_x9@posthog.com"}, "expect": "AAAAA"}
+      ]
     }
   ]
 }

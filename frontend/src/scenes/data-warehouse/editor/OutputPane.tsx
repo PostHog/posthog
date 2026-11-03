@@ -32,15 +32,15 @@ import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTab
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -1043,7 +1043,10 @@ function InternalDataTableVisualization(
         presetChartHeight,
     } = useValues(dataVisualizationLogic)
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const {
+        seriesBreakdownData,
+        chartData: { xData: _xData, yData: _yData },
+    } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
     const { editingInsight } = useValues(sqlEditorLogic)
 
@@ -1069,8 +1072,6 @@ function InternalDataTableVisualization(
             />
         )
     } else if (isSqlChartVisualizationType(effectiveVisualizationType)) {
-        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
             <BindLogic logic={insightLogic} props={{ dashboardItemId: editingInsight?.short_id, doNotLoad: true }}>
                 <SqlChart

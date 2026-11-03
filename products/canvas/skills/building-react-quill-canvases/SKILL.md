@@ -174,8 +174,9 @@ when the window changes — see the `querying-canvas-data` skill for feeding it 
 ## State and actions
 
 Persisting values across reloads (`ph.state`, with user/shared scopes) and writing into PostHog
-from a button (`ph.actions.invoke`, e.g. filing a task or an annotation) have their own API
-contracts, capability declarations, and gesture rules — read the "Runtime memory" and "PostHog
-writes" sections of the `querying-canvas-data` skill before using either. Wire actions to a
+from a button (`ph.actions.invoke`, e.g. filing a task or an annotation, or `ph.tools.call`, e.g.
+changing a feature flag rollout) have their own API contracts, capability declarations, and
+gesture rules — read the "Runtime memory", "PostHog writes" and "PostHog MCP tools" sections of
+the `querying-canvas-data` skill before using them. Wire actions to a
 `Button` `onClick` that disables itself while the call is in flight, and render the returned
 error (they are real PostHog writes, throttled server-side).

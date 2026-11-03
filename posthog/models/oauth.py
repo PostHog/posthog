@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -73,7 +73,6 @@ class TokenEndpointAuthMethod(enum.Enum):
 
 class ProvisioningSigning(enum.Enum):
     NOT_REQUIRED = "not_required"
-    GRACE = "grace"
     REQUIRED = "required"
 
     def request_tag(self, *, signed: bool) -> str:
@@ -81,7 +80,6 @@ class ProvisioningSigning(enum.Enum):
             return "signed"
         return {
             ProvisioningSigning.NOT_REQUIRED: "unsigned_exempt",
-            ProvisioningSigning.GRACE: "unsigned_grace",
             ProvisioningSigning.REQUIRED: "refused",
         }[self]
 
@@ -358,29 +356,12 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         return self.token_endpoint_auth_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT
 
     @property
-    def provisioning_unsigned_allowed_until(self) -> datetime | None:
-        provisioning = self.provisioning
-        if provisioning.unsigned_allowed_until is not None:
-            return provisioning.unsigned_allowed_until
-        # Rows promoted before partner_since was recorded fall back to their creation date.
-        became_partner = provisioning.partner_since or self.created or timezone.now()
-        if became_partner < settings.PROVISIONING_SIGNING_REQUIRED_SINCE:
-            return settings.PROVISIONING_UNSIGNED_GRACE_UNTIL
-        return None
-
-    @property
     def provisioning_signing(self) -> ProvisioningSigning:
         provisioning = self.provisioning
         if not self.is_provisioning_partner or not (
             provisioning.can_create_accounts or provisioning.pays_for_customers
         ):
             return ProvisioningSigning.NOT_REQUIRED
-        # Grace covers partners that have not switched yet. Once a partner publishes a key it signs from then on.
-        if self.uses_private_key_jwt_auth:
-            return ProvisioningSigning.REQUIRED
-        allowed_until = self.provisioning_unsigned_allowed_until
-        if allowed_until is not None and timezone.now() < allowed_until:
-            return ProvisioningSigning.GRACE
         return ProvisioningSigning.REQUIRED
 
     @property

@@ -12,24 +12,26 @@ impl fmt::Display for Partition {
     }
 }
 
-/// One group's completion: the group's messages were delivered downstream and
-/// the consumer may account them toward its poll and, later, its commit. No
-/// batch identity and no message bodies cross this boundary; the consumer
-/// correlates by partition and offset.
+/// Accepted offsets of one partition and generation from one worker
+/// response: the messages were delivered downstream and the consumer may
+/// account them toward its poll and, later, its commit. No batch identity
+/// and no message bodies cross this boundary; the consumer correlates by
+/// partition and offset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupCompletion {
     pub partition: Partition,
-    /// The assignment epoch under which the group's poll was collected. A
-    /// completion for a partition that was revoked and reassigned in between
-    /// carries an older epoch than any poll of the new incarnation.
+    /// The assignment epoch the messages' poll was submitted under. A
+    /// completion for a partition that was revoked and reassigned since then
+    /// carries an older epoch than any poll after the reassignment.
     pub assignment_epoch: u64,
-    /// The offsets of the group's messages, in group order.
+    /// The ledger generation the group's messages were charged under.
+    pub generation: u64,
+    /// The accepted offsets, in send order.
     pub offsets: Vec<Offset>,
-    /// How many of the group's messages the worker accepted.
+    /// Always `offsets.len()`: a completion carries accepted offsets only.
     pub accepted: u32,
 }
 
-/// A Kafka message offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Offset(pub i64);
 

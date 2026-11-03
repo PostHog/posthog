@@ -1,10 +1,14 @@
 import { ControlButton, Controls, useReactFlow, useStore } from '@xyflow/react'
+import { useActions } from 'kea'
 
 import { IconExpand45, IconMinus, IconPlus } from '@posthog/icons'
 
+import { tileCanvasLogic } from './tileCanvasLogic'
+
 /** React Flow's own buttons take no data attributes, so the canvas draws its own to keep their use measurable. */
 export function TileCanvasControls(): JSX.Element {
-    const { zoomIn, zoomOut, fitView } = useReactFlow()
+    const { zoomIn, zoomOut } = useReactFlow()
+    const { requestFit } = useActions(tileCanvasLogic)
     const atMin = useStore((state) => state.transform[2] <= state.minZoom)
     const atMax = useStore((state) => state.transform[2] >= state.maxZoom)
     return (
@@ -28,9 +32,9 @@ export function TileCanvasControls(): JSX.Element {
                 <IconMinus />
             </ControlButton>
             <ControlButton
-                onClick={() => void fitView()}
-                title="Fit view"
-                aria-label="Fit view"
+                onClick={requestFit}
+                title="Fit to screen"
+                aria-label="Fit to screen"
                 data-attr="workflow-tile-fit-view"
             >
                 <IconExpand45 />

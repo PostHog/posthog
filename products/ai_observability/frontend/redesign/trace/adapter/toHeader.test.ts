@@ -10,11 +10,11 @@ const noNeighbours: TraceNeighbours = {
 }
 
 describe('toHeader', () => {
-    it('links neighbours with their timestamps and the list context, and leaves missing neighbours null', () => {
+    it('links neighbours with their timestamps and the list context without the search, and leaves missing neighbours null', () => {
         const header = toHeader(
             title,
             { ...noNeighbours, olderTraceId: 'trace-0', olderTimestamp: '2026-09-01T10:00:00Z' },
-            { date_from: '-7d', event: 'gen-1', line: '4', back_to: 'generations' }
+            { date_from: '-7d', event: 'gen-1', line: '4', back_to: 'generations', search: 'invoice' }
         )
         expect(header.olderHref).toBe(
             '/ai-observability/traces/trace-0?date_from=-7d&timestamp=2026-09-01T10%3A00%3A00Z'
@@ -24,13 +24,13 @@ describe('toHeader', () => {
 
     it.each([
         [
-            'the traces list by default, keeping its filters',
-            { date_from: '-7d', event: 'gen-1' },
+            'the traces list by default, keeping its filters but not the search',
+            { date_from: '-7d', event: 'gen-1', search: 'invoice' },
             '/ai-observability/traces?date_from=-7d',
         ],
         [
             'the generations list when opened from it',
-            { back_to: 'generations', date_from: '-7d', tab: 'evals' },
+            { back_to: 'generations', date_from: '-7d', tab: 'evals', search: 'invoice' },
             '/ai-observability/generations?date_from=-7d',
         ],
         [
@@ -40,7 +40,7 @@ describe('toHeader', () => {
         ],
         [
             'the review queue when opened from one',
-            { back_to: 'reviews', queue_id: 'queue-1' },
+            { back_to: 'reviews', queue_id: 'queue-1', search: 'invoice' },
             '/ai-observability/reviews?queue_id=queue-1',
         ],
     ])('goes back to %s', (_name, searchParams, expected) => {

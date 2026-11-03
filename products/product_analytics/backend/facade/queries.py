@@ -37,6 +37,7 @@ _LAZY = {
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "TrendsDisplay": "trends.display",
     "TrendsQueryRunner": "trends.trends_query_runner",
+    "trends_actors_date_window": "trends.trends_actors_date_window",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",
     "edge_to_funnels_query": "paths_v2.funnel_converter",
     "get_properties_chain": "trends.utils",
@@ -71,6 +72,9 @@ if TYPE_CHECKING:
     from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
+    )
+    from products.product_analytics.backend.hogql_queries.trends.trends_actors_date_window import (  # noqa: F401
+        trends_actors_date_window,
     )
     from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import (  # noqa: F401
         TrendsQueryRunner,

@@ -2,6 +2,7 @@ import requests
 import structlog
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -115,15 +116,14 @@ def _update_source_job_inputs(source_id: str, access_token: str) -> None:
 
     try:
         source = ExternalDataSource.objects.get(id=source_id)
-        job_inputs = source.job_inputs or {}
+        job_inputs = SourceInputsStore.load(source)
 
         # Only persist for legacy sources that store credentials directly in job_inputs
         if "hubspot_integration_id" in job_inputs:
             return
 
         job_inputs["hubspot_secret_key"] = access_token
-        source.job_inputs = job_inputs
-        source.save(update_fields=["job_inputs"])
+        SourceInputsStore.save(source, job_inputs, extra_update_fields=())
     except Exception:
         logger.exception("Failed to update job_inputs after HubSpot token refresh", source_id=source_id)
 

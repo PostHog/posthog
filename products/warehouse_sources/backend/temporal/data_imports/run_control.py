@@ -32,8 +32,8 @@ class RunControl:
     # True when the run holds the V3 pipeline lock under `workflow_run_id` and must confirm it
     # still holds it before it creates the job row.
     verify_v3_lock: bool
-    # Thread-safe wait used by source code that blocks between requests. Returns early on shutdown.
-    shutdown_wait: Callable[[float], object] | None = None
+    # Seconds after the shutdown signal that the run keeps extracting before it hands off.
+    shutdown_grace_seconds: float = 0.0
 
 
 @contextlib.asynccontextmanager
@@ -41,12 +41,12 @@ async def no_heartbeat() -> AsyncIterator[None]:
     yield
 
 
-def temporal_run_control() -> RunControl:
+def temporal_run_control(shutdown_grace_seconds: float = 0.0) -> RunControl:
     """The control for a run inside a Temporal activity."""
     return RunControl(
         heartbeat=lambda: LivenessHeartbeater(factor=30),
-        shutdown_monitor=ShutdownMonitor(),
-        shutdown_wait=lambda timeout: activity.wait_for_worker_shutdown_sync(timeout=timeout),
+        shutdown_monitor=ShutdownMonitor(grace_seconds=shutdown_grace_seconds),
+        shutdown_grace_seconds=shutdown_grace_seconds,
         attempt=current_import_attempt(),
         workflow_id=current_workflow_id(),
         workflow_run_id=current_workflow_run_id(),
