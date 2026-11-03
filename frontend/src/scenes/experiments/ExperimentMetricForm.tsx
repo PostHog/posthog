@@ -149,6 +149,24 @@ const isPickerSource = (source: ExperimentMetricSource | undefined): source is E
         source.kind === NodeKind.ActionsNode ||
         source.kind === NodeKind.ExperimentDataWarehouseNode)
 
+const getMetricSources = (metric: ExperimentMetric): ExperimentMetricSource[] => {
+    if (isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)) {
+        return [metric.source]
+    }
+    if (isExperimentFunnelMetric(metric)) {
+        return metric.series
+    }
+    if (isExperimentRatioMetric(metric)) {
+        return metric.denominator ? [metric.numerator, metric.denominator] : [metric.numerator]
+    }
+    if (isExperimentRetentionMetric(metric)) {
+        // An exposure-anchored start has no literal event to carry over
+        const startSources = isExperimentExposureNode(metric.start_event) ? [] : [metric.start_event]
+        return metric.completion_event ? [...startSources, metric.completion_event] : startSources
+    }
+    return []
+}
+
 export function ExperimentMetricForm({
     metric,
     isSharedMetric = false,
@@ -217,26 +235,7 @@ export function ExperimentMetricForm({
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
         // Extract current sources from the existing metric to preserve selections
-        let sources: ExperimentMetricSource[] = []
-
-        if (isExperimentMeanMetric(metric) || isExperimentQuantileMetric(metric)) {
-            sources = [metric.source]
-        } else if (isExperimentFunnelMetric(metric)) {
-            sources = metric.series
-        } else if (isExperimentRatioMetric(metric)) {
-            sources = [metric.numerator]
-            if (metric.denominator) {
-                sources.push(metric.denominator)
-            }
-        } else if (isExperimentRetentionMetric(metric)) {
-            // An exposure-anchored start has no literal event to carry over
-            if (!isExperimentExposureNode(metric.start_event)) {
-                sources = [metric.start_event]
-            }
-            if (metric.completion_event) {
-                sources.push(metric.completion_event)
-            }
-        }
+        const sources = getMetricSources(metric)
 
         const newMetric = getDefaultExperimentMetric(newMetricType)
 
@@ -259,7 +258,7 @@ export function ExperimentMetricForm({
                 const source = sources[0]
                 // A percentile reads event properties, so only an event or action source carries over
                 if (source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode) {
-                    newMetric.source = { ...source, math: undefined, math_property: source.math_property }
+                    newMetric.source = { ...source, math: undefined }
                 }
             }
         }

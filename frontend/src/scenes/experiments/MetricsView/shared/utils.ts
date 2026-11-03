@@ -5,6 +5,7 @@ import type {
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentMetric,
+    ExperimentQuantileMetric,
     ExperimentStatsBaseValidated,
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
@@ -69,6 +70,9 @@ export const formatQuantileLevel = (quantile: number): string => `p${Math.round(
 /** True when the results UI can open a daily timeseries for the metric. Percentile metrics have no daily timeseries. */
 export const metricSupportsTimeseries = (metric: ExperimentMetric): boolean => !isExperimentQuantileMetric(metric)
 
+const getDefaultQuantileMetricTitle = (metric: ExperimentQuantileMetric): string =>
+    `${formatQuantileLevel(metric.quantile)} of ${metric.source.math_property || getDefaultName(metric.source) || 'property'}`
+
 export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
     switch (metric.metric_type) {
         case ExperimentMetricType.MEAN:
@@ -84,7 +88,7 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             const completionEventName = getDefaultName(metric.completion_event)
             return `${startEventName || 'Start event'} / ${completionEventName || 'Completion event'}`
         case ExperimentMetricType.QUANTILE:
-            return `${formatQuantileLevel(metric.quantile)} of ${metric.source.math_property || getDefaultName(metric.source) || 'property'}`
+            return getDefaultQuantileMetricTitle(metric)
         default:
             return 'Untitled metric'
     }

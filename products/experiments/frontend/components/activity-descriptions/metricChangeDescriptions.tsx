@@ -110,6 +110,20 @@ const getRatioChanges = (metricBefore: ExperimentMetric, metricAfter: Experiment
 
     return null
 }
+const getQuantileChanges = (metricBefore: ExperimentMetric, metricAfter: ExperimentMetric): string[] => {
+    if (!isExperimentQuantileMetric(metricBefore) || !isExperimentQuantileMetric(metricAfter)) {
+        return []
+    }
+    const changes: string[] = []
+    if (metricBefore.quantile !== metricAfter.quantile) {
+        changes.push(`set the percentile to ${formatQuantileLevel(metricAfter.quantile)}`)
+    }
+    if (!equal(metricBefore.source, metricAfter.source)) {
+        changes.push(`changed the source event`)
+    }
+    return changes
+}
+
 export const getMetricChanges = (
     before: ExperimentMetric[],
     after: ExperimentMetric[]
@@ -212,14 +226,7 @@ export const getMetricChanges = (
         changes.push(`changed the source event`)
     }
 
-    if (isExperimentQuantileMetric(metricBefore) && isExperimentQuantileMetric(metricAfter)) {
-        if (metricBefore.quantile !== metricAfter.quantile) {
-            changes.push(`set the percentile to ${formatQuantileLevel(metricAfter.quantile)}`)
-        }
-        if (!equal(metricBefore.source, metricAfter.source)) {
-            changes.push(`changed the source event`)
-        }
-    }
+    changes.push(...getQuantileChanges(metricBefore, metricAfter))
 
     // check numerator and denominator changes for ratio metrics
     const ratioChanges = getRatioChanges(metricBefore, metricAfter)
