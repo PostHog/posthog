@@ -4,8 +4,15 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models import User
+from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.logic import build_issue_permalink_path, get_canonical_fingerprint
+from products.error_tracking.backend.logic.assignees import assignee_property
+from products.error_tracking.backend.logic.lifecycle_events import (
+    ISSUE_ASSIGNED_EVENT,
+    prepare_issue_lifecycle_event,
+    produce_issue_lifecycle_events_on_commit,
+)
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -108,3 +115,29 @@ def dispatch_issue_assigned_realtime(
             issue_id=str(assignment.issue_id),
             error=str(e),
         )
+
+
+def notify_automatic_assignment(
+    *,
+    assignment: ErrorTrackingIssueAssignment,
+    assignee: dict[str, int | str],
+    label: str,
+) -> None:
+    """Tell the assignee about an assignment that no person made, and emit `$error_tracking_issue_assigned`.
+
+    Raises when the lifecycle event cannot be built or the email cannot be queued, so the caller can count the failure.
+    The in-app notification goes first because it never raises.
+    """
+    actor = AssignmentActor.automatic(label)
+    dispatch_issue_assigned_realtime(assignment=assignment, assignee=assignee, actor=actor)
+    produce_issue_lifecycle_events_on_commit(
+        [
+            prepare_issue_lifecycle_event(
+                event=ISSUE_ASSIGNED_EVENT,
+                issue=assignment.issue,
+                user=None,
+                extra_properties={"assignee": assignee_property(assignee)},
+            )
+        ]
+    )
+    send_error_tracking_issue_assigned.delay(assignment.id, None, actor.label)

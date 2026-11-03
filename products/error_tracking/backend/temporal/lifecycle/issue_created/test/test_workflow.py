@@ -7,11 +7,14 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
 import requests
+from parameterized import parameterized
+from prometheus_client import REGISTRY
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
@@ -19,8 +22,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.models import User
 
+from products.access_control.backend.facade.testing import add_role_member, create_role
+from products.error_tracking.backend.logic.assignees import assignee_property
 from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
@@ -32,6 +39,7 @@ from products.error_tracking.backend.temporal.lifecycle.event_properties import 
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created import workflow as issue_created_workflow
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
+    emit_issue_created_internal_event_activity,
     generate_issue_created_embedding_activity,
     infer_issue_created_severity_activity,
 )
@@ -367,6 +375,101 @@ def test_severity_inference_outcomes(
     elif enabled and isinstance(decide_outcome, DecisionResult):
         assert decide.call_args.args[0].model == SEVERITY_INFERENCE_MODEL
         assert decide.call_args.args[0].privacy_mode is True
+
+
+ACTIVITIES_MODULE = "products.error_tracking.backend.temporal.lifecycle.issue_created.activities"
+NOTIFICATIONS_MODULE = "products.error_tracking.backend.notifications"
+RULE_NOTIFY_COUNTER = "error_tracking_issue_created_rule_assignment_notify_total"
+
+
+class TestRuleAssignmentNotification(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.assignee = User.objects.create_and_join(self.organization, "assignee@example.com", "password")
+        self.issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        self.produce_created_event = self.enterContext(
+            patch(f"{ACTIVITIES_MODULE}.produce_issue_lifecycle_internal_event")
+        )
+        self.flag_enabled = self.enterContext(patch(f"{ACTIVITIES_MODULE}.team_flag_enabled", return_value=True))
+        self.capture = self.enterContext(patch(f"{ACTIVITIES_MODULE}.ph_background_capture")).return_value
+        self.capture_exception = self.enterContext(patch(f"{ACTIVITIES_MODULE}.posthoganalytics.capture_exception"))
+        self.create_notification = self.enterContext(patch(f"{NOTIFICATIONS_MODULE}.create_notification"))
+        self.send_email = self.enterContext(patch(f"{NOTIFICATIONS_MODULE}.send_error_tracking_issue_assigned"))
+        self.produce_assigned_event = self.enterContext(
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event")
+        )
+
+    def _assign_like_cymbal(self, assignee_type: str) -> tuple[ErrorTrackingIssueAssignment, str]:
+        if assignee_type == "user":
+            assignment = ErrorTrackingIssueAssignment.objects.create(issue=self.issue, user=self.assignee)
+            return assignment, assignee_property({"type": "user", "id": self.assignee.id})
+        role_id = create_role(organization_id=self.organization.id, name="Devs")
+        add_role_member(role_id=role_id, user_id=self.assignee.id)
+        assignment = ErrorTrackingIssueAssignment.objects.create(issue=self.issue, role_id=role_id)
+        return assignment, assignee_property({"type": "role", "id": role_id})
+
+    def _run_activity(self, assignee: str | None, expected_outcome: str) -> None:
+        inputs = dataclasses.replace(
+            _inputs("fingerprint"), team_id=self.team.id, issue_id=str(self.issue.id), assignee=assignee
+        )
+        before = REGISTRY.get_sample_value(RULE_NOTIFY_COUNTER, {"outcome": expected_outcome}) or 0
+        with self.captureOnCommitCallbacks(execute=True):
+            emit_issue_created_internal_event_activity(inputs)
+        self.produce_created_event.assert_called_once()
+        assert REGISTRY.get_sample_value(RULE_NOTIFY_COUNTER, {"outcome": expected_outcome}) == before + 1
+
+    @parameterized.expand([("user",), ("role",)])
+    def test_notifies_the_rule_assignee(self, assignee_type: str) -> None:
+        assignment, assignee = self._assign_like_cymbal(assignee_type)
+        assert assignment.team_id is None
+
+        self._run_activity(assignee, "notified")
+
+        notification = self.create_notification.call_args.args[0]
+        assert notification.team_id == self.team.id
+        assert notification.target_id == str(assignment.user_id or assignment.role_id)
+        assert notification.title == "An assignment rule assigned an issue to you"
+        self.send_email.delay.assert_called_once_with(assignment.id, None, "An assignment rule")
+        assigned_event = self.produce_assigned_event.call_args.kwargs
+        assert assigned_event["event"].event == "$error_tracking_issue_assigned"
+        assert assigned_event["event"].properties["assignee"] == assignee
+        assert assigned_event["person"] is None
+        self.capture.assert_called_once()
+        assert self.capture.call_args.kwargs["event"] == "error_tracking_issue_auto_assigned"
+        assert self.capture.call_args.kwargs["properties"] == {
+            "issue_id": str(self.issue.id),
+            "assignee_type": assignee_type,
+            "source": "rule",
+        }
+
+    @parameterized.expand(
+        [
+            ("no_assignee", "none", True, "no_assignee"),
+            ("flag_off", "current", False, "flag_off"),
+            ("reassigned_before_the_activity", "previous", True, "assignee_changed"),
+        ]
+    )
+    def test_sends_nothing(self, _name: str, reported: str, flag_on: bool, expected_outcome: str) -> None:
+        self.flag_enabled.return_value = flag_on
+        _, current = self._assign_like_cymbal("user")
+        previous_user = User.objects.create_and_join(self.organization, "previous@example.com", "password")
+        previous = assignee_property({"type": "user", "id": previous_user.id})
+
+        self._run_activity({"none": None, "current": current, "previous": previous}[reported], expected_outcome)
+
+        self.create_notification.assert_not_called()
+        self.send_email.delay.assert_not_called()
+        self.produce_assigned_event.assert_not_called()
+        self.capture.assert_not_called()
+
+    def test_send_failure_is_counted_and_swallowed(self) -> None:
+        _, assignee = self._assign_like_cymbal("user")
+        self.send_email.delay.side_effect = RuntimeError("broker unavailable")
+
+        self._run_activity(assignee, "send_failed")
+
+        self.produce_assigned_event.assert_called_once()
+        self.capture_exception.assert_called_once()
 
 
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")

@@ -1,5 +1,6 @@
 import json
 from datetime import UTC
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.utils.dateparse import parse_datetime
@@ -13,10 +14,12 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.api.embedding_worker import generate_embedding
+from posthog.event_usage import groups
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
+from posthog.ph_client import ph_background_capture
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
@@ -28,6 +31,8 @@ from products.error_tracking.backend.logic.severity_inference import (
     infer_severity,
     severity_inference_enabled,
 )
+from products.error_tracking.backend.logic.team_flags import team_flag_enabled
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.activities import merge_similar_fingerprints
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
@@ -77,6 +82,23 @@ ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "Issue-created embedding attempts that failed because the embedding service was unavailable",
     labelnames=("reason",),
 )
+ERROR_TRACKING_RULE_ASSIGNMENT_NOTIFY_OUTCOMES = Counter(
+    "error_tracking_issue_created_rule_assignment_notify_total",
+    "Issue-created rule assignment notifications by outcome",
+    labelnames=("outcome",),
+)
+
+RULE_ASSIGNMENT_NOTIFY_FLAG = "error-tracking-rule-assignment-notify"
+RULE_ASSIGNMENT_LABEL = "An assignment rule"
+ISSUE_AUTO_ASSIGNED_EVENT = "error_tracking_issue_auto_assigned"
+
+
+class RuleAssignmentNotifyOutcome(StrEnum):
+    NOTIFIED = "notified"
+    FLAG_OFF = "flag_off"
+    NO_ASSIGNEE = "no_assignee"
+    ASSIGNEE_CHANGED = "assignee_changed"
+    SEND_FAILED = "send_failed"
 
 
 def _embedding_skip_reason(event_properties: dict[str, object]) -> str | None:
@@ -370,6 +392,58 @@ def dispatch_issue_created_alert_activity(inputs: IssueCreatedWorkflowInputs) ->
     )
 
 
+def _current_rule_assignment(
+    inputs: IssueCreatedWorkflowInputs, assignee: dict[str, int | str]
+) -> ErrorTrackingIssueAssignment | None:
+    """The issue's assignment, if it still names the assignee that cymbal reported."""
+    assignee_filter = {"user_id": assignee["id"]} if assignee["type"] == "user" else {"role_id": assignee["id"]}
+    return (
+        ErrorTrackingIssueAssignment.objects.filter(
+            issue_id=inputs.issue_id, issue__team_id=inputs.team_id, **assignee_filter
+        )
+        .select_related("issue__team")
+        .first()
+    )
+
+
+def _capture_auto_assigned(assignment: ErrorTrackingIssueAssignment, assignee_type: str) -> None:
+    team = assignment.issue.team
+    ph_background_capture()(
+        distinct_id=str(team.uuid),
+        event=ISSUE_AUTO_ASSIGNED_EVENT,
+        groups=groups(team=team),
+        properties={"issue_id": str(assignment.issue_id), "assignee_type": assignee_type, "source": "rule"},
+    )
+
+
+def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmentNotifyOutcome:
+    # Cymbal writes a rule's assignment with raw SQL, so the Django assign path, which notifies, never runs.
+    # On a new issue, only a rule can have set the assignee.
+    if inputs.assignee is None:
+        return RuleAssignmentNotifyOutcome.NO_ASSIGNEE
+    if not team_flag_enabled(RULE_ASSIGNMENT_NOTIFY_FLAG, inputs.team_id):
+        return RuleAssignmentNotifyOutcome.FLAG_OFF
+
+    # notifications imports logic/lifecycle_events, which imports the Temporal package that loads this module.
+    from products.error_tracking.backend.notifications import notify_automatic_assignment  # noqa: PLC0415
+
+    try:
+        assignee: dict[str, int | str] = json.loads(inputs.assignee)
+        assignment = _current_rule_assignment(inputs, assignee)
+        if assignment is None:
+            return RuleAssignmentNotifyOutcome.ASSIGNEE_CHANGED
+        _capture_auto_assigned(assignment, str(assignee["type"]))
+        notify_automatic_assignment(assignment=assignment, assignee=assignee, label=RULE_ASSIGNMENT_LABEL)
+    except Exception as error:
+        logger.exception(
+            "error_tracking_rule_assignment_notify_failed", team_id=inputs.team_id, issue_id=inputs.issue_id
+        )
+        if not is_expected_activity_failure(error):
+            posthoganalytics.capture_exception(error)
+        return RuleAssignmentNotifyOutcome.SEND_FAILED
+    return RuleAssignmentNotifyOutcome.NOTIFIED
+
+
 @activity.defn
 @posthoganalytics.scoped()
 @close_db_connections
@@ -380,6 +454,10 @@ def emit_issue_created_internal_event_activity(inputs: IssueCreatedWorkflowInput
         exception_timestamp=inputs.event_timestamp,
         humanize_status=False,
     )
+    # After the internal event, because a failed event retries the activity and would notify the assignee twice.
+    # A notification failure never raises, so it cannot cause that retry.
+    outcome = _notify_rule_assignment(inputs)
+    ERROR_TRACKING_RULE_ASSIGNMENT_NOTIFY_OUTCOMES.labels(outcome=outcome).inc()
 
 
 @activity.defn
