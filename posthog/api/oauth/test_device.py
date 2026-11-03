@@ -183,16 +183,26 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertIn(description, response.json()["error_description"])
         self.assertFalse(OAuthDeviceGrant.objects.exists())
 
-    def test_a_grant_whose_client_lost_its_verification_cannot_be_approved(self) -> None:
-        started = self._start()
-        OAuthApplication.objects.filter(pk=self.device_app.pk).update(is_verified=False)
+    def test_a_client_that_loses_its_verification_stops_working(self) -> None:
+        with time_machine.travel(START, tick=False) as clock:
+            approved = self._start()
+            self._approve(approved["user_code"])
+            pending = self._start()
+            OAuthApplication.objects.filter(pk=self.device_app.pk).update(is_verified=False)
+            clock.shift(timedelta(seconds=6))
 
-        lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
-        approve = self._approve(started["user_code"])
+            redeem = self._poll(approved["device_code"])
+            lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": pending["user_code"]})
+            approve = self._approve(pending["user_code"])
 
+        self.assertEqual(redeem.json()["error"], "unauthorized_client")
+        self.assertFalse(OAuthAccessToken.objects.exists())
         self.assertEqual(lookup.json()["error"], "unverified_client")
         self.assertEqual(approve.json()["error"], "unverified_client")
-        self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
+        self.assertEqual(
+            OAuthDeviceGrant.objects.get(device_code=pending["device_code"]).status,
+            OAuthDeviceGrant.AUTHORIZATION_PENDING,
+        )
 
     def test_a_confidential_client_must_authenticate_even_when_it_names_the_device_grant(self) -> None:
         OAuthApplication.objects.create(
