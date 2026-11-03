@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { IconRecordingClip } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { cn } from 'lib/utils/css-classes'
 import { colonDelimitedDuration } from 'lib/utils/durations'

@@ -135,6 +135,7 @@ class BoundedResolver(Resolver):
     When `enforce_bounds=False`, depth and deadline violations emit metrics but
     do not raise. Cycle detection still raises unconditionally — without it the
     resolver would loop forever and the deadline check would never run.
+    The core Resolver's hard compilation limits still apply in observe-only mode.
 
     The deadline is checked on every `visit()` call, not only at view boundaries,
     so expensive non-join work between views is also interruptible. Metrics

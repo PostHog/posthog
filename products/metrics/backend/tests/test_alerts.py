@@ -16,17 +16,25 @@ from pydantic import ValidationError
 from rest_framework import status
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import create_configuration, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import (
+    create_configuration,
+    list_alert_destinations,
+    record_outcomes,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     Grouping,
     GroupingMode,
+    IncidentAction,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
+    SourceBatchEvaluation,
     SourceKind,
 )
 from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
@@ -154,6 +162,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = timezone.now().replace(second=0, microsecond=0) + timedelta(minutes=5)
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.snuffle = MagicMock()
         self.enterContext(patch("products.metrics.backend.promql.snuffle_request", self.snuffle))
         self.freshness = self.enterContext(
@@ -181,10 +190,12 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def due_at(self) -> datetime:
         return self.cutoff - timedelta(minutes=1)
 
-    def _evaluate(self) -> PlatformAlertOutcome:
+    def _evaluate_batch(self) -> SourceBatchEvaluation:
         with team_scope(self.team.id):
-            evaluation = evaluate_metrics_alert_batch(self.team.id, slot_of(self.due_at, self.cutoff), self.cutoff)
-        (outcome,) = evaluation.outcomes
+            return evaluate_metrics_alert_batch(self.team.id, slot_of(self.due_at, self.cutoff), self.cutoff)
+
+    def _evaluate(self) -> PlatformAlertOutcome:
+        (outcome,) = self._evaluate_batch().outcomes
         return outcome
 
     def _next_check(self, outcome: PlatformAlertOutcome) -> None:
@@ -293,3 +304,90 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             UUID(str(self.configuration_id)),
             consecutive_failures,
         )
+
+    def test_destinations_are_alert_destination_rows_that_the_firing_reaches(self) -> None:
+        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
+        slack = self.client.post(
+            destinations_url,
+            {
+                "type": "slack",
+                "slack_workspace_id": workspace.id,
+                "slack_channel_id": "C123",
+                "webhook_url": "https://example.com/hooks/secret-token",
+            },
+            format="json",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            pagerduty = self.client.post(
+                destinations_url,
+                {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
+                format="json",
+                HTTP_REFERER="https://[",
+            )
+        assert slack.status_code == pagerduty.status_code == status.HTTP_201_CREATED, (slack.json(), pagerduty.json())
+        assert (slack.json()["event_kinds"], pagerduty.json()["event_kinds"]) == (
+            ["firing", "resolved", "errored", "broken"],
+            ["firing", "resolved"],
+        )
+        listed = self.client.get(destinations_url).json()
+        assert [d["id"] for d in listed] == [slack.json()["id"], pagerduty.json()["id"]]
+        with team_scope(self.team.id):
+            stored = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id)
+        assert [sorted(d.data) for d in stored] == [
+            ["slack_channel_id", "slack_workspace_id", "type"],
+            ["pagerduty_region", "pagerduty_routing_key", "pagerduty_severity", "type"],
+        ]
+
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        (delivery,) = self._evaluate_batch().deliveries
+        assert delivery.sends_messages
+        assert list(delivery.incident_actions.values()) == [IncidentAction.TRIGGER]
+
+        removed = self.client.post(
+            f"{destinations_url}delete/", {"destination_ids": [slack.json()["id"]]}, format="json"
+        )
+        assert removed.status_code == status.HTTP_204_NO_CONTENT
+        assert [d["type"] for d in self.client.get(destinations_url).json()] == ["pagerduty"]
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
+
+    @parameterized.expand(
+        [
+            ("alert_only", ["alert:read"], status.HTTP_403_FORBIDDEN),
+            ("metrics_only", ["metrics:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_metrics", ["alert:read", "metrics:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_reading_destinations_needs_both_alert_and_metrics_scopes(
+        self, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/")
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("http_webhook", {"type": "webhook", "webhook_url": "http://example.com/alerts"}, "webhook_url"),
+            ("teams_url_not_from_teams", {"type": "teams", "webhook_url": "https://example.com/alerts"}, "webhook_url"),
+            (
+                "unconnected_slack_workspace",
+                {"type": "slack", "slack_workspace_id": 999999, "slack_channel_id": "C123"},
+                "slack_workspace_id",
+            ),
+        ]
+    )
+    def test_a_destination_that_could_never_deliver_is_refused(
+        self, _name: str, body: dict[str, object], field: str
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/", body, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field

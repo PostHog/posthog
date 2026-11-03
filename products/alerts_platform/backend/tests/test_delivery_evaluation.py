@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
@@ -91,6 +91,13 @@ class PagingTransport(RecordingTransport):
 
     def channel_target(self, target: AlertDestinationData) -> str:
         return str(target.get("pagerduty_routing_key", ""))
+
+
+class EmailingTransport(RecordingTransport):
+    provider = "email"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return ",".join(target.get("email_addresses", []))
 
 
 class RefusingTransport(RecordingTransport):
@@ -406,15 +413,22 @@ class TestDeliverEvaluation(APIBaseTest):
         )
         hog_function = [_group(cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-hog"}))]
 
-        self._run(
-            _announcement(_transition(kind)),
-            {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
-            incident_actions={"": action},
-            owned_by_platform=True,
-        )
+        def project_members(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["b@example.com", "a@example.com", "b@example.com"]
 
+        with patch.dict(recipients._recipients, {SourceKind.LOGS: project_members}):
+            self._run(
+                _announcement(_transition(kind)),
+                {FIRING_EVENT: hog_function, RESOLVED_EVENT: hog_function, OPENED_EVENT: hog_function},
+                incident_actions={"": action},
+                owned_by_platform=True,
+                transports={DestinationType.EMAIL: EmailingTransport},
+            )
+
+        # The source's recipients read the message once, and never the incident edge.
         assert [(channel, m.headline) for channel, m in RecordingTransport.sends if channel != "R-1"] == [
-            ("C-1", headline)
+            ("C-1", headline),
+            ("a@example.com,b@example.com", headline),
         ]
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
@@ -642,6 +656,23 @@ class TestDeliverEvaluation(APIBaseTest):
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
         )
+
+    def test_a_second_recipient_lookup_for_a_source_is_refused(self) -> None:
+        def first(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return []
+
+        def second(*, team_id: int, configuration_id: UUID) -> list[str]:
+            return ["someone@example.com"]
+
+        with patch.dict(recipients._recipients, clear=True):
+            recipients.register(SourceKind.LOGS, first)
+            # A second `ready()` registers the same lookup again, which is not a conflict.
+            recipients.register(SourceKind.LOGS, first)
+
+            with pytest.raises(RuntimeError, match="already registered"):
+                recipients.register(SourceKind.LOGS, second)
+
+            assert recipients._recipients == {SourceKind.LOGS: first}
 
 
 class TestDeliveryPath(APIBaseTest):

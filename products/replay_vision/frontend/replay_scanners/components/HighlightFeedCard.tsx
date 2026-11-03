@@ -1,19 +1,35 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
 
-import { IconFlag, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    IconCheck,
+    IconChevronLeft,
+    IconChevronRight,
+    IconMinus,
+    IconPlayFilled,
+    IconSparkles,
+    IconX,
+} from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { readResult } from '../../components/ObservationCard'
-import { ObservationThumbnail } from '../../components/ObservationThumbnail'
-import { scannerTypeIcon } from '../../components/ScannerTypeBadge'
+import {
+    ObservationThumbnail,
+    observationThumbnailSrc,
+    preloadObservationThumbnail,
+} from '../../components/ObservationThumbnail'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type {
     ReplayObservationApi,
@@ -23,12 +39,28 @@ import type {
 } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, HIGHLIGHT_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
-import { hasScannerPage, scannerLabel } from '../../utils/observation'
+import {
+    type ConfidenceLevel,
+    VERDICT_LABEL,
+    confidenceLevel,
+    hasScannerPage,
+    isSummaryScannerType,
+    readConfidence,
+    readFixedTags,
+    readFreeformTags,
+    readScore,
+    readVerdict,
+    scannerLabel,
+} from '../../utils/observation'
+import { TimelineChapter, readChapters } from '../../utils/recordingTimeline'
+import { CONFIDENCE_CLASS, VERDICT_ICON, scoreColorFor, scorerScale, verdictClassFor } from '../../utils/resultValence'
 import { feedCategoriesParam, highlightFeedLogic } from '../highlightFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../highlightFeedTelemetry'
-import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
+import { ScannerType } from '../types'
+import { HighlightFeedCardLayout } from './HighlightFeedCardLayout'
 import { HighlightFeedDismissButton } from './HighlightFeedDismissButton'
 import { HighlightFeedGroupToggle, similarSessionsLabel } from './HighlightFeedGroup'
+import { HighlightFeedScannerChip } from './HighlightFeedScannerChip'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
@@ -91,9 +123,12 @@ export function highlightStartSeconds(keyMomentMs: number | null): number {
 }
 
 /** The observation page. `t` is always set, so the player opens expanded, and `from` makes the back button return to the feed. */
-export function highlightFeedObservationUrl(observation: ReplayObservationApi): string {
+export function highlightFeedObservationUrl(observation: ReplayObservationApi, startMs?: number): string {
     return combineUrl(urls.replayVisionObservation(observation.id), {
-        t: highlightStartSeconds(observationKeyMomentMs(observation)),
+        t:
+            startMs === undefined
+                ? highlightStartSeconds(observationKeyMomentMs(observation))
+                : Math.floor(startMs / 1000),
         [OBSERVATION_ORIGIN_PARAM]: HIGHLIGHT_FEED_ORIGIN,
     }).url
 }
@@ -142,10 +177,136 @@ export function highlightCardHeadline(
     return { title, body: rest ? { text: rest } : null }
 }
 
+const CAROUSEL_ARROW =
+    'pointer-events-auto absolute top-1/2 z-10 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/60 text-lg text-white opacity-0 transition-opacity hover:bg-black/80 focus-visible:opacity-100 group-hover:opacity-100'
+
+/** Slide 0 is the key-moment poster, so `slide - 1` indexes `chapters`. */
+function ChapterCarousel({
+    observation,
+    chapters,
+    slide,
+    onSlide,
+    retryKey,
+    below,
+}: {
+    observation: ReplayObservationApi
+    chapters: TimelineChapter[]
+    slide: number
+    onSlide: (slide: number) => void
+    retryKey: unknown
+    /** Sits under the chapter caption, inside the poster. */
+    below?: React.ReactNode
+}): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const [reached, setReached] = useState(1)
+    useEffect(() => {
+        setReached((previous) => Math.max(previous, slide + 1))
+        const next = chapters[slide]
+        const src = next && observationThumbnailSrc(currentTeamId, observation, { chapter: next.position })
+        if (src) {
+            void preloadObservationThumbnail(src)
+        }
+    }, [slide, chapters, currentTeamId, observation])
+    const current = slide === 0 ? null : chapters[slide - 1]
+    const go = (event: React.MouseEvent, target: number): void => {
+        // The arrows sit over the card's link, so a press must not open the observation.
+        event.preventDefault()
+        event.stopPropagation()
+        onSlide(target)
+    }
+    return (
+        <>
+            <div
+                className="flex motion-safe:transition-transform motion-safe:duration-300 ease-out"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ transform: `translateX(-${slide * 100}%)` }}
+            >
+                <div className="w-full shrink-0">
+                    <ObservationThumbnail
+                        observation={observation}
+                        className="rounded-none border-0"
+                        retryKey={retryKey}
+                    />
+                </div>
+                {chapters.map((chapter, index) => (
+                    <div key={chapter.position} className="w-full shrink-0">
+                        {index < reached ? (
+                            <ObservationThumbnail
+                                observation={observation}
+                                chapter={chapter.position}
+                                className="rounded-none border-0"
+                            />
+                        ) : (
+                            <div className="aspect-video bg-surface-secondary" />
+                        )}
+                    </div>
+                ))}
+            </div>
+            {/* Disabled rather than removed at the ends, so a focused arrow keeps focus. */}
+            <button
+                type="button"
+                className={clsx(CAROUSEL_ARROW, 'left-2', slide === 0 && 'invisible')}
+                aria-label="Previous chapter"
+                disabled={slide === 0}
+                onClick={(event) => go(event, slide - 1)}
+            >
+                <IconChevronLeft />
+            </button>
+            <button
+                type="button"
+                className={clsx(CAROUSEL_ARROW, 'right-2', slide === chapters.length && 'invisible')}
+                aria-label="Next chapter"
+                disabled={slide === chapters.length}
+                onClick={(event) => go(event, slide + 1)}
+            >
+                <IconChevronRight />
+            </button>
+            <div className="absolute inset-x-0 bottom-0 z-[5] flex flex-col gap-1.5 bg-gradient-to-t from-black/75 via-black/40 to-transparent px-2.5 pt-8 pb-2">
+                <div className="flex min-w-0 items-baseline gap-1.5 text-xs text-white" aria-live="polite">
+                    {current ? (
+                        <>
+                            <span className="shrink-0 font-semibold tabular-nums">
+                                {colonDelimitedDuration(Math.floor(current.startMs / 1000), null)}
+                            </span>
+                            <span className="min-w-0 truncate">{current.title}</span>
+                        </>
+                    ) : (
+                        <span className="min-w-0 truncate">{pluralize(chapters.length, 'chapter')}</span>
+                    )}
+                    {slide > 0 && (
+                        <span className="ml-auto shrink-0 tabular-nums opacity-75">
+                            {slide}/{chapters.length}
+                        </span>
+                    )}
+                </div>
+                <div className="flex gap-1" aria-hidden>
+                    {chapters.map((chapter, index) => (
+                        <span
+                            key={chapter.position}
+                            className={clsx(
+                                'h-1 flex-1 rounded-full transition-colors',
+                                index + 1 === slide ? 'bg-white' : 'bg-white/35'
+                            )}
+                        />
+                    ))}
+                </div>
+                {below}
+            </div>
+        </>
+    )
+}
+
+/** Entrance delays across a row, one per grid column, written out so Tailwind generates each class. */
+const ROW_STAGGER = ['delay-0', 'delay-80', 'delay-160', 'delay-240']
+const SKIP_RISE = inStorybookTestRunner()
+
 interface HighlightFeedRowProps {
     item: HighlightFeedItemApi
     /** Zero-based place in the feed, captured so we can see how deep people read. */
     position: number
+    columnIndex?: number
+    /** The card belongs to the last result, kept on screen while a new one loads, so it must not count as seen. */
+    stale?: boolean
 }
 
 function HighlightCardPerson({
@@ -196,19 +357,7 @@ function HighlightFeedScannerLink({
 }): JSX.Element {
     const verdict = readResult(observation)?.verdict
     const linked = hasScannerPage(observation)
-    const chip = (
-        <>
-            {scannerType && (
-                <LemonTag
-                    type={SCANNER_TYPE_TAG_TYPE[scannerType]}
-                    className="size-6 shrink-0 justify-center !rounded-full !p-0"
-                >
-                    {scannerTypeIcon(scannerType)}
-                </LemonTag>
-            )}
-            <span className="truncate font-medium">{scannerName}</span>
-        </>
-    )
+    const chip = <HighlightFeedScannerChip scannerName={scannerName} scannerType={scannerType} />
     return (
         <Tooltip
             title={
@@ -243,6 +392,145 @@ function HighlightFeedScannerLink({
     )
 }
 
+// Filled, so each category stays visible on the grey box in dark mode.
+const CATEGORY_CLASS =
+    'inline-flex items-center gap-0.5 rounded border border-primary bg-surface-primary px-1.5 font-semibold text-default'
+
+// More pills than this overflow a narrow card's answer line, so the rest collapse into a count.
+const MAX_CATEGORY_PILLS = 3
+
+const CONFIDENCE_ICON: Record<ConfidenceLevel['type'], typeof IconCheck> = {
+    success: IconCheck,
+    warning: IconMinus,
+    danger: IconX,
+}
+
+/** What the scan answered. Only the answer itself takes the valence color, and a summary has none. */
+function highlightCardResult(
+    observation: ReplayObservationApi,
+    scannerType: ScannerType | undefined
+): JSX.Element | null {
+    if (scannerType === 'monitor') {
+        const verdict = readVerdict(observation)
+        if (!verdict) {
+            return null
+        }
+        const Icon = VERDICT_ICON[verdict]
+        return (
+            <span className={clsx('flex items-center gap-0.5', verdictClassFor(observation, verdict))}>
+                <Icon className="shrink-0" aria-hidden />
+                {VERDICT_LABEL[verdict]}
+            </span>
+        )
+    }
+    if (scannerType === 'scorer') {
+        const score = readScore(observation)
+        if (score === null) {
+            return null
+        }
+        const { max } = scorerScale(observation)
+        const color = scoreColorFor(observation, score)
+        return (
+            <span
+                className="tabular-nums"
+                // The color is a position on a continuous scale, which Tailwind classes can't express.
+                // eslint-disable-next-line react/forbid-dom-props
+                style={color ? { color } : undefined}
+            >
+                {max !== null ? `${score} / ${max}` : score}
+            </span>
+        )
+    }
+    if (scannerType === 'classifier') {
+        const tags = readFixedTags(observation)
+        const freeform = readFreeformTags(observation)
+        const categories = [
+            ...tags.map((tag) => ({ tag, isFreeform: false })),
+            ...freeform.map((tag) => ({ tag, isFreeform: true })),
+        ]
+        if (categories.length === 0) {
+            return <span className="font-normal text-secondary">None</span>
+        }
+        const hidden = categories.length - MAX_CATEGORY_PILLS
+        return (
+            // Pills shrink and truncate, and the count stays outside them, so a narrow card still shows how many are hidden.
+            <span className="flex min-w-0 items-center gap-1">
+                {categories.slice(0, MAX_CATEGORY_PILLS).map(({ tag, isFreeform }, index) => (
+                    <span key={`${index}-${tag}`} className={clsx(CATEGORY_CLASS, 'min-w-0')}>
+                        {isFreeform && <IconSparkles className="shrink-0" aria-hidden />}
+                        <span className="truncate">{tag}</span>
+                    </span>
+                ))}
+                {hidden > 0 && <span className={clsx(CATEGORY_CLASS, 'shrink-0')}>+{hidden}</span>}
+            </span>
+        )
+    }
+    return null
+}
+
+function HighlightCardConfidence({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
+    const confidence = readConfidence(observation)
+    if (confidence === null) {
+        return null
+    }
+    const level = confidenceLevel(confidence)
+    const Icon = CONFIDENCE_ICON[level.type]
+    return (
+        <span className="flex shrink-0 items-center gap-1">
+            <span className="text-secondary">Confidence</span>
+            <span
+                className={clsx('flex items-center gap-0.5 font-semibold tabular-nums', CONFIDENCE_CLASS[level.type])}
+            >
+                <Icon className="shrink-0" role="img" aria-label={`${level.label} confidence`} />
+                {Math.round(confidence * 100)}%
+            </span>
+        </span>
+    )
+}
+
+/**
+ * The scanner's question, then its answer with the confidence beside it. The box sits over the
+ * poster, so its height never changes the card's. A summary has no answer, so it gets no box.
+ */
+function HighlightCardAnswer({
+    observation,
+    scannerType,
+}: {
+    observation: ReplayObservationApi
+    scannerType: ScannerType | undefined
+}): JSX.Element | null {
+    if (isSummaryScannerType(scannerType)) {
+        return null
+    }
+    const question = observation.prompt_question
+    const result = highlightCardResult(observation, scannerType)
+    if (!question && !result) {
+        return null
+    }
+    return (
+        <div
+            className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border border-primary bg-surface-secondary px-3 py-2 text-xs"
+            data-attr="vision-highlight-feed-answer"
+        >
+            {question && (
+                <>
+                    <span className="text-secondary">Question</span>
+                    <span className="min-w-0 truncate">{question}</span>
+                </>
+            )}
+            <span className="text-secondary">Answer</span>
+            <span className="flex h-5 min-w-0 items-center gap-3">
+                <span className="flex min-w-0 items-center overflow-hidden font-semibold">
+                    {result ?? <span className="font-normal text-secondary">None</span>}
+                </span>
+                <span className="ml-auto">
+                    <HighlightCardConfidence observation={observation} />
+                </span>
+            </span>
+        </div>
+    )
+}
+
 /**
  * The title of a row. A summarizer's authored title is already short, so it leads. Other scans
  * lead with highlightFeedRowSentence.
@@ -263,11 +551,36 @@ export function highlightFeedRowTitle(observation: ReplayObservationApi): string
  * picked, then the key-moment poster and a button that starts the player there. The whole card
  * opens the observation page.
  */
-export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX.Element {
+export function HighlightFeedRow({
+    item,
+    position,
+    columnIndex = 0,
+    stale = false,
+}: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad, dateFrom, categories } = useValues(highlightFeedLogic)
+    const { feedLoad, feedReloading, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
-    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
+    // Re-armed per feed load, so a card kept across a reload counts toward the new load.
+    const rowRef = useAutoMarkRead(
+        !feedReloading && !stale,
+        () => cardSeen(item, position),
+        CARD_SEEN_DWELL_MS,
+        feedLoad?.feedLoadId
+    )
+    const { ref: inViewRef, inView } = useInView({
+        triggerOnce: true,
+        fallbackInView: true,
+        // Snapshots capture the full page without scrolling, so cards there start in place and never observe.
+        initialInView: SKIP_RISE,
+        skip: SKIP_RISE,
+    })
+    const setRowRef = useCallback(
+        (node: HTMLElement | null): void => {
+            rowRef(node)
+            inViewRef(node)
+        },
+        [rowRef, inViewRef]
+    )
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like highlightCardHeadline.
     const scannerType =
@@ -290,93 +603,102 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
         affectedPeople: reason.kind === 'embedding_pick' ? (reason.affected_people ?? null) : null,
         cardContext: cardProperties(feedLoad, item, position, 'feed_tab'),
     }
+    const chapters = useMemo(() => readChapters(observation).filter((chapter) => chapter.hasFrame), [observation])
+    const [slide, setSlide] = useState(0)
+    const currentChapter = slide === 0 ? null : (chapters[slide - 1] ?? null)
+    const watchFromMs = currentChapter ? currentChapter.startMs : keyMomentMs
+    const openUrl = currentChapter ? highlightFeedObservationUrl(observation, currentChapter.startMs) : observationUrl
     const captureOpened = (): void => {
         posthog.capture('replay_vision_highlight_clip_clicked', {
             ...cardProperties(feedLoad, item, position, 'feed_tab'),
             scanner_type: scannerType,
             has_key_moment: keyMomentMs !== null,
             target: 'observation',
+            chapter_count: chapters.length,
+            chapter_slide: slide,
         })
     }
+    const answerBox = <HighlightCardAnswer observation={observation} scannerType={scannerType} />
     return (
-        <article
-            ref={rowRef}
-            className="group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent"
+        <HighlightFeedCardLayout
+            ref={setRowRef}
+            className={clsx(
+                'ease-out motion-safe:transition-[opacity,translate] motion-safe:duration-500',
+                ROW_STAGGER[Math.min(columnIndex, ROW_STAGGER.length - 1)],
+                !inView && 'motion-safe:translate-y-4 motion-safe:opacity-0'
+            )}
             data-attr="vision-highlight-feed-row"
-        >
-            <header className="flex min-w-0 items-center gap-2">
-                <div className="flex min-w-0">
-                    <HighlightFeedScannerLink
-                        observation={observation}
-                        scannerName={scannerName}
-                        scannerType={scannerType}
-                    />
-                </div>
-                <span className="text-xs text-muted" aria-hidden>
-                    ·
-                </span>
-                {/* The person and age keep up to 45% of the line, so a long email is cut before the scanner name. */}
-                <div className="min-w-0 max-w-[45%] shrink-0">
-                    <HighlightCardPerson observation={observation} person={person} />
-                </div>
+            scanner={
+                <HighlightFeedScannerLink
+                    observation={observation}
+                    scannerName={scannerName}
+                    scannerType={scannerType}
+                />
+            }
+            meta={<HighlightCardPerson observation={observation} person={person} />}
+            action={
                 <HighlightFeedDismissButton
-                    className="relative z-10 ml-auto shrink-0"
                     onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
                 />
-            </header>
-            <div className="flex min-w-0 flex-col gap-1">
-                <Link
-                    to={observationUrl}
-                    onClick={captureOpened}
-                    className="text-default after:absolute after:inset-0 after:content-['']"
-                    data-attr="vision-highlight-feed-row-open"
-                >
-                    <h3
-                        // Two lines are always reserved, so cards in one grid row keep their posters level.
-                        className={`m-0 min-h-[2lh] text-base line-clamp-2 wrap-anywhere group-hover:text-accent ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
-                        title={title}
+            }
+            title={title}
+            titlePrefix={!observation.viewed && <span className="sr-only">New: </span>}
+            titleMuted={filler}
+            titleLink={{ to: openUrl, onClick: captureOpened }}
+            why={why}
+            poster={
+                <>
+                    {!observation.viewed && (
+                        <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />
+                    )}
+                    {chapters.length > 0 ? (
+                        <ChapterCarousel
+                            observation={observation}
+                            chapters={chapters}
+                            slide={slide}
+                            onSlide={(next) => {
+                                posthog.capture('replay_vision_highlight_chapter_slid', {
+                                    ...cardProperties(feedLoad, item, position, 'feed_tab'),
+                                    chapter_count: chapters.length,
+                                    from_slide: slide,
+                                    to_slide: next,
+                                })
+                                setSlide(next)
+                            }}
+                            retryKey={feedLoad?.feedLoadId}
+                            below={answerBox}
+                        />
+                    ) : (
+                        <>
+                            <ObservationThumbnail
+                                observation={observation}
+                                className="rounded-none border-0"
+                                retryKey={feedLoad?.feedLoadId}
+                            />
+                            <div className="absolute inset-x-0 bottom-0 z-[5] px-2.5 pb-2">{answerBox}</div>
+                        </>
+                    )}
+                    {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
+                </>
+            }
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlayFilled />}
+                        to={openUrl}
+                        onClick={captureOpened}
+                        className="relative z-10"
+                        data-attr="vision-highlight-feed-row-watch"
                     >
-                        {!observation.viewed && <span className="sr-only">New: </span>}
-                        {title}
-                    </h3>
-                </Link>
-                <p
-                    className="m-0 flex items-start gap-1.5 text-sm text-secondary"
-                    data-attr="vision-highlight-feed-why"
-                >
-                    <Tooltip title="Why this recording">
-                        <span className="mt-0.5 flex shrink-0">
-                            <IconFlag className="text-accent" aria-hidden />
-                        </span>
-                    </Tooltip>
-                    <span className="min-w-0 truncate" title={why}>
-                        <span className="sr-only">Why this recording: </span>
-                        {why}
-                    </span>
-                </p>
-            </div>
-            {/* Clicks pass through the poster to the card's link, which sits beneath it. */}
-            <div className="pointer-events-none relative overflow-hidden rounded-md border">
-                {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
-                <ObservationThumbnail observation={observation} className="rounded-none border-0" />
-                {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
-            </div>
-            <footer className="flex items-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlayFilled />}
-                    to={observationUrl}
-                    onClick={captureOpened}
-                    className="relative z-10"
-                    data-attr="vision-highlight-feed-row-watch"
-                >
-                    {keyMomentMs !== null
-                        ? `Watch from ${colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}`
-                        : 'Watch session'}
-                </LemonButton>
-                {similarCount > 0 && <HighlightFeedGroupToggle {...groupProps} />}
-            </footer>
-        </article>
+                        {watchFromMs !== null
+                            ? `Watch from ${colonDelimitedDuration(Math.floor(watchFromMs / 1000), null)}`
+                            : 'Watch session'}
+                    </LemonButton>
+                    {similarCount > 0 && <HighlightFeedGroupToggle {...groupProps} />}
+                </>
+            }
+        />
     )
 }

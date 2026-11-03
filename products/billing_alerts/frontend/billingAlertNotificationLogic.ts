@@ -3,8 +3,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { isHttpsUrl } from 'lib/utils/url'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { IntegrationType, OrganizationType } from '~/types'

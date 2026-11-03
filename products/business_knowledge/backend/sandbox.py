@@ -253,14 +253,15 @@ def start_sandbox_run(
             _admit_one_run_per_owner(team.id, user_id)
         else:
             admit()
+        network = task_profiles.BUSINESS_KNOWLEDGE.network
         env_id = tasks_facade.upsert_internal_sandbox_env(
             team.id,
             BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+            tasks_facade.SandboxNetworkAccessLevel(network.levels[0]),
             private=False,
             internal=True,
-            allowed_domains=[],
-            include_default_domains=False,
+            allowed_domains=list(network.allowed_domains),
+            include_default_domains=network.include_default_domains,
         )
         always_on = format_always_on_context(get_always_on_context(team.id))
         created = tasks_facade.create_and_run_task(
