@@ -18,7 +18,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiError, ApiRequest } from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -66,8 +66,16 @@ const FOOTER_COMPOSER_TARGET = 'footer'
 // show neither the replies nor the end of the import until they reopen.
 const SLACK_IMPORT_POLL_INTERVAL_MS = 5000
 const SLACK_IMPORT_POLL_LIMIT = 60
+// A failed refresh is retried this many times in a row; each failure also shows an error toast.
+const SLACK_IMPORT_POLL_FAILURE_LIMIT = 3
+// Enough pages of replies for the most a linked thread imports (1,000 messages).
+const LINKED_THREAD_REPLY_PAGES = 10
 
-async function fetchComments(props: CommentsLogicProps, linkedSlackThreadIds: string[] = []): Promise<CommentType[]> {
+async function fetchComments(
+    props: CommentsLogicProps,
+    linkedSlackThreadIds: string[] = [],
+    previous: CommentType[] | null = null
+): Promise<CommentType[]> {
     if (!props.item_id) {
         // A per-item discussion must target a specific item. Listing with only a scope makes the
         // backend return every comment in that scope across the team, so fail closed rather than
@@ -90,13 +98,24 @@ async function fetchComments(props: CommentsLogicProps, linkedSlackThreadIds: st
     const threads = await Promise.all(
         missing.map(async (id): Promise<CommentType[]> => {
             try {
+                // Project-scoped URLs, like the list above: api.comments.get would use the environment id.
                 const [root, replies] = await Promise.all([
-                    api.comments.get(id),
-                    api.comments.list({ scope: props.scope, item_id: props.item_id, source_comment: id }),
+                    api.get<CommentType>(new ApiRequest().comment(id).assembleFullUrl()),
+                    api.loadPaginatedResults<CommentType>(
+                        new ApiRequest()
+                            .comments()
+                            .withQueryString({ scope: props.scope, item_id: props.item_id, source_comment: id })
+                            .assembleFullUrl(),
+                        LINKED_THREAD_REPLY_PAGES
+                    ),
                 ])
-                return root.deleted ? [] : [root, ...replies.results]
-            } catch {
-                return [] // unlinked or deleted since
+                return root.deleted ? [] : [root, ...replies]
+            } catch (error) {
+                if (error instanceof ApiError && error.status === 404) {
+                    return [] // unlinked or deleted since
+                }
+                // A blip keeps what was already shown, rather than making the discussion vanish.
+                return (previous ?? []).filter((comment) => comment.id === id || comment.source_comment === id)
             }
         })
     )
@@ -644,7 +663,7 @@ export const commentsLogic = kea<commentsLogicType>([
         comments: [
             null as CommentType[] | null,
             {
-                loadComments: async () => await fetchComments(props, values.linkedSlackThreadIds),
+                loadComments: async () => await fetchComments(props, values.linkedSlackThreadIds, values.comments),
                 // Same fetch, but nothing follows it: no scroll to the newest comment and no deep-link
                 // reveal. Callers that poll in the background use this so a refresh never takes the
                 // reader's place in the thread away from them. `loadComments` stays the one to call
@@ -657,7 +676,7 @@ export const commentsLogic = kea<commentsLogicType>([
                     // own message vanish. Comparing the array identity catches that: any local write
                     // replaces the array, so a changed reference means our snapshot is the stale one.
                     const before = values.comments
-                    const results = await fetchComments(props, values.linkedSlackThreadIds)
+                    const results = await fetchComments(props, values.linkedSlackThreadIds, before)
                     return values.comments === before ? results : values.comments
                 },
                 sendComposedContent: async ({ asTask }) => {
@@ -951,7 +970,15 @@ export const commentsLogic = kea<commentsLogicType>([
                 actions.incrementCommentCount()
             },
             refreshCommentsSuccess: () => {
+                cache.slackImportPollFailures = 0
                 pollWhileSlackImports()
+            },
+            // A brief failure mustn't end the polling, but an outage shouldn't keep retrying either.
+            refreshCommentsFailure: () => {
+                cache.slackImportPollFailures = (cache.slackImportPollFailures ?? 0) + 1
+                if (cache.slackImportPollFailures <= SLACK_IMPORT_POLL_FAILURE_LIMIT) {
+                    pollWhileSlackImports()
+                }
             },
             sendComposedContentSuccess: () => {
                 const sendContext = cache.sendContext

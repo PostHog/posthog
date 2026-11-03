@@ -441,6 +441,9 @@ describe('commentsLogic', () => {
 describe('commentsLogic linked Slack threads', () => {
     let logic: ReturnType<typeof commentsLogic.build>
     let results: Record<string, any>[]
+    let listStatus: number
+    let rootStatus: number
+    let replyPages: Record<string, any>[][]
 
     const linkedRoot = (state: string): Record<string, any> => ({
         ...makeComment('linked-root'),
@@ -450,15 +453,31 @@ describe('commentsLogic linked Slack threads', () => {
 
     beforeEach(() => {
         results = []
+        listStatus = 200
+        rootStatus = 200
+        replyPages = [[makeComment('old-reply', 'linked-root')]]
         initKeaTests()
         useMocks({
             get: {
                 '/api/projects/:team_id/comments': ({ request }) => {
-                    const sourceComment = new URL(request.url).searchParams.get('source_comment')
-                    return [200, { results: sourceComment ? [makeComment('old-reply', sourceComment)] : results }]
+                    const url = new URL(request.url)
+                    const sourceComment = url.searchParams.get('source_comment')
+                    if (!sourceComment) {
+                        return listStatus === 200 ? [200, { results }] : [listStatus, {}]
+                    }
+                    const page = Number(url.searchParams.get('offset') ?? 0)
+                    const next =
+                        page + 1 < replyPages.length
+                            ? `/api/projects/997/comments?source_comment=${sourceComment}&offset=${page + 1}`
+                            : null
+                    return [200, { results: replyPages[page], next }]
                 },
                 '/api/projects/:team_id/comments/:id': ({ params }) =>
-                    params.id === 'linked-root' ? [200, linkedRoot('done')] : [404, {}],
+                    rootStatus !== 200
+                        ? [rootStatus, {}]
+                        : params.id === 'linked-root'
+                          ? [200, linkedRoot('done')]
+                          : [404, {}],
                 '/api/organizations/@current/members/': { results: [] },
             },
         })
@@ -480,6 +499,47 @@ describe('commentsLogic linked Slack threads', () => {
         ).toDispatchActions(['addLinkedSlackThread', 'refreshCommentsSuccess'])
 
         expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'old-reply'])
+    })
+
+    it("brings in every page of an older linked thread's replies", async () => {
+        results = [makeComment('newer')]
+        replyPages = [[makeComment('reply-1', 'linked-root')], [makeComment('reply-2', 'linked-root')]]
+
+        await expectLogic(logic, () => logic.actions.addLinkedSlackThread(linkedRoot('done') as any)).toDispatchActions(
+            ['refreshCommentsSuccess']
+        )
+
+        expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'reply-1', 'reply-2'])
+    })
+
+    it('keeps an older linked thread through a failed fetch, and drops it once it is gone', async () => {
+        results = [makeComment('newer')]
+        await expectLogic(logic, () => logic.actions.addLinkedSlackThread(linkedRoot('done') as any)).toDispatchActions(
+            ['refreshCommentsSuccess']
+        )
+
+        rootStatus = 500
+        await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
+        expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'old-reply'])
+
+        rootStatus = 404
+        await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
+        expect(logic.values.comments?.map((c) => c.id)).toEqual(['newer'])
+    })
+
+    it('keeps refreshing an import through a failed refresh', async () => {
+        jest.useFakeTimers()
+        results = [linkedRoot('pending')]
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+
+        listStatus = 500
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toDispatchActions(['refreshComments', 'refreshCommentsFailure'])
+
+        listStatus = 200
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toDispatchActions(['refreshComments', 'refreshCommentsSuccess'])
+        expect(logic.values.comments?.[0].id).toBe('linked-root')
     })
 
     it('refreshes while a linked thread imports, and stops once it has', async () => {
