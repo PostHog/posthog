@@ -1,6 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { BillingPlan } from '~/types'
 
 import type {
     EventsRetentionApi,
@@ -24,6 +26,7 @@ interface RetentionMockOptions {
     projectMonths?: number | null
     planMonths?: number
     grandfathered?: boolean
+    billingPlan?: BillingPlan
 }
 
 const retentionMocks = ({
@@ -31,6 +34,7 @@ const retentionMocks = ({
     projectMonths = null,
     planMonths = 36,
     grandfathered = false,
+    billingPlan = BillingPlan.Boost,
 }: RetentionMockOptions): ReturnType<typeof mswDecorator> => {
     const defaultMonths = grandfathered ? planMonths : Math.min(planMonths, 24)
     const organization: OrganizationEventsRetentionApi = {
@@ -58,6 +62,7 @@ const retentionMocks = ({
         get: {
             '/api/projects/:team_id/events_retention/': project,
             '/api/organizations/:organization_id/events_retention_setting/': organization,
+            '/api/billing/': { ...billingJson, billing_plan: billingPlan },
         },
     })
 }
@@ -74,7 +79,12 @@ export const OrganizationWithWindow: Story = {
 
 export const OrganizationOnGrandfatheredPlan: Story = {
     render: () => <OrganizationEventsRetentionSetting />,
-    decorators: [retentionMocks({ planMonths: 84, grandfathered: true })],
+    decorators: [retentionMocks({ planMonths: 84, grandfathered: true, billingPlan: BillingPlan.Paid })],
+}
+
+export const OrganizationOnFreePlan: Story = {
+    render: () => <OrganizationEventsRetentionSetting />,
+    decorators: [retentionMocks({ planMonths: 12, billingPlan: BillingPlan.Free })],
 }
 
 export const ProjectUsingOrganizationWindow: Story = {
