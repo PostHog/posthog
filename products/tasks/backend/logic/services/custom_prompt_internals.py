@@ -1070,6 +1070,10 @@ class TurnLogState:
 
 
 def _is_subagent_update(update: dict[str, object]) -> bool:
+    # Older Codex adapters omit parent metadata on updates but namespace child tool IDs.
+    tool_call_id = update.get("toolCallId")
+    if isinstance(tool_call_id, str) and tool_call_id.startswith("subagent:"):
+        return True
     meta = update.get("_meta")
     if not isinstance(meta, dict):
         return False

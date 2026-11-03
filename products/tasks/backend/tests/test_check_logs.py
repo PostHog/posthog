@@ -23,6 +23,7 @@ class TestCheckLogs:
             ("contiguous", None, None),
             ("child_tool", "tool_call", "claudeCode"),
             ("canonical_child_tool", "tool_call", "posthog"),
+            ("codex_child_tool_update", "tool_call_update", None),
             ("child_tool_update", "tool_call_update", "claudeCode"),
             ("child_plan", "plan", "posthog"),
             ("child_message", "agent_message", "claudeCode"),
@@ -33,7 +34,7 @@ class TestCheckLogs:
         self, _name: str, update_kind: str | None, metadata_channel: str | None
     ) -> None:
         child_lines = []
-        if update_kind is not None and metadata_channel is not None:
+        if update_kind is not None:
             child_lines = [
                 json.dumps(
                     {
@@ -42,7 +43,10 @@ class TestCheckLogs:
                             "params": {
                                 "update": {
                                     "sessionUpdate": update_kind,
-                                    "_meta": {metadata_channel: {"parentToolCallId": "child-task"}},
+                                    "toolCallId": "child-call" if metadata_channel else "subagent:worker:lookup",
+                                    "_meta": {metadata_channel: {"parentToolCallId": "child-task"}}
+                                    if metadata_channel
+                                    else {},
                                     "content": {"type": "text", "text": "child answer"},
                                 }
                             },
