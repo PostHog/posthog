@@ -51,7 +51,8 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
     let keychainProblem = probe.usable ? null : probe.reason
     const { host, projectId } = key
     try {
-        await writeLogin(runtime, store, key, { lastLogin: true })
+        // A keychain that times out sends the login to the file below.
+        await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
     } catch (error) {
         // The probe writes an item of its own, so the keychain can still refuse this host's item,
         // such as one an older hog build saved.

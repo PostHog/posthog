@@ -35,7 +35,7 @@ function keychainError(error: unknown): HogError {
 
 // Runs one keychain call. After a moment it tells the person a dialog may be waiting for them, and
 // after KEYCHAIN_TIMEOUT_MS it stops waiting. The dialog can still be answered after that, so `undo`
-// reverts a call that lands late, and no keychain item outlives what settings.json records.
+// reverts a call that lands late.
 async function keychainCall<T>(
     runtime: Runtime,
     operation: () => Promise<T>,
@@ -81,12 +81,12 @@ export class KeychainStore implements CredentialStore {
         return value === null ? undefined : parseSecret(parseJson(value))
     }
 
-    async write(host: string, secret: StoredSecret): Promise<void> {
+    async write(host: string, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {
         const name = hostKey(host)
         await keychainCall(
             this.runtime,
             () => this.runtime.secrets.set(name, JSON.stringify(secret)),
-            () => this.runtime.secrets.delete(name)
+            options.removeIfLate ? () => this.runtime.secrets.delete(name) : undefined
         )
     }
 
