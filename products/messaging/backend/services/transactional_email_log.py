@@ -390,7 +390,10 @@ def _conversion_events(
     start: datetime,
     end: datetime,
 ) -> dict[str, list[tuple[datetime, float | None]]]:
-    """The time and revenue of each person's conversion events, grouped per person so the row limit counts people."""
+    """The time and revenue of each person's conversion events, grouped per person so the row limit counts people.
+
+    A recipient with no person profile is keyed by distinct ID, the same way `transactional_email_results` keys their send.
+    """
     revenue: ast.Expr = (
         ast.Call(
             name="toFloatOrNull",
@@ -401,12 +404,16 @@ def _conversion_events(
     )
     response = execute_hogql_query(
         """
-        SELECT toString(person_id), groupArray({per_person})(tuple(timestamp, {revenue}))
+        SELECT
+            if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
+               toString(person_id), concat('distinct:', distinct_id)) AS recipient,
+            groupArray({per_person})(tuple(timestamp, {revenue}))
         FROM events
         WHERE event = {event}
           AND timestamp >= {start} AND timestamp < {end}
-          AND person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids})
-        GROUP BY person_id
+          AND (distinct_id IN {distinct_ids}
+               OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
+        GROUP BY recipient
         LIMIT {limit}
         """,
         team=team,

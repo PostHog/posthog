@@ -10,6 +10,8 @@ from rest_framework import status
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 from posthog.uuidt import UUIDT
 
@@ -142,6 +144,31 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
+    @parameterized.expand(
+        [
+            ("list", "", ["hog_flow:read"], "person:read"),
+            ("retrieve", "{message_id}/", ["hog_flow:read"], "person:read"),
+            (
+                "results",
+                "results/?event=purchase&workflow_id={workflow_id}",
+                ["hog_flow:read", "person:read"],
+                "query:read",
+            ),
+        ]
+    )
+    def test_a_token_needs_the_scope_for_the_data_it_reads(self, _flag, _name, path, scopes, missing_scope):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+
+        response = self.client.get(
+            self._url(path.format(message_id=message_id, workflow_id=self.workflow_id)),
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert missing_scope in response.json()["detail"]
+
     @parameterized.expand([("another_projects_send", True), ("a_deleted_template", False)])
     def test_hides_what_the_project_cannot_see(self, _flag, _name, other_team):
         team = Team.objects.create(organization=self.organization) if other_team else None
@@ -174,8 +201,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_counts_who_converted_within_the_window_after_their_first_send(self, _flag):
-        for distinct_id, sent_minutes_ago in [("converted", 600), ("too-late", 600 * 24), ("never", 60)]:
-            create_person(team=self.team, distinct_ids=[distinct_id])
+        for distinct_id, sent_minutes_ago in [
+            ("converted", 600),
+            ("too-late", 600 * 24),
+            ("never", 60),
+            ("personless", 600),
+        ]:
+            if distinct_id != "personless":
+                create_person(team=self.team, distinct_ids=[distinct_id])
             sync_execute(
                 """
                 INSERT INTO message_assets_data
@@ -214,6 +247,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         _create_event(
             team=self.team,
             event="purchase",
+            distinct_id="personless",
+            timestamp=NOW - timedelta(minutes=300),
+            properties={"amount": 20, "$process_person_profile": False},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
             distinct_id="too-late",
             timestamp=NOW - timedelta(minutes=300),
             properties={"amount": 50},
@@ -232,7 +272,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"recipients": 3, "converted": 1, "revenue": 30.0, "median_hours_to_convert": 5.0}
+        assert response.json() == {"recipients": 4, "converted": 2, "revenue": 50.0, "median_hours_to_convert": 5.0}
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id

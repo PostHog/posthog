@@ -194,6 +194,15 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         super().initial(request, *args, **kwargs)
         require_transactional_email_api(self.team)
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Sends name their recipients and distinct IDs, the person data the workflow invocation and asset endpoints guard.
+        if self.action in ("list", "retrieve"):
+            return ["hog_flow:read", "person:read"]
+        # Results count any event the caller names, so they read event data the way a query does.
+        if self.action == "results":
+            return ["hog_flow:read", "query:read"]
+        return None
+
     def _workflow_ids(self) -> set[str]:
         # Sends inherit the access of the workflow behind their email.
         return get_viewable_workflow_ids(team_id=self.team_id, user_access_control=self.user_access_control)
