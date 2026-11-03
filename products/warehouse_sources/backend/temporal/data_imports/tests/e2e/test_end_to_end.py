@@ -2918,12 +2918,8 @@ async def test_worker_shutdown_desc_sort_order(team):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
-    def mock_get_messages(*args, **kwargs):
-        yield {
-            "id": "test-message-id",
-            "conversation_updated_at": datetime.now().isoformat(),
-            "created_at": datetime.now().isoformat(),
-        }
+    def mock_get_rows(*args, **kwargs):
+        yield [{"_board_id": "1", "id": "test-log-id", "created_at": datetime.now().isoformat()}]
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -2934,22 +2930,19 @@ async def test_worker_shutdown_desc_sort_order(team):
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
         mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.vitally.get_messages",
-            mock_get_messages,
+            "products.warehouse_sources.sources.monday.monday.get_rows",
+            mock_get_rows,
         ),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="Messages",
-            table_name="vitally_messages",
-            source_type="Vitally",
-            job_inputs={
-                "secret_token": "test_token",
-                "region": {"selection": "EU", "subdomain": ""},
-            },
+            schema_name="board_activity_logs",
+            table_name="monday_board_activity_logs",
+            source_type="Monday",
+            job_inputs={"api_token": "test_token"},
             mock_data_response=[],
             sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
         )
 

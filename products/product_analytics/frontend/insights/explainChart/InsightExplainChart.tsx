@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { ExternalLink } from 'lucide-react'
 import posthog from 'posthog-js'
 import type { ReactNode } from 'react'
+
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -26,12 +29,23 @@ export interface InsightExplainChartProps {
 }
 
 export function InsightExplainChart({ insightProps, renderChart }: InsightExplainChartProps): JSX.Element {
-    const { explainAvailable, story, storyShown, storySeriesKey, formatValue } = useValues(
+    const { explainAvailable, story, storyShown, storyVisible, storyOutdated, storySeriesKey, formatValue } = useValues(
         explainChartLogic(insightProps)
     )
     const { askFollowUp } = useActions(explainChartLogic(insightProps))
 
-    if (!explainAvailable || !story || !storyShown) {
+    if (explainAvailable && storyShown && storyOutdated) {
+        return (
+            <>
+                <LemonBanner type="info" className="m-2">
+                    The explanation is hidden because your changes affect the chart's data. Undo them to see it again,
+                    or save and explain this version.
+                </LemonBanner>
+                {renderChart()}
+            </>
+        )
+    }
+    if (!explainAvailable || !story || !storyVisible) {
         return <>{renderChart()}</>
     }
     return (
@@ -41,6 +55,12 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                 data={story}
                 renderChart={(overlay) => <div data-not-quill>{renderChart(overlay)}</div>}
                 openLink={(url) => window.open(url, '_blank', 'noopener')}
+                openLinkLabel={
+                    <>
+                        Open
+                        <ExternalLink className="size-3" />
+                    </>
+                }
                 formatValue={formatValue}
                 evidenceCharts={EVIDENCE_CHARTS}
                 seriesKey={storySeriesKey ?? undefined}
