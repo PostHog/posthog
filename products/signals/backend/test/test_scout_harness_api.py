@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -12,7 +11,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
-from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -42,6 +40,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
@@ -496,8 +495,6 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
-_RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
-_SCOUT_COSTS_QUERY = "products.signals.backend.scout_harness.scout_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -664,113 +661,6 @@ class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
             response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert [row["finding_id"] for row in response.json()] == ["mine"]
-
-
-class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
-    def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/token-costs/"
-
-    def test_staff_reads_the_cost_of_every_requested_run(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-        priced = _make_run(self.team)
-        unpriced = _make_run(self.team)
-        with patch(_RUN_TOKEN_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.25")}):
-            response = self.client.post(
-                self._url(), data={"run_ids": [str(priced.id), str(unpriced.id)]}, format="json"
-            )
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body["available"] is True
-        costs = {row["run_id"]: row["token_cost_usd"] for row in body["costs"]}
-        # A run with no generations attributed reports null, not 0 — the number the roster showed
-        # for every scout run while the read was keyed on the desktop `ai_product`.
-        assert costs == {str(priced.id): 1.25, str(unpriced.id): None}
-
-    def test_non_staff_is_refused(self) -> None:
-        # Fleet spend is an internal operating number, and the generations sit in a project other
-        # than the one in the path.
-        run = _make_run(self.team)
-        with patch(_RUN_TOKEN_COSTS_QUERY) as query:
-            response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        query.assert_not_called()
-
-
-class TestScoutHarnessScoutCostsAPI(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        cache.clear()
-
-    def _url(self, query: str = "") -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/costs/{query}"
-
-    def _make_staff(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-
-    def test_staff_reads_spend_counts_and_reports_per_scout(self) -> None:
-        self._make_staff()
-        priced = _make_run(self.team, emitted_report_ids=["r-1"], edited_report_ids=["r-1", "r-2"])
-        _make_run(self.team)
-        with patch(_SCOUT_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.68")}):
-            response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body["available"] is True
-        assert body["window_days"] == 7
-        assert body["scouts"] == [
-            {
-                "skill_name": "signals-scout-general",
-                "spend_usd": 1.68,
-                "run_count": 2,
-                # The run that spent nothing is out of the per-run divisor, not priced at zero.
-                "priced_run_count": 1,
-                # `r-1` was filed and then edited by the same run, so it counts once.
-                "reports_touched": 2,
-            }
-        ]
-
-    def test_non_staff_is_refused(self) -> None:
-        # Fleet spend is an internal operating number, and the generations sit in a project other
-        # than the one in the path. Same gate as the per-run cost read.
-        _make_run(self.team)
-        with patch(_SCOUT_COSTS_QUERY) as query:
-            response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        query.assert_not_called()
-
-    @parameterized.expand(["signals/scout/runs/costs", "signals/spend"])
-    def test_child_scoped_api_key_cannot_read_parent_costs(self, endpoint: str) -> None:
-        self._make_staff()
-        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
-        raw = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="child-scoped",
-            user=self.user,
-            secure_value=hash_key_value(raw),
-            scopes=["signal_usage:read" if endpoint == "signals/spend" else "signal_scout:read"],
-            scoped_teams=[child.id],
-        )
-        self.client.logout()
-
-        with patch(_SCOUT_COSTS_QUERY) as query:
-            response = self.client.get(
-                f"/api/projects/{child.id}/{endpoint}/",
-                HTTP_AUTHORIZATION=f"Bearer {raw}",
-            )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        query.assert_not_called()
-
-    def test_unsupported_window_is_refused_rather_than_silently_widened(self) -> None:
-        # The parameter exists so a detail page can ask for 30 days later. Until it can, a request
-        # for 30 must not come back as a 7-day number labelled 30.
-        self._make_staff()
-        with patch(_SCOUT_COSTS_QUERY) as query:
-            response = self.client.get(self._url("?window_days=30"))
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        query.assert_not_called()
 
 
 class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
@@ -5935,9 +5825,7 @@ _LIGHTHOUSE_REPORT = {
 class TestScoutHarnessLighthouseAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(
-            patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
-        )
+        self.enterContext(mock_anti_ssrf_dns_lookup())
         # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
         _authenticate_as_scout(self)
 
@@ -6187,6 +6075,22 @@ class TestScoutSpendOverview(APIBaseTest):
         with self.assertNumQueries(0):
             cached = SpendReporting(self.team).scouts()
         assert cached.scout_spend.total_spend == 200.375
+
+    def test_child_scoped_api_key_cannot_read_parent_spend(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_usage:read"],
+            scoped_teams=[child.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(f"/api/projects/{child.id}/signals/spend/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand([("empty", False, 0), ("untracked", True, None)])
     def test_total_without_receipts(self, _name: str, has_run: bool, expected: float | None) -> None:
