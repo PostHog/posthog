@@ -459,16 +459,20 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         """The kinds whose flag is on for the caller: a kind's `access_flag` when it has one, and
         `platform-alerts` otherwise."""
         specs = editable_source_configs()
-        flags: dict[str, bool] = {}
-        open_kinds: set[str] = set()
+        flag_of_kind: dict[str, str] = {}
         for source_kind in SOURCE_KIND_RESOURCE:
             spec = specs.get(SourceKind(source_kind))
-            flag = spec.access_flag if spec is not None and spec.access_flag else PLATFORM_ALERTS_FLAG
-            if flag not in flags:
-                flags[flag] = self._flag_enabled(flag)
-            if flags[flag]:
-                open_kinds.add(source_kind)
-        return frozenset(open_kinds)
+            flag_of_kind[source_kind] = (
+                spec.access_flag if spec is not None and spec.access_flag else PLATFORM_ALERTS_FLAG
+            )
+        enabled = {flag: self._flag_enabled(flag) for flag in set(flag_of_kind.values())}
+        return frozenset(kind for kind, flag in flag_of_kind.items() if enabled[flag])
+
+    def _flag_required(self, source_kind: str) -> PermissionDenied:
+        label = PlatformAlertConfigurationSourceKind(source_kind).label
+        return PermissionDenied(
+            f"{label} alerts are not available for this project yet.", code=FEATURE_FLAG_REQUIRED_ERROR_CODE
+        )
 
     def _flag_enabled(self, flag: str) -> bool:
         return permissions.posthog_feature_flag_enabled(
@@ -594,10 +598,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
                 {"source_kind": f"Must be one of: {', '.join(sorted(create_serializers()))}."}, code="invalid_choice"
             )
         if source_kind not in self.open_source_kinds:
-            raise PermissionDenied(
-                f"{source_kind.capitalize()} alerts are not available for this project yet.",
-                code=FEATURE_FLAG_REQUIRED_ERROR_CODE,
-            )
+            raise self._flag_required(source_kind)
         # The kind comes from the body, so the source product's scope and access are checked here
         # rather than through `required_scopes`.
         if source_kind not in self._source_kinds_with("editor", "write"):
@@ -630,10 +631,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         if spec is None or spec.rollout_flag is None:
             return
         if not self._flag_enabled(spec.rollout_flag):
-            raise PermissionDenied(
-                f"{source_kind.value.capitalize()} alerts are not available for this project yet.",
-                code=FEATURE_FLAG_REQUIRED_ERROR_CODE,
-            )
+            raise self._flag_required(source_kind.value)
 
     def _track(self, action: Literal["created", "deleted"], configuration: PlatformAlertConfigurationView) -> None:
         report_user_action(
