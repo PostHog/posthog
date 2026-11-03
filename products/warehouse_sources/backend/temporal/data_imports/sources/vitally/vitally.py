@@ -280,6 +280,53 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             },
             "table_format": "delta",
         },
+        # The lookup and meeting endpoints below are full refresh only: Vitally documents no server-side
+        # `updatedAt` filter for them. `sortBy=createdAt` keeps each row on one page while rows update mid-crawl.
+        "Admins": {
+            "name": "Admins",
+            "table_name": "admins",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "results",
+                "path": "/resources/admins",
+                # Admins have no `createdAt`, so they keep the default order.
+                "params": {"limit": 100},
+            },
+            "table_format": "delta",
+        },
+        "Meetings": {
+            "name": "Meetings",
+            "table_name": "meetings",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "results",
+                "path": "/resources/meetings",
+                "params": {"limit": 100, "sortBy": "createdAt"},
+            },
+            "table_format": "delta",
+        },
+        "Project_Templates": {
+            "name": "Project_Templates",
+            "table_name": "project_templates",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "results",
+                "path": "/resources/projectTemplates",
+                "params": {"limit": 100, "sortBy": "createdAt"},
+            },
+            "table_format": "delta",
+        },
+        "Project_Categories": {
+            "name": "Project_Categories",
+            "table_name": "project_categories",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": "results",
+                "path": "/resources/projectCategories",
+                "params": {"limit": 100, "sortBy": "createdAt"},
+            },
+            "table_format": "delta",
+        },
     }
 
     return resources[name]
