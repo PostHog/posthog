@@ -218,7 +218,6 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     const descriptionInputId = useId()
     const returnType = draft.config.return_type
     const groupTypeIndex = draft.config.aggregation_group_type_index
-    // A stable object, so the memoized rule cards skip re-rendering when another field changes.
     const subjects = useMemo(() => aggregationLabel(groupTypeIndex, true), [aggregationLabel, groupTypeIndex])
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const sensors = useSensors(

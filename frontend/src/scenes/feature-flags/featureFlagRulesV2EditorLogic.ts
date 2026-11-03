@@ -441,7 +441,6 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         ],
     }),
     selectors({
-        // Equal errors keep their identity, so a card that reads `fieldError` re-renders only when its errors change.
         draftErrors: [
             (s) => [s.draft],
             (draft: FeatureFlagRulesV2Draft): Record<string, string> => rulesV2DraftErrors(draft.config),

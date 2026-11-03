@@ -134,7 +134,6 @@ function RolloutRow({
     )
 }
 
-// Memoized, so an edit to one rule re-renders only that rule's card.
 export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
     id,
     index,

@@ -46,7 +46,6 @@ export const RULES_V2_RULE_TYPE_META: Record<
     },
 }
 
-/** A menu entry's label for a rule type: its name over a one-line description. */
 export function rulesV2RuleTypeMenuLabel(ruleType: RulesV2RuleType): JSX.Element {
     const meta = RULES_V2_RULE_TYPE_META[ruleType]
     return (
@@ -195,17 +194,14 @@ interface RulesV2RolloutShape {
     paused?: boolean
 }
 
-/** The share of a rule's matching users that its rollout enrolls, after any holdout. */
 function enrolledPercentage(rule: RulesV2RolloutShape): number {
     return ((100 - (rule.holdout?.exclusion_percentage ?? 0)) * rule.rollout_percentage) / 100
 }
 
-/** The share of a rule's matching users that it reaches, or null for a paused experiment, which enrolls no one. */
 export function rulesV2ReachedPercentage(rule: RulesV2RolloutShape): number | null {
     return rule.paused ? null : enrolledPercentage(rule)
 }
 
-/** Each variant's share of the rule's matching users, after the holdout and the rollout. */
 export function rulesV2ExperimentSegments(
     rule: RulesV2RolloutShape & { variants: FeatureFlagRulesV2Variant[] }
 ): RulesV2AllocationSegment[] {
@@ -273,7 +269,6 @@ export function RulesV2MatchCountText({
                         Couldn't estimate
                     </span>
                 </Tooltip>
-                {/* A too-slow estimate or a bad condition fails the same way again. */}
                 {isBlastRadiusErrorRetryable(count.error) && (
                     <LemonButton size="xsmall" type="tertiary" onClick={count.retry}>
                         Retry
@@ -330,7 +325,6 @@ export function RulesV2DefaultStep({
     rules: Parameters<typeof rulesV2CatchAllRule>[0]
 }): JSX.Element {
     const hasRules = rules.length > 0
-    // A rule that claims every user, so nobody falls through to this step.
     const catchAllRule = rulesV2CatchAllRule(rules)
     return (
         <div
@@ -406,7 +400,6 @@ export function RulesV2PausedTag(): JSX.Element {
     )
 }
 
-/** The row a paused experiment shows instead of enrolling anyone. */
 export function RulesV2PausedRow({
     subjects,
     defaultValue,
@@ -415,7 +408,6 @@ export function RulesV2PausedRow({
 }: {
     subjects: Noun
     defaultValue: JsonType | null
-    /** When the pause ends, as in "until you resume". */
     until: string
     className?: string
 }): JSX.Element {

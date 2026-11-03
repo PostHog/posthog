@@ -36,7 +36,6 @@ function sharedMatchCount(
     }
     recentMatchCounts.delete(cacheKey)
     if (recentMatchCounts.size >= CACHE_MAX_ENTRIES) {
-        // A Map iterates in insertion order, so its first key is the oldest entry.
         const oldest = recentMatchCounts.keys().next().value
         if (oldest !== undefined) {
             recentMatchCounts.delete(oldest)
@@ -48,7 +47,6 @@ function sharedMatchCount(
     }).then(({ affected, total }) => ({ affected, total }))
     const entry = { promise, at: Date.now() }
     recentMatchCounts.set(cacheKey, entry)
-    // A failure is not kept, so a retry asks again.
     promise.catch(() => {
         if (recentMatchCounts.get(cacheKey) === entry) {
             recentMatchCounts.delete(cacheKey)
@@ -130,7 +128,6 @@ export const rulesV2MatchCountLogic = kea<rulesV2MatchCountLogicType>([
             () => [(_, props) => props.propertiesKey],
             (propertiesKey: string): AnyPropertyFilter[] => JSON.parse(propertiesKey),
         ],
-        // An incomplete condition would count as matching nobody.
         countable: [
             (s) => [s.properties],
             (properties: AnyPropertyFilter[]): boolean => !properties.some(isIncompleteRulesV2Condition),

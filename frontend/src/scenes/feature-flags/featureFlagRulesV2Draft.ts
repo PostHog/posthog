@@ -308,7 +308,6 @@ function matchesEveryoneOf(earlier: RulesV2ReachabilityRule, later: RulesV2Reach
  * someone. It only spots shadowing it can prove from the conditions; overlapping conditions are not compared.
  */
 export function rulesV2ShadowingRules(rules: RulesV2ReachabilityRule[]): (number | null)[] {
-    // An incomplete condition never matches, so a rule that has one claims no one.
     const claims = rules.map(
         (rule) => claimsEveryMatch(rule) && !rule.targeting.properties.some(isIncompleteRulesV2Condition)
     )
