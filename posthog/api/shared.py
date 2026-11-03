@@ -203,6 +203,12 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             model_class = Team
         return super().build_field(field_name, info, model_class, nested_depth)
 
+    def field_attribute_source(self, instance: Any, field_name: str) -> Any:
+        """The object a field reads its value from: the passthrough team for team fields, else the project."""
+        if field_name in self.Meta.team_passthrough_fields:
+            return instance.passthrough_team
+        return instance
+
     def to_representation(self, instance):
         """
         Object instance -> Dict of primitive datatypes. Basically copied from Serializer.to_representation
@@ -213,11 +219,8 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
         for field in fields:
             assert field.field_name is not None
             try:
-                attribute_source = instance
-                if field.field_name in self.Meta.team_passthrough_fields:
-                    # This branch is the only material change from the original method
-                    attribute_source = instance.passthrough_team
-                attribute = field.get_attribute(attribute_source)
+                # `field_attribute_source` is the only material change from the original method
+                attribute = field.get_attribute(self.field_attribute_source(instance, field.field_name))
             except SkipField:
                 continue
 

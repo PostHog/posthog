@@ -55,6 +55,9 @@ class PostHogConfig(AppConfig):
         import posthog.storage.checks  # noqa: F401, PLC0415
         import posthog.models.file_system.signal_handlers  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
+        from posthog.caching.team_representation_cache import connect_team_representation_invalidation  # noqa: PLC0415
+
+        connect_team_representation_invalidation()
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
         if settings.COMMAND_EXEC_AUDIT_ENABLED:

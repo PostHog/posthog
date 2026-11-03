@@ -56,6 +56,7 @@ from posthog.api.team.settings_validation import (
     validate_team_attrs,
     validate_team_workflows_config,
 )
+from posthog.api.team.shared_representation import SharedTeamRepresentationMixin
 from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
@@ -616,6 +617,7 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
 
 class ProjectBackwardCompatSerializer(
     TaggedItemSerializerMixin,
+    SharedTeamRepresentationMixin,
     UserAccessControlSerializerMixin,
     ProjectBackwardCompatBasicSerializer,
     UserPermissionsSerializerMixin,
@@ -625,6 +627,8 @@ class ProjectBackwardCompatSerializer(
     This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
     onto /api/projects/ never loses a field.
     """
+
+    per_request_fields = TeamSerializer.per_request_fields | {"tags"}
 
     tags = project_tags.tags_field()
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
@@ -1015,11 +1019,17 @@ class ProjectBackwardCompatSerializer(
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+        return representation
+
+    def field_attribute_source(self, instance: Project, field_name: str) -> Any:
+        # The shared-representation mixin comes first in this class's bases, so its default would hide this rule.
+        return ProjectBackwardCompatBasicSerializer.field_attribute_source(self, instance, field_name)
+
+    def finish_shared_representation(self, instance: Project, representation: dict[str, Any]) -> None:
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
-        return representation
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if isinstance(obj, ObjectAccessRef):

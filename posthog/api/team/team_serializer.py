@@ -11,6 +11,7 @@ from rest_framework import exceptions, serializers
 
 from posthog import cloud_utils
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.api.team.shared_representation import SharedTeamRepresentationMixin
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.constants import AvailableFeature
 from posthog.geoip import get_geoip_properties
@@ -61,9 +62,27 @@ from . import (
 tracer = trace.get_tracer(__name__)
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
+class TeamSerializer(
+    SharedTeamRepresentationMixin,
+    serializers.ModelSerializer,
+    UserPermissionsSerializerMixin,
+    UserAccessControlSerializerMixin,
+):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
+    per_request_fields = frozenset(
+        {
+            "effective_membership_level",
+            "user_access_level",
+            "live_events_token",
+            "heatmaps_screenshot_secret",
+            "product_intents",
+            "has_group_types",
+            "group_types",
+            "managed_viewsets",
+            "flag_evaluations_mode",
+        }
+    )
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -179,13 +198,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def to_representation(self, instance):
         with tracer.start_as_current_span("team_serializer.default_fields"):
             representation = super().to_representation(instance)
+        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+
+        return representation
+
+    def finish_shared_representation(self, instance: Team, representation: dict[str, Any]) -> None:
         # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
-        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
-
-        return representation
 
     @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
