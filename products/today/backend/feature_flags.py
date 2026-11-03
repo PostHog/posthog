@@ -1,6 +1,9 @@
 """Who gets the Today home and its decision model."""
 
+from django.core.cache import cache
+
 import structlog
+import posthoganalytics
 
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
@@ -10,6 +13,8 @@ logger = structlog.get_logger(__name__)
 TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 TODAY_REPORT_JEV_FLAG = "today-report-jev"
 TODAY_PROGRESSIVE_PULSE_FLAG = "today-progressive-pulse"
+TODAY_FLAGS = (TODAY_RAIL_NAV_FLAG, TODAY_REPORT_JEV_FLAG, TODAY_PROGRESSIVE_PULSE_FLAG)
+API_FLAGS_CACHE_SECONDS = 60
 
 
 def progressive_pulse_enabled(user: User, team: Team) -> bool:
@@ -30,6 +35,36 @@ def _group_properties(team: Team) -> dict[str, dict[str, str]]:
 
 
 def _flag_on(flag: str, user: User, team: Team) -> bool:
+    if _local_flag_on(TODAY_RAIL_NAV_FLAG, user, team):
+        return flag == TODAY_RAIL_NAV_FLAG or _local_flag_on(flag, user, team)
+    return _api_flags(user, team).get(flag, False)
+
+
+def _api_flags(user: User, team: Team) -> dict[str, bool]:
+    key = f"today_flags:{team.id}:{user.id}"
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        decision = posthoganalytics.setup().get_flags_decision(
+            str(user.distinct_id),
+            groups=_groups(team),
+            person_properties={"email": user.email},
+            group_properties=_group_properties(team),
+            flag_keys_to_evaluate=list(TODAY_FLAGS),
+        )
+    except Exception:
+        logger.warning("today_flag_check_failed", exc_info=True)
+        return {}
+    found = decision.get("flags") or {}
+    if decision.get("errorsWhileComputingFlags") or TODAY_RAIL_NAV_FLAG not in found:
+        return {}
+    flags = {name: found[name].enabled is True for name in TODAY_FLAGS if name in found}
+    cache.set(key, flags, API_FLAGS_CACHE_SECONDS)
+    return flags
+
+
+def _local_flag_on(flag: str, user: User, team: Team) -> bool:
     try:
         return feature_enabled_or_false(
             flag,

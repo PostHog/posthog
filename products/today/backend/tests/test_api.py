@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.core.cache import cache
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlag
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -432,13 +433,21 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 )
         return response
 
-    @parameterized.expand([("flag on", True, status.HTTP_200_OK), ("flag off", False, status.HTTP_404_NOT_FOUND)])
-    def test_highlights_need_the_flag_but_not_ai(self, _name: str, flag: bool, expected: int) -> None:
+    @parameterized.expand(
+        [
+            ("flag on", True, False, status.HTTP_200_OK),
+            ("flag off", False, False, status.HTTP_404_NOT_FOUND),
+            ("joined through feature previews", False, True, status.HTTP_200_OK),
+        ]
+    )
+    def test_highlights_need_the_flag_but_not_ai(self, _name: str, flag: bool, api_flag: bool, expected: int) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         cache.clear()
+        decision = {"flags": {"today-rail-nav": FeatureFlag.from_value_and_payload("today-rail-nav", api_flag, None)}}
 
-        response = self._get(_temporal(), flag)
+        with patch("posthoganalytics.Client.get_flags_decision", return_value=decision):
+            response = self._get(_temporal(), flag)
 
         self.assertEqual(response.status_code, expected)
 
