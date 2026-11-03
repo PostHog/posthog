@@ -49,6 +49,8 @@ class TestParseMessageLink(SimpleTestCase):
             ("plain_http", "http://posthog.slack.com/archives/C1/p1700000000000100"),
             ("short_ts", "https://posthog.slack.com/archives/C1/p17000000"),
             ("not_a_url", "C1/p1700000000000100"),
+            # urlparse raises on an unclosed IPv6 bracket, which must read as "not a link", not a 500.
+            ("malformed_authority", "https://[slack.com/archives/C1/p1700000000000100"),
         ]
     )
     def test_refuses_anything_else(self, _name: str, url: str) -> None:

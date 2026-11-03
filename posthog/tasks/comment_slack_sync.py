@@ -1,5 +1,5 @@
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
@@ -9,6 +9,7 @@ from django.db import transaction
 import structlog
 import posthoganalytics
 from celery import Task, shared_task
+from celery.exceptions import Retry
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -75,14 +76,14 @@ def _sync_killed(team_id: int) -> bool:
         return False
 
 
-def _slack_retry_after(exc: Exception) -> int | None:
+def _slack_retry_after(exc: Exception, *, cap: int = 30) -> int | None:
     """Seconds Slack asked us to wait when the failure is a rate limit; None for other errors."""
     if not isinstance(exc, SlackApiError) or exc.response is None:
         return None
     if exc.response.get("error") != "ratelimited":
         return None
     try:
-        return min(int(exc.response.headers.get("Retry-After", "1")), 30)
+        return min(int(exc.response.headers.get("Retry-After", "1")), cap)
     except (AttributeError, TypeError, ValueError):
         return 1
 
@@ -143,6 +144,23 @@ def _reply_skip_reason(reply: Comment) -> str | None:
     if SLACK_SYNCED_TS_KEY in item_context:
         return "already_synced"
     return None
+
+
+# How long a reply written in PostHog can still be on its way to Slack. mirror_comment_reply_to_slack gives
+# up within a few minutes, so an unsynced reply older than this was refused or ran out of retries and
+# will never get there.
+REPLY_DELIVERY_WINDOW = timedelta(minutes=15)
+
+
+def replies_awaiting_slack(team_id: int, root_id: UUID | str) -> int:
+    """How many replies written in PostHog under a mirrored discussion are still on their way to Slack."""
+    replies = Comment.objects.filter(
+        team_id=team_id,
+        source_comment_id=root_id,
+        deleted=False,
+        created_at__gte=datetime.now(UTC) - REPLY_DELIVERY_WINDOW,
+    ).only("scope", "item_context")
+    return sum(1 for reply in replies if _reply_skip_reason(reply) is None)
 
 
 def slack_message_comment_content(text: str, blocks: list | None, files: list | None) -> tuple[str, Any] | None:
@@ -257,7 +275,10 @@ def _save_slack_reply_once(
     the second path finds the first path's comment.
     """
     with transaction.atomic():
-        list(CommentSlackThread.objects.unscoped().select_for_update().filter(id=mirror.id).values_list("id"))
+        # No row means the thread was unlinked while this message was on its way, so its discussion
+        # is gone and the message has nowhere to go.
+        if not list(CommentSlackThread.objects.unscoped().select_for_update().filter(id=mirror.id).values_list("id")):
+            return None
         if _slack_reply_exists(team.id, mirror, message_ts):
             return None
         comment = Comment.objects.create(
@@ -543,6 +564,8 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
 LINKED_THREAD_IMPORT_PAGE_SIZE = 200
 LINKED_THREAD_IMPORT_MESSAGE_LIMIT = 1000
 LINKED_THREAD_IMPORT_SOURCE = "discussion_slack_import"
+# Slack's Retry-After is honoured in full, up to this, so a long cooldown doesn't use up the retries.
+LINKED_THREAD_IMPORT_MAX_COOLDOWN_SECONDS = 900
 
 # Stamped by the server on a linked thread's root comment. The import state tells API readers whether
 # the thread's history is complete ("pending", "done", "truncated" or "failed"). The notice ts keeps
@@ -665,6 +688,43 @@ def _import_history_page(
     return imported
 
 
+def _fail_linked_thread_import(mirror: CommentSlackThread, reason: str) -> None:
+    _stamp_root(mirror, {SLACK_IMPORT_STATE_KEY: "failed"})
+    logger.warning("linked_slack_thread_import_failed", comment_slack_thread_id=str(mirror.id), error=reason)
+
+
+def _retry_or_fail_import(
+    task: Task, mirror: CommentSlackThread, exc: Exception, *, final_attempt: bool, countdown: int | None = None
+) -> None:
+    """Retry the page, or say the import failed when no retry is left or none can be queued.
+
+    A broker that refuses the retry would otherwise leave the root saying its history is on its way.
+    """
+    if not final_attempt:
+        try:
+            raise task.retry(exc=exc, countdown=countdown)
+        except Retry:
+            raise
+        except Exception:
+            logger.warning(
+                "linked_slack_thread_import_retry_not_queued", comment_slack_thread_id=str(mirror.id), exc_info=True
+            )
+    _fail_linked_thread_import(mirror, type(exc).__name__)
+
+
+def start_linked_thread_import(mirror: CommentSlackThread) -> None:
+    """Queue a newly linked thread's import, or say it failed when the broker won't take it.
+
+    The link has already committed, so a broker failure can't undo it, and an import that never
+    starts would leave the root saying its history is on its way. "failed" tells the person to
+    unlink and link again.
+    """
+    try:
+        import_linked_slack_thread.delay(comment_slack_thread_id=str(mirror.id))
+    except Exception as exc:
+        _fail_linked_thread_import(mirror, type(exc).__name__)
+
+
 @shared_task(bind=True, ignore_result=True, max_retries=5, default_retry_delay=30)
 @skip_team_scope_audit  # Comment is on RootTeamManager; writes pin the team via the mirror row
 def import_linked_slack_thread(
@@ -719,22 +779,21 @@ def import_linked_slack_thread(
             allow_unresolved=final_attempt,
         )
     except Exception as exc:
-        if final_attempt:
-            _stamp_root(mirror, {SLACK_IMPORT_STATE_KEY: "failed"})
-            logger.warning(
-                "linked_slack_thread_import_failed",
-                comment_slack_thread_id=comment_slack_thread_id,
-                error=type(exc).__name__,
-            )
-            return
-        raise self.retry(exc=exc, countdown=_slack_retry_after(exc))
+        countdown = _slack_retry_after(exc, cap=LINKED_THREAD_IMPORT_MAX_COOLDOWN_SECONDS)
+        _retry_or_fail_import(self, mirror, exc, final_attempt=final_attempt, countdown=countdown)
+        return
 
     seen += len(messages)
     if next_cursor and seen < LINKED_THREAD_IMPORT_MESSAGE_LIMIT:
         # A fresh task per page gets a fresh retry budget, so one bad page can't use up the thread's.
-        import_linked_slack_thread.apply_async(
-            kwargs={"comment_slack_thread_id": comment_slack_thread_id, "cursor": next_cursor, "seen": seen}
-        )
+        try:
+            import_linked_slack_thread.apply_async(
+                kwargs={"comment_slack_thread_id": comment_slack_thread_id, "cursor": next_cursor, "seen": seen}
+            )
+        except Exception as exc:
+            # Re-running this page is safe: its messages are already saved and are skipped.
+            _retry_or_fail_import(self, mirror, exc, final_attempt=final_attempt)
+            return
     else:
         state = "truncated" if next_cursor else "done"
         _stamp_root(mirror, {SLACK_IMPORT_STATE_KEY: state})

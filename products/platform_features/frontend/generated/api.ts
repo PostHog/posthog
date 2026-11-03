@@ -1253,7 +1253,7 @@ export const getCommentsUnlinkSlackThreadCreateUrl = (projectId: string, id: str
 }
 
 /**
- * Undo link_slack_thread on a discussion's opening comment: stop syncing the Slack thread and remove the discussion it created, opening comment and replies. The thread stays in Slack and can be linked again. 400 for a discussion that wasn't linked from an existing thread. 404 when the feature is not enabled for the team.
+ * Undo link_slack_thread on a discussion's opening comment: stop syncing the Slack thread and remove the discussion it created, opening comment and replies. The thread stays in Slack and can be linked again. 400 for a discussion that wasn't linked from an existing thread, or while replies written here haven't reached the Slack thread yet. 403 for someone who couldn't link it: only full members of the connected Slack workspace can. 404 when the feature is not enabled for the team.
  */
 export const commentsUnlinkSlackThreadCreate = async (
     projectId: string,
