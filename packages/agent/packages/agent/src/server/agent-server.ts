@@ -2496,7 +2496,7 @@ export class AgentServer {
         this.config.fastMode !== undefined && {
           fastMode: this.config.fastMode,
         }),
-      ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
+      ...this.buildClaudeCodeSessionMeta(runtimeAdapter, launch.disableSkills),
     };
 
     await this.measureInitialization("repository_ready", () =>
@@ -4570,12 +4570,13 @@ export class AgentServer {
    */
   private buildClaudeCodeSessionMeta(
     runtimeAdapter: Adapter,
+    disableSkills = false,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =
       runtimeAdapter === "claude" ? this.config.reasoningEffort : undefined;
 
-    if (!plugins?.length && !effort) {
+    if (!plugins?.length && !effort && !disableSkills) {
       return undefined;
     }
 
@@ -4585,6 +4586,9 @@ export class AgentServer {
     }
     if (effort) {
       options.effort = effort;
+    }
+    if (disableSkills) {
+      options.skills = [];
     }
     return { claudeCode: { options } };
   }
