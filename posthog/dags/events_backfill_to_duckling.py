@@ -2612,9 +2612,8 @@ def backfill_through_trino(
     partitions_exported = 0
     files_registered = 0
     register = not (config.dry_run or config.skip_ducklake_registration)
-    # A run that replaces the whole table loses nothing when it rebuilds the table. A table that duckgres created can
-    # hold unsigned types, which add_files refuses to convert from the export's types. Such a run also rebuilds a table
-    # that misses a column or has another type in Trino, because the export defines the whole snapshot.
+    # A run that replaces the whole table loses nothing when it rebuilds the table, so only such a run may rebuild a
+    # table whose types differ from the export, such as a table with the unsigned columns that duckgres creates.
     replaces_table = (
         config.cleanup_existing_partition_data
         and bool(exports)

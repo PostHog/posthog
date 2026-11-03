@@ -51,8 +51,6 @@ TRANSIENT_DUCKLAKE_ERROR_NAMES = frozenset(
     {"DUCKLAKE_COMMIT_CONFLICT", "DUCKLAKE_CONCURRENT_MODIFICATION", "DUCKLAKE_COMMIT_FAILED"}
 )
 STATEMENT_ATTEMPTS = 4
-# The connector words its error this way for a file whose column type differs from the table's, and names the table's
-# type after "versus".
 PARQUET_TYPE_MISMATCH_PREFIX = "Parquet type does not match column"
 PARQUET_UNSIGNED_INTEGER = re.compile(r"INTEGER\(\d+,\s*false\)")
 REBUILD_HINT = "Only a backfill that replaces the whole table can rebuild it with the export's types."
@@ -97,7 +95,8 @@ def _column_definitions(columns: Mapping[str, str]) -> str:
 
 def _is_unsigned_column_mismatch(error: TrinoQueryError) -> bool:
     # DuckLake shows an unsigned column as a wider signed Trino type, so only add_files sees that a table duckgres
-    # created holds one. Any other mismatch means that the export wrote a wrong type, which a rebuild cannot fix.
+    # created holds one. The connector names the table's type after "versus". Any other mismatch means that the export
+    # wrote a wrong type, which a rebuild cannot fix.
     message = str(error.message)
     if error.error_name != "DUCKLAKE_BAD_DATA" or not message.startswith(PARQUET_TYPE_MISMATCH_PREFIX):
         return False
@@ -147,8 +146,8 @@ class TrinoBackfillCatalog:
     )
     def _run(self, statement: str) -> list[list[Any]]:
         # Every statement here can run again. DDL has IF [NOT] EXISTS, deleting a range twice deletes nothing more,
-        # and add_files records its import_id, so a repeat of an applied import adds nothing. CREATE OR REPLACE runs
-        # before the add_files that fills the table, so a repeat recreates a table that is still empty.
+        # and add_files records its import_id, so a repeat of an applied import adds nothing.
+        # CREATE OR REPLACE runs before the add_files that fills the table, so a repeat recreates an empty table.
         cursor = self._connection.cursor()
         try:
             cursor.execute(statement)
@@ -168,21 +167,6 @@ class TrinoBackfillCatalog:
         if validate:
             self._validate(table, columns)
 
-    def _columns(self, table: str) -> dict[str, str]:
-        rows = self._run(
-            f"SELECT column_name, data_type FROM {self._catalog}.information_schema.columns "
-            f"WHERE table_schema = {escape_trino_string(BACKFILL_SCHEMA)} AND table_name = {escape_trino_string(table)}"
-        )
-        return {str(name): str(data_type) for name, data_type in rows}
-
-    def replace_table(self, table: str, columns: Mapping[str, str]) -> None:
-        _refuse_shared_table(table, "rebuild")
-        # Views can select a column that the export does not write, so the rebuilt table keeps it.
-        kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
-        # The connector ends the old table and creates the new one in one commit, so readers see an empty table at
-        # worst.
-        self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
-
     def _validate(self, table: str, columns: Mapping[str, str]) -> None:
         # A table can have more columns than the export, because add_files reads a missing column as NULL.
         actual = self._columns(table)
@@ -194,6 +178,19 @@ class TrinoBackfillCatalog:
                 f"Table {BACKFILL_SCHEMA}.{table} does not match the backfill export, so add_files would refuse its "
                 f"files. Expected {dict(columns)}, but these columns differ: {mismatched}. {REBUILD_HINT}"
             )
+
+    def _columns(self, table: str) -> dict[str, str]:
+        rows = self._run(
+            f"SELECT column_name, data_type FROM {self._catalog}.information_schema.columns "
+            f"WHERE table_schema = {escape_trino_string(BACKFILL_SCHEMA)} AND table_name = {escape_trino_string(table)}"
+        )
+        return {str(name): str(data_type) for name, data_type in rows}
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None:
+        _refuse_shared_table(table, "rebuild")
+        # Views can select a column that the export does not write, so the rebuilt table keeps it.
+        kept = {name: data_type for name, data_type in self._columns(table).items() if name not in columns}
+        self._run(f"CREATE OR REPLACE TABLE {self._table(table)} ({_column_definitions({**columns, **kept})})")
 
     def register_files(
         self, table: str, files: Sequence[str], *, import_id: str, replacement: Replacement | None
