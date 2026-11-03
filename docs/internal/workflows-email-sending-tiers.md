@@ -117,3 +117,4 @@ A committed state change reaches the workers through the `reload-sandbox-sender-
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier can leave them out of its promotion volume; test sends record neither.
 The team's sending allowance also leaves out `email_sandbox_sent`, floored at zero per workflow.
+The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included. Without that setting on the CDP API, the event never fires.

@@ -270,6 +270,7 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
+        | 'email_sandbox_sent'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'

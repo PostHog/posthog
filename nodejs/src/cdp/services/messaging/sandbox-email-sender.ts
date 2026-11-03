@@ -335,6 +335,13 @@ export class SandboxEmailSender {
         })
     }
 
+    public async captureDelivered(teamId: number, isTest: boolean, recipientCount: number): Promise<void> {
+        await this.captureEvent(teamId, 'workflows sandbox email delivered', {
+            recipient_count: recipientCount,
+            is_test: isTest,
+        })
+    }
+
     public async captureBlocked(
         teamId: number,
         isTest: boolean,
