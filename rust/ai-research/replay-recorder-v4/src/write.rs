@@ -929,6 +929,27 @@ mod tests {
                 );
             }
         }
+        // A URL with an inline image in its path is one URL, so the slot gets its reference, which leaves out the
+        // fragment. The same holds for a host the URL parser reads in another form. A srcset reads the comma of such a
+        // URL as malformed, so it keeps no candidate.
+        for url in [
+            "https://cdn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+            "https://%63dn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+            "https://ç.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+        ] {
+            for attributes in [json!({"src": url}), json!({"srcset": format!("{url} 1x")})] {
+                let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "texts": [], "attributes": [],
+                    "adds": [{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": attributes, "childNodes": [], "id": 5}}]}}])
+                .to_string();
+                let lines = stored_lines(&events);
+                assert!(
+                    !lines.is_empty()
+                        && !lines.contains("access_token")
+                        && !lines.contains("example.com"),
+                    "{lines}"
+                );
+            }
+        }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept, also for a bundled font, which names no URL, and for an escaped font URL, as the scan decodes it, of a bundled family too.
         let bundled_font = json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
             "attributes": {"_cssText": format!("@font-face{{font-family:Roboto;src:url({signed})}}")}, "childNodes": [], "id": 5}});
