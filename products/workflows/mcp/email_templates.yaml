@@ -156,8 +156,10 @@ tools:
             domain the project verified; sender_not_verified means nothing was sent. Leave from out to send from the
             project's default sender; sender_required means the project has several senders and no default, so ask the
             user which address to send from. Sending takes two calls: prepare
-            checks the email and returns a message for the user, and execute sends it only after the user replies with
-            the literal word 'confirm'. Each execute call sends an email, so never repeat one that succeeded. A 503, a
+            checks only the arguments and returns a message for the user, and execute sends it only after the user
+            replies with the literal word 'confirm'. PostHog checks the sender and the content when execute runs, so
+            settle from before prepare, and tell the user which address the email goes out from (the address you pass,
+            or the project's default sender). Each execute call sends an email, so never repeat one that succeeded. A 503, a
             timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do not
             try again on your own, tell the user. A 404 with code not_found means sending email from code is not enabled
             for this project, or the project does not exist: stop and tell the user.
@@ -171,12 +173,13 @@ tools:
                 required: true
             html:
                 description: >
-                    HTML body of the email, exactly as the recipient should see it. Through this tool the whole request,
-                    html and text together, must stay under 1 MiB; a larger email can't be sent here.
+                    HTML body of the email, exactly as the recipient should see it. Through this tool the whole request
+                    as JSON, html and text included, must stay under 1 MiB, and quotes and line breaks count twice. A
+                    larger email can't be sent here.
             text:
                 description: >
                     Plain text body of the email. Without it, PostHog derives the text from html. Through this tool the
-                    whole request, html and text together, must stay under 1 MiB.
+                    whole request as JSON, html and text included, must stay under 1 MiB.
             distinct_id:
                 description: >
                     Distinct ID of the recipient's person. The send and its engagement events are recorded against that
