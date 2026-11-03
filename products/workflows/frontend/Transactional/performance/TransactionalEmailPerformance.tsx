@@ -12,10 +12,10 @@ import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailPerformance(): JSX.Element {
-    const { days, templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } = useValues(
+    const { hours, templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } = useValues(
         transactionalEmailPerformanceLogic
     )
-    const { setDays, loadTemplateStats, loadDomainStats } = useActions(transactionalEmailPerformanceLogic)
+    const { setHours, loadTemplateStats, loadDomainStats } = useActions(transactionalEmailPerformanceLogic)
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
@@ -41,8 +41,8 @@ export function TransactionalEmailPerformance(): JSX.Element {
                 actions={
                     <LemonSelect
                         size="small"
-                        value={days}
-                        onChange={setDays}
+                        value={hours}
+                        onChange={setHours}
                         options={PERFORMANCE_DATE_RANGES.map((range) => ({ value: range.value, label: range.label }))}
                         data-attr="transactional-email-performance-date-filter"
                     />

@@ -15,8 +15,10 @@ import type {
 } from 'products/messaging/frontend/generated/api.schemas'
 
 export const PERFORMANCE_DATE_RANGES = [
-    { value: 7, label: 'Last 7 days' },
-    { value: 30, label: 'Last 30 days' },
+    { value: 1, label: 'Last hour' },
+    { value: 24, label: 'Last 24 hours' },
+    { value: 24 * 7, label: 'Last 7 days' },
+    { value: 24 * 30, label: 'Last 30 days' },
 ] as const
 
 export interface ResultsQuery {
@@ -32,9 +34,9 @@ const DEFAULT_RESULTS_QUERY: ResultsQuery = { workflowId: null, event: null, win
 export interface transactionalEmailPerformanceLogicValues {
     currentProjectId: number | null // projectLogic
     canLoadResults: boolean
-    days: number
     domainStats: TransactionalEmailStatsRowApi[] | null
     domainStatsLoading: boolean
+    hours: number
     results: TransactionalEmailResultsApi | null
     resultsFailed: boolean
     resultsLoading: boolean
@@ -91,8 +93,8 @@ export interface transactionalEmailPerformanceLogicActions {
         templateStats: TransactionalEmailStatsRowApi[]
         payload?: void
     }
-    setDays: (days: number) => {
-        days: number
+    setHours: (hours: number) => {
+        hours: number
     }
     setResultsQuery: (query: Partial<ResultsQuery>) => {
         query: Partial<ResultsQuery>
@@ -117,7 +119,7 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
     path(['products', 'workflows', 'frontend', 'Transactional', 'performance', 'transactionalEmailPerformanceLogic']),
     connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
     actions({
-        setDays: (days: number) => ({ days }),
+        setHours: (hours: number) => ({ hours }),
         setResultsQuery: (query: Partial<ResultsQuery>) => ({ query }),
     }),
     reducers({
@@ -138,7 +140,7 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
                 loadDomainStatsFailure: () => true,
             },
         ],
-        days: [7 as number, { setDays: (_, { days }) => days }],
+        hours: [(24 * 7) as number, { setHours: (_, { hours }) => hours }],
         resultsQuery: [
             DEFAULT_RESULTS_QUERY as ResultsQuery,
             { setResultsQuery: (state, { query }) => ({ ...state, ...query }) },
@@ -149,7 +151,7 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
             null as TransactionalEmailStatsRowApi[] | null,
             {
                 loadTemplateStats: async (_: void, breakpoint) => {
-                    const stats = await fetchStats(values.currentProjectId, 'template', values.days)
+                    const stats = await fetchStats(values.currentProjectId, 'template', values.hours)
                     breakpoint()
                     return stats
                 },
@@ -159,7 +161,7 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
             null as TransactionalEmailStatsRowApi[] | null,
             {
                 loadDomainStats: async (_: void, breakpoint) => {
-                    const stats = await fetchStats(values.currentProjectId, 'sending_domain', values.days)
+                    const stats = await fetchStats(values.currentProjectId, 'sending_domain', values.hours)
                     breakpoint()
                     return stats
                 },
@@ -179,7 +181,7 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
                         event,
                         window_days: windowDays,
                         revenue_property: revenueProperty ?? undefined,
-                        date_from: dayjs().subtract(values.days, 'day').toISOString(),
+                        date_from: dayjs().subtract(values.hours, 'hour').toISOString(),
                     })
                     breakpoint()
                     return response
@@ -194,7 +196,7 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
         ],
     }),
     listeners(({ actions, values }) => ({
-        setDays: () => {
+        setHours: () => {
             actions.loadTemplateStats()
             actions.loadDomainStats()
             if (values.canLoadResults) {
@@ -227,14 +229,14 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
 async function fetchStats(
     projectId: number | null,
     groupBy: 'template' | 'sending_domain',
-    days: number
+    hours: number
 ): Promise<TransactionalEmailStatsRowApi[]> {
     if (projectId === null) {
         return []
     }
     const response = await transactionalEmailLogStatsRetrieve(String(projectId), {
         group_by: groupBy,
-        date_from: dayjs().subtract(days, 'day').toISOString(),
+        date_from: dayjs().subtract(hours, 'hour').toISOString(),
     })
     return [...response.results]
 }

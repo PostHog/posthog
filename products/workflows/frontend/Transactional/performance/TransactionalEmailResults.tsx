@@ -28,7 +28,7 @@ export function TransactionalEmailResults(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span>Of the people sent</span>
+                <span>Of everyone who got</span>
                 <LemonSelect
                     size="small"
                     placeholder="Choose an email"
