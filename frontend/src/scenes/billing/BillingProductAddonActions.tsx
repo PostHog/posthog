@@ -7,11 +7,11 @@ import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
-import { billingLogic } from './billingLogic'
 import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'

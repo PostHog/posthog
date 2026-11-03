@@ -1,11 +1,13 @@
 """Serve one person's ranked inbox list to the `for_me` endpoint. A request never waits on the model.
 
-A stored list is reused while it is younger than `freshness_minutes` and its input hash matches the current
-inputs. Otherwise, and for every `refresh` or `focus` request, the read queues one background build per person
-and serves the latest stored list as stale, or the candidates in inbox order when there is none. The focus is
-part of the hash, so an unfocused request never reuses a focused list. A lock lets one build per person run at a
-time, and each queued build spends two per-person token buckets. `wait_seconds` waits a bounded time for the
-queued build to store its list.
+A stored list is reused while it was built or checked by the tick less than `freshness_minutes` ago and its input
+hash matches the current inputs. Otherwise, and for every `refresh` or `focus` request, the read queues one
+background build per person and serves the latest stored list as stale, or the candidates in inbox order when
+there is none. The focus is part of the hash, so an unfocused request never reuses a focused list. A build that
+stores a list for the current inputs while the read runs answers the read, also a `refresh` read, so the read
+queues no second build. A lock lets one build per person run at a time, and each queued build spends two
+per-person token buckets. A build that may call the model also spends the shared daily limit of the region
+(`build_budget.py`). `wait_seconds` waits a bounded time for the queued build to store its list.
 """
 
 import time
@@ -26,9 +28,15 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
+from products.signals.backend.personal_ranking.build_budget import DAILY_BUILD_COST, spend_shared_build
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
-from products.signals.backend.personal_ranking.logic import input_hash, model_order_reason, normalize_focus
+from products.signals.backend.personal_ranking.logic import (
+    input_hash,
+    may_call_model,
+    model_order_reason,
+    normalize_focus,
+)
 from products.signals.backend.personal_ranking.validation import model_order
 from products.signals.backend.personal_ranking_tasks import (
     BUILD_LOCK_TTL_SECONDS,
@@ -42,7 +50,6 @@ logger = structlog.get_logger(__name__)
 ServeStatus = Literal["ready", "unavailable"]
 
 _BUCKET_PREFIX = "personal_ranking_build_rate"
-_DAILY_BUILD_COST = 24
 MAX_WAIT_SECONDS = 30
 _WAIT_POLL_SECONDS = 0.5
 
@@ -121,17 +128,21 @@ UNAVAILABLE = ServedRanking(
 )
 
 
-def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig) -> int | None:
-    """Spend one build from both buckets. Returns None when allowed, else the seconds until the next build."""
+def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig, *, calls_model: bool) -> int | None:
+    """Spend one build from the per-person buckets, and from the shared limit when the build may call the model.
+
+    Returns None when allowed, else the seconds until the next build.
+    """
     hourly = Budget(burst=config.build_burst, per_hour=config.builds_per_hour)
     # A build costs one token per hour of the day, and the bucket refills `builds_per_day` tokens an hour,
     # so it refills exactly `builds_per_day` builds a day. A whole-token rate per build would round it up.
-    daily = Budget(burst=config.builds_per_day * _DAILY_BUILD_COST, per_hour=config.builds_per_day)
+    daily = Budget(burst=config.builds_per_day * DAILY_BUILD_COST, per_hour=config.builds_per_day)
     hourly_key = f"{_BUCKET_PREFIX}:hour:{team_id}:{user_id}"
+    daily_key = f"{_BUCKET_PREFIX}:day:{team_id}:{user_id}"
     hourly_decision = consume(hourly_key, hourly)
     if isinstance(hourly_decision, BucketDecision) and not hourly_decision.allowed:
         return hourly_decision.retry_after
-    daily_decision = consume(f"{_BUCKET_PREFIX}:day:{team_id}:{user_id}", daily, cost=_DAILY_BUILD_COST)
+    daily_decision = consume(daily_key, daily, cost=DAILY_BUILD_COST)
     if isinstance(daily_decision, BucketDecision) and not daily_decision.allowed:
         if isinstance(hourly_decision, BucketDecision):
             refund(hourly_key, hourly)
@@ -139,18 +150,41 @@ def _spend_build(team_id: int, user_id: int, config: PersonalRankingConfig) -> i
     if isinstance(hourly_decision, BucketUnavailable) or isinstance(daily_decision, BucketUnavailable):
         # Fail open, so an unreachable Redis does not hide the list.
         logger.warning("signals.personal_ranking.build_bucket_unavailable", team_id=team_id, user_id=user_id)
+    if calls_model and (retry_after := spend_shared_build(config)) is not None:
+        if isinstance(hourly_decision, BucketDecision):
+            refund(hourly_key, hourly)
+        if isinstance(daily_decision, BucketDecision):
+            refund(daily_key, daily, cost=DAILY_BUILD_COST)
+        return retry_after
     return None
 
 
-def _start_build(team: Team, user: User, config: PersonalRankingConfig, focus: str | None, limit: int) -> BuildStart:
-    """Queue one background build, unless one is already running for the person or the buckets refuse it."""
+def _start_build(
+    team: Team,
+    user: User,
+    config: PersonalRankingConfig,
+    focus: str | None,
+    limit: int,
+    *,
+    calls_model: bool,
+    seen: PersonalInboxRanking | None,
+    current_hash: str,
+) -> BuildStart | PersonalInboxRanking:
+    """Queue one background build, unless one is already running for the person or the buckets refuse it.
+
+    Returns a row instead when an unfocused request finds a row for the current inputs stored after `seen`.
+    """
     lock_key = build_lock_key(team.id, user.id)
     locked = False
     try:
         locked = cache.add(lock_key, "1", timeout=BUILD_LOCK_TTL_SECONDS)
         if not locked:
             return "running"
-        if _spend_build(team.id, user.id, config) is not None:
+        # A build can store its row and free the lock after the read looked for a row.
+        if focus is None and (stored := _row_stored_since(team, user, seen, current_hash)) is not None:
+            cache.delete(lock_key)
+            return stored
+        if _spend_build(team.id, user.id, config, calls_model=calls_model) is not None:
             cache.delete(lock_key)
             return "rate_limited"
         build_personal_inbox_ranking.delay(team.id, user.id, focus, limit)
@@ -164,8 +198,17 @@ def _start_build(team: Team, user: User, config: PersonalRankingConfig, focus: s
         return "failed"
 
 
-def _latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
+def latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
     return PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id).order_by("-created_at", "-id").first()
+
+
+def _row_stored_since(
+    team: Team, user: User, seen: PersonalInboxRanking | None, current_hash: str
+) -> PersonalInboxRanking | None:
+    row = latest_row(team, user)
+    if row is None or (seen is not None and row.id == seen.id) or row.input_hash != current_hash:
+        return None
+    return row
 
 
 def _wait_for_new_row(
@@ -173,7 +216,7 @@ def _wait_for_new_row(
 ) -> PersonalInboxRanking | None:
     deadline = time.monotonic() + wait_seconds
     while True:
-        row = _latest_row(team, user)
+        row = latest_row(team, user)
         if row is not None and (previous is None or row.id != previous.id):
             return row
         if time.monotonic() >= deadline:
@@ -181,7 +224,7 @@ def _wait_for_new_row(
         time.sleep(_WAIT_POLL_SECONDS)
 
 
-def _ready_summary_version(team: Team, user: User) -> int | None:
+def ready_summary_version(team: Team, user: User) -> int | None:
     summary = get_summary(team, user.id)
     return summary.version if summary is not None and summary.status == ActivitySummaryStatus.READY else None
 
@@ -310,18 +353,28 @@ def serve_personal_ranking(
     wait_seconds = min(max(wait_seconds, 0), MAX_WAIT_SECONDS)
     now = timezone.now()
 
-    latest = _latest_row(team, user)
+    started_with = latest_row(team, user)
     candidates = gather_candidates(team, user, config, now=now, with_sources=False)
-    current_hash = input_hash(candidates, activity_summary_version=_ready_summary_version(team, user), focus=focus)
+    summary_version = ready_summary_version(team, user)
+    current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=focus)
+    # Read again, because a build can store a row while the candidates are gathered.
+    latest = latest_row(team, user)
     current = (
         latest is not None
-        and latest.created_at >= now - datetime.timedelta(minutes=config.freshness_minutes)
+        and (latest.checked_at or latest.created_at) >= now - datetime.timedelta(minutes=config.freshness_minutes)
         and latest.input_hash == current_hash
     )
-    if latest is not None and current and not refresh and focus is None:
+    # A row stored after this read started also answers a refresh.
+    stored_since_start = latest is not None and (started_with is None or latest.id != started_with.id)
+    if latest is not None and current and focus is None and (not refresh or stored_since_start):
         return _serve_row(latest, candidates, limit=limit, cached=True, stale=False, building=False)
 
-    start = _start_build(team, user, config, focus, limit)
+    calls_model = bool(candidates) and may_call_model(team, summary_ready=summary_version is not None)
+    start = _start_build(
+        team, user, config, focus, limit, calls_model=calls_model, seen=latest, current_hash=current_hash
+    )
+    if isinstance(start, PersonalInboxRanking):
+        return _serve_row(start, candidates, limit=limit, cached=True, stale=False, building=False)
     building = start in ("started", "running")
     if building and wait_seconds:
         built = _wait_for_new_row(team, user, latest, wait_seconds)

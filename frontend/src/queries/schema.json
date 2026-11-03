@@ -3321,7 +3321,7 @@
             "properties": {
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "optionalInFunnel": {
                     "default": false,
@@ -3350,7 +3350,7 @@
                 },
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "name": {
                     "description": "Action name from the plan.",
@@ -3478,7 +3478,7 @@
                 },
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "optionalInFunnel": {
                     "default": false,
@@ -3623,7 +3623,7 @@
             "type": "object"
         },
         "AssistantFunnelsMath": {
-            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
         },
         "AssistantFunnelsNode": {
@@ -26442,7 +26442,13 @@
             "type": "object"
         },
         "ExperimentExposureHealthCheckKey": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "enum": [
+                "zero_exposures",
+                "srm",
+                "bias_risk_multiple_excluded",
+                "multiple_variants_share",
+                "test_account_filter_removes_exposures"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthCheckStatus": {
@@ -26514,7 +26520,13 @@
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "enum": [
+                "zero_exposures",
+                "srm",
+                "bias_risk_multiple_excluded",
+                "multiple_variants_share",
+                "test_account_filter_removes_exposures"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthFindingSeverity": {
@@ -27859,7 +27871,7 @@
         },
         "ExperimentWarehouseNativeExposureConfig": {
             "additionalProperties": false,
-            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection with the same unit binding.",
             "properties": {
                 "connection_id": {
                     "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
@@ -27876,12 +27888,15 @@
                 "response": {
                     "type": "object"
                 },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeUnitBinding"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "query"],
+            "required": ["connection_id", "kind", "query", "unit"],
             "type": "object"
         },
         "ExperimentWarehouseNativeMathType": {
@@ -27919,12 +27934,31 @@
                 "response": {
                     "type": "object"
                 },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeUnitBinding"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "query"],
+            "required": ["connection_id", "kind", "query", "unit"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeUnitBinding": {
+            "additionalProperties": false,
+            "description": "What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on `entity_id` inside the warehouse, and the same connection does not make two queries compatible: one can return account ids and another customer ids. Every warehouse-native source stores its binding so a saved metric keeps it when it is attached to another experiment, and so attachment can compare bindings instead of guessing from SQL. Equal labels are required for compatibility but cannot prove the SQL returns the same identities; the author confirms that.",
+            "properties": {
+                "id_namespace": {
+                    "description": "Which ids represent that unit, such as `billing_customer_id`.",
+                    "type": "string"
+                },
+                "unit_type": {
+                    "description": "What was randomized, as a stable project-scoped label such as `customer` or `account`.",
+                    "type": "string"
+                }
+            },
+            "required": ["unit_type", "id_namespace"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -36303,6 +36337,13 @@
                 "rule": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
                 },
+                "steps": {
+                    "description": "How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendationStep"
+                    },
+                    "type": "array"
+                },
                 "subject": {
                     "description": "The campaign name or the search term the recommendation is about.",
                     "type": "string"
@@ -36337,6 +36378,28 @@
                 "striking_distance"
             ],
             "type": "string"
+        },
+        "MarketingAnalyticsRecommendationStep": {
+            "additionalProperties": false,
+            "properties": {
+                "copyValue": {
+                    "description": "Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line.",
+                    "type": ["string", "null"]
+                },
+                "linkText": {
+                    "description": "The words in `text` that link to `url`, usually the section name.",
+                    "type": ["string", "null"]
+                },
+                "text": {
+                    "type": "string"
+                },
+                "url": {
+                    "description": "Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["text"],
+            "type": "object"
         },
         "MarketingAnalyticsRecommendationsQuery": {
             "additionalProperties": false,
@@ -60090,7 +60153,8 @@
             "additionalProperties": false,
             "properties": {
                 "action": {
-                    "$ref": "#/definitions/WebVitalsItemAction"
+                    "$ref": "#/definitions/WebVitalsItemAction",
+                    "deprecated": "The runner no longer writes this field. Only responses cached before 2026-10-30 carry it, and it goes\nonce those entries expire. Read the series from the query at `order` instead."
                 },
                 "data": {
                     "items": {
@@ -60109,7 +60173,7 @@
                     "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "order", "action"],
+            "required": ["data", "days", "order"],
             "type": "object"
         },
         "WebVitalsItemAction": {

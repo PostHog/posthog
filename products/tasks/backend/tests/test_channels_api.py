@@ -882,6 +882,19 @@ class ChannelsAPITestCase(TestCase):
         listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
         self.assertEqual([task["id"] for task in listed], [task_id])
 
+    def test_task_without_a_channel_creates_and_lands_in_the_personal_channel(self):
+        self.assertFalse(Channel.objects.unscoped().filter(team=self.team).exists())
+
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "First chat", "description": "d", "origin_product": "posthog_ai"},
+        ).json()["id"]
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        assert channel is not None
+        self.assertEqual(channel.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertEqual(channel.created_by_id, self.user.id)
+
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
@@ -1471,17 +1484,11 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual([row["task_id"] for row in rows], [str(second.id), str(self.task.id)])
         first_page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
         self.assertEqual([row["task_id"] for row in first_page["results"]], [str(second.id)])
-        second_page = self.author_client.get(
-            self._activity_url(),
-            {
-                "limit": 1,
-                "before": first_page["next_before"],
-                "before_id": first_page["next_before_id"],
-            },
-        ).json()
+        second_page = self.author_client.get(first_page["next"]).json()
         self.assertEqual([row["task_id"] for row in second_page["results"]], [str(self.task.id)])
         self.assertIsNone(second_page["next_before"])
         self.assertIsNone(second_page["next_before_id"])
+        self.assertIsNone(second_page["next"])
 
     def test_mark_read_rejects_an_empty_task_list(self):
         response = self.author_client.post(self._activity_url() + "mark_read/", {"activities": []}, format="json")

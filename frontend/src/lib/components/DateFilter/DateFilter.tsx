@@ -8,17 +8,16 @@ import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } fro
 
 import {
     CUSTOM_OPTION_DESCRIPTION,
-    CUSTOM_OPTION_KEY,
     DateFilterLogicProps,
     DateFilterView,
     NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { CUSTOM_OPTION_KEY, dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { formatResolvedDateRange } from 'lib/utils/datetime'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'

@@ -7,8 +7,8 @@ import {
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { isInsightQueryWithSeries, isLifecycleQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries, isLifecycleQuery, isTrendsQuery } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export type ResultSeriesMath = Pick<SeriesNode, 'math' | 'math_property' | 'math_hogql' | 'math_group_type_index'>

@@ -6,8 +6,9 @@ import { IconChevronDown, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
@@ -15,6 +16,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { BUILT_IN_SUMMARY_LABEL, isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { ScanBlock } from '../utils/scanEligibility'
+import { visionDocsUrl } from './DocsLink'
 import { useSummarizeBlockedReason } from './useSummarizeBlockedReason'
 
 /** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
@@ -109,7 +111,15 @@ export function SummarizeButton({
                 }
             }}
             disabledReason={defaultSummarizer ? scannerDisabledReason(defaultSummarizer) : builtInDisabledReason}
-            tooltip={quotaTooltip ?? summarizerTooltip}
+            tooltip={
+                quotaTooltip ?? (
+                    <>
+                        <p className="mb-1">Replay vision uses AI to watch recordings for you.</p>
+                        <p className="mb-0">{summarizerTooltip}</p>
+                    </>
+                )
+            }
+            tooltipDocLink={`${visionDocsUrl()}?utm_medium=in-product&utm_campaign=summarize-explainer`}
             data-attr="vision-summarize-recording"
             data-ph-capture-attribute-summarizer={defaultSummarizer ? 'configured' : 'built-in'}
             // The dropdown is the only way to reach a second summarizer, so it appears once one exists.

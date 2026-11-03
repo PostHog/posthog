@@ -358,6 +358,7 @@ class FunnelAggregateByHogQL(Enum):
 
 
 class AssistantFunnelsMath(StrEnum):
+    TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
@@ -1472,6 +1473,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1493,6 +1495,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):

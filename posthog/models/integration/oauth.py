@@ -331,7 +331,7 @@ _POSTHOG_CONNECT_ALLOW_DEV = bool(settings.DEBUG or settings.TEST or settings.E2
 
 POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", *(("DEV",) if _POSTHOG_CONNECT_ALLOW_DEV else ()))
 
-POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write", "inbox:read", "inbox:write")
 
 POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 
@@ -719,14 +719,15 @@ class OauthIntegration:
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
                     # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
                     # mandatory scope would fail the whole authorization for portals that lack it.
-                    # The owners/commerce/product scopes are the same story: the data warehouse
-                    # source offers those tables, but the objects only exist on portals with the
-                    # matching hub, so they stay optional and their tables start deselected.
+                    # The owners/commerce/product/forecast/conversation scopes are the same story: the
+                    # data warehouse source offers those tables, but the objects only exist on portals
+                    # with the matching hub, so they stay optional and their tables start deselected.
                     "optional_scope": (
                         "analytics.behavioral_events.send behavioral_events.event_definitions.read_write "
                         "crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read "
                         "crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read "
-                        "crm.objects.subscriptions.read crm.objects.commercepayments.read"
+                        "crm.objects.subscriptions.read crm.objects.commercepayments.read "
+                        "crm.objects.forecasts.read conversations.read"
                     )
                 },
                 id_path="hub_id",
@@ -771,7 +772,9 @@ class OauthIntegration:
         elif kind == "google-search-console":
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                # `consent` forces a refresh token. `select_account` always shows the account chooser,
+                # so a user whose signed-in account owns no property can reconnect with the one that does.
+                additional_authorize_params={"access_type": "offline", "prompt": "consent select_account"},
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",

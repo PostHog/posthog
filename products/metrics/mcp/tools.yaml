@@ -123,7 +123,6 @@ tools:
             - vmalert
             - infrastructure
         feature_flag: metrics
-        reads_ingested_data: events
         response:
             include:
                 - results

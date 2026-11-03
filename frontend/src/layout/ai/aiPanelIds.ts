@@ -18,6 +18,6 @@ export const SCOUT_AI_PANEL = 'inbox-scout'
  * Which PostHog AI implementation the Max scene renders. `'new'` is the posthog_ai/frontend surface
  * (the tasks product on `/ai`, the new composer + thread viewer in the side panel); `'legacy'` is the
  * existing Max chat. Only meaningful while the `PHAI_SANDBOX_MODE` flag is on. See `effectivePhaiView`
- * in `maxGlobalLogic`.
+ * in `aiShellLogic`.
  */
 export type PhaiViewMode = 'new' | 'legacy'

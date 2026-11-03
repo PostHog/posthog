@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -58,6 +59,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -67,6 +69,7 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "UnsupportedColumnTypeError",
     # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
     "DatabricksConnectionError",
     # Raised when we don't have sufficient permissions to perform an operation.
@@ -982,6 +985,9 @@ def databricks_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
+DATABRICKS_MAX_DECIMAL_PRECISION = 38
+
+
 def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | None:
     """Get the Databricks type for a PyArrow field."""
     if pa.types.is_string(pa_type) or isinstance(pa_type, JsonType):
@@ -1011,9 +1017,17 @@ def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | 
     elif pa.types.is_timestamp(pa_type):
         return "TIMESTAMP"
 
+    elif pa.types.is_date(pa_type):
+        return "DATE"
+
+    elif pa.types.is_decimal(pa_type) and pa_type.precision <= DATABRICKS_MAX_DECIMAL_PRECISION:
+        return f"DECIMAL({pa_type.precision}, {pa_type.scale})"
+
     elif pa.types.is_list(pa_type):
         assert isinstance(pa_type, pa.ListType)
         list_type = _get_databricks_field_type(pa_type.value_type, False)
+        if list_type is None:
+            return None
         return f"ARRAY<{list_type}>"
 
     return None
@@ -1037,7 +1051,7 @@ def _get_databricks_fields_from_record_schema(
         is_variant = pa_field.name in known_variant_columns
         databricks_type = _get_databricks_field_type(pa_field.type, is_variant)
         if databricks_type is None:
-            raise TypeError(f"Unsupported type in field '{name}': '{databricks_type}'")
+            raise ColumnTypeMappingError("Databricks", name, pa_field.type)
         databricks_schema.append((name, databricks_type))
 
     return databricks_schema
@@ -1110,10 +1124,11 @@ def _get_databricks_table_settings(
             if staged_fields:
                 table_fields = staged_fields
     else:
-        table_fields = _get_databricks_fields_from_record_schema(
-            record_batch_schema,
-            known_variant_columns=known_variant_columns,
-        )
+        with handle_column_type_mapping_errors(model):
+            table_fields = _get_databricks_fields_from_record_schema(
+                record_batch_schema,
+                known_variant_columns=known_variant_columns,
+            )
 
     return TableSettings(table_fields, record_batch_schema, known_variant_columns)
 
@@ -1316,7 +1331,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1330,6 +1345,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

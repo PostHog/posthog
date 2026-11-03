@@ -5,12 +5,12 @@ import { expectLogic } from 'kea-test-utils'
 import { phaiSidePanelComposerSeedLogic } from 'scenes/max/phaiSidePanelComposerSeedLogic'
 
 import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import { taskTrackerSceneLogic } from 'products/posthog_ai/frontend/scenes/TaskTracker/taskTrackerSceneLogic'
 
 import { scoutAiContextItems, scoutAiLogic } from './scoutAiLogic'

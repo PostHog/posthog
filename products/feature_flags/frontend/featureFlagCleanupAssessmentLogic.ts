@@ -22,10 +22,11 @@ import {
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { MAX_SIDE_PANEL_ID, type PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { composerSeedLogic, runnerPanelLogic, type ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic, type ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
 
 export interface FeatureFlagCleanupAssessmentLogicProps {
     id: number

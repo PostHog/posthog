@@ -58,6 +58,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
 )
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
+from .access_control import MarketingAnalyticsAccessMixin
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
@@ -174,7 +175,9 @@ def _session_start_day(expr: ast.Expr) -> ast.Expr:
     return ast.Call(name="toStartOfDay", args=[expr])
 
 
-class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
+class MarketingAnalyticsBaseQueryRunner(
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]
+):
     """Base class for marketing analytics query runners with shared functionality."""
 
     def __init__(self, *args, **kwargs):
