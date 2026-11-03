@@ -696,7 +696,6 @@ class TestExperimentMetricsRecalculationWorkflow:
             ("precompute_route", True, True, False, [], [], [("m1", None)]),
             ("direct_route", False, True, False, [], [("m1", PrecomputationMode.DIRECT)], []),
             ("run_off_the_flag_ignores_the_route", True, False, False, [("m1", None)], [], []),
-            # Replay with routes sees another queue, then another argument count, than the recorded commands.
             ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], []),
             ("history_without_routes_replays_with_another_arity", False, True, True, [], [("m1", None)], []),
         ]
@@ -721,7 +720,6 @@ class TestExperimentMetricsRecalculationWorkflow:
             precomputation_mode=None if routed_to_precompute else PrecomputationMode.DIRECT,
         )
 
-        # The workflow code from before routing, which a rolling deploy can run against a new discovery result.
         def dispatch_without_routes(
             metric: ExperimentMetricToRecalculate, activity_task_queue: str | None
         ) -> _CalcDispatch:
