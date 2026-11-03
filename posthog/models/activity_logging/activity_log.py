@@ -1461,8 +1461,9 @@ def _handle_activity_log_transaction(
 # The frontend matches on this job type to render the job id as a link to a sandbox task.
 # Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
 AGENT_TRIGGER_JOB_TYPE = "agent"
-# A row written with a workload access token. The frontend shows the CI job as the actor instead of the
-# organization owner the token acts as. `job_id` is the CI run id.
+# A row written with a workload access token. The frontend shows the workload as the actor instead of the
+# organization owner the token acts as. `job_id` is the trust policy id, because a run id, when the provider
+# has one, is one of the recorded claims in the payload.
 WORKLOAD_TRIGGER_JOB_TYPE = "workload"
 
 

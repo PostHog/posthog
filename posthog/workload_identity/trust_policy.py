@@ -1,11 +1,12 @@
-"""Workload trust policies: which workloads, such as a repository's CI jobs, may exchange an OIDC token
-for a project token.
+"""Workload trust policies: which workloads, such as CI jobs, may exchange an OIDC token for a project
+token.
 
 A policy hands out tokens that act as the organization owner, so it is a standing credential. Only an
 organization admin or owner can read or write one, and writes need a browser session with recent
 authentication, so no token can create or widen a policy. Any member can ask for a policy through a request.
 """
 
+import json
 import functools
 from typing import Any, cast
 
@@ -49,6 +50,12 @@ from posthog.rate_limit import WorkloadTrustPolicyRequestBurstThrottle, Workload
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
+    CONDITION_VALUE_MAX_LENGTH,
+    CONDITIONS_MAX_BYTES,
+    FALLBACK_SUBJECT_LABEL,
+    FALLBACK_SUBJECT_NAME_LABEL,
+    WorkloadClaim,
+    WorkloadProvider,
     get_supported_workload_providers,
     get_unsupported_workload_providers,
     get_workload_provider_by_issuer,
@@ -56,9 +63,9 @@ from posthog.workload_identity.providers import (
 )
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
-# taken literally: an admin who types `acme/*` expects every repository to match, and none would.
+# taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
 WILDCARD_CHARACTERS = frozenset("*?[]")
-DUPLICATE_POLICY_MESSAGE = "A policy with the same issuer, repository, ref and environment exists."
+DUPLICATE_POLICY_MESSAGE = "A policy for this workload with the same conditions already exists."
 
 
 def _validate_exact_value(value: str, field_label: str) -> str:
@@ -70,19 +77,94 @@ def _validate_exact_value(value: str, field_label: str) -> str:
     return value
 
 
-def validate_workload_trust_conditions(attrs: dict[str, Any], *, partial_instance: Any | None = None) -> dict[str, Any]:
-    """Shared by policies and policy requests, so both enforce the same conditions."""
+def normalize_workload_conditions(conditions: Any, provider: WorkloadProvider) -> dict[str, str]:
+    """The only form a policy or a request stores: the provider's condition claims, each with a non-empty
+    exact string value, and the keys sorted. An empty value means the condition is not set, so it is
+    dropped rather than stored as `""`, which would match no token and break the uniqueness check."""
+    if not isinstance(conditions, dict):
+        raise serializers.ValidationError({"conditions": "Send conditions as an object of claim names and values."})
+    labels = {claim.name: claim.label for claim in provider.condition_claims}
+    normalized: dict[str, str] = {}
+    for claim, value in conditions.items():
+        if claim not in labels:
+            allowed = ", ".join(labels) or "none"
+            raise serializers.ValidationError(
+                {
+                    "conditions": f"{provider.name} doesn't support a condition on {str(claim)[:100]!r}. Allowed: {allowed}."
+                }
+            )
+        label = labels[claim]
+        if not isinstance(value, str):
+            raise serializers.ValidationError({"conditions": f"{label} must be text."})
+        if not value:
+            continue
+        if len(value) > CONDITION_VALUE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                {"conditions": f"{label} can be at most {CONDITION_VALUE_MAX_LENGTH} characters long."}
+            )
+        try:
+            normalized[claim] = _validate_exact_value(value, label)
+        except serializers.ValidationError as e:
+            raise serializers.ValidationError({"conditions": e.detail})
+    canonical = dict(sorted(normalized.items()))
+    if len(json.dumps(canonical, ensure_ascii=False).encode()) > CONDITIONS_MAX_BYTES:
+        raise serializers.ValidationError({"conditions": "The conditions are too long. Shorten the values."})
+    return canonical
 
-    def current(field: str) -> Any:
-        if field in attrs:
-            return attrs[field]
-        return getattr(partial_instance, field, "") if partial_instance is not None else ""
 
-    if not current("ref") and not current("environment"):
+def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any | None = None) -> dict[str, Any]:
+    """Shared by policies and policy requests, so both enforce the same conditions. Normalizes
+    `attrs["conditions"]` against the issuer's provider whenever the issuer or the conditions change."""
+    if instance is not None and "issuer" not in attrs and "conditions" not in attrs:
+        # Disabling or renaming a policy stays possible after its provider leaves the registry.
+        return attrs
+    issuer = attrs["issuer"] if "issuer" in attrs else getattr(instance, "issuer", "")
+    provider = get_workload_provider_by_issuer(issuer)
+    if provider is None:
+        raise serializers.ValidationError({"issuer": "This issuer isn't a supported workload provider."})
+    raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
+    attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
+    if provider.condition_claims and not attrs["conditions"]:
+        labels = ", ".join(claim.label for claim in provider.condition_claims)
         raise serializers.ValidationError(
-            {"ref": "Set a ref, an environment, or both, so the policy does not match every job in the repository."}
+            {
+                "conditions": f"Set at least one condition ({labels}) so the policy doesn't match every token for this workload."
+            }
         )
     return attrs
+
+
+@extend_schema_field(serializers.DictField(child=serializers.CharField()))
+class WorkloadConditionsField(serializers.Field):
+    """Claim name to required value. The serializer's `validate` normalizes it once the provider is known."""
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if not isinstance(data, dict):
+            raise serializers.ValidationError("Send conditions as an object of claim names and values.")
+        return data
+
+    def to_representation(self, value: Any) -> dict[str, Any]:
+        return dict(sorted(value.items())) if isinstance(value, dict) else {}
+
+
+class WorkloadClaimLabelsSerializer(serializers.Serializer):
+    subject = serializers.CharField(help_text="What the provider calls the subject, for example Repository ID.")
+    subject_name = serializers.CharField(help_text="What the provider calls the subject name, for example Repository.")
+    conditions = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="The label of each condition claim the provider allows, keyed by claim name.",
+    )
+
+
+def workload_claim_labels(issuer: str) -> dict[str, Any]:
+    provider = get_workload_provider_by_issuer(issuer)
+    if provider is None:
+        return {"subject": FALLBACK_SUBJECT_LABEL, "subject_name": FALLBACK_SUBJECT_NAME_LABEL, "conditions": {}}
+    return {
+        "subject": provider.subject_claim.label,
+        "subject_name": provider.subject_name_claim.label,
+        "conditions": {claim.name: claim.label for claim in provider.condition_claims},
+    }
 
 
 class CIScopeListField(serializers.ListField):
@@ -105,30 +187,32 @@ class CIScopeListField(serializers.ListField):
 class WorkloadConditionsSerializerMixin(serializers.Serializer):
     issuer = serializers.CharField(
         max_length=255,
-        help_text="The OIDC issuer of the CI provider, from the list of supported providers.",
+        help_text="The OIDC issuer of the workload provider, from the list of supported providers.",
     )
-    provider = serializers.SerializerMethodField(help_text="The key of the CI provider the issuer belongs to.")
-    repository = serializers.CharField(
-        max_length=255, help_text="The repository's full name, for example `acme/web`. Matched exactly."
-    )
-    repository_id = serializers.CharField(
-        max_length=100,
+    provider = serializers.SerializerMethodField(help_text="The key of the workload provider the issuer belongs to.")
+    subject_name = serializers.CharField(
+        max_length=255,
         help_text=(
-            "The repository's immutable ID from the CI provider. Matched together with the name, so a deleted "
-            "and re-created repository with the same name does not match."
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's "
+            "full name. Matched exactly."
         ),
     )
-    ref = serializers.CharField(
+    subject = serializers.CharField(
         max_length=255,
-        required=False,
-        allow_blank=True,
-        help_text="The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.",
+        help_text=(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched "
+            "exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
     )
-    environment = serializers.CharField(
-        max_length=255,
+    conditions = WorkloadConditionsField(
         required=False,
-        allow_blank=True,
-        help_text="The deployment environment the job must run in. Empty matches any environment.",
+        help_text=(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. "
+            "Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    )
+    claim_labels = serializers.SerializerMethodField(
+        help_text="How the provider names the subject, the subject name and each condition claim, for display."
     )
 
     def get_provider(self, instance: WorkloadTrustPolicy | WorkloadTrustPolicyRequest) -> str | None:
@@ -138,20 +222,18 @@ class WorkloadConditionsSerializerMixin(serializers.Serializer):
     def validate_issuer(self, value: str) -> str:
         provider = get_workload_provider_by_issuer(value)
         if provider is None:
-            raise serializers.ValidationError("This issuer isn't a supported CI provider.")
+            raise serializers.ValidationError("This issuer isn't a supported workload provider.")
         return normalize_issuer(provider.issuer)
 
-    def validate_repository(self, value: str) -> str:
-        return _validate_exact_value(value, "Repository")
+    def validate_subject_name(self, value: str) -> str:
+        return _validate_exact_value(value, "Name")
 
-    def validate_repository_id(self, value: str) -> str:
-        return _validate_exact_value(value, "Repository ID")
+    def validate_subject(self, value: str) -> str:
+        return _validate_exact_value(value, "Subject")
 
-    def validate_ref(self, value: str) -> str:
-        return _validate_exact_value(value, "Ref")
-
-    def validate_environment(self, value: str) -> str:
-        return _validate_exact_value(value, "Environment")
+    @extend_schema_field(WorkloadClaimLabelsSerializer)
+    def get_claim_labels(self, instance: Any) -> dict[str, Any]:
+        return workload_claim_labels(instance.issuer)
 
 
 class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
@@ -174,26 +256,26 @@ class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serialize
             "name",
             "issuer",
             "provider",
-            "repository",
-            "repository_id",
-            "ref",
-            "environment",
+            "subject_name",
+            "subject",
+            "conditions",
+            "claim_labels",
             "scopes",
             "enabled",
             "created_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "provider", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "provider", "claim_labels", "created_by", "created_at", "updated_at"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        attrs = validate_workload_trust_conditions(attrs, partial_instance=self.instance)
+        attrs = validate_workload_trust_conditions(attrs, instance=self.instance)
         team = cast(Team, self.context["get_team"]())
-        conditions = {
-            field: attrs.get(field, getattr(self.instance, field, ""))
-            for field in ("issuer", "repository_id", "ref", "environment")
+        identity = {
+            field: attrs.get(field, getattr(self.instance, field, None))
+            for field in ("issuer", "subject", "conditions")
         }
-        clash = WorkloadTrustPolicy.objects.filter(**conditions)
+        clash = WorkloadTrustPolicy.objects.filter(**identity)
         if self.instance is not None:
             clash = clash.exclude(pk=self.instance.pk)
         if clash.exists():
@@ -215,11 +297,10 @@ class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serialize
             raise serializers.ValidationError(DUPLICATE_POLICY_MESSAGE)
 
 
-class WorkloadProviderClaimsSerializer(serializers.Serializer):
-    repository = serializers.CharField(help_text="Claim that carries the repository's full name.")
-    repository_id = serializers.CharField(help_text="Claim that carries the repository's immutable ID.")
-    ref = serializers.CharField(allow_null=True, help_text="Claim that carries the git ref, or null.")
-    environment = serializers.CharField(allow_null=True, help_text="Claim that carries the environment, or null.")
+class WorkloadClaimSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The claim's name in the provider's OIDC token.")
+    label = serializers.CharField(help_text="What to call the claim in the UI.")
+    help_text = serializers.CharField(allow_blank=True, help_text="A hint that says where to find the claim's value.")
 
 
 class WorkloadProviderSerializer(serializers.Serializer):
@@ -227,7 +308,11 @@ class WorkloadProviderSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Display name of the provider.")
     issuer = serializers.CharField(help_text="OIDC issuer a policy for this provider uses.")
     docs_url = serializers.CharField(help_text="Where to read how to set the provider up.")
-    claims = WorkloadProviderClaimsSerializer(help_text="Which token claims a policy matches on.")
+    subject_claim = WorkloadClaimSerializer(help_text="The claim that carries the workload's immutable ID.")
+    subject_name_claim = WorkloadClaimSerializer(help_text="The claim that carries the workload's readable name.")
+    condition_claims = WorkloadClaimSerializer(
+        many=True, help_text="The claims a policy can require an exact value for, in display order."
+    )
 
 
 class UnsupportedWorkloadProviderSerializer(serializers.Serializer):
@@ -255,6 +340,10 @@ def notify_admins_of_policy_change(
     transaction.on_commit(
         lambda: send_workload_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id), robust=True
     )
+
+
+def _claim_payload(claim: WorkloadClaim) -> dict[str, str]:
+    return {"name": claim.name, "label": claim.label, "help_text": claim.help_text}
 
 
 class DenyWorkloadAccessToken(BasePermission):
@@ -331,12 +420,9 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "name": provider.name,
                     "issuer": provider.issuer,
                     "docs_url": provider.docs_url,
-                    "claims": {
-                        "repository": provider.claims.repository,
-                        "repository_id": provider.pinned_claim,
-                        "ref": provider.claims.ref,
-                        "environment": provider.claims.environment,
-                    },
+                    "subject_claim": _claim_payload(provider.subject_claim),
+                    "subject_name_claim": _claim_payload(provider.subject_name_claim),
+                    "condition_claims": [_claim_payload(claim) for claim in provider.condition_claims],
                 }
                 for provider in get_supported_workload_providers()
             ],
@@ -368,7 +454,7 @@ def requested_via(request: Request) -> tuple[str, bool | None]:
 
 class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
     name = serializers.CharField(max_length=200, help_text="The name the policy gets once approved.")
-    provider_name = serializers.SerializerMethodField(help_text="The display name of the CI provider, or null.")
+    provider_name = serializers.SerializerMethodField(help_text="The display name of the workload provider, or null.")
     scopes = CIScopeListField(help_text="The scopes the policy's tokens would carry.")
     status = serializers.SerializerMethodField(help_text="Where the request stands. A request expires after 7 days.")
     approval_url = serializers.SerializerMethodField(help_text="The link to send to an admin to approve the request.")
@@ -393,10 +479,10 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "issuer",
             "provider",
             "provider_name",
-            "repository",
-            "repository_id",
-            "ref",
-            "environment",
+            "subject_name",
+            "subject",
+            "conditions",
+            "claim_labels",
             "scopes",
             "risky_scopes",
             "status",
@@ -416,6 +502,7 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "id",
             "provider",
             "provider_name",
+            "claim_labels",
             "risky_scopes",
             "status",
             "approval_url",
@@ -495,7 +582,7 @@ def resolve_workload_trust_policy_request(
             policy_serializer = WorkloadTrustPolicySerializer(
                 data={
                     field: getattr(policy_request, field)
-                    for field in ("name", "issuer", "repository", "repository_id", "ref", "environment", "scopes")
+                    for field in ("name", "issuer", "subject_name", "subject", "conditions", "scopes")
                 },
                 context=policy_serializer_context,
             )

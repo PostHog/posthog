@@ -34,7 +34,7 @@ SCOUT_CLIENT_PREFIX = "scout:"
 # Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
 # them comes from the authenticated request rather than from the client, so the two kinds of tag
 # must not share a name.
-# Set by `WorkloadAccessTokenAuthentication` from the repository the workload token's OIDC claims named.
+# Set by `WorkloadAccessTokenAuthentication` from the subject name the workload token's OIDC claims named.
 WORKLOAD_CLIENT_PREFIX = "workload:"
 SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX, WORKLOAD_CLIENT_PREFIX)
 

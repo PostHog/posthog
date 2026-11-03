@@ -9,7 +9,7 @@ export function isScoutClient(client: string): boolean {
     return client.startsWith(SCOUT_CLIENT_PREFIX)
 }
 
-/** Reserved for the backend, which derives it from the repository a workload access token names. */
+/** Reserved for the backend, which derives it from the subject name a workload access token carries. */
 export const WORKLOAD_CLIENT_PREFIX = 'workload:'
 
 export function isWorkloadClient(client: string): boolean {

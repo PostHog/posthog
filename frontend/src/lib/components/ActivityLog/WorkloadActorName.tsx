@@ -1,3 +1,5 @@
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -14,14 +16,32 @@ export function WorkloadActorName({
     teamId?: number | null
 }): JSX.Element {
     const label = workloadActorLabel(attribution)
+    const actor = attribution.runUrl ? (
+        <Link to={attribution.runUrl} target="_blank" className="font-semibold">
+            {label}
+        </Link>
+    ) : (
+        <strong>{label}</strong>
+    )
     return (
         <span className="ph-no-capture">
-            {attribution.runUrl ? (
-                <Link to={attribution.runUrl} target="_blank" className="font-semibold">
-                    {label}
-                </Link>
+            {attribution.claims.length > 0 ? (
+                <Tooltip
+                    title={
+                        <dl className="m-0">
+                            {attribution.claims.map((claim) => (
+                                <div key={claim.name} className="flex gap-1">
+                                    <dt className="font-semibold">{claim.label}:</dt>
+                                    <dd className="m-0 break-all">{claim.value}</dd>
+                                </div>
+                            ))}
+                        </dl>
+                    }
+                >
+                    <span>{actor}</span>
+                </Tooltip>
             ) : (
-                <strong>{label}</strong>
+                actor
             )}
             {attribution.policyName ? (
                 <>

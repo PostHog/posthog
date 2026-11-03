@@ -1,9 +1,9 @@
 import re
 import hmac
 import time
+import string
 import logging
 import functools
-import dataclasses
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
@@ -824,7 +824,19 @@ class VerifiedWorkloadAccessToken:
     policy_id: str
     policy_name: str
     scopes: list[str]
+    workload_provider: str
+    workload_subject_name: str
+    # The claims the provider's registry entry records, as the exchange read them from the OIDC token.
     workload_claims: dict[str, str]
+
+
+def _format_with_claims(template: str, claims: dict[str, str], *, require_all: bool = False) -> str | None:
+    """Fill a provider template's `{claim}` fields with the recorded claims. A missing claim formats as an
+    empty string, or makes the result None when `require_all` is set, so a link is never half built."""
+    fields = {name for _, name, _, _ in string.Formatter().parse(template) if name}
+    if require_all and not all(claims.get(name) for name in fields):
+        return None
+    return template.format_map({name: claims.get(name, "") for name in fields})
 
 
 class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
@@ -944,8 +956,10 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
                 detail="The organization owner this workload token acts as is no longer an owner."
             )
 
-        raw_workload_claims = claims.get("workload")
-        workload_claims = raw_workload_claims if isinstance(raw_workload_claims, dict) else {}
+        raw_workload = claims.get("workload")
+        workload = raw_workload if isinstance(raw_workload, dict) else {}
+        raw_recorded_claims = workload.get("claims")
+        recorded_claims = raw_recorded_claims if isinstance(raw_recorded_claims, dict) else {}
         return VerifiedWorkloadAccessToken(
             user=membership.user,
             organization_id=str(claims["org_id"]),
@@ -953,7 +967,9 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
             policy_id=policy_id,
             policy_name=str(claims.get("policy_name") or ""),
             scopes=str(claims["scope"]).split(),
-            workload_claims={str(key): str(value) for key, value in workload_claims.items()},
+            workload_provider=str(workload.get("provider") or ""),
+            workload_subject_name=str(workload.get("subject_name") or ""),
+            workload_claims={str(key): str(value) for key, value in recorded_claims.items()},
         )
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
@@ -982,46 +998,36 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
         the actor after the token is gone, and can be filtered by the client tag."""
         if not activity_storage.is_request_scoped():
             return
-        claims = verified.workload_claims
-        repository = claims.get("repository", "")
-        if repository:
-            activity_storage.set_client(f"{WORKLOAD_CLIENT_PREFIX}{repository}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+        subject_name = verified.workload_subject_name
+        if subject_name:
+            activity_storage.set_client(f"{WORKLOAD_CLIENT_PREFIX}{subject_name}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
 
         def workload_trigger() -> Trigger:
             # Deferred because `posthog.api.oauth` imports its views, which import this module.
-            from posthog.workload_identity.providers import (  # noqa: PLC0415
-                WorkloadClaimMapping,
-                get_workload_provider_by_key,
-            )
+            from posthog.workload_identity.providers import get_workload_provider_by_key  # noqa: PLC0415
 
-            provider_key = claims.get("provider", "")
-            provider = get_workload_provider_by_key(provider_key)
-            run_id = claims.get("run_id", "")
+            provider = get_workload_provider_by_key(verified.workload_provider)
+            claims = verified.workload_claims
+            actor_label = (
+                _format_with_claims(provider.actor_label_template, claims).strip(" ·") if provider else ""
+            ) or subject_name
             run_url = (
-                provider.run_url_template.format(repository=repository, run_id=run_id)
-                if provider and provider.run_url_template and repository and run_id
+                _format_with_claims(provider.run_url_template, claims, require_all=True)
+                if provider and provider.run_url_template
                 else None
             )
-            label_fields = {
-                field.name: str(claims.get(field.name) or "") for field in dataclasses.fields(WorkloadClaimMapping)
-            }
-            actor_label = (provider.actor_label_template.format_map(label_fields) if provider else repository).strip(
-                " ·"
-            )
+            claim_labels = {claim.name: claim.label for claim in provider.recorded_claims} if provider else {}
             return Trigger(
                 job_type=WORKLOAD_TRIGGER_JOB_TYPE,
-                job_id=run_id,
+                job_id=verified.policy_id,
                 payload={
-                    "provider": provider_key,
-                    "provider_name": provider.name if provider else provider_key,
+                    "provider": verified.workload_provider,
+                    "provider_name": provider.name if provider else verified.workload_provider,
                     "actor_label": actor_label,
-                    "repository": repository,
-                    "workflow": claims.get("workflow", ""),
-                    "run_id": run_id,
+                    "subject_name": subject_name,
+                    "claims": claims,
+                    "claim_labels": {name: claim_labels.get(name, name) for name in claims},
                     "run_url": run_url,
-                    "sha": claims.get("sha", ""),
-                    "ref": claims.get("ref", ""),
-                    "environment": claims.get("environment", ""),
                     "policy_id": verified.policy_id,
                     "policy_name": verified.policy_name,
                 },
