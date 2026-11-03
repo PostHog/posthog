@@ -581,6 +581,9 @@ describe('EmailService', () => {
                     60 * 60 * 1000,
                     2 * 60 * 60 * 1000,
                 ],
+                // An unreserved horizon shorter than 1s is floored to 1s, so a fast refill does
+                // not churn the queue.
+                ['on the 1s floor when a short horizon is not reserved', 250, false, 1000, 2000],
                 // No horizon at all (error-path denial) falls back to the clamped token
                 // interval: 120/minute refills every 500ms, clamped to [1s, 2s] jittered.
                 ['on the clamped token interval when the limiter could not reserve', null, false, 1000, 2000],
@@ -672,6 +675,20 @@ describe('EmailService', () => {
                     'the configured value is malformed',
                     (): void =>
                         void (invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 'lots' } }),
+                ],
+                [
+                    'the configured count is zero',
+                    (): void =>
+                        void (invocation.hogFunction.metadata = {
+                            email_sending_rate_limit: { count: 0, period: 'minute' },
+                        }),
+                ],
+                [
+                    'the configured period is unknown',
+                    (): void =>
+                        void (invocation.hogFunction.metadata = {
+                            email_sending_rate_limit: { count: 10, period: 'week' },
+                        }),
                 ],
             ])('does not consult the bucket when %s', async (_name, setup) => {
                 setup()
@@ -846,7 +863,6 @@ describe('EmailService', () => {
                 const dailyCap = 8640
                 const redis = createEmailLimiterRedis(hub)
                 const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
-                jest.spyOn(services.workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
                 const { service: enforcedService, send: enforcedSendSpy } = services.createWithSendSpy({
                     sesConfig: {
                         teamEmailCapMode: 'enforce',

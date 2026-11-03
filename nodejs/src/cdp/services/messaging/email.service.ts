@@ -202,8 +202,8 @@ export function parseTeamEmailCapMode(value: string | undefined): TeamEmailCapMo
     return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
 }
 
-/** Parses a comma-separated cap table. Any unusable entry drops the whole table, which turns the
- * cap off rather than applying a wrong number to a paying customer. */
+/** Parses a comma-separated cap table. Any unusable entry drops the whole table, so the cap uses its
+ * built-in default table instead of a partly wrong one. */
 export function parseTierCaps(value: string | undefined): number[] {
     const parts = (value ?? '')
         .split(',')

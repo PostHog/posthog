@@ -38,7 +38,7 @@ Django (`posthog/settings/web.py`):
 Worker (`nodejs/src/cdp/config.ts`):
 
 - `EMAIL_TEAM_SENDING_CAP_MODE`: `off` (default), `shadow`, or `enforce`.
-- `EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER`, `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django tables. An unusable table turns the cap off rather than applying a wrong number.
+- `EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER`, `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django tables. An unset or unusable table falls back to the worker's built-in table, which mirrors the Django defaults.
 
 All of these reach production as environment variables through `posthog/charts` (with any secret values via `posthog/secrets`).
 None of them are wired there yet; the charts change is part of turning the rollout mode on, not part of merging the code.
