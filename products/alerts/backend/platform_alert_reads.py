@@ -25,7 +25,8 @@ from products.alerts.backend.facade.contracts import (
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import insight_state_of_platform
-from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY, SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY
 from products.alerts_platform.backend.facade.api import (
     check_page_by_legacy_id,
     checks_with_detail_by_legacy_id,
