@@ -43,7 +43,6 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -53,6 +52,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
     InternalAPIAuthentication,
@@ -166,9 +166,9 @@ from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
     InboxRanker,
+    RecommendedArm,
     latest_ranking_value,
-    resolve_recommended_ranker,
-    score_decile,
+    resolve_recommended_arm,
 )
 from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
 from products.signals.backend.ranking.served_outcomes import served_outcomes
@@ -1300,7 +1300,7 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
     report_id = serializers.UUIDField(help_text="Report being re-ingested.")
 
 
-class SignalReportListPagination(LimitOffsetPagination):
+class SignalReportListPagination(FacadeLimitOffsetPagination):
     def paginate_queryset(self, queryset, request, view=None):
         # Fetch the page before the count. A page that ends before the limit already gives the
         # total, so the second scan is not needed. A `search` filter rechecks the text of every
@@ -1345,6 +1345,14 @@ class SignalReportListPagination(LimitOffsetPagination):
                 "The ranker that ordered the page when sort=recommended: priority, or open, action or fix "
                 "for that outcome of the served ranking model. Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
+            ),
+        }
+        paginated["properties"]["ranking_pill"] = {
+            "type": "boolean",
+            "nullable": True,
+            "description": (
+                "Whether the client shows a ranking score pill on each card, when sort=recommended. "
+                "The same flag arm sets this and the ranker. Null for every other sort."
             ),
         }
         return paginated
@@ -1537,8 +1545,9 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
             "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
-            "the open, action or fix outcome of the served ranking model with unscored and stale reports "
-            "in priority order after the scored ones. The response's ranker field names the one used."
+            "the open, action or fix outcome of the served ranking model, highest score first, with "
+            "unscored and stale reports in priority order after the scored ones. The response's ranker "
+            "field names the one used, and its ranking_pill field says whether to show score pills."
         ),
     ),
     OpenApiParameter(
@@ -1667,7 +1676,7 @@ class SignalReportViewSet(
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _INBOX_SORT_ORDERINGS = {
         "priority": PRIORITY_ORDERING,
-        # A feature flag resolves this preset per user. See `_inbox_ranker`.
+        # A feature flag resolves this preset per user. See `_recommended_arm`.
         "recommended": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
@@ -2488,18 +2497,8 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            latest_score = latest_ranking_value(head, "scores")
-            if self._inbox_ranker is not None:
-                queryset = queryset.annotate(
-                    **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
-                )
-            else:
-                queryset = queryset.annotate(**{annotation: latest_score})
+            queryset = queryset.annotate(**{annotation: latest_ranking_value(head, "scores")})
         return queryset
-
-    @staticmethod
-    def _ranking_decile_annotation(score_annotation: str) -> str:
-        return f"{score_annotation}_decile"
 
     def _apply_signal_report_ranking_filters(self, queryset):
         # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
@@ -2679,17 +2678,21 @@ class SignalReportViewSet(
         return self._parse_ordering_string(self._DEFAULT_SIGNAL_REPORT_ORDERING)
 
     @cached_property
-    def _inbox_ranker(self) -> InboxRanker | None:
+    def _recommended_arm(self) -> RecommendedArm | None:
         params = self.request.query_params
         if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
-        return resolve_recommended_ranker(self.team, cast(User, self.request.user))
+        return resolve_recommended_arm(self.team, cast(User, self.request.user))
+
+    @property
+    def _inbox_ranker(self) -> InboxRanker | None:
+        return self._recommended_arm.ranker if self._recommended_arm is not None else None
 
     def _parse_signal_report_ordering(self) -> list[str]:
-        ranker = self._inbox_ranker
-        if ranker is not None:
-            # The preset exposes only the score decile, through `inbox_merge_key`, so non-staff users may use it.
-            return self._parse_ordering_string(RANKER_ORDERINGS[ranker], allow_ranking=True)
+        arm = self._recommended_arm
+        if arm is not None:
+            # The flag arm picks the ranker, so users without the model sorts may use this preset.
+            return self._parse_ordering_string(RANKER_ORDERINGS[arm.ranker], allow_ranking=True)
         raw = self.request.query_params.get("ordering")
         if raw is None:
             inbox_sort = self.request.query_params.get("sort")
@@ -2715,11 +2718,9 @@ class SignalReportViewSet(
         for clause in clauses:
             name = clause.lstrip("-")
             if name in ranking_annotations:
-                # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
-                    expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
+                    F(name).desc(nulls_last=True) if clause.startswith("-") else F(name).asc(nulls_last=True)
                 )
             else:
                 order_by.append(clause)
@@ -2949,12 +2950,12 @@ class SignalReportViewSet(
         excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
-            self._inbox_ranker = None
+            self._recommended_arm = None
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
                 # Private trial reads compare against the priority order, never a flag arm.
-                self._inbox_ranker = None
+                self._recommended_arm = None
                 return TrialInboxReads(self, store).list(
                     count_only=count_only, include_source_metadata=include_source_metadata
                 )
@@ -3007,6 +3008,9 @@ class SignalReportViewSet(
         if page is not None:
             response = self.get_paginated_response(data)
             response.data["ranker"] = self._inbox_ranker
+            response.data["ranking_pill"] = (
+                self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
+            )
             return response
         return Response(data)
 
