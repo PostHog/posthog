@@ -2,6 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
 import { RecommendationDataGap } from './recommendations'
 
 export function RecommendationDataGapList({ gaps }: { gaps: RecommendationDataGap[] }): JSX.Element {
@@ -29,7 +30,9 @@ export function RecommendationDataGapList({ gaps }: { gaps: RecommendationDataGa
                         </div>
                         <ul className="m-0 flex list-disc flex-col gap-1 pl-4 text-xs text-secondary">
                             {sourceGaps.map((gap) => (
-                                <li key={gap.table}>{gap.description}</li>
+                                <li key={gap.table}>
+                                    <RecommendationDataGapDescription gap={gap} />
+                                </li>
                             ))}
                         </ul>
                     </div>

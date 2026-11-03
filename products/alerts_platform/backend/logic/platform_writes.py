@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertNotEditable,
     PlatformAlertSnapshot,
+    PlatformAlertUpsert,
     SourceCreate,
     SourceKind,
     UnknownPlatformAlertGroup,
@@ -289,10 +290,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None,
     snooze_changed: bool,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
-    copy's mute."""
+    copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -301,6 +304,8 @@ def update_owned_copy(
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
         _, pending = _apply(configuration, change, now=now, snoozing=snoozing)
+        if cadence is not None:
+            platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         control_plane.announce_after_commit(pending)

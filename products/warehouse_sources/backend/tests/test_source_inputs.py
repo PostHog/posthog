@@ -889,6 +889,21 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
                 assert load() == expected
                 assert _read_count(expected_result, source_type) - before == 1
 
+    def test_read_takes_connection_fields_from_the_row_when_job_inputs_holds_only_settings(self) -> None:
+        with self._flags(DUAL_WRITE_FLAG):
+            source = self._create()
+        stripped = {
+            key: value for key, value in STORED_POSTGRES_INPUTS.items() if key not in POSTGRES_CONNECTION_FIELDS
+        }
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=stripped)
+
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            for load in self._loads(source):
+                reset_caches()
+                before = _read_count("integration")
+                assert load() == STORED_POSTGRES_INPUTS
+                assert _read_count("integration") - before == 1
+
     def test_read_of_an_oauth_source_keeps_job_inputs_without_the_read_flag(self) -> None:
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
