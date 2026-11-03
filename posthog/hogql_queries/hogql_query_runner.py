@@ -36,6 +36,7 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import (
@@ -84,7 +85,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # A direct connection runs on another database, so the events route never applies to it.
         return not self.query.connectionId
 
-    # Treat SQL query caching like day insight
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
@@ -134,23 +134,27 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
             return Reject(reason=FreshnessReason.NO_EVENTS)
-        placeholders = find_placeholders(parse_select(self.query.query))
-        if (
-            placeholders.has_filters
-            or placeholders.placeholder_expressions
-            or any(chain[:1] == ["variables"] for chain in placeholders.placeholder_fields)
-        ):
-            return Reject(reason=FreshnessReason.UNSUPPORTED_PLACEHOLDER)
         try:
+            placeholders = find_placeholders(parse_select(self.query.query))
+            if (
+                placeholders.has_filters
+                or placeholders.placeholder_expressions
+                or any(chain[:1] == ["variables"] for chain in placeholders.placeholder_fields)
+            ):
+                return Reject(reason=FreshnessReason.UNSUPPORTED_PLACEHOLDER)
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
         except Exception:
             return Reject(reason=FreshnessReason.UNPARSEABLE)
-        return classify(
-            resolved,
-            now=datetime.now(UTC),
-            timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
-        )
+        try:
+            return classify(
+                resolved,
+                now=datetime.now(UTC),
+                timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
+            )
+        except Exception as error:
+            capture_exception(error, {"team_id": self.team.pk, "context": "sql_freshness_classification"})
+            return Reject(reason=FreshnessReason.UNPARSEABLE)
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:

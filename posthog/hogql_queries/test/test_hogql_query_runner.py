@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import time_machine
 from posthog.test.base import (
@@ -11,6 +11,9 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from unittest.mock import _patch
 
 from parameterized import parameterized
 
@@ -50,7 +53,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 PAST_RANGE = "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-28'"
 
 
-def _freshness_flag(on: bool):
+def _freshness_flag(on: bool) -> "_patch[MagicMock]":
     return patch(
         "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
         side_effect=lambda key, *args, **kwargs: on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
@@ -599,17 +602,30 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = HogQLQuery(
             query=f"select count() from events where timestamp > now() - interval 7 day and event != '{self.random_uuid}'"
         )
-        with _freshness_flag(on=True), tags_context(access_method="personal_api_key"):
+        with (
+            _freshness_flag(on=True),
+            tags_context(access_method="personal_api_key"),
+            patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report,
+        ):
             with time_machine.travel("2026-10-29T15:00:00Z", tick=False):
                 first = self._create_runner(query).run()
+                first_event = report.call_args.args[1]
             with time_machine.travel("2026-10-29T15:10:00Z", tick=False):
                 second = self._create_runner(query).run()
+                second_event = report.call_args.args[1]
         assert (getattr(first, "is_cached", None), getattr(second, "is_cached", None)) == (False, True)
         expiry = datetime(2026, 10, 29, 16, 0, tzinfo=UTC)
         assert (getattr(first, "cache_target_age", None), getattr(second, "cache_target_age", None)) == (
             expiry,
             expiry,
         )
+        expected_properties = {
+            "sql_cache_window": "up_to_now_long",
+            "sql_cache_fresh_until": expiry.isoformat(),
+            "sql_cache_reason": "window_age",
+        }
+        for event in (first_event, second_event):
+            assert {key: value for key, value in event.items() if key.startswith("sql_cache_")} == expected_properties
 
     def test_recompute_drops_window_inherited_from_the_cached_entry(self) -> None:
         runner = self._create_runner(
@@ -691,6 +707,15 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             )
         )
         assert freshness == Reject(reason=FreshnessReason.UNSUPPORTED_PLACEHOLDER)
+
+    def test_classifier_error_keeps_default_age(self) -> None:
+        with (
+            patch("posthog.hogql_queries.hogql_query_runner.classify", side_effect=RuntimeError),
+            patch("posthog.hogql_queries.hogql_query_runner.capture_exception") as capture,
+        ):
+            freshness = self._built_freshness(HogQLQuery(query=PAST_RANGE))
+        assert freshness == Reject(reason=FreshnessReason.UNPARSEABLE)
+        capture.assert_called_once()
 
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
     def test_named_values_read_as_literals(self) -> None:
