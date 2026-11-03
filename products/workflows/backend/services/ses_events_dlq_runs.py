@@ -19,6 +19,29 @@ RUN_TTL_SECONDS = 14 * 24 * 3600
 RECENT_RUNS_KEPT = 20
 RECENT_RUNS_KEY = "workflows:ses_events_dlq:runs"
 
+# Takes the lock, or extends it, only for the run that owns it or when nobody holds it.
+_HOLD_LOCK = """
+local owner = redis.call('get', KEYS[1])
+if owner == ARGV[1] then
+    return redis.call('expire', KEYS[1], ARGV[2])
+end
+if not owner then
+    redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2])
+    return 1
+end
+return 0
+"""
+_RELEASE_LOCK = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
+
+
+class QueueLockLost(Exception):
+    pass
+
 
 def _run_key(run_id: str) -> str:
     return f"workflows:ses_events_dlq:run:{run_id}"
@@ -28,13 +51,23 @@ def _lock_key(queue: DlqQueue) -> str:
     return f"workflows:ses_events_dlq:lock:{queue.name}"
 
 
+def lock_ttl_seconds(options: ReplayOptions) -> int:
+    # A run stops before its visibility timeout ends, so a lock taken or extended when the run starts
+    # covers the whole run.
+    return options.visibility_timeout_seconds + 300
+
+
+def hold_lock(run_id: str, queue: DlqQueue, options: ReplayOptions) -> bool:
+    """Take or extend the queue lock for this run. False when another run holds it."""
+    return bool(get_client().eval(_HOLD_LOCK, 1, _lock_key(queue), run_id, lock_ttl_seconds(options)))
+
+
 def start_run(queue: DlqQueue, options: ReplayOptions, triggered_by: str) -> str | None:
     """Record a queued run and take the queue lock. None when another run holds the lock."""
     run_id = str(uuid.uuid4())
     redis = get_client()
-    # The lock outlives the longest run, because every message stays hidden for the run's visibility
-    # timeout. finish_run releases it earlier.
-    if not redis.set(_lock_key(queue), run_id, nx=True, ex=options.visibility_timeout_seconds + 300):
+    # The task extends the lock when it starts, because the task can wait in the Celery queue first.
+    if not redis.set(_lock_key(queue), run_id, nx=True, ex=lock_ttl_seconds(options)):
         return None
     run = {
         "id": run_id,
@@ -70,9 +103,7 @@ def update_run(run_id: str, *, status: RunStatus, report: ReplayReport | None = 
 
 def finish_run(run_id: str, queue: DlqQueue, *, status: RunStatus, error: str | None = None) -> None:
     update_run(run_id, status=status, error=error)
-    redis = get_client()
-    if redis.get(_lock_key(queue)) in (run_id, run_id.encode()):
-        redis.delete(_lock_key(queue))
+    get_client().eval(_RELEASE_LOCK, 1, _lock_key(queue), run_id)
 
 
 def recent_runs() -> list[dict[str, Any]]:

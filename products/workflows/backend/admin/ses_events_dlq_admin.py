@@ -26,7 +26,7 @@ from products.workflows.backend.services.ses_events_dlq import (
     inspect_queue,
     sqs_client,
 )
-from products.workflows.backend.services.ses_events_dlq_runs import recent_runs, start_run
+from products.workflows.backend.services.ses_events_dlq_runs import finish_run, recent_runs, start_run
 from products.workflows.backend.tasks.ses_events_dlq import replay_ses_events_dlq_task
 
 logger = structlog.get_logger(__name__)
@@ -118,14 +118,20 @@ def ses_events_dlq_replay_view(request: HttpRequest) -> HttpResponse:
         messages.warning(request, f"A replay of {queue.name} is already running. Wait for it to finish.")
         return HttpResponseRedirect(page_url)
 
-    replay_ses_events_dlq_task.delay(
-        run_id=run_id,
-        queue_name=queue.name,
-        dry_run=options.dry_run,
-        limit=options.limit,
-        max_per_second=options.max_per_second,
-        triggered_by=triggered_by,
-    )
+    try:
+        replay_ses_events_dlq_task.delay(
+            run_id=run_id,
+            queue_name=queue.name,
+            dry_run=options.dry_run,
+            limit=options.limit,
+            max_per_second=options.max_per_second,
+            triggered_by=triggered_by,
+        )
+    except Exception as error:
+        logger.exception("ses_events_dlq.replay_not_queued", run_id=run_id, queue=queue.name)
+        finish_run(run_id, queue, status="failed", error=f"Could not queue the task: {type(error).__name__}")
+        messages.error(request, f"Could not start the replay of {queue.name}. Try again in a minute.")
+        return HttpResponseRedirect(page_url)
     logger.info("ses_events_dlq.replay_requested", run_id=run_id, queue=queue.name, triggered_by=triggered_by)
     kind = "Dry run" if options.dry_run else "Replay"
     messages.success(request, f"{kind} of {queue.name} started. Its progress shows below.")

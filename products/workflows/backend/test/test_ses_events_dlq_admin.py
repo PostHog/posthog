@@ -48,6 +48,18 @@ class TestSesEventsDlqReplayView(TestCase):
         assert [run["triggered_by"] for run in recent_runs()] == ["staff@example.com"]
 
     @patch("products.workflows.backend.admin.ses_events_dlq_admin.replay_ses_events_dlq_task")
+    def test_a_run_whose_task_cannot_be_queued_fails_and_frees_the_queue(self, task: MagicMock) -> None:
+        self.client.force_login(self.staff)
+        form = {"queue": QUEUE.name, "limit": "50", "max_per_second": "5"}
+        task.delay.side_effect = [ConnectionError("broker down"), None]
+
+        self.client.post(REPLAY_URL, form)
+        self.client.post(REPLAY_URL, form)
+
+        assert task.delay.call_count == 2
+        assert [run["status"] for run in recent_runs()] == ["queued", "failed"]
+
+    @patch("products.workflows.backend.admin.ses_events_dlq_admin.replay_ses_events_dlq_task")
     def test_non_staff_cannot_start_a_replay(self, task: MagicMock) -> None:
         self.client.force_login(User.objects.create(email="member@example.com"))
 
@@ -83,3 +95,24 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
         [run] = recent_runs()
         assert (run["status"], run["report"]["totals"]) == ("finished", {"would_replay": 2})
         assert start_run(DlqQueue(url=QUEUE.url), options, "staff@example.com") is not None
+
+    def test_a_task_that_starts_after_another_run_took_its_queue_reads_nothing(self) -> None:
+        options = ReplayOptions(dry_run=False, limit=10, max_per_second=5)
+        run_id = start_run(QUEUE, options, "staff@example.com")
+        assert run_id is not None
+        get_client().set(f"workflows:ses_events_dlq:lock:{QUEUE.name}", "a-later-run")
+
+        with patch("products.workflows.backend.tasks.ses_events_dlq.sqs_client") as sqs_client:
+            replay_ses_events_dlq_task(
+                run_id=run_id,
+                queue_name=QUEUE.name,
+                dry_run=False,
+                limit=10,
+                max_per_second=5,
+                triggered_by="staff@example.com",
+            )
+
+        sqs_client.assert_not_called()
+        [run] = recent_runs()
+        assert run["status"] == "failed"
+        assert get_client().get(f"workflows:ses_events_dlq:lock:{QUEUE.name}") == b"a-later-run"
