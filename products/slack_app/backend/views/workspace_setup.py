@@ -3,7 +3,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -19,9 +19,9 @@ from products.slack_app.backend.logic.workspace_setup import (
     WorkspaceSettingsError,
     get_workspace_setup,
     join_channels as join_slack_channels,
-    list_channel_options,
     set_default_project,
 )
+from products.slack_app.backend.services.public_channel_catalog import ChannelCatalogBusy, public_channel_options
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 
 
@@ -111,6 +111,11 @@ class SlackAppJoinChannelsResultSerializer(serializers.Serializer):
     results = SlackAppChannelJoinResultSerializer(many=True, help_text="The result for each channel, in request order.")
 
 
+CHANNEL_LIST_THROTTLED = (
+    "Slack's channel list for this workspace is loading in another request, or it was loaded too often recently."
+)
+
+
 class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "integration"
     scope_object_read_actions = ["retrieve", "channels"]
@@ -149,17 +154,26 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(SlackAppWorkspaceSetupSerializer(setup).data)
 
     @validated_request(
-        responses={200: OpenApiResponse(response=SlackAppChannelOptionsSerializer)},
+        responses={
+            200: OpenApiResponse(response=SlackAppChannelOptionsSerializer),
+            429: OpenApiResponse(description=CHANNEL_LIST_THROTTLED),
+        },
         summary="List the public channels that PostHog can join for a Slack app install",
     )
     @action(detail=True, methods=["get"], url_path="channels")
     def channels(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
-        options = list_channel_options(self._integration(pk))
+        try:
+            options = public_channel_options(self._integration(pk))
+        except ChannelCatalogBusy as error:
+            raise Throttled(detail=str(error)) from error
         return Response(SlackAppChannelOptionsSerializer({"channels": options}).data)
 
     @validated_request(
         request_serializer=SlackAppJoinChannelsSerializer,
-        responses={200: OpenApiResponse(response=SlackAppJoinChannelsResultSerializer)},
+        responses={
+            200: OpenApiResponse(response=SlackAppJoinChannelsResultSerializer),
+            429: OpenApiResponse(description=CHANNEL_LIST_THROTTLED),
+        },
         summary="Add PostHog to public channels of a Slack app install",
     )
     @action(detail=True, methods=["post"], url_path="join_channels")
@@ -173,4 +187,6 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except WorkspaceSettingsError as error:
             raise PermissionDenied(str(error)) from error
+        except ChannelCatalogBusy as error:
+            raise Throttled(detail=str(error)) from error
         return Response(SlackAppJoinChannelsResultSerializer({"results": results}).data)

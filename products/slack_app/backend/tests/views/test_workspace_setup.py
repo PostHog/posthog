@@ -12,8 +12,10 @@ from posthog.models.team.team import Team
 
 from products.slack_app.backend.api import _channel_onboarding_cache_key
 from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.services.public_channel_catalog import FILLS_PER_WINDOW, _catalog_key
 
 SLACK_TEAM_ID = "T12345"
+CATALOG_SLACK = "products.slack_app.backend.services.public_channel_catalog.SlackIntegration"
 
 
 class TestSlackAppWorkspaceSetup(APIBaseTest):
@@ -147,9 +149,12 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_TEAM_ID, slack_user_id__isnull=True).exists()
 
-    @patch("products.slack_app.backend.logic.workspace_setup.SlackIntegration")
-    def test_channel_options_leave_out_shared_channels(self, mock_slack: MagicMock) -> None:
+    @patch(CATALOG_SLACK)
+    def test_channel_options_leave_out_shared_channels_and_are_listed_once_per_workspace(
+        self, mock_slack: MagicMock
+    ) -> None:
         integration = self._slack_install(self.team, created_by=self.user, scope="channels:join")
+        other_project_install = self._slack_install(self._second_project(), created_by=self.user)
         mock_slack.return_value.list_public_channels.return_value = [
             {"id": "C1", "name": "product", "is_member": False},
             {"id": "C2", "name": "growth", "is_member": True},
@@ -157,6 +162,8 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
         ]
 
         response = self.client.get(self._url(integration.id, "channels/"))
+        other_project_url = f"/api/projects/{other_project_install.team_id}/slack_app_workspace_setup/{other_project_install.id}/channels/"
+        other_project_response = self.client.get(other_project_url)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -165,11 +172,13 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
                 {"id": "C2", "name": "growth", "is_member": True},
             ]
         }
+        assert other_project_response.json() == response.json()
+        mock_slack.return_value.list_public_channels.assert_called_once()
 
     @parameterized.expand([("quietly", False), ("with_welcome", True)])
     @patch("products.slack_app.backend.logic.workspace_setup.capture_slack_event")
     @patch("products.slack_app.backend.logic.workspace_setup.join_channel")
-    @patch("products.slack_app.backend.logic.workspace_setup.SlackIntegration")
+    @patch(CATALOG_SLACK)
     def test_join_channels(
         self, _name: str, post_welcome: bool, mock_slack: MagicMock, mock_join: MagicMock, mock_capture: MagicMock
     ) -> None:
@@ -180,6 +189,7 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
             {"id": "C9", "name": "with-a-customer", "is_member": False, "is_shared": True},
         ]
         mock_join.side_effect = lambda _slack, channel_id: "is_archived" if channel_id == "C2" else None
+        self.client.get(self._url(integration.id, "channels/"))
 
         response = self.client.post(
             self._url(integration.id, "join_channels/"),
@@ -206,6 +216,37 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
             failed_count=2,
             post_welcome=post_welcome,
         )
+        mock_slack.return_value.list_public_channels.assert_called_once()
+        channels_after_join = self.client.get(self._url(integration.id, "channels/")).json()["channels"]
+        assert [channel["is_member"] for channel in channels_after_join] == [True, False]
+
+    @parameterized.expand(
+        [
+            ("another_request_is_listing", "channels/"),
+            ("refresh_budget_spent", "channels/"),
+            ("refresh_budget_spent", "join_channels/"),
+        ]
+    )
+    @patch("products.slack_app.backend.services.public_channel_catalog.FILL_WAIT_SECONDS", 0)
+    @patch("products.slack_app.backend.logic.workspace_setup.join_channel")
+    @patch(CATALOG_SLACK)
+    def test_channel_list_does_not_call_slack_when_the_workspace_is_throttled(
+        self, case: str, suffix: str, mock_slack: MagicMock, mock_join: MagicMock
+    ) -> None:
+        integration = self._slack_install(self.team, created_by=self.user, scope="channels:join")
+        if case == "another_request_is_listing":
+            cache.add(f"{_catalog_key(SLACK_TEAM_ID)}:filling", 1, 60)
+        else:
+            cache.set(f"{_catalog_key(SLACK_TEAM_ID)}:fills", FILLS_PER_WINDOW, 600)
+
+        if suffix == "channels/":
+            response = self.client.get(self._url(integration.id, suffix))
+        else:
+            response = self.client.post(self._url(integration.id, suffix), {"channel_ids": ["C1"]}, format="json")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_slack.return_value.list_public_channels.assert_not_called()
+        mock_join.assert_not_called()
 
     @parameterized.expand([("not_installer_or_admin", "channels:join"), ("no_join_scope", "chat:write")])
     @patch("products.slack_app.backend.logic.workspace_setup.join_channel")
