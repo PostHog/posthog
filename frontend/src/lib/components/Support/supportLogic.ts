@@ -187,6 +187,14 @@ export function appendExceptionToMessage(message: string, exception_event?: Supp
     return message ? `${message}\n\n-----\n${exception}` : exception
 }
 
+// Kept out of the editable draft and appended on send, so the customer can't edit it away
+export function appendTicketContext(message: string, ticket_context?: string | null): string {
+    if (!ticket_context) {
+        return message
+    }
+    return message ? `${message}\n\n-----\n${ticket_context}` : ticket_context
+}
+
 export const SUPPORT_KIND_TO_SUBJECT = {
     bug: 'Bug Report',
     feedback: 'Feedback',
@@ -221,6 +229,7 @@ export type SupportFormFields = {
      */
     billing_issue?: boolean
     exception_event?: SupportTicketExceptionEvent
+    ticket_context?: string
     isEmailFormOpen?: boolean | 'true' | 'false'
     // Set when the ticket originates from a PostHog AI (/ticket, feedback) handover, so the created
     // ticket can be attributed back to the conversation regardless of which submit path files it.
@@ -475,6 +484,7 @@ export const supportLogic = kea<supportLogicType>([
             kind,
             message,
             exception_event,
+            ticket_context,
             billing_issue,
             target,
             ai_conversation_id,
@@ -488,6 +498,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
+                ticket_context,
                 billing_issue: billing_issue ?? false,
                 // Carried through so a PostHog AI handover still attributes the ticket it files.
                 ai_conversation_id,
@@ -511,7 +522,7 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, kind, message, exception_event } = formValues
+            const { name, kind, message, exception_event, ticket_context } = formValues
             // Trimmed before validating and sending: restore-by-email matches the stored trait
             // exactly, so stray whitespace would make the ticket unrecoverable
             const email = formValues.email.trim()
@@ -564,9 +575,12 @@ export const supportLogic = kea<supportLogicType>([
                 return
             }
 
-            // Measure the full outgoing payload (message plus any appended exception) so the guard
+            // Measure the full outgoing payload (message plus any appended exception and ticket context) so the guard
             // matches what the widget endpoint actually receives and rejects
-            const outgoingMessage = appendExceptionToMessage(message, exception_event)
+            const outgoingMessage = appendTicketContext(
+                appendExceptionToMessage(message, exception_event),
+                ticket_context
+            )
             if (warnIfMessageTooLong(outgoingMessage)) {
                 captureSupportTicketBlocked({
                     surface: 'support_form',

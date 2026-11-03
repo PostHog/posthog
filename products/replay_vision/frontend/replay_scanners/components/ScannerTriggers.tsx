@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
@@ -17,7 +17,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
-    convertUniversalFiltersToRecordingsQuery,
     deriveOperand,
     recordingsQueryToUniversalFilters,
 } from 'scenes/session-recordings/filters/recordingsQueryConversions'
@@ -34,6 +33,8 @@ import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { scannerExperimentScope } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { overlayEditorFilters } from '../scannerQueryFilters'
+import { scannerSavedFilterLogic } from '../scannerSavedFilterLogic'
 import { ExperimentScopeFilter } from './ExperimentScopeFilter'
 
 // The wizard holds an unsaved draft, so sending someone to the settings scene to define their test
@@ -64,6 +65,7 @@ function openTestAccountFilterSettings(): void {
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
 const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.ReplaySavedFilters,
     TaxonomicFilterGroupType.Replay,
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.EventProperties,
@@ -201,6 +203,7 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+    useMountedLogic(scannerSavedFilterLogic({ scannerId }))
     const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
     // Waits for the in-flight estimate so an edit can't report on the previous filters.
     const noMatchWindowDays =
@@ -223,20 +226,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     const query = value as RecordingsQuery | null
                     const universal = recordingsQueryToUniversalFilters(query)
                     const applyUniversal = (next: RecordingUniversalFilters): void => {
-                        const converted = convertUniversalFiltersToRecordingsQuery(next)
-                        // Overlay only the dimensions this editor renders so other query fields survive an edit.
-                        onChange({
-                            ...query,
-                            kind: converted.kind,
-                            events: converted.events,
-                            actions: converted.actions,
-                            properties: converted.properties,
-                            console_log_filters: converted.console_log_filters,
-                            having_predicates: converted.having_predicates,
-                            comment_text: converted.comment_text,
-                            filter_test_accounts: converted.filter_test_accounts,
-                            operand: converted.operand,
-                        })
+                        onChange(overlayEditorFilters(query, next))
                     }
                     const durationFilter = clampDurationFilter(universal.duration[0] ?? defaultRecordingDurationFilter)
                     const durationError = durationFilterError(durationFilter)
@@ -246,7 +236,8 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 <div className="space-y-1">
                                     <LemonLabel>Recording filters</LemonLabel>
                                     <div className="text-xs text-muted">
-                                        Filter by event, action, person, session, or cohort.
+                                        Filter by event, action, person, session, or cohort, or start from a saved
+                                        filter.
                                     </div>
                                 </div>
                                 <TestAccountFilterSwitch

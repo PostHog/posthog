@@ -19,11 +19,40 @@ const imageHeaders = {
     'image/jpeg': Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
     'image/gif': Buffer.from('GIF89a', 'ascii'),
     'image/webp': Buffer.from('RIFF\x04\x00\x00\x00WEBP', 'binary'),
+    'image/svg+xml': Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8'),
 } satisfies Record<(typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number], Buffer>
 
 describe('image transport', () => {
     test.each(SUPPORTED_IMAGE_MEDIA_TYPES)('accepts %s bytes that match the Kafka content-type', (contentType) => {
         expect(imageBytesMatchMediaType(imageHeaders[contentType], contentType)).toBe(true)
+    })
+
+    const utf16 = (text: string, bigEndian: boolean): Buffer => {
+        const body = Buffer.from(text, 'utf16le')
+        return Buffer.concat([Buffer.from(bigEndian ? [0xfe, 0xff] : [0xff, 0xfe]), bigEndian ? body.swap16() : body])
+    }
+    const W3C_DOCTYPE =
+        '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'
+
+    test.each([
+        ['a prolog before the root', `\uFEFF<?xml version="1.0"?>\n<!-- icon -->\n${W3C_DOCTYPE}\n<svg>`, true],
+        ['a UTF-16LE document', utf16('<?xml version="1.0" encoding="UTF-16"?><svg/>', false), true],
+        ['a UTF-16BE document', utf16('<svg/>', true), true],
+        ['a prefixed root bound to the SVG namespace', '<s:svg xmlns:s="http://www.w3.org/2000/svg"/>', true],
+        ['a prefixed root bound to another namespace', '<s:svg xmlns:s="http://example.com/ns"/>', false],
+        ['an HTML page', '<!DOCTYPE html><html><svg></svg></html>', false],
+        ['a root that only starts with svg', '<svgx/>', false],
+        ['an unclosed comment', '<!-- <svg/>', false],
+        ['a doctype with an internal subset', '<!DOCTYPE svg [<!ENTITY a "b">]><svg/>', false],
+        [
+            'a quoted literal that hides a subset',
+            '<!DOCTYPE svg SYSTEM "><svg " [<!ENTITY x "s">]><svg>&x;</svg>',
+            false,
+        ],
+        ['a doctype that names another DTD', '<!DOCTYPE svg SYSTEM "https://example.com/evil.dtd"><svg/>', false],
+    ])('reads %s as SVG or not', (_case, document, isSvg) => {
+        const bytes = typeof document === 'string' ? Buffer.from(document, 'utf8') : document
+        expect(imageBytesMatchMediaType(bytes, 'image/svg+xml')).toBe(isSvg)
     })
 
     test.each([

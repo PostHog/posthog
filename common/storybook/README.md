@@ -89,7 +89,8 @@ STORYBOOK_STORIES=frontend/src/toolbar pnpm exec test-storybook --browsers chrom
 
 - `test-storybook` reads the story list from `main.ts` in its own process, so give it the same `STORYBOOK_STORIES` as the build. Otherwise it collects every story in the repo, and each one the build doesn't have fails with "Couldn't find story matching id".
 - `-u` writes fresh images. Without it, the runner compares each story with the image an earlier local run left in `frontend/__snapshots__/`, and an old image fails the story with a size or pixel diff.
-- Images go to `frontend/__snapshots__/`, which git ignores. Failure images go to `frontend/__snapshots__/__failures__/` under the directory you ran from, so delete `common/storybook/frontend/` afterwards.
+- Images go to `frontend/__snapshots__/`. Git ignores the folder but still tracks some older PNGs in it, and `-u` rewrites them. Run `git status` afterwards and restore any tracked image the run changed.
+- Failure images go to `frontend/__snapshots__/__failures__/` under the directory you ran from, so delete `common/storybook/frontend/` afterwards.
 - These images are not the baseline. Visual review keeps the baseline hashes in `frontend/snapshots.yml`. See [Snapshots](docs/snapshots.md#baselines-and-visual-review).
 
 Other scripts in `common/storybook/package.json`:

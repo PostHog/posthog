@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from './aiConsentLogic'
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 /**
  * The path forward for a member who cannot approve AI data processing themselves: ask an

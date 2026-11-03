@@ -29,12 +29,12 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 

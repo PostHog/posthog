@@ -11,8 +11,8 @@ import {
     resolveAxisLineColor,
 } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
-import { applyChartDefaults } from '../../core/chart-config'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
     buildSegmentResolveValue,
@@ -20,11 +20,13 @@ import {
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
+    createTimeXScale,
     resolveYScaleForSeries,
     toYAxisScales,
     yTickCountForHeight,
 } from '../../core/scales'
 import type { ScaleSet, StackedBand } from '../../core/scales'
+import { useResolvedChartTheme } from '../../core/theme'
 import { DEFAULT_Y_AXIS_ID, resolveAxisLines } from '../../core/types'
 import type {
     ChartDimensions,
@@ -51,7 +53,8 @@ export interface LineChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
     config?: LineChartConfig
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
@@ -76,7 +79,7 @@ function LineChartInner<Meta = unknown>({
     series,
     labels,
     config: rawConfig,
-    theme,
+    theme: themeProp,
     tooltip,
     onPointClick,
     onPointContextMenu,
@@ -85,6 +88,7 @@ function LineChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
@@ -95,6 +99,8 @@ function LineChartInner<Meta = unknown>({
         floatBaseline = false,
         yAxes,
         curve,
+        timeScale,
+        connectNulls = false,
     } = config ?? {}
     const smooth = curve === 'monotone'
     // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
@@ -164,14 +170,14 @@ function LineChartInner<Meta = unknown>({
             }
 
             return {
-                x: (label: string) => d3Scales.x(label),
+                x: timeScale ? createTimeXScale(timeScale, dimensions) : (label: string) => d3Scales.x(label),
                 y: (value: number) => d3Scales.y(value),
                 yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
                 yAxes: yAxisScales,
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
+        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes, timeScale]
     )
 
     const drawStatic = useCallback(
@@ -189,7 +195,7 @@ function LineChartInner<Meta = unknown>({
             const baseDrawCtx: DrawContext = {
                 ctx,
                 dimensions,
-                xScale: d3Scales.x,
+                xScale: scales.x,
                 yScale: d3Scales.y,
                 labels: drawLabels,
             }
@@ -212,7 +218,7 @@ function LineChartInner<Meta = unknown>({
                 dimensions,
                 labels: drawLabels,
                 series: coloredSeries,
-                xScale: d3Scales.x,
+                xScale: scales.x,
                 resolveYScale,
                 yValuesFor: (s) => stackedData?.get(s.key)?.top,
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
@@ -223,6 +229,7 @@ function LineChartInner<Meta = unknown>({
                 // stroke at the y-axis, instead of straddling either axis line.
                 yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
                 clipLeftEdge: axisLines.y,
+                connectNulls,
             })
 
             if (axisLineStyle) {
@@ -235,7 +242,7 @@ function LineChartInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, stackedData, smooth]
+        [showGrid, axisLines, stackedData, smooth, connectNulls]
     )
 
     const drawHover = useCallback(

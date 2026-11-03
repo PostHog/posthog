@@ -276,6 +276,26 @@ describe('llmEvaluationLogic', () => {
         })
 
         it.each([
+            ['sentiment' as const, true],
+            ['hog' as const, true],
+            ['llm_judge' as const, false],
+        ])('starts a new %s evaluation running only when it can run without a provider key', async (type, expected) => {
+            await expectLogic(keysLogic).toFinishAllListeners()
+            logic.actions.setEvaluationType(type)
+            expect(logic.values.evaluation?.enabled).toBe(expected)
+        })
+
+        it('keeps a new evaluation paused once someone turned it off by hand', async () => {
+            await expectLogic(keysLogic).toFinishAllListeners()
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setEvaluationEnabled(false)
+            // Through a judge and back, so canEnable changes and the default would turn it on again.
+            logic.actions.setEvaluationType('llm_judge')
+            logic.actions.setEvaluationType('hog')
+            expect(logic.values.evaluation?.enabled).toBe(false)
+        })
+
+        it.each([
             [DEFAULT_HOG_SOURCE, 'return 0;'],
             ['return 42;', 'return 42;'],
         ])('updates only untouched Hog source %s when selecting numeric output', (source, expected) => {
@@ -422,6 +442,20 @@ describe('llmEvaluationLogic', () => {
                     output_config: { allows_na: true },
                 }),
             })
+        })
+
+        it('sends an explicit attachments choice so turning it back on is saved', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setIncludeMedia(false)
+            expect(logic.values.evaluation?.evaluation_config).toEqual(
+                expect.objectContaining({ include_media: false })
+            )
+            expect(logic.values.includeMedia).toBe(false)
+
+            logic.actions.setIncludeMedia(true)
+            expect(logic.values.evaluation?.evaluation_config).toEqual(expect.objectContaining({ include_media: true }))
+            expect(logic.values.includeMedia).toBe(true)
         })
 
         it('records the polarity on the boolean output config', async () => {
@@ -1116,6 +1150,20 @@ return result`,
                 expect(logic.values.trendInsightUrl).toContain('Mean%20score')
                 logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
                 expect(logic.values.isReportableEvaluation).toBe(false)
+            })
+
+            it('charts the negative rate for a sentiment evaluation', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                })
+                expect(logic.values.trendInsightUrl).toContain('Negative%20rate')
             })
 
             it.each([
@@ -1934,6 +1982,47 @@ return result`,
             )
         })
 
+        it.each([
+            [true, 'high'],
+            [false, null],
+        ] as const)(
+            'keeps the reasoning level only when the next model supports it (supportsReasoning=%s)',
+            async (supportsReasoning, expectedLevel) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                await expectLogic(keysLogic).toDispatchActions(['loadProviderKeysSuccess'])
+                await expectLogic(modelPickerLogic).toFinishAllListeners()
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'example/reasoning-model',
+                        name: 'example/reasoning-model',
+                        description: '',
+                        provider: 'OpenAI',
+                        providerKeyId: 'key-1',
+                        supportsReasoning: true,
+                    },
+                    {
+                        id: 'example/next-model',
+                        name: 'example/next-model',
+                        description: '',
+                        provider: 'OpenAI',
+                        providerKeyId: 'key-1',
+                        supportsReasoning,
+                    },
+                ])
+                await expectLogic(logic, () =>
+                    logic.actions.selectModelFromPicker('example/reasoning-model', 'key-1')
+                ).toFinishAllListeners()
+                logic.actions.setReasoningLevel('high')
+                expect(logic.values.selectedModelSupportsReasoning).toBe(true)
+
+                await expectLogic(logic, () =>
+                    logic.actions.selectModelFromPicker('example/next-model', 'key-1')
+                ).toFinishAllListeners()
+
+                expect(logic.values.reasoningLevel).toBe(expectedLevel)
+            }
+        )
+
         beforeEach(() => {
             logic = llmEvaluationLogic({ evaluationId: 'new' })
             logic.mount()
@@ -2317,6 +2406,7 @@ return result`,
                     model: 'gpt-5-mini',
                     provider_key_id: 'key-1',
                 })
+                reportLogic.actions.setDraftFrequency('every_n')
                 reportLogic.actions.setDraftTriggerThreshold(67)
 
                 expect(reportLogic.values.configErrors.triggerThreshold).toBe(
@@ -2450,6 +2540,43 @@ return result`,
                 expect(reportCreateCount).toBe(0)
             } finally {
                 pushSpy.mockRestore()
+                reportLogic.unmount()
+            }
+        })
+    })
+
+    describe('report destinations', () => {
+        it.each([
+            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
+            {
+                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
+                evaluationId: 'saved-eval',
+                frequency: 'every_n',
+            },
+        ])('$name', ({ evaluationId, frequency }) => {
+            const reportLogic = evaluationReportLogic({ evaluationId })
+            reportLogic.mount()
+            try {
+                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
+            } finally {
+                reportLogic.unmount()
+            }
+        })
+
+        it('keeps an emptied destination open until it is removed, then clears it', () => {
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            reportLogic.mount()
+            try {
+                reportLogic.actions.addDraftDestination('email')
+                reportLogic.actions.setDraftEmailValue('team@example.com')
+                reportLogic.actions.setDraftEmailValue('')
+                expect(reportLogic.values.shownDestinations).toEqual(['email'])
+
+                reportLogic.actions.setDraftEmailValue('team@example.com')
+                reportLogic.actions.removeDraftDestination('email')
+                expect(reportLogic.values.shownDestinations).toEqual([])
+                expect(reportLogic.values.configDraft.emailValue).toEqual('')
+            } finally {
                 reportLogic.unmount()
             }
         })

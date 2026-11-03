@@ -13,15 +13,17 @@ import { CdpApi } from '~/cdp/cdp-api'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_EMAIL_STATUS, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { EmailSuppressionService } from './email-suppression.service'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -128,11 +130,14 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
+        const sensitiveInvocation = { ...invocation, hogFunction: { metadata: { sensitive: true } } }
+
         it.each([
-            ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
-            ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
-        ])('leaves the href untouched when the anchor opts out via %s', (_name, html) => {
-            const out = addTrackingToEmail(html, invocation, signer)
+            ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
+            ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
+            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
+        ])('leaves the href untouched when the anchor opts out via %s', (_name, html, inv) => {
+            const out = addTrackingToEmail(html, inv, signer)
             expect(out).toContain('href="https://example.com"')
             expect(out).not.toContain('target=')
         })
@@ -158,14 +163,21 @@ describe('EmailTrackingService', () => {
             })
 
             it.each([
-                ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
-                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
-            ])('translates the %s opt-out into ses:no-track', (_name, html) => {
+                [
+                    'clicktracking="off"',
+                    '<body><a href="https://example.com" clicktracking="off">x</a></body>',
+                    invocation,
+                ],
+                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
+                ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
+            ])('translates the %s opt-out into ses:no-track', (_name, html, inv) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
-                const out = sesTrack(html)
+                const out = addTrackingToEmail(html, inv, signer, false, 'ses')
                 expect(out).toContain('ses:no-track')
                 expect(out).not.toContain('ses:tags')
+                // Opting links out of click tracking keeps the open pixel.
+                expect(out).toContain('ph_id=')
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
@@ -444,15 +456,24 @@ describe('EmailTrackingService', () => {
                 functionId,
                 parentRunId,
                 workflowVersion,
+                transactionalMessageId,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
+                // Sends the bounce as SES reports it for a transactional email with this message id.
+                transactionalMessageId?: string
             }): Promise<supertest.Response> => {
                 // Third arg opts into the versioned payload, which `generate` won't emit by default
                 // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
                 const trackingCode = signer.generate(
-                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    {
+                        functionId,
+                        id: transactionalMessageId ?? invocationId,
+                        teamId: team.id,
+                        parentRunId,
+                        workflowVersion,
+                    },
                     false,
                     workflowVersion !== undefined
                 )
@@ -464,6 +485,12 @@ describe('EmailTrackingService', () => {
                         messageId: 'ses-message-id',
                         destination: ['user@example.com'],
                         headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                        ...(transactionalMessageId
+                            ? {
+                                  commonHeaders: { to: ['user@example.com'] },
+                                  tags: { ph_email_status: ['true'] },
+                              }
+                            : {}),
                     },
                     bounce: {
                         bounceType: 'Permanent',
@@ -517,6 +544,30 @@ describe('EmailTrackingService', () => {
                     metric_name: 'email_bounced',
                     metric_kind: 'email',
                 })
+            })
+
+            it('records the bounced status of a transactional email', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const messageId = new UUIDT().toString()
+
+                const res = await postBounce({ functionId: hogFlow.id, transactionalMessageId: messageId })
+                expect(res.status).toBe(200)
+
+                // The webhook flushes the status row before it answers.
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
+                    expect.objectContaining({
+                        key: messageId,
+                        value: expect.objectContaining({
+                            team_id: team.id,
+                            message_id: messageId,
+                            status: 'bounced',
+                            reason: 'hard',
+                        }),
+                    }),
+                ])
             })
 
             it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {
@@ -817,6 +868,38 @@ describe('EmailTrackingService', () => {
                 },
             ])
         })
+
+        // The webhook write and the pre-send read are covered separately. This joins them end to end:
+        // a real SES envelope over the HTTP route, then the check every email step runs before sending.
+        // It fails if a Permanent bounce stops marking the row, which would keep sending transactional
+        // email to a dead address, or if a soft bounce or complaint starts marking it, which would drop
+        // invoices and password resets for a working address.
+        it.each([
+            ['a transient bounce', postTransientBounce, false],
+            ['a complaint', postComplaint, false],
+            ['a permanent bounce', postPermanentBounce, true],
+        ] as const)(
+            '%s suppresses marketing email, and blocks transactional email only for a hard bounce',
+            async (_label, postWebhook, blocksTransactional) => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const email = 'send-decision@example.com'
+
+                const res = await postWebhook(hogFlow.id, email)
+                expect(res.status).toBe(200)
+
+                const suppression = new EmailSuppressionService(hub.postgres, {
+                    transientBounceThreshold: hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+                })
+
+                expect(await suppression.isSuppressed(team.id, email)).toBe(true)
+                expect(await suppression.isSuppressed(team.id, email, { transactional: true })).toBe(
+                    blocksTransactional
+                )
+            }
+        )
     })
 
     describe('resolveEmailEngagementDistinctId', () => {

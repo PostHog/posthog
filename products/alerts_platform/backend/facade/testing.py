@@ -13,18 +13,22 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     DeliveryPath,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
     SourceCorrespondence,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
     PlatformAlert,
     PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
     PlatformAlertDeliveryPath,
     PlatformAlertThread,
 )
@@ -68,6 +72,29 @@ def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     """Move a configuration's due time, so a test can run two checks against one schedule."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
+
+
+def release_held_delivery(
+    *, team_id: int, configuration_id: UUID, evaluation_key: str, released_by: HoldReleasedBy, at: datetime
+) -> None:
+    """An evaluation whose delivery was held and then released with a send, as a message reader finds it."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=evaluation_key,
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=HoldRelease.SEND,
+        released_by=released_by,
+    )
+
+
+def deliver(request: AlertDeliveryRequest) -> int:
+    """Send a recorded evaluation's delivery as the delivery activity does. Returns how many destinations took it."""
+    return deliver_evaluation(request).sent
 
 
 def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:

@@ -512,6 +512,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def stores_columns(self, columns: dict[str, Any]) -> bool:
+        """Whether ``set_columns(columns)`` would leave this view's stored columns unchanged."""
+        return columns == self.columns and list(columns.keys()) == self.column_order
+
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
@@ -530,7 +534,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
             with app_org_concurrency_slot(self.team):
-                response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+                response = execute_hogql_query(
+                    select_query,
+                    team=self.team,
+                    user=user,
+                    query_type="HogQLQuery",
+                    refresh_stale_view_columns=False,
+                )
         result = response.types
 
         if result is None:

@@ -24,10 +24,13 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { handleLoginRedirect } from 'lib/utils/loginRedirect'
 import { retryImport } from 'lib/utils/retryImport'
 import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -54,16 +57,14 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { loadCoreFilterDefinitions } from '~/taxonomy/loadCoreFilterDefinitions'
 import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
 import type { SceneProps } from './sceneTypes'
-import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -73,6 +74,15 @@ interface MountedSceneLogic {
     sceneId: string
     sceneKey?: string
     unmount: () => void
+}
+
+// A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
+function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
+    const sceneConfig = sceneConfigurations[sceneId]
+    if (sceneConfig?.onlyUnauthenticated || (sceneConfig?.allowUnauthenticated && !loggedIn)) {
+        return Promise.resolve()
+    }
+    return retryImport(loadCoreFilterDefinitions)
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
@@ -116,7 +126,7 @@ function leaveBlockedOrganizationPath(): boolean {
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
-const homepageTargetPathname = (homepage: SceneTab): string => {
+export const homepageTargetPathname = (homepage: SceneTab): string => {
     const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
     return removeProjectIdIfPresent(targetPathname) === '/'
         ? addProjectIdIfMissing(urls.projectHomepage())
@@ -125,7 +135,7 @@ const homepageTargetPathname = (homepage: SceneTab): string => {
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
-const getBootstrappedHomepage = (): SceneTab | null => {
+export const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
     if (!homepage) {
         return null
@@ -1088,7 +1098,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Capture the importer in the narrowed scope; the early guard above ensures it's
                     // defined, but that narrowing wouldn't flow into the retryImport closure.
                     const importScene = props.scenes[sceneId]
-                    importedScene = await retryImport(() => importScene())
+                    ;[importedScene] = await Promise.all([
+                        retryImport(() => importScene()),
+                        loadCoreFilterDefinitionsFor(sceneId, !!userLogic.values.user),
+                    ])
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

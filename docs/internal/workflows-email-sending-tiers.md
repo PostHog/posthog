@@ -12,7 +12,15 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 - Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
 - Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
+- Audit trail: every tier or pin change writes an `email_sending_tier_changed` row to the team's activity log, with the before and after values and the decision reason (`staff_set` for a tier staff set by hand). Staff rows name the acting user. Sweep and backfill rows carry a trigger with the job type and a per-run id. The rows are staff-only in the activity log (`products/workflows/backend/services/email_sending_tier_audit.py`).
 - Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
+- Agent surface: the `workflows-reputation-get` MCP tool returns the same allowance (`sending_allowance` on `GET hog_flows/reputation`), behind the same `workflows-sending-tier-requests` flag.
+- Raise requests: the card's "Request a higher allowance" link opens a support ticket whose hidden context starts with `Email sending tier increase request`, followed by the project ID, tier, usage, and 30-day rates.
+  Search tickets for that line to find these requests.
+  The `workflows-sending-tier-requests` feature flag gates the link.
+  With the flag on, when the tier sets an email batch's cap, the MCP batch tool's over-cap error points agents at the same link, so they can tell the user how to ask for more.
+  Agents cannot file a request themselves.
+  The link shows only to accounts that can file a support ticket: a paid or custom plan, an active support trial, or an organization in its first 3 months.
 
 ## Configuration
 

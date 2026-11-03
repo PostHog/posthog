@@ -229,9 +229,13 @@ def suppressed() -> Q:
     return Q(check_status=PlatformAlertConfiguration.CheckStatus.BROKEN)
 
 
+RULE_METADATA_FIELDS: Final = ("labels", "annotations")
+
+
 def _due(team_id: int, source_kind: str, cutoff: datetime) -> QuerySet[PlatformAlertConfiguration]:
     return (
         PlatformAlertConfiguration.objects.for_team(team_id)
+        .defer(*RULE_METADATA_FIELDS)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
         .exclude(suppressed())
@@ -540,6 +544,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         configurations = list(
             PlatformAlertConfiguration.objects.for_team(team_id)
             .select_for_update()
+            .defer(*RULE_METADATA_FIELDS)
             .filter(id__in=by_id)
             .filter(due_q(now))
             .order_by("id")
@@ -799,6 +804,8 @@ def write_edit(
         "evaluation_periods",
         "datapoints_to_alarm",
         "cooldown_minutes",
+        "labels",
+        "annotations",
         "updated_at",
     ]
     reenabled = edit.enabled and not configuration.enabled
@@ -821,6 +828,7 @@ def create_native_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int,
+    destinations_owner: PlatformAlertOwner,
     now: datetime,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
@@ -830,6 +838,7 @@ def create_native_configuration(
         check_interval_minutes=check_interval_minutes,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,
+        destinations_owner=destinations_owner,
     )
     _assign_edit(configuration, edit)
     # The model's own save logs the creation.
@@ -846,6 +855,8 @@ def _assign_edit(configuration: PlatformAlertConfiguration, edit: PlatformAlertC
     configuration.evaluation_periods = edit.evaluation_periods
     configuration.datapoints_to_alarm = edit.datapoints_to_alarm
     configuration.cooldown_minutes = edit.cooldown_minutes
+    configuration.labels = edit.labels
+    configuration.annotations = edit.annotations
 
 
 def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:
@@ -945,6 +956,37 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
         # `update()` skips `auto_now`.
         updated_at=django_timezone.now(),
     )
+
+
+def write_owned_cadence(
+    configuration: PlatformAlertConfiguration, upsert: PlatformAlertUpsert, *, rescheduled: bool
+) -> None:
+    """Writes a changed cadence onto a copy the platform owns, locked by the caller, and makes it due
+    when its source says.
+
+    The source computes that due time when the edit changes the cadence, or when `rescheduled` says
+    the source moved its own due time, as `upsert_configuration` takes it for a copy the source
+    owns. Any other edit keeps the copy's own due time.
+
+    Raises `ValueError` on a cadence `upsert_configuration` would refuse.
+    """
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    cadence = {
+        "check_interval_minutes": upsert.check_interval_minutes,
+        "recurrence_unit": upsert.recurrence_unit,
+        "anchor_time": validate_and_normalize_schedule_start_time(upsert.anchor_time),
+    }
+    if not rescheduled and all(getattr(configuration, key) == value for key, value in cadence.items()):
+        return
+    for key, value in cadence.items():
+        setattr(configuration, key, value)
+    now = django_timezone.now()
+    # A minute out at the earliest, so the recheck gets a slot of its own. A due time in the minute
+    # of a check that just finished would reuse that check's evaluation key, and the recheck's
+    # history and notification would be dropped as duplicates.
+    configuration.next_check_at = max(upsert.next_check_at or now, now + _HANDOVER_FENCE)
+    configuration.save(update_fields=[*_CADENCE_FIELDS, "next_check_at", "updated_at"])
 
 
 _HANDOVER_FENCE: Final = timedelta(minutes=1)

@@ -9,7 +9,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'
-import { parseV4UrlRef } from './v4-url-ref'
+import { parseV4UrlRef } from './v4-native'
 
 /** Each lookup's read budget starts when it starts, so a batch of many new team months must not start them all at once. */
 const KEY_LOOKUP_CONCURRENCY = 16
@@ -136,10 +136,16 @@ export class V4JobAdmission {
                 budget
             )
         } catch (error) {
-            if (budget.aborted) {
+            // A key read that timed out is as transient as a spent budget. Thrown, it fails the whole batch and restarts the pod.
+            if (budget.aborted || isTimeout(error)) {
                 return DEFERRED
             }
             throw error
         }
     }
+}
+
+/** The AWS SDK rejects a call whose own timeout fired with an `AbortError`, and `AbortSignal.timeout` with a `TimeoutError`. */
+function isTimeout(error: unknown): boolean {
+    return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
 }

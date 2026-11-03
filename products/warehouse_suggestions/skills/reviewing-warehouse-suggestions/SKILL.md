@@ -4,9 +4,9 @@ description: >
   Reviews PostHog's warehouse suggestions with a person and acts on them.
   Explains why a view should be materialized, unmaterialized, certified or deprecated using the numbers in the suggestion,
   changes a materialize suggestion's refresh mode, keys or interval when the person wants something else,
-  then accepts or dismisses it.
+  then accepts, dismisses or assigns it.
   Use when the user asks what PostHog suggests for their data warehouse, whether to materialize a view,
-  why a view should refresh incrementally or every few hours, or wants to accept, change or dismiss a warehouse suggestion.
+  why a view should refresh incrementally or every few hours, or wants to accept, change, dismiss or assign a warehouse suggestion.
 ---
 
 # Reviewing warehouse suggestions
@@ -29,11 +29,12 @@ Its `evidence` has the read counts behind it.
 Tell the user what accepting does and what it costs, using the payload fields.
 Do not invent a score or a confidence level.
 
-- **materialize**: the view is read often enough that storing its result saves compute.
-  - `saves_seconds_per_month` and `saves_bytes_per_month` are what the reads stop costing.
+- **materialize**: the view is computed often enough that storing its result saves compute.
+  - A view that is not stored is computed on every read, and again on every refresh of each materialized view that reads it. `recomputed_by_views` counts those materialized views. When it is above 0, the saving comes mostly from their refreshes, not from people's reads.
+  - `saves_seconds_per_month` and `saves_bytes_per_month` are what those computations stop costing.
   - Materializing adds a recurring refresh cost, which these numbers already subtract.
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
-  - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often) or `savings` (a shorter interval costs more than it saves).
+  - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often), `consumer_refresh` (the materialized views that read it refresh no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.
 - **unmaterialize**: this materialized view is read so rarely that refreshing it costs more than computing it on each read.
   - `refresh_seconds_per_month` and `refresh_bytes_per_month` are what its refreshes cost now.
@@ -73,3 +74,15 @@ The server checks every choice against the view's current query:
 
 Dismiss with `warehouse-suggestions-dismiss` and a reason (`not_useful`, `not_now` or `other`).
 `warehouse-suggestions-resume` brings a dismissed suggestion back.
+
+## 5. Hand it to someone else
+
+A suggestion's `assignee` is the person who should decide it.
+When a view's suggestion is first shown, PostHog assigns it to the person who created the view, if they can accept it.
+To see one person's suggestions, pass `assignee_id` to `warehouse-suggestions-list`.
+
+When the user is not the right person to decide, assign it with `warehouse-suggestions-assign`.
+The user needs edit access to the view or table, the same as for dismissing it (`can_act`).
+The assignee gets a notification.
+They need edit access to the view or table, and to the data catalog for certify and deprecate suggestions.
+A 400 means they do not have it. Tell the user and ask who else should get it.

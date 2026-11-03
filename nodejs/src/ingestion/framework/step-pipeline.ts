@@ -57,6 +57,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
                     key: this.stepName,
                     sendException: false,
                     measureTime: false,
+                    summary: false,
                     attributes: isTracingActive(traceContext) ? eventSpanAttributes(previousResult.value) : undefined,
                     parentContext: traceContext,
                 },

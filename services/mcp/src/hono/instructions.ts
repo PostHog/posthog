@@ -19,9 +19,9 @@ import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
     getRenderableToolNames,
     makeRenderUiSchema,
-    RENDER_UI_TOOL_DESCRIPTION,
     RENDER_UI_TOOL_NAME,
     RENDER_UI_TOOL_TITLE,
+    renderUiDescription,
 } from '@/tools/render-ui'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
@@ -94,6 +94,7 @@ export class InstructionsBuilder {
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
             notebookRunEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_RUN_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
+            businessKnowledgeContent: state.businessKnowledgeContent,
         }
     }
 
@@ -110,17 +111,16 @@ export class InstructionsBuilder {
         }
     }
 
-    buildRenderUiToolEntry(state: ResolvedState): McpTool | null {
-        const toolNames = getRenderableToolNames(state.allTools)
+    buildRenderUiToolEntry(tools: McpTool[]): McpTool | null {
+        const toolNames = getRenderableToolNames(tools)
         if (toolNames.length === 0) {
             return null
         }
         return {
             name: RENDER_UI_TOOL_NAME,
             title: RENDER_UI_TOOL_TITLE,
-            description: RENDER_UI_TOOL_DESCRIPTION,
-            // Derived from the same zod schema the executor validates with, so the
-            // advertised contract (enum, descriptions, required) cannot drift from it.
+            description: renderUiDescription(toolNames),
+            // OpenAI caches this schema across accounts; authorization stays in the executor.
             inputSchema: toMcpInputSchema(makeRenderUiSchema(toolNames as [string, ...string[]])),
             // Advertise the umbrella UI resource so MCP Apps hosts (e.g. Claude) discover
             // render-ui as renderable from `tools/list` and mount its iframe. Both the
@@ -192,6 +192,7 @@ export class InstructionsBuilder {
             docsSearchEnabled,
             businessKnowledgeSearchEnabled,
             businessKnowledgeRepoSearchEnabled,
+            businessKnowledgeContent: state?.businessKnowledgeContent,
         })
     }
 

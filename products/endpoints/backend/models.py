@@ -22,6 +22,8 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
+from products.data_modeling.backend.facade.api import declared_targets_by_saved_query, get_declared_target
+
 logger = logging.getLogger(__name__)
 
 
@@ -199,9 +201,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         related_name="endpoint_versions_created",
     )
 
-    data_freshness_seconds = models.IntegerField(
+    cache_ttl_seconds = models.IntegerField(
         default=86400,
-        help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
+        db_column="data_freshness_seconds",
+        help_text="How long direct query results remain in the cache, in seconds.",
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery",
@@ -289,14 +292,45 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         self.bucket_overrides = bucket_overrides
         self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
-    def disable_materialization(self) -> None:
+    # Attribute that `frequency_nodes_prefetch` fills and `data_freshness_seconds` reads.
+    FREQUENCY_NODES_ATTR = "prefetched_frequency_nodes"
+
+    @classmethod
+    def frequency_nodes_prefetch(cls, saved_query_path: str = "saved_query") -> models.Prefetch:
+        """Prefetch the nodes holding the declared freshness target, for use with `data_freshness_seconds`."""
+        from products.data_modeling.backend.facade.models import Node
+
+        return models.Prefetch(
+            f"{saved_query_path}__node_set",
+            queryset=Node.objects.only("saved_query_id", "properties"),
+            to_attr=cls.FREQUENCY_NODES_ATTR,
+        )
+
+    @property
+    def data_freshness_seconds(self) -> int:
+        if self.saved_query_id is None:
+            return self.cache_ttl_seconds
+
+        nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
+        if nodes is None:
+            target = declared_targets_by_saved_query(self.team_id or self.endpoint.team_id, [self.saved_query_id]).get(
+                str(self.saved_query_id)
+            )
+        else:
+            target = next((target for node in nodes if (target := get_declared_target(node)) is not None), None)
+        if target is not None:
+            return int(target.total_seconds())
+        return self.cache_ttl_seconds
+
+    def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
             return
+        self.cache_ttl_seconds = self.data_freshness_seconds if cache_ttl_seconds is None else cache_ttl_seconds
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
         self.saved_query = None
-        self.save(update_fields=["saved_query", "updated_at"])
+        self.save(update_fields=["saved_query", "cache_ttl_seconds", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:
@@ -360,7 +394,7 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
     Endpoints allow creating reusable query endpoints like:
     /api/projects/{team_id}/endpoints/{endpoint_name}/run
 
-    Query, description, data_freshness_seconds, and materialization settings are stored
+    Query, description, cache duration, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
     """
 
@@ -457,7 +491,7 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
             version=self.current_version,
             query=query,
             created_by=user,
-            data_freshness_seconds=previous_data_freshness,
+            cache_ttl_seconds=previous_data_freshness,
             description=previous_description,
             optional_breakdown_properties=pruned_optional_breakdowns,
             columns=columns,

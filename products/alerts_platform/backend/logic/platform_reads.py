@@ -79,6 +79,8 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         created_at=configuration.created_at,
         updated_at=configuration.updated_at,
         alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
+        labels=configuration.labels,
+        annotations=configuration.annotations,
     )
 
 
