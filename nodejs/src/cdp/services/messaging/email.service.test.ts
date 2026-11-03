@@ -2226,11 +2226,13 @@ describe('EmailService', () => {
         it.each([
             {
                 stage: 'saving the email copy',
+                step: 'saved_copy',
                 warning: 'Email sent, but its saved copy could not be created.',
                 breakBookkeeping: () => useMessageAssets({ failing: true }),
             },
             {
                 stage: 'reading the engagement setting',
+                step: 'engagement_setting',
                 warning: 'Could not read the engagement setting, so no engagement event was recorded for this email.',
                 breakBookkeeping: () => {
                     jest.spyOn(
@@ -2239,12 +2241,14 @@ describe('EmailService', () => {
                     ).mockRejectedValue(new Error('Engagement config fault'))
                 },
             },
-        ])('keeps an accepted email sent when $stage fails', async ({ warning, breakBookkeeping }) => {
+        ])('keeps an accepted email sent when $stage fails', async ({ step, warning, breakBookkeeping }) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             breakBookkeeping()
+            const failuresBefore = await metricValue('cdp_email_bookkeeping_failures_total', { step })
 
             const result = await service.executeSendEmail(invocation)
 
+            expect(await metricValue('cdp_email_bookkeeping_failures_total', { step })).toBe(failuresBefore + 1)
             expect(result.error).toBeUndefined()
             expect(result.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
             expect(result.metrics.map((metric) => metric.metric_name)).not.toContain('email_failed')

@@ -44,8 +44,25 @@ import {
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
 
-function logBookkeepingFailure(invocation: CyclotronJobInvocationHogFunction, message: string, error: unknown): void {
+const emailBookkeepingFailuresTotal = new Counter({
+    name: 'cdp_email_bookkeeping_failures_total',
+    help: 'Email sends whose bookkeeping failed after the send attempt, by step. The send keeps its outcome.',
+    labelNames: ['step'],
+})
+
+type BookkeepingStep = 'saved_copy' | 'engagement_setting'
+
+function recordBookkeepingFailure(
+    invocation: CyclotronJobInvocationHogFunction,
+    step: BookkeepingStep,
+    message: string,
+    error: unknown
+): void {
+    emailBookkeepingFailuresTotal.labels({ step }).inc()
     logger.error(message, {
+        teamId: invocation.teamId,
+        functionId: invocation.functionId,
+        actionId: invocation.state.actionId,
         invocationId: invocation.id,
         error: error instanceof Error ? error.message : String(error),
     })
@@ -900,7 +917,7 @@ export class EmailService {
         try {
             return this.messageAssetsService?.buildRowForEmail(invocation, sendParams) ?? null
         } catch (error) {
-            logBookkeepingFailure(invocation, 'Failed to build the saved copy of a sent email', error)
+            recordBookkeepingFailure(invocation, 'saved_copy', 'Failed to build the saved copy of a sent email', error)
             addLog('warn', 'Email sent, but its saved copy could not be created.')
             return null
         }
@@ -913,7 +930,12 @@ export class EmailService {
         try {
             return await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)
         } catch (error) {
-            logBookkeepingFailure(invocation, 'Failed to read the email engagement capture setting', error)
+            recordBookkeepingFailure(
+                invocation,
+                'engagement_setting',
+                'Failed to read the email engagement capture setting',
+                error
+            )
             addLog('warn', 'Could not read the engagement setting, so no engagement event was recorded for this email.')
             return false
         }
