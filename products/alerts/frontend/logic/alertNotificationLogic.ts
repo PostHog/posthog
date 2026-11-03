@@ -10,16 +10,29 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, IntegrationType } from '~/types'
 
-import { alertsTestDeliveryCreate } from 'products/alerts/frontend/generated/api'
-import type { AlertTestDeliveryResponseApi } from 'products/alerts/frontend/generated/api.schemas'
+import type {
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import {
+    alertsDestinationsDeleteCreate,
+    alertsDestinationsPagerdutyCreate,
+    alertsPagerdutyAvailabilityRetrieve,
+    alertsTestDeliveryCreate,
+} from 'products/alerts/frontend/generated/api'
+import type {
+    AlertTestDeliveryResponseApi,
+    AlertsPagerdutyAvailabilityRetrieveParams,
+} from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
     PendingAlertNotification,
-    buildAlertFilterConfig,
+    buildAlertDestinationFilterGroups,
     buildHogFunctionPayload,
     notificationTypeFromTemplateId,
 } from 'products/alerts/frontend/logic/alertNotifications'
@@ -29,7 +42,13 @@ export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
     { label: 'Microsoft Teams', value: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS },
     { label: 'Webhook', value: ALERT_NOTIFICATION_TYPE_WEBHOOK },
+    { label: 'PagerDuty', value: ALERT_NOTIFICATION_TYPE_PAGERDUTY },
 ]
+
+export interface NewAlertPagerDutyQuery {
+    calculationInterval: AlertsPagerdutyAvailabilityRetrieveParams['calculation_interval']
+    investigationAgentEnabled: boolean
+}
 
 export interface AlertNotificationLogicProps {
     alertId?: string
@@ -44,6 +63,11 @@ export interface alertNotificationLogicValues {
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
     integrationsFailed: boolean
+    newAlertPagerDutyAvailable: boolean
+    newAlertPagerDutyAvailableLoading: boolean
+    pagerDutyRegion: AlertPagerDutyRegion
+    pagerDutyRoutingKey: string
+    pagerDutySeverity: AlertPagerDutySeverity
     pendingNotifications: PendingAlertNotification[]
     selectedSlackIntegration: IntegrationType | undefined
     selectedSlackIntegrationId: number | null
@@ -87,6 +111,9 @@ export interface alertNotificationLogicActions {
     deleteExistingHogFunction: (hogFunction: HogFunctionType) => {
         hogFunction: HogFunctionType
     }
+    deleteExistingPagerDutyDestination: (hogFunctions: HogFunctionType[]) => {
+        hogFunctions: HogFunctionType[]
+    }
     loadExistingHogFunctions: () => any
     loadExistingHogFunctionsFailure: (
         error: string,
@@ -100,6 +127,21 @@ export interface alertNotificationLogicActions {
         payload?: any
     ) => {
         existingHogFunctions: HogFunctionType[]
+        payload?: any
+    }
+    loadNewAlertPagerDutyAvailable: (query: NewAlertPagerDutyQuery) => any
+    loadNewAlertPagerDutyAvailableFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadNewAlertPagerDutyAvailableSuccess: (
+        newAlertPagerDutyAvailable: boolean,
+        payload?: any
+    ) => {
+        newAlertPagerDutyAvailable: boolean
         payload?: any
     }
     removePendingNotification: (index: number) => {
@@ -119,6 +161,15 @@ export interface alertNotificationLogicActions {
     ) => {
         testDeliveryResult: AlertTestDeliveryResponseApi
         payload?: any
+    }
+    setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => {
+        pagerDutyRegion: AlertPagerDutyRegion
+    }
+    setPagerDutyRoutingKey: (pagerDutyRoutingKey: string) => {
+        pagerDutyRoutingKey: string
+    }
+    setPagerDutySeverity: (pagerDutySeverity: AlertPagerDutySeverity) => {
+        pagerDutySeverity: AlertPagerDutySeverity
     }
     setPendingNotifications: (notifications: PendingAlertNotification[]) => {
         notifications: PendingAlertNotification[]
@@ -171,6 +222,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         clearPendingNotifications: true,
         setPendingNotifications: (notifications: PendingAlertNotification[]) => ({ notifications }),
         deleteExistingHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
+        deleteExistingPagerDutyDestination: (hogFunctions: HogFunctionType[]) => ({ hogFunctions }),
         createPendingHogFunctions: (alertId: string, alertName?: string) => ({ alertId, alertName }),
         setSelectedType: (selectedType: AlertNotificationType) => ({ selectedType }),
         setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => ({
@@ -178,6 +230,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
+        setPagerDutyRoutingKey: (pagerDutyRoutingKey: string) => ({ pagerDutyRoutingKey }),
+        setPagerDutySeverity: (pagerDutySeverity: AlertPagerDutySeverity) => ({ pagerDutySeverity }),
+        setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => ({ pagerDutyRegion }),
     }),
 
     reducers({
@@ -220,6 +275,25 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 setSelectedType: () => '',
             },
         ],
+        pagerDutyRoutingKey: [
+            '' as string,
+            {
+                setPagerDutyRoutingKey: (_, { pagerDutyRoutingKey }) => pagerDutyRoutingKey,
+                setSelectedType: () => '',
+            },
+        ],
+        pagerDutySeverity: [
+            'critical' as AlertPagerDutySeverity,
+            {
+                setPagerDutySeverity: (_, { pagerDutySeverity }) => pagerDutySeverity,
+            },
+        ],
+        pagerDutyRegion: [
+            'us' as AlertPagerDutyRegion,
+            {
+                setPagerDutyRegion: (_, { pagerDutyRegion }) => pagerDutyRegion,
+            },
+        ],
         selectedType: [
             ALERT_NOTIFICATION_TYPE_SLACK as AlertNotificationType,
             {
@@ -257,10 +331,27 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                     }
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
-                        filter_groups: [buildAlertFilterConfig(props.alertId)],
+                        filter_groups: buildAlertDestinationFilterGroups(props.alertId),
                         full: true,
                     })
                     return response.results
+                },
+            },
+        ],
+        newAlertPagerDutyAvailable: [
+            false,
+            {
+                // The backend decides with the check that hands a new alert to the alerts platform.
+                loadNewAlertPagerDutyAvailable: async (query: NewAlertPagerDutyQuery, breakpoint) => {
+                    if (values.currentProjectId === null) {
+                        return false
+                    }
+                    const response = await alertsPagerdutyAvailabilityRetrieve(String(values.currentProjectId), {
+                        calculation_interval: query.calculationInterval,
+                        investigation_agent_enabled: query.investigationAgentEnabled,
+                    })
+                    breakpoint()
+                    return response.available
                 },
             },
         ],
@@ -328,6 +419,26 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 },
             })
         },
+        // The alert API removes both incident functions together. The HogFunction API refuses them.
+        deleteExistingPagerDutyDestination: async ({ hogFunctions }) => {
+            if (!props.alertId || values.currentProjectId === null) {
+                return
+            }
+            try {
+                await alertsDestinationsDeleteCreate(String(values.currentProjectId), props.alertId, {
+                    hog_function_ids: hogFunctions.map((hogFunction) => hogFunction.id),
+                })
+                posthog.capture('insight alert destination deleted', {
+                    alert_id: props.alertId,
+                    type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+                })
+                lemonToast.success('PagerDuty destination removed.')
+            } catch (error) {
+                console.error('Failed to remove PagerDuty alert destination', error)
+                lemonToast.error("Couldn't remove the PagerDuty destination. Try again.")
+            }
+            actions.loadExistingHogFunctions()
+        },
 
         createPendingHogFunctions: async ({ alertId, alertName }) => {
             const pending = values.pendingNotifications
@@ -337,6 +448,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
 
             const results = await Promise.allSettled(
                 pending.map((notification) => {
+                    if (notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+                        return alertsDestinationsPagerdutyCreate(String(values.currentProjectId), alertId, {
+                            pagerduty_routing_key: notification.routingKey,
+                            pagerduty_severity: notification.severity,
+                            pagerduty_region: notification.region,
+                        })
+                    }
                     const payload = buildHogFunctionPayload(alertId, alertName, notification)
                     return api.hogFunctions.create(payload)
                 })

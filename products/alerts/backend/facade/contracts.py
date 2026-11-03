@@ -29,6 +29,11 @@ INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
     IncidentAction.TRIGGER.value: INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     IncidentAction.RESOLVE.value: INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
 }
+# Every event a destination built by the insight alert API listens on.
+INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
+    *INSIGHT_ALERT_EVENT_IDS,
+    *INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values(),
+)
 
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.

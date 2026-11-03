@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { ProjectTimezoneNotice } from 'lib/components/ScheduledRunStatus'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -202,8 +202,24 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
 
     const notificationLogic = alertNotificationLogic({ alertId })
-    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
-    const { sendTestDelivery } = useActions(notificationLogic)
+    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading, newAlertPagerDutyAvailable } =
+        useValues(notificationLogic)
+    const { sendTestDelivery, loadNewAlertPagerDutyAvailable } = useActions(notificationLogic)
+    const pagerDutyAvailable = alertId ? Boolean(alert?.pagerduty_available) : newAlertPagerDutyAvailable
+    useEffect(() => {
+        if (!alertId && inlineNotificationsEnabled && alertForm.calculation_interval) {
+            loadNewAlertPagerDutyAvailable({
+                calculationInterval: alertForm.calculation_interval,
+                investigationAgentEnabled: Boolean(alertForm.investigation_agent_enabled),
+            })
+        }
+    }, [
+        alertId,
+        inlineNotificationsEnabled,
+        alertForm.calculation_interval,
+        alertForm.investigation_agent_enabled,
+        loadNewAlertPagerDutyAvailable,
+    ])
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
     const hasTestDeliveryTargets =
         (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
@@ -424,6 +440,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alertId={alertId}
             insightShortId={insightShortId}
             inlineNotificationsEnabled={inlineNotificationsEnabled}
+            pagerDutyAvailable={pagerDutyAvailable}
             showSectionTitle={false}
             onSetAlertFormValue={setAlertFormValue}
         />

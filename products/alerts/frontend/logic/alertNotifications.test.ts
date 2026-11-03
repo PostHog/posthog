@@ -1,7 +1,7 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
-    PendingAlertNotification,
+    HogFunctionAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
     getAlertNotificationAddDisabledReason,
@@ -111,7 +111,11 @@ describe('alertUtils', () => {
         ])(
             'builds correct payload for $name',
             ({ notification, alertName, expectedName, expectedTemplateId, expectedInputKeys }) => {
-                const result = buildHogFunctionPayload('alert-456', alertName, notification as PendingAlertNotification)
+                const result = buildHogFunctionPayload(
+                    'alert-456',
+                    alertName,
+                    notification as HogFunctionAlertNotification
+                )
 
                 expect(result.name).toBe(expectedName)
                 expect(result.template_id).toBe(expectedTemplateId)
@@ -124,7 +128,7 @@ describe('alertUtils', () => {
         )
 
         it('sets correct slack input values', () => {
-            const notification: PendingAlertNotification = {
+            const notification: HogFunctionAlertNotification = {
                 type: 'slack',
                 slackWorkspaceId: 42,
                 slackChannelId: 'C12345',
@@ -138,7 +142,7 @@ describe('alertUtils', () => {
         })
 
         it('sets correct discord input values', () => {
-            const notification: PendingAlertNotification = {
+            const notification: HogFunctionAlertNotification = {
                 type: 'discord',
                 webhookUrl: 'https://discord.com/api/webhooks/123/abc',
             }
@@ -152,7 +156,7 @@ describe('alertUtils', () => {
         })
 
         it('sets correct microsoft teams input values', () => {
-            const notification: PendingAlertNotification = {
+            const notification: HogFunctionAlertNotification = {
                 type: 'microsoft_teams',
                 webhookUrl: 'https://example.webhook.office.com/webhookb2/abc',
             }
@@ -166,7 +170,7 @@ describe('alertUtils', () => {
         })
 
         it('sets correct webhook input values', () => {
-            const notification: PendingAlertNotification = {
+            const notification: HogFunctionAlertNotification = {
                 type: 'webhook',
                 webhookUrl: 'https://example.com/hook',
             }

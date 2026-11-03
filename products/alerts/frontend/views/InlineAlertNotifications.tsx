@@ -7,6 +7,8 @@ import { urls } from 'scenes/urls'
 import { HogFunctionType, IntegrationType } from '~/types'
 
 import {
+    ALERT_PAGERDUTY_REGION_OPTIONS,
+    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     AlertNotificationUrlInput,
@@ -15,6 +17,7 @@ import {
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
@@ -111,11 +114,25 @@ function getPendingNotificationDestination(
             return { title: 'Microsoft Teams', detail: notification.webhookUrl }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { title: 'Webhook', detail: notification.webhookUrl }
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY: {
+            const severity = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === notification.severity)
+            const region = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === notification.region)
+            return {
+                title: 'PagerDuty',
+                detail: `${severity?.label ?? notification.severity} · ${region?.label ?? notification.region} · ••••${notification.routingKey.slice(-4)}`,
+            }
+        }
         default: {
             const exhaustiveCheck: never = notification
             return exhaustiveCheck
         }
     }
+}
+
+// The integration key is a secret input the API never returns. The name ends with the key's tail,
+// and that is what tells two PagerDuty destinations apart.
+function pagerDutyDestinationLabel(hogFunction: HogFunctionType): string {
+    return hogFunction.name?.split(' → ').pop() ?? 'PagerDuty'
 }
 
 function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | undefined {
@@ -127,6 +144,7 @@ function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | u
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { placeholder: 'https://example.com/webhook' }
         case ALERT_NOTIFICATION_TYPE_SLACK:
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
             return undefined
         default: {
             const exhaustiveCheck: never = type
@@ -137,9 +155,11 @@ function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | u
 
 interface InlineAlertNotificationsProps {
     alertId?: string
+    /** Whether the alerts platform owns the alert, or will own it once it is created. Only it opens incidents. */
+    pagerDutyAvailable: boolean
 }
 
-export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsProps): JSX.Element {
+export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: InlineAlertNotificationsProps): JSX.Element {
     const logic = alertNotificationLogic({ alertId })
     const {
         existingHogFunctions,
@@ -152,17 +172,30 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         selectedType,
         slackChannelValue,
         webhookUrl,
+        pagerDutyRoutingKey,
+        pagerDutySeverity,
+        pagerDutyRegion,
     } = useValues(logic)
     const {
         addPendingNotification,
         removePendingNotification,
         deleteExistingHogFunction,
+        deleteExistingPagerDutyDestination,
         setSelectedType,
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
+        setPagerDutyRoutingKey,
+        setPagerDutySeverity,
+        setPagerDutyRegion,
         loadIntegrations,
     } = useActions(logic)
+
+    useEffect(() => {
+        if (!pagerDutyAvailable && selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            setSelectedType(ALERT_NOTIFICATION_TYPE_SLACK)
+        }
+    }, [pagerDutyAvailable, selectedType, setSelectedType])
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
@@ -175,6 +208,14 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 slackWorkspaceId: selectedSlackIntegration.id,
                 slackChannelId: channelId,
                 slackChannelName: channelLabel?.replace('#', '') ?? channelId,
+            }
+        }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            return {
+                type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+                routingKey: pagerDutyRoutingKey,
+                severity: pagerDutySeverity,
+                region: pagerDutyRegion,
             }
         }
         if (!webhookUrl) {
@@ -199,27 +240,58 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             setSlackChannelValue(null)
             return
         }
+        if (notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            setPagerDutyRoutingKey('')
+            return
+        }
         setWebhookUrl('')
     }
 
-    const existingDestinations: AlertNotificationDestinationView[] = existingHogFunctions.map((hogFunction) => {
-        const destination = getHogFunctionDestination(hogFunction, slackIntegrations)
-        return {
-            key: hogFunction.id,
-            title: destination.type,
-            detail: destination.detail,
-            tags: [
-                { label: hogFunction.enabled ? 'Active' : 'Paused', type: hogFunction.enabled ? 'success' : 'default' },
-            ],
-            viewAction: {
-                kind: 'icon',
-                url: urls.hogFunction(hogFunction.id),
-                tooltip: 'Open destination',
-                targetBlank: true,
-            },
-            onDelete: () => deleteExistingHogFunction(hogFunction),
+    // One PagerDuty destination is a trigger function and a resolve function, shown and removed as one.
+    const pagerDutyGroups = new Map<string, HogFunctionType[]>()
+    for (const hogFunction of existingHogFunctions) {
+        if (hogFunction.template_id === 'template-pagerduty') {
+            const label = pagerDutyDestinationLabel(hogFunction)
+            pagerDutyGroups.set(label, [...(pagerDutyGroups.get(label) ?? []), hogFunction])
         }
-    })
+    }
+    const pagerDutyDestinations: AlertNotificationDestinationView[] = Array.from(pagerDutyGroups.entries()).map(
+        ([label, hogFunctions]) => {
+            const enabled = hogFunctions.every((hogFunction) => hogFunction.enabled)
+            return {
+                key: `pagerduty:${label}`,
+                title: 'PagerDuty',
+                detail: label.replace(/^PagerDuty\s*/, ''),
+                tags: [{ label: enabled ? 'Active' : 'Paused', type: enabled ? 'success' : 'default' }],
+                onDelete: () => deleteExistingPagerDutyDestination(hogFunctions),
+            }
+        }
+    )
+
+    const otherDestinations: AlertNotificationDestinationView[] = existingHogFunctions
+        .filter((hogFunction) => hogFunction.template_id !== 'template-pagerduty')
+        .map((hogFunction) => {
+            const destination = getHogFunctionDestination(hogFunction, slackIntegrations)
+            return {
+                key: hogFunction.id,
+                title: destination.type,
+                detail: destination.detail,
+                tags: [
+                    {
+                        label: hogFunction.enabled ? 'Active' : 'Paused',
+                        type: hogFunction.enabled ? 'success' : 'default',
+                    },
+                ],
+                viewAction: {
+                    kind: 'icon',
+                    url: urls.hogFunction(hogFunction.id),
+                    tooltip: 'Open destination',
+                    targetBlank: true,
+                },
+                onDelete: () => deleteExistingHogFunction(hogFunction),
+            }
+        })
+    const existingDestinations = [...otherDestinations, ...pagerDutyDestinations]
 
     const pendingDestinations: PendingAlertNotificationDestinationView[] = pendingNotifications.map(
         (notification, index) => ({
@@ -241,7 +313,11 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     pending: pendingDestinations,
                 }}
                 notificationType={{
-                    options: ALERT_NOTIFICATION_TYPE_OPTIONS,
+                    options: pagerDutyAvailable
+                        ? ALERT_NOTIFICATION_TYPE_OPTIONS
+                        : ALERT_NOTIFICATION_TYPE_OPTIONS.filter(
+                              (option) => option.value !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                          ),
                     value: selectedType,
                     onChange: setSelectedType,
                 }}
@@ -257,13 +333,26 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     onChannelValueChange: setSlackChannelValue,
                 }}
                 url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+                pagerduty={
+                    selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                        ? {
+                              routingKey: pagerDutyRoutingKey,
+                              onRoutingKeyChange: setPagerDutyRoutingKey,
+                              severity: pagerDutySeverity,
+                              onSeverityChange: setPagerDutySeverity,
+                              region: pagerDutyRegion,
+                              onRegionChange: setPagerDutyRegion,
+                          }
+                        : undefined
+                }
                 add={{
                     onClick: handleAdd,
                     disabledReason: getAlertNotificationAddDisabledReason(
                         selectedType,
                         Boolean(selectedSlackIntegration),
                         slackChannelValue,
-                        webhookUrl
+                        webhookUrl,
+                        pagerDutyRoutingKey
                     ),
                 }}
             />
