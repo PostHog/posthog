@@ -65,6 +65,7 @@ from posthog.models.utils import (
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.scopes import LEGACY_SCOPE_FALLBACKS
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import get_trusted_client_ip
@@ -515,7 +516,9 @@ class ProjectSecretAPIKeyUser(SyntheticUser):
         self.project_secret_api_key = project_secret_api_key
 
     def readable_system_table_access_scopes(self) -> set[str]:
-        return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        scope_objects = {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        # Same fallback as APIScopePermission, so a key that reads a split-off object's REST API also reads its tables.
+        return scope_objects | {new for new, legacy in LEGACY_SCOPE_FALLBACKS.items() if legacy in scope_objects}
 
 
 class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):

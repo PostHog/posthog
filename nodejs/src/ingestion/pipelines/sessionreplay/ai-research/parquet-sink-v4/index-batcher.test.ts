@@ -25,7 +25,7 @@ function blockRow(sessionId: string): Record<string, unknown> {
     const row: Record<string, unknown> = {}
     for (const column of BLOCK_INDEX_COLUMNS) {
         row[column.name] =
-            'repeated' in column || 'list' in column
+            'repeated' in column || 'list' in column || 'elements' in column
                 ? []
                 : column.optional
                   ? null
@@ -213,6 +213,16 @@ describe('IndexBatcher', () => {
             'window ids that are not a list',
             'invalid_row',
             message(1, 'blocks', '2026-10-15', { ...blockRow('s1'), window_ids: 'w1' }),
+        ],
+        [
+            'click target id that is not an integer',
+            'invalid_row',
+            message(1, 'blocks', '2026-10-15', { ...blockRow('s1'), surfacing_click_target_ids: [1.5] }),
+        ],
+        [
+            'visited url fingerprints that are not a list',
+            'invalid_row',
+            message(1, 'blocks', '2026-10-15', { ...blockRow('s1'), surfacing_visited_url_fingerprints: 'x' }),
         ],
         [
             'missing urls_truncated flag',

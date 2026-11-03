@@ -2,10 +2,14 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Cohorts',
+    activityDescribers: {
+        [ActivityScope.COHORT]: () =>
+            import('scenes/cohorts/activityDescriptions').then((module) => module.cohortActivityDescriber),
+    },
     scenes: {
         CohortsStaffTools: {
             import: () => import('./frontend/staff/CohortsStaffToolsScene'),
@@ -33,6 +37,7 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
             listHref: () => urls.cohorts(),
+            listSearchParam: 'search',
             filterKey: 'cohort',
         },
     },
