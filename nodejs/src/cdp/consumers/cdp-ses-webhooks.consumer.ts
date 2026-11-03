@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_CDP_SES_WEBHOOKS } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -26,7 +25,9 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
         super(config, deps)
         this.kafkaConsumer = createKafkaConsumer({
             groupId: 'cdp-ses-webhooks-consumer',
-            topic: KAFKA_CDP_SES_WEBHOOKS,
+            // From config, not the constant: the webhook produces to whatever the registry
+            // resolved, so reading the constant would miss an overridden topic entirely.
+            topic: config.CDP_SES_WEBHOOKS_TOPIC,
         })
     }
 
