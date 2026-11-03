@@ -329,7 +329,7 @@ class ConversionGoalsListResponseSerializer(serializers.Serializer):
 
 
 _CONVERSION_GOAL_ADAPTER: TypeAdapter[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = (
-    TypeAdapter(ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)
+    TypeAdapter(cast(Any, ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3))
 )
 
 

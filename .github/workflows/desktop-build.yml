@@ -35,6 +35,7 @@ jobs:
         timeout-minutes: 5
         if: github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
+            contents: read
             pull-requests: read
         outputs:
             # On master pushes the filter step is skipped and everything runs.
@@ -42,6 +43,13 @@ jobs:
             code: ${{ steps.filter.outputs.agent == 'true' && 'true' || steps.filter.outputs.code || 'true' }}
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name == 'pull_request'
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+
             # Own rate-limit bucket; the shared GITHUB_TOKEN goes hot at merge peaks.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -54,10 +62,9 @@ jobs:
             - name: Detect relevant changes
               id: filter
               if: github.event_name == 'pull_request'
-              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              uses: ./.github/actions/paths-filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: every
                   filters: |
                       # Wider excludes than desktop-quality.yml, which keeps .vscode and
                       # .claude in scope because Biome lints them. Only documentation

@@ -2955,6 +2955,13 @@ export interface WorkflowSendingRulesApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
     /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
      *
      * * `off` - Off
@@ -2984,6 +2991,13 @@ export interface PatchedWorkflowSendingRulesApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
     /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
      *
      * * `off` - Off
@@ -3120,6 +3134,7 @@ export type HogFlowsListParams = {
     latest_send_first?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3533,6 +3548,7 @@ export const HogFlowsMetricsVersionRetrieveInterval = {
 export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3557,6 +3573,7 @@ export const HogFlowsProposalsListStatus = {
 export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
