@@ -13,7 +13,7 @@ const DESCRIPTIONS: Partial<Record<HealthPanelCheck['key'], string>> = {
         'Looks for changes to the variant split after users were first exposed. A change can move users who already saw one variant to another, which mixes their behavior across variants and biases the results.',
     no_metric:
         'Checks that a launched experiment has at least one metric. Without a metric, the experiment counts exposures but has nothing to compare the variants on.',
-    srm: 'Tests whether exposed users are divided across variants in the percentages of the variant split. A mismatch usually means that assignment or tracking loses or adds users in one variant, which biases the results.',
+    srm: 'Tests whether exposed users are divided across variants in the percentages of the variant split. A mismatch usually means that a variant override, the assignment or the tracking adds or loses users in one variant, which can bias the results.',
     multiple_variants_share:
         'Counts the users exposed to more than one variant, which the results leave out. A high share usually means that one person has several IDs, and the variants can then lose different users, which biases the results.',
 }

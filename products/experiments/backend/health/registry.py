@@ -242,8 +242,8 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         name="Split of users across variants",
         description=(
             "Tests whether exposed users are divided across variants in the percentages of the variant split. A "
-            "mismatch usually means that assignment or tracking loses or adds users in one variant, which biases the "
-            "results."
+            "mismatch usually means that a variant override, the assignment or the tracking adds or loses users in "
+            "one variant, which can bias the results."
         ),
         run=srm,
     ),
