@@ -129,18 +129,13 @@ debug = "line-tables-only"
 [profile.release.package.neon]
 debug-assertions = true
 
-# Full debug info makes up about half of a dev target dir, and on macOS
-# it also leaves the DWARF in unpacked .o files beside each rlib, so
-# every worktree's build costs several GB more. Workspace crates keep
-# file:line in backtraces; dependency frames show only function names.
+# Dependency debug info doubles the size of a dev target dir.
 [profile.dev]
 debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
-# With debug off, cargo strips debuginfo from proc-macro dylibs by
-# default, and dyld rejects dylibs stripped after Apple's ld-27106
-# linked them ("mis-aligned LINKEDIT string pool").
+# Cargo strips proc-macro dylibs when debug is off, and dyld rejects them after Apple ld-27106 links them.
 strip = false
 
 # The stateright model checker exhaustively explores millions of protocol
