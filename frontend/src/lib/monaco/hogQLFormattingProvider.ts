@@ -1,9 +1,12 @@
+import type { Monaco } from '@monaco-editor/react'
 import type { BuiltLogic } from 'kea'
 import { editor, languages } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { retryImport } from 'lib/utils/retryImport'
+
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 import type { codeEditorLogicType } from './codeEditorLogic'
 import type { FormatHogQLFailure, FormatHogQLResult } from './formatHogQL'
@@ -16,8 +19,6 @@ const FAILURE_MESSAGES: Record<FormatHogQLFailure | 'raw_sql', string> = {
     unverified: "Couldn't format this query. Try again in a moment.",
 }
 
-// A raw query goes to the external connection as written, in that connection's SQL dialect. The
-// HogQL dialect would change the meaning of its literals, for example PostgreSQL's `$$...$$` strings.
 function isRawSqlModel(model: editor.ITextModel): boolean {
     const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
     const sourceQuery = logic?.props.sourceQuery
@@ -36,7 +37,6 @@ async function formatQuery(query: string, options: languages.FormattingOptions):
 
 export const hogQLFormattingProvider: () => languages.DocumentFormattingEditProvider = () => ({
     provideDocumentFormattingEdits: async (model, options) => {
-        // The formatter emits LF line breaks, so compare against an LF view of a CRLF model too.
         const query = model.getValue(editor.EndOfLinePreference.LF)
         const result = isRawSqlModel(model)
             ? ({ formatted: null, failure: 'raw_sql' } as const)
@@ -56,3 +56,13 @@ export const hogQLFormattingProvider: () => languages.DocumentFormattingEditProv
         return [{ range: model.getFullModelRange(), text: result.formatted }]
     },
 })
+
+const monacosWithFormatting = new WeakSet<Monaco>()
+
+export function registerHogQLFormattingProvider(monaco: Monaco): void {
+    if (monacosWithFormatting.has(monaco)) {
+        return
+    }
+    monacosWithFormatting.add(monaco)
+    monaco.languages.registerDocumentFormattingEditProvider(HogLanguage.hogQL, hogQLFormattingProvider())
+}
