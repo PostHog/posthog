@@ -1,5 +1,6 @@
 import base64
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -10,11 +11,16 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
+from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import OrganizationMembership, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.query_creator_access import CreatorLeftOrganizationError
 from posthog.tasks import exporter
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.facade import exporters as export_handlers
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
@@ -121,6 +127,66 @@ class TestExporterTask(APIBaseTest):
         asset.refresh_from_db()
         assert asset.exception == "Unknown table 'foo'"
         assert asset.exception_type == "QueryError"
+        assert asset.failure_type == FAILURE_TYPE_USER
+
+    @parameterized.expand(
+        [
+            ("owner_left_the_organization", False, "CreatorLeftOrganizationError"),
+            ("owner_cannot_view_the_dashboard", True, "UserAccessControlError"),
+        ]
+    )
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_export_does_not_run_when_its_owner_cannot(
+        self,
+        _label: str,
+        owner_is_member: bool,
+        expected_exception_type: str,
+        mock_export: MagicMock,
+        mock_uuid: MagicMock,
+    ) -> None:
+        if owner_is_member:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            owner = User.objects.create_and_join(
+                self.organization, "member@example.com", None, level=OrganizationMembership.Level.MEMBER
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="dashboard",
+                resource_id=str(self.exported_asset.dashboard_id),
+                access_level="none",
+            )
+        else:
+            owner = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard=self.exported_asset.dashboard, export_format="image/png", created_by=owner
+        )
+
+        exporter.export_asset(asset.id)
+
+        mock_export.assert_not_called()
+        asset.refresh_from_db()
+        assert asset.exception_type == expected_exception_type
+        assert asset.failure_type == FAILURE_TYPE_USER
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_subscription_export_without_an_owner_means_the_owner_was_deleted(
+        self, mock_export: MagicMock, mock_uuid: MagicMock
+    ) -> None:
+        # The subscription copied a null owner onto the asset, which only a deleted account produces.
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard=self.exported_asset.dashboard, export_format="image/png", created_by=None
+        )
+
+        # The direct call re-raises after recording, so the delivery workflow sees the failure.
+        with pytest.raises(CreatorLeftOrganizationError):
+            exporter.export_asset_direct(asset, source=EventSource.SUBSCRIPTION)
+
+        mock_export.assert_not_called()
+        asset.refresh_from_db()
+        assert asset.exception_type == "CreatorLeftOrganizationError"
         assert asset.failure_type == FAILURE_TYPE_USER
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")

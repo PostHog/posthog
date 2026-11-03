@@ -14,7 +14,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
-from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -977,3 +977,40 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert self.client.get(url).status_code == status.HTTP_200_OK
             assert self.client.get(url).status_code == expected_status_over_quota
         cache.clear()
+
+    @patch(
+        "posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_sources_listing_reports_a_deletion_despite_a_cached_listing(
+        self,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_fetch_blocks,
+    ):
+        session_id = str(uuid7())
+        recording = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_get_session_recording.return_value = recording
+        cache.set(
+            listing_cache_key(recording),
+            [
+                RecordingBlock(
+                    key="key0",
+                    start_byte=0,
+                    end_byte=100,
+                    start_timestamp="2024-01-01T00:00:00Z",
+                    end_timestamp="2024-01-01T00:01:00Z",
+                )
+            ],
+        )
+        mock_fetch_blocks.side_effect = RecordingDeletedError("Recording has been deleted", deleted_at=1700000000)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/")
+
+        assert response.status_code == status.HTTP_410_GONE
+        assert response.json()["error"] == "recording_deleted"
