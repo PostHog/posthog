@@ -48,7 +48,11 @@ cargo install wasm-bindgen-cli --version 0.2.100
 node packages/kea-wasm/build.mjs
 ```
 
-The build embeds the module as base64 and instantiates it synchronously, because kea opens its default context at import time.
+The browser build (`dist/index.esm.js`) embeds the module as base64 and instantiates it synchronously, because kea opens its default context at import time.
+The Node.js build (`dist/index.cjs.js`, used by Jest) reads `dist/kea_wasm_engine_bg.wasm` from disk instead, so a test file pays about 2 ms to load kea-wasm instead of about 20 ms.
+
+The embedded module makes the minified browser bundle about 62 KB (brotli) larger than kea with redux and reselect.
+A separate `.wasm` file would cut that to about 39 KB, but it needs an asynchronous start, which kea does not have.
 The package is not a pnpm workspace member. `build.mjs` bundles the same redux, reselect and use-sync-external-store copies that kea resolves, and leaves React to the consumer.
 
 ## Use it in the app

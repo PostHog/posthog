@@ -1,18 +1,9 @@
 // Loads the Rust engine synchronously. Kea opens its default context when the module loads,
 // so the WebAssembly module must be ready before any other module code runs.
 import { initSync, Engine, LogicHandle, MappingHandle, createActionType, engineStats, resetEngineStats } from '../gen/kea_wasm_engine.js'
-import { wasmBase64 } from '../gen/wasm-base64.js'
+import { loadWasmBytes } from './wasm-bytes'
 
-function decodeBase64(base64: string): Uint8Array {
-    const binary = atob(base64)
-    const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i)
-    }
-    return bytes
-}
-
-initSync({ module: decodeBase64(wasmBase64) })
+initSync({ module: loadWasmBytes() })
 
 export { Engine, LogicHandle, MappingHandle, createActionType, engineStats, resetEngineStats }
 

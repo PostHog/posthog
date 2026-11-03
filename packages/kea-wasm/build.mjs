@@ -4,7 +4,7 @@
 // 2. embeds the module as base64, so that it loads synchronously in every bundler,
 // 3. bundles src/ to dist/index.cjs.js and dist/index.esm.js.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -67,5 +67,20 @@ const shared = {
     logLevel: 'warning',
 }
 await esbuild.build({ ...shared, format: 'esm', outfile: join(root, 'dist/index.esm.js') })
-await esbuild.build({ ...shared, format: 'cjs', outfile: join(root, 'dist/index.cjs.js') })
+// The CommonJS build is for Node.js and Jest. It reads the module from dist/ instead of embedding it.
+await esbuild.build({
+    ...shared,
+    format: 'cjs',
+    platform: 'node',
+    outfile: join(root, 'dist/index.cjs.js'),
+    plugins: [
+        {
+            name: 'node-wasm-bytes',
+            setup(build) {
+                build.onResolve({ filter: /^\.\/wasm-bytes$/ }, () => ({ path: join(root, 'src/wasm-bytes.node.ts') }))
+            },
+        },
+    ],
+})
+copyFileSync(join(gen, 'kea_wasm_engine_bg.wasm'), join(root, 'dist/kea_wasm_engine_bg.wasm'))
 console.log('kea-wasm built')

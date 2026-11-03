@@ -21,6 +21,8 @@ module.exports = {
     transformIgnorePatterns: ['/node_modules/(?!(\\.pnpm/kea@[^/]+/node_modules/kea/src|kea/src)/)'],
     moduleNameMapper: {
         '^\\.\\./\\.\\./src(.*)$': `${target}$1`,
+        // Load the module from disk, like the Node.js build does.
+        '^\\./wasm-bytes$': path.join(__dirname, 'src/wasm-bytes.node.ts'),
     },
     // The package is not a pnpm workspace member. Resolve React and the test libraries from the
     // frontend, and redux and reselect from kea's own dependencies.

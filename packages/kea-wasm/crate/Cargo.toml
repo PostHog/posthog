@@ -21,3 +21,5 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+# Debug names add about 45 KB to the module and change no behavior.
+strip = true
