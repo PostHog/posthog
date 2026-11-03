@@ -14,7 +14,11 @@ export const FILTER_TOKEN = new RegExp(`(^|\\s)([-!](?:${FILTER_KEY}:"[^"]*"|\\S
 
 export const freeWords = (query: string): string[] => searchWords(query.replace(FILTER_TOKEN, ' '))
 
-function osaDistance(a: string, b: string): number {
+// Stops once every path is longer than limit, because a row's smallest value never shrinks.
+function osaDistance(a: string, b: string, limit = Infinity): number {
+    if (Math.abs(a.length - b.length) > limit) {
+        return limit + 1
+    }
     if (!a.length) {
         return b.length
     }
@@ -31,6 +35,9 @@ function osaDistance(a: string, b: string): number {
                 value = Math.min(value, previousPrevious[j - 2] + 1)
             }
             current.push(value)
+        }
+        if (Math.min(...current) > limit) {
+            return limit + 1
         }
         previousPrevious = previous
         previous = current
@@ -54,9 +61,9 @@ export function tokenTypos(token: string, word: string): number | null {
         return null
     }
     const distance = Math.min(
-        osaDistance(token, word.slice(0, token.length)),
-        osaDistance(token, word),
-        osaDistance(token, singular(word))
+        osaDistance(token, word.slice(0, token.length), budget),
+        osaDistance(token, word, budget),
+        osaDistance(token, singular(word), budget)
     )
     return distance <= budget ? distance : null
 }

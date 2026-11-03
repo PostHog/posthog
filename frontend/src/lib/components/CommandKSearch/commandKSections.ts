@@ -306,6 +306,10 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
+// The unified scorer splits words on underscores, so the settings it ranks are matched the same way.
+export const settingsQuery = (localQuery: string, unifiedRanking: boolean): string =>
+    unifiedRanking ? localQuery.replace(/_/g, ' ') : localQuery
+
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productNames = new Set(local.products.map(plainName))
     return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
@@ -328,7 +332,7 @@ function rankedResultsSections(
     return buildRankedResults({
         persons,
         accounts,
-        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
+        settings: settingsInResults ? rankableSettings(local, settingsQuery(localQuery, unifiedRanking)) : [],
         query: unifiedRanking ? freeText : words.join(' '),
         highlightWords: words,
         results,
