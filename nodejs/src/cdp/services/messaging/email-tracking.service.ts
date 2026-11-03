@@ -173,12 +173,7 @@ export const addTrackingToEmail = (
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
-    const trackingInvocation = {
-        ...invocation,
-        distinctId,
-        workflowVersion: resolveEmailSendingVersion(invocation),
-        captureEngagement: resolveEmailCaptureChoice(invocation),
-    }
+    const trackingInvocation = { ...invocation, distinctId, workflowVersion: resolveEmailSendingVersion(invocation) }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
     // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
@@ -323,7 +318,6 @@ export class EmailTrackingService {
         deferFlush = false,
         workflowVersion,
         verifiedTeamId,
-        captureEngagement,
     }: {
         functionId?: string
         invocationId?: string
@@ -343,7 +337,6 @@ export class EmailTrackingService {
         // of its workflow: sends are recorded at send time, so dropping the delayed complaint and
         // bounce feedback here would make the team's rates read cleaner than they are.
         verifiedTeamId?: string
-        captureEngagement?: boolean
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -358,7 +351,9 @@ export class EmailTrackingService {
         // The function ID could be one or the other so we load both
         const [hogFunction, hogFlow] = await Promise.all([
             this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
-            this.hogFlowManager.getHogFlow(functionId).catch(() => null),
+            this.getFeedbackHogFlows([functionId])
+                .then((hogFlows) => hogFlows[functionId])
+                .catch(() => null),
         ])
 
         let teamId = hogFunction?.team_id ?? hogFlow?.team_id
@@ -411,12 +406,7 @@ export class EmailTrackingService {
         )
 
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
-        if (
-            eventName &&
-            distinctId &&
-            captureEngagement !== false &&
-            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))
-        ) {
+        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
             await this.capturedEventsService.queueEvent({
                 team_id: teamId,
                 event: eventName,
@@ -463,7 +453,7 @@ export class EmailTrackingService {
 
         let hogFlows: Record<string, HogFlow | null> = {}
         try {
-            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+            hogFlows = await this.getFeedbackHogFlows(uniqueFunctionIds)
         } catch (error) {
             logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
             emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
@@ -548,7 +538,6 @@ export class EmailTrackingService {
                     deferFlush: true,
                     workflowVersion: metric.workflowVersion,
                     verifiedTeamId: metric.teamId,
-                    captureEngagement: metric.captureEngagement,
                 })
             }
             if (metrics?.length) {
@@ -635,6 +624,16 @@ export class EmailTrackingService {
         }
     }
 
+    private async getFeedbackHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const [onReplica, hogFunctions] = await Promise.all([
+            this.hogFlowManager.getHogFlows(ids),
+            this.hogFunctionManager.getHogFunctions(ids),
+        ])
+        const unknown = ids.filter((id) => !onReplica[id] && !hogFunctions[id])
+        const onPrimary = unknown.length > 0 ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(unknown) : {}
+        return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
+    }
+
     private parseTrackingParams(query: Record<string, any>): {
         functionId?: string
         invocationId?: string
@@ -642,7 +641,6 @@ export class EmailTrackingService {
         parentRunId?: string
         distinctId?: string
         workflowVersion?: number
-        captureEngagement?: boolean
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -657,7 +655,6 @@ export class EmailTrackingService {
                 parentRunId: parsed?.parentRunId,
                 distinctId: parsed?.distinctId,
                 workflowVersion: parsed?.workflowVersion,
-                captureEngagement: parsed?.captureEngagement,
             }
         }
         return {
