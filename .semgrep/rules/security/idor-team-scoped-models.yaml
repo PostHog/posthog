@@ -183,6 +183,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventDefinitionMetadata
                               |EventFilterConfig
                               |EventFilterPipelineOverride
                               |EventStream
@@ -341,6 +342,7 @@ rules:
                               |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PropertyDefinitionMetadata
                               |PullRequestAudience
                               |PurgedTicketThread
                               |QuarantineLiftRequest
@@ -691,6 +693,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventStream
@@ -839,6 +842,7 @@ rules:
                         |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |PullRequestAudience
                         |PurgedTicketThread
                         |QuarantineLiftRequest
@@ -1150,6 +1154,7 @@ rules:
                         |EvaluationContext
                         |EvaluationReport
                         |Event
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventsHealthDaily
@@ -1231,6 +1236,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |QueryTabState
                         |QueueJob
                         |QueueSchedulerDecision

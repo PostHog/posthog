@@ -1,6 +1,7 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from products.event_definitions.backend.logic.definition_metadata import copy_definition_metadata_on_commit
 from products.event_definitions.backend.models import PropertyDefinition
 
 
@@ -30,3 +31,8 @@ class EnterprisePropertyDefinition(PropertyDefinition):
         default=None,
         db_column="tags",
     )
+
+    def save(self, *args, **kwargs) -> None:
+        super().save(*args, **kwargs)
+        # Keep the team-scoped metadata table in step until reads move to it
+        copy_definition_metadata_on_commit("property", self.pk)

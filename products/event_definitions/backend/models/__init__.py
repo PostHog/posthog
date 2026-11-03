@@ -1,3 +1,4 @@
+from .definition_metadata import EventDefinitionMetadata, PropertyDefinitionMetadata
 from .event_definition import EventDefinition, SchemaEnforcementMode
 from .event_property import EventProperty
 from .property_definition import (
@@ -13,9 +14,11 @@ from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupPropert
 
 __all__ = [
     "EventDefinition",
+    "EventDefinitionMetadata",
     "EventProperty",
     "EventSchema",
     "PropertyDefinition",
+    "PropertyDefinitionMetadata",
     "PropertyFormat",
     "PropertyType",
     "SchemaEnforcementMode",
