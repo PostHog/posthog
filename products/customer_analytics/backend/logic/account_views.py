@@ -25,6 +25,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Conversations": "Conversations",
     "Meetings": "Meetings",
     "SessionReplays": "Session replays",
+    "DotMatrix": "Dot matrix",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
@@ -130,6 +131,25 @@ def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
     return []
 
 
+def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
+    if set(config).difference({"dataset", "mode", "selectedSeries"}):
+        return ["Dot matrix config has unsupported fields."]
+    if config.get("dataset", "people") not in ("product_activity", "people", "ci"):
+        return ["Dot matrix config has an unsupported dataset."]
+    if config.get("mode", "dots") not in ("dots", "count"):
+        return ["Dot matrix config has an unsupported display."]
+    selection = config.get("selectedSeries", [])
+    if (
+        not isinstance(selection, list)
+        or len(selection) > 64
+        or any(not isinstance(key, str) or not 1 <= len(key) <= 128 for key in selection)
+    ):
+        return ["Dot matrix config must contain up to 64 series keys of 1 to 128 characters."]
+    if len(set(selection)) != len(selection):
+        return ["Dot matrix config cannot contain duplicate series keys."]
+    return []
+
+
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
     try:
         components = notebook_content.parse_markdown_component_document(content)
@@ -187,6 +207,8 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
                 errors.append(f"Component {index} config is too large.")
             elif component.tag_name == "Properties":
                 errors.extend(f"Component {index}: {error}" for error in validate_properties_widget_config(config))
+            elif component.tag_name == "DotMatrix":
+                errors.extend(f"Component {index}: {error}" for error in validate_dot_matrix_widget_config(config))
 
     if errors:
         raise InvalidAccountViewContent(errors)

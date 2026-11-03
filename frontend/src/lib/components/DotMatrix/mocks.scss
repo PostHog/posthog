@@ -1,0 +1,36 @@
+.DotMatrix {
+    --dot-matrix-demo-green-1: #eaf5ee;
+    --dot-matrix-demo-green-2: #d4ebdc;
+    --dot-matrix-demo-green-3: #abd7b9;
+    --dot-matrix-demo-green-4: #79bc90;
+    --dot-matrix-demo-green-5: #44a462;
+    --dot-matrix-demo-green-6: #278747;
+    --dot-matrix-demo-blue-1: #edf3fd;
+    --dot-matrix-demo-blue-2: #dbe8fa;
+    --dot-matrix-demo-blue-3: #b6d0f5;
+    --dot-matrix-demo-blue-4: #87b0eb;
+    --dot-matrix-demo-blue-5: #4e8cdd;
+    --dot-matrix-demo-blue-6: #2d69bd;
+    --dot-matrix-demo-count-ink: #203027;
+    --dot-matrix-demo-green-ink: #fff;
+    --dot-matrix-demo-blue-ink: #fff;
+}
+
+[theme='dark'] .DotMatrix {
+    --dot-matrix-empty-slot: #353a44;
+    --dot-matrix-demo-green-1: #142519;
+    --dot-matrix-demo-green-2: #18381f;
+    --dot-matrix-demo-green-3: #1d552b;
+    --dot-matrix-demo-green-4: #267a3a;
+    --dot-matrix-demo-green-5: #36a352;
+    --dot-matrix-demo-green-6: #6cd486;
+    --dot-matrix-demo-blue-1: #14213a;
+    --dot-matrix-demo-blue-2: #1b2f57;
+    --dot-matrix-demo-blue-3: #22407a;
+    --dot-matrix-demo-blue-4: #2b57a3;
+    --dot-matrix-demo-blue-5: #3b76d4;
+    --dot-matrix-demo-blue-6: #74a6f2;
+    --dot-matrix-demo-count-ink: #e6e6e6;
+    --dot-matrix-demo-green-ink: #0b1a10;
+    --dot-matrix-demo-blue-ink: #0b1220;
+}

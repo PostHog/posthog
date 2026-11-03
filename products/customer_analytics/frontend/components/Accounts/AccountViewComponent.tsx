@@ -7,6 +7,7 @@ import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountSc
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
+import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 import { AccountFeatureRequestsExpansion } from './AccountFeatureRequestsExpansion'
 import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
 import { AccountNotesExpansion } from './AccountNotesExpansion'
@@ -41,9 +42,12 @@ export function AccountViewComponent({
 }: AccountViewComponentProps): JSX.Element {
     const tileProps = { instanceId, initialConfig, onConfigChange }
     const isUsersTableEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_ACCOUNT_USERS_TABLE')
+    const isDotMatrixEnabled = useFeatureFlag('CUSTOMER_ANALYTICS_DOT_MATRIX')
     switch (kind) {
         case 'properties':
             return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
+        case 'dot_matrix':
+            return isDotMatrixEnabled ? <AccountDotMatrixTile {...tileProps} /> : <></>
         case 'session_replays':
             return <AccountSessionReplays accountId={accountId} externalId={externalId} {...tileProps} />
         case 'notes':

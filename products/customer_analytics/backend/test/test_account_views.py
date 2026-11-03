@@ -74,6 +74,33 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 validate_account_view_content(content)
             assert context.exception.errors == [f"Component 1: {expected_error}"]
 
+    @parameterized.expand(
+        [
+            ("unsupported_field", {"query": "SELECT 1"}),
+            ("unknown_dataset", {"dataset": "production"}),
+            ("wrong_dataset_type", {"dataset": {}}),
+            ("unknown_mode", {"mode": "users"}),
+            ("wrong_mode_type", {"mode": []}),
+            ("wrong_selection_shape", {"selectedSeries": "product"}),
+            ("wrong_selection_key_type", {"selectedSeries": [1]}),
+            ("empty_selection_key", {"selectedSeries": [""]}),
+            ("long_selection_key", {"selectedSeries": ["x" * 129]}),
+            ("duplicate_selection_key", {"selectedSeries": ["replay", "replay"]}),
+            ("too_many_selection_keys", {"selectedSeries": [str(index) for index in range(65)]}),
+            ("identity", {"accountId": "example-account"}),
+        ]
+    )
+    def test_rejects_invalid_dot_matrix_config(self, _name: str, config: dict) -> None:
+        with self.assertRaises(InvalidAccountViewContent):
+            validate_account_view_content(
+                account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
+            )
+
+    @parameterized.expand([({},), ({"dataset": "ci", "mode": "count", "selectedSeries": ["build", "test"]},)])
+    def test_accepts_dot_matrix_config(self, config: dict) -> None:
+        content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
+        self.assertEqual(validate_account_view_content(content), (content, "Dot matrix"))
+
     def test_accepts_replay_tile_with_date_config(self) -> None:
         content = account_view_content(
             '<SessionReplays nodeId="replay-one" title="Recent recordings" config={{"dateRange":{"date_from":"-7d","date_to":null}}} />'
@@ -147,6 +174,20 @@ class TestAccountViews(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         return response.json()
+
+    def test_dot_matrix_config_roundtrips_and_rejects_invalid_updates(self) -> None:
+        config = {"dataset": "ci", "mode": "count", "selectedSeries": ["build"]}
+        content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
+        response = self.client.post(self.endpoint, {"name": "Dot matrix", "content": content}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        view = response.json()
+        self.assertEqual(self.client.get(f"{self.endpoint}{view['id']}/").json()["content"], content)
+        invalid = account_view_content('<DotMatrix nodeId="matrix-one" config={{"dataset":"production"}} />')
+        update = self.client.patch(
+            f"{self.endpoint}{view['id']}/", {"version": view["version"], "content": invalid}, format="json"
+        )
+        self.assertEqual(update.status_code, status.HTTP_400_BAD_REQUEST, update.json())
+        self.assertEqual(self.client.get(f"{self.endpoint}{view['id']}/").json()["content"], content)
 
     def test_properties_widgets_roundtrip_independent_ordered_selections_with_stale_references(self) -> None:
         first = {
