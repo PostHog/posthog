@@ -5744,6 +5744,8 @@ export interface IntegrationType {
     installation_shared?: IntegrationConfigApi['installation_shared']
     /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
     installation_status?: IntegrationConfigApi['installation_status']
+    /** Linear only. True when the workspace last authorized PostHog before the app had webhooks. */
+    needs_webhook_reconnect?: IntegrationConfigApi['needs_webhook_reconnect']
 }
 
 export interface EmailIntegrationDomainGroupedType {
