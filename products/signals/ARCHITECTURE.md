@@ -1201,6 +1201,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 
 - `signal_data_source_entered` / `signal_data_source_summarized` / `signal_data_source_filtered` — data-source pipeline only (`pipeline.py`)
 - `signal_emission_started` — `emit_signal()` past validation
+- `signal_source_rate_limited` — the signal's `(team, source_product, source_type)` was over its rate cap (+ `window`: `hour` | `day`, `enforced`). An enforced drop also fires `signal_data_source_filtered` with `filter_reason="source_rate_limited"`; a dark-launch would-drop goes on to `signal_emitted`. See Per-source signal rate cap
 - `signal_emitted` — `emit_signal()` after Temporal dispatch succeeds
 - `signal_assigned_to_report` — grouping assigned the signal (+ `report_id`, `is_new_report`, `promoted`)
 - `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
@@ -1673,6 +1674,21 @@ Resume is organic, like the other pauses: nothing restarts when the flag goes of
 
 **Telemetry:** each gate emits `signal_report_free_trial_paused` with `stage` (`autostart` | `manual_create` | `task_create` | `task_run`), `report_id`, `team_id`, and `organization_id`. Every event is a real block.
 
+### Per-source signal rate cap
+
+An abuse cap on signal volume, not on reports: one project and source must not push an unbounded burst of signals through embedding, matching, and specificity LLM calls.
+Implemented in `backend/source_rate_limit.py` with `posthog.token_bucket`, and checked in `emit_signal()` after the finalized-signal check and before the steering gate, so a capped signal starts no Temporal workflow and makes no LLM call.
+Every source goes through `emit_signal()`, so this one gate covers warehouse sources, direct product emitters, and scouts.
+
+- **Key:** one pair of buckets for each `(team_id, source_product, source_type)`.
+- **Budgets:** hourly `Budget(burst=200, per_hour=200)`, then a rolling day `Budget(burst=1000, per_hour=42)`. A signal needs a token from both. When the daily bucket refuses, the hourly token goes back.
+- **Enforcement:** behind `signals-source-rate-limit-enforcement` (org-keyed, read only when a signal is over the cap). With the flag off the gate charges the buckets and reports would-drops, but lets every signal through. A would-drop takes no token, the same as a real drop, so the dark-launch numbers match enforcement. An enforced drop returns `False` and completes the signal's pipeline accounting, like the steering gate.
+- **Fail open:** when Redis cannot answer, the signal goes through (metric `signals_source_rate_check_failed_open_total`).
+
+**Telemetry:** `signal_source_rate_limited` (+ `window`, `enforced`) and the Prometheus counter `signals_source_rate_limited_total` (labels `source_product`, `window`, `enforced`) on every over-cap signal.
+Only an enforced drop fires `signal_data_source_filtered`, so `started - filtered - emitted` stays the dispatch-failure count in both flag states.
+Backfills from a newly connected source, exemptions for `system_source_exempt` sources, and an in-app notice are open questions for the dark-launch review.
+
 ---
 
 ## Data Types (`backend/temporal/types.py`)
@@ -1766,6 +1782,7 @@ products/signals/
 │   ├── apps.py                      # Django app config
 │   ├── models.py                    # SignalReport, SignalReportArtefact, SignalTeamConfig, SignalUserAutonomyConfig, SignalReportTask, SignalSourceConfig, SignalScoutConfig, SignalScoutRun, SignalScratchpad, SignalProjectProfile, SignalEmissionRecord
 │   ├── serializers.py               # DRF serializers for source configs, reports, artefacts, team config, user autonomy config
+│   ├── source_rate_limit.py         # Per-project, per-source signal rate cap checked in emit_signal()
 │   ├── utils.py                     # Compatibility re-exports for signal query helpers
 │   ├── views.py                     # SignalViewSet, InternalSignalViewSet, SignalSourceConfigViewSet, SignalTeamConfigViewSet, SignalReportViewSet, SignalReportArtefactViewSet, SignalProcessingViewSet
 │   ├── scout_harness/               # Headless Signals agent — see scout_harness/AGENTS.md

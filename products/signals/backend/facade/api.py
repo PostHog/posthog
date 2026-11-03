@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 import hashlib
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
@@ -128,6 +129,11 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
+from products.signals.backend.source_rate_limit import (
+    record_source_rate_limited,
+    source_rate_limit_enforcement_enabled,
+    source_rate_limit_exceeded,
+)
 from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 
@@ -872,7 +878,8 @@ async def emit_signal(
 
     Returns True when the signal was dispatched to the pipeline, and False when it was skipped: the
     organization has not approved AI data processing, the source is off, the signal is already
-    finalized, the team's steering filtered it, or its idempotency key was already used.
+    finalized, the source is over its rate cap (see `source_rate_limit.py`), the team's steering
+    filtered it, or its idempotency key was already used.
 
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
@@ -1005,6 +1012,22 @@ async def emit_signal(
     )
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
         return False
+
+    # Before the steering gate, which can make an LLM call, so a capped source costs nothing more.
+    rate_limited_window = await asyncio.to_thread(source_rate_limit_exceeded, team.id, source_product, source_type)
+    if rate_limited_window is not None:
+        enforced = await asyncio.to_thread(source_rate_limit_enforcement_enabled, str(organization.id))
+        record_source_rate_limited(source_product, rate_limited_window, enforced=enforced)
+        capture_emission_event("signal_source_rate_limited", {"window": rate_limited_window, "enforced": enforced})
+        if enforced:
+            # Only a real drop counts as filtered, so a dark-launch would-drop still reads as emitted.
+            capture_emission_event(
+                "signal_data_source_filtered", {"filter_reason": "source_rate_limited", "window": rate_limited_window}
+            )
+            await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
+            return False
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.

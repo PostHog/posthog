@@ -15,6 +15,7 @@ from products.signals.backend.facade.api import (
     emit_signal,
 )
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.source_rate_limit import SourceRateWindow
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
@@ -259,6 +260,46 @@ class TestEmitSignalValidation:
             "signal_data_source_filtered",
         ]
         assert capture.call_args_list[1].kwargs["properties"]["filter_reason"] == "duplicate_emission"
+
+    @pytest.mark.parametrize("enforced", [False, True], ids=["dark_launch", "enforced"])
+    async def test_emit_signal_over_source_rate_cap(self, team_stub, enforced):
+        client = AsyncMock()
+        client.start_workflow.side_effect = [
+            temporalio.exceptions.WorkflowAlreadyStartedError("already started", "buffer-signals-1"),
+            AsyncMock(),
+        ]
+
+        with (
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
+            patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+            patch("products.signals.backend.facade.api.source_rate_limit_exceeded", return_value=SourceRateWindow.DAY),
+            patch("products.signals.backend.source_rate_limit.posthoganalytics.feature_enabled", return_value=enforced),
+            patch("products.signals.backend.facade.api.complete_signal_pipeline") as complete,
+            patch("products.signals.backend.facade.api.posthoganalytics.capture") as capture,
+        ):
+            dispatched = await emit_signal(
+                team=team_stub,
+                source_product="github",
+                source_type="issue",
+                source_id="test-id-1",
+                description="A valid signal",
+                extra=GITHUB_ISSUE_EXTRA,
+            )
+
+        events = [call.kwargs["event"] for call in capture.call_args_list]
+        rate_limited = capture.call_args_list[1].kwargs["properties"]
+        assert (rate_limited["window"], rate_limited["enforced"]) == ("day", enforced)
+        if enforced:
+            assert not dispatched
+            client.start_workflow.assert_not_awaited()
+            complete.assert_called_once()
+            assert events == ["signal_emission_started", "signal_source_rate_limited", "signal_data_source_filtered"]
+            assert capture.call_args_list[2].kwargs["properties"]["filter_reason"] == "source_rate_limited"
+        else:
+            assert dispatched
+            assert client.start_workflow.await_count == 2
+            complete.assert_not_called()
+            assert events == ["signal_emission_started", "signal_source_rate_limited", "signal_emitted"]
 
     @pytest.mark.parametrize("idempotency_key", ["", "   "])
     async def test_emit_signal_rejects_empty_idempotency_keys(self, team_stub, idempotency_key):
