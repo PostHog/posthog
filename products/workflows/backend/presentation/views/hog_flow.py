@@ -6564,15 +6564,9 @@ class HogFlowViewSet(
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
-        hog_flow: Optional[WorkflowEditState]
-        try:
-            hog_flow = self._edit_state()
-        except exceptions.NotFound:
-            # Only a genuinely missing workflow lands here (e.g. testing from the builder before first
-            # save) — fall back to testing the submitted payload. Permission failures never reach this
-            # fallback: a resource-level denial 403s upstream before this method runs, and an object-level
-            # PermissionDenied from the lookup is deliberately not caught, so it surfaces as a 403.
-            hog_flow = None
+        # `new` tests a workflow from the builder before its first save. Any other id must resolve, so a
+        # missing workflow returns 404 instead of running the submitted payload as a new workflow.
+        hog_flow: Optional[WorkflowEditState] = None if self.kwargs["pk"] == "new" else self._edit_state()
 
         serializer = HogFlowInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}

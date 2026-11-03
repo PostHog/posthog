@@ -2779,6 +2779,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    @parameterized.expand(
+        [
+            ("missing", "0e02d917-563f-4050-9725-aad881b69937"),
+            ("not_a_uuid", "not-a-uuid"),
+            ("soft_deleted", None),
+        ]
+    )
+    def test_test_invocation_of_an_unknown_function_is_not_found(self, _name, function_id):
+        if function_id is None:
+            function_id = str(
+                HogFunction.objects.create(team=self.team, name="Deleted", hog="return event", deleted=True).id
+            )
+
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
+                data={"configuration": {**EXAMPLE_FULL}},
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        mock_create_hog_invocation_test.assert_not_called()
+
     def test_test_invocation_rejects_a_posthog_connection_input(self):
         connection = Integration.objects.create(team=self.team, kind="posthog", created_by=self.user)
 

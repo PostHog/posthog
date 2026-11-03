@@ -3551,6 +3551,25 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("missing", "0e02d917-563f-4050-9725-aad881b69937"),
+            ("not_a_uuid", "not-a-uuid"),
+        ]
+    )
+    def test_test_invocation_of_an_unknown_flow_is_not_found(self, _name, flow_id):
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={"globals": {"event": {"event": "$pageview", "distinct_id": "d"}}, "mock_async_functions": True},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        mock_invoke.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("cohort_condition_without_person_read", ["hog_flow:write", "group:read"], True, True, 403),
             ("cohort_condition_with_person_read", ["hog_flow:write", "group:read", "person:read"], True, True, 200),
             ("rolled_out_without_person_read", ["hog_flow:write", "group:read"], False, True, 403),

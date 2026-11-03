@@ -1411,10 +1411,9 @@ class HogFunctionViewSet(
     )
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
-        try:
-            hog_function = self.get_object()
-        except Exception:
-            hog_function = None
+        # `new` tests a function that is not saved yet. Any other id must resolve, so a missing or deleted
+        # function returns 404 instead of running the submitted configuration as a new function.
+        hog_function = None if self.kwargs["pk"] == "new" else self.get_object()
 
         data = request.data
         if data.get("use_draft"):
