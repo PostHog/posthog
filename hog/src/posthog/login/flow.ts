@@ -44,7 +44,8 @@ export function loginFlow(runtime: Runtime, host?: string): ApprovalFlow<Pending
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
 // login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
 // credentials with an older approval.
-export async function saveLogin(runtime: Runtime, key: AccessKey): Promise<LoggedIn> {
+export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promise<LoggedIn> {
+    const key = await unverified.verify(runtime)
     const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     let keychainProblem = probe.usable ? null : probe.reason
