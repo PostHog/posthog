@@ -31,9 +31,10 @@ import structlog
 from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
+from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
 from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
@@ -311,10 +312,12 @@ def readmit_retried_check(
     A timed-out attempt's thread can still run its query, so the query is killed first, or the retry
     would run beside it. The retry then moves the slot to its own token, so the pool never counts
     the two attempts as one check that either can release.
+
+    The earlier attempt keeps its ClickHouse slot. A kill can fail without an error, and a query that
+    still runs must stay counted. Its thread frees the slot when the query ends, and the lease frees
+    it if the worker died.
     """
     _stop_query(team_id, configuration_id, previous_query_id)
-    # The query ID names the attempt that held this slot, so its slot frees now rather than at its lease.
-    _QUERY_LIMIT.release(ConcurrencySlot(running_tasks_key=QUERY_INFLIGHT_KEY, task_id=previous_query_id))
     release_evaluation_slot(configuration_id, held_until=attempt_slot_token(held_until, attempt - 1), key=INFLIGHT_KEY)
     token = attempt_slot_token(held_until, attempt)
     admitted = admit_evaluation_slots(
@@ -478,14 +481,17 @@ def evaluate_insight_check(
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
         try:
-            outcome = _decide(
-                checks[0],
-                cutoff,
-                evaluation_id=evaluation_id,
-                attempt=attempt,
-                final_attempt=final_attempt,
-                uses_llm_detector=uses_llm_detector,
-            )
+            # Other ClickHouse users, production's included, run this query in flights of their own but write
+            # the same cache entry, so a platform follower can find their entry in place of its leader's.
+            with skip_query_single_flight():
+                outcome = _decide(
+                    checks[0],
+                    cutoff,
+                    evaluation_id=evaluation_id,
+                    attempt=attempt,
+                    final_attempt=final_attempt,
+                    uses_llm_detector=uses_llm_detector,
+                )
         except LLMDetectorUnavailableError:
             retrying = True
             raise
