@@ -1,10 +1,16 @@
 # API
 
 Every request goes through `src/api/client.ts`: it prefixes the host, adds the bearer token,
-sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and throws
-`ApiError` with the server's `code` and `detail` on any other failure.
+sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and represents HTTP failures
+as `ApiError` with the server's `code` and `detail`.
 `projectPath('signals/reports/')` builds `/api/projects/{projectId}/signals/reports/`.
 Streams use `apiStream` (expo's fetch, so the body streams on native) and `src/api/sse.ts`.
+
+Ordinary API requests have a 30-second deadline across token refresh and body reads. Caller cancellation stays distinct
+from a deadline, and neither a timeout nor a lost connection automatically retries a write. A write can reach the server
+before its response is lost, so a timeout does not mean it failed on the server. Long-lived task streams use their own
+idle watchdog and reconnect policy. Transport failures have a dedicated error type; unrelated programming errors are
+not reported as connectivity failures.
 
 Most existing types are written by hand per module and name the Django serializer they mirror.
 PR checks use `PullRequestChecksResponseApi` from the Signals generated schemas. New API

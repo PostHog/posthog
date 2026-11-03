@@ -96,16 +96,16 @@ class TestGetRowsDownloads:
         assert len(result.requests) == 1
 
     @time_machine.travel("2024-02-15", tick=False)
-    def test_saves_state_after_each_window_and_advances_package_on_completion(self) -> None:
+    def test_stages_state_before_each_window_and_advances_package_on_completion(self) -> None:
         result = _driver().run(
             "Downloads", always(ScriptedResponse(json={"downloads": [{"day": "2015-01-10", "downloads": 1}]}))
         )
 
-        # Final call always advances to the next package index with no in-progress window.
+        # The last window stages the next package, and the package loop stages it again.
         assert result.raised is None
         assert len(result.requests) > 1
-        assert len(result.saved_states) == len(result.requests)
-        assert result.saved_states[-1] == NpmRegistryResumeConfig(package_index=1)
+        assert len(result.saved_states) == len(result.requests) + 1
+        assert result.saved_states[-2:] == [NpmRegistryResumeConfig(package_index=1)] * 2
         assert result.committed_states == result.saved_states[:-1]
 
 

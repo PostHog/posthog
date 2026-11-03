@@ -146,19 +146,33 @@ def _parse_page(data: Any, data_selector: str = "results") -> tuple[list[Any], s
     return data.get(data_selector) or [], (data.get("links") or {}).get("next")
 
 
-def _collect_items(session: requests.Session, first_url: str, logger: FilteringBoundLogger) -> list[dict]:
-    """Walk every page of a list endpoint and return the items, following `links.next`."""
+def _collect_items(
+    session: requests.Session,
+    first_url: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HoneybadgerResumeConfig],
+) -> list[dict]:
+    """Walk every page of a list endpoint and return the items, following `links.next`.
+
+    It collects fan-out parents, not rows, and the caller holds no rows, so each page is a safe point.
+    """
     items: list[dict] = []
     url: str | None = first_url
     while url:
         results, next_url = _parse_page(_fetch_page(session, url, logger))
         items.extend(results)
+        resumable_source_manager.safe_point()
         url = next_url if next_url != url else None
     return items
 
 
-def _collect_ids(session: requests.Session, first_url: str, logger: FilteringBoundLogger) -> list[Any]:
-    return [item["id"] for item in _collect_items(session, first_url, logger)]
+def _collect_ids(
+    session: requests.Session,
+    first_url: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[HoneybadgerResumeConfig],
+) -> list[Any]:
+    return [item["id"] for item in _collect_items(session, first_url, logger, resumable_source_manager)]
 
 
 def _build_params(
@@ -244,13 +258,13 @@ def _get_project_rows(
         resume.next_url if resume and resume.next_url else _build_url(f"{HONEYBADGER_BASE_URL}/projects", params)
     )
     for results, next_url in _iter_pages(session, first_url, logger):
-        if not results:
-            continue
-        yield results
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-        # page rather than skipping it — merge dedupes on the primary key.
-        if next_url:
-            resumable_source_manager.save_state(HoneybadgerResumeConfig(next_url=next_url))
+        if results:
+            yield results
+            # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
+            # page rather than skipping it — merge dedupes on the primary key.
+            if next_url:
+                resumable_source_manager.save_state(HoneybadgerResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
 
 
 def _get_project_child_rows(
@@ -262,7 +276,9 @@ def _get_project_child_rows(
     params: dict[str, Any],
 ) -> Iterator[list[dict]]:
     """Fan out over every project and page through the per-project child endpoint."""
-    project_ids = _collect_ids(session, _build_url(f"{HONEYBADGER_BASE_URL}/projects", {"limit": PAGE_LIMIT}), logger)
+    project_ids = _collect_ids(
+        session, _build_url(f"{HONEYBADGER_BASE_URL}/projects", {"limit": PAGE_LIMIT}), logger, resumable_source_manager
+    )
 
     # Resolve the saved project bookmark to the projects still to process. If the bookmarked
     # project no longer exists, start over — merge dedupes re-pulled rows on the primary key.
@@ -279,15 +295,17 @@ def _get_project_child_rows(
         resume_url = None  # only the resumed-into project uses the saved URL
 
         for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
-            if not results:
-                continue
-            if config.time_series:
-                yield _time_series_rows(project_id, results)
-            else:
-                # The traversal determines the parent, so API rows cannot change their project attribution.
-                yield [{**item, "project_id": project_id} for item in results]
-            if next_url:
-                resumable_source_manager.save_state(HoneybadgerResumeConfig(next_url=next_url, project_id=project_id))
+            if results:
+                if config.time_series:
+                    yield _time_series_rows(project_id, results)
+                else:
+                    # The traversal determines the parent, so API rows cannot change their project attribution.
+                    yield [{**item, "project_id": project_id} for item in results]
+                if next_url:
+                    resumable_source_manager.save_state(
+                        HoneybadgerResumeConfig(next_url=next_url, project_id=project_id)
+                    )
+            resumable_source_manager.safe_point()
 
         # Advance the bookmark so a crash between projects resumes at the next one.
         if index + 1 < len(remaining):
@@ -311,7 +329,9 @@ def _get_nested_rows(
     rows, which keeps the per-fault request count away from the 360 req/hour quota.
     """
     parent_key = _FAN_OUT_PARENT_KEYS[fan_out_parent]
-    project_ids = _collect_ids(session, _build_url(f"{HONEYBADGER_BASE_URL}/projects", {"limit": PAGE_LIMIT}), logger)
+    project_ids = _collect_ids(
+        session, _build_url(f"{HONEYBADGER_BASE_URL}/projects", {"limit": PAGE_LIMIT}), logger, resumable_source_manager
+    )
 
     remaining_projects = project_ids
     resume_parent_id: Any = None
@@ -326,6 +346,7 @@ def _get_nested_rows(
             session,
             _build_url(f"{HONEYBADGER_BASE_URL}/projects/{project_id}/{fan_out_parent}", parent_params),
             logger,
+            resumable_source_manager,
         )
         parent_ids = [parent["id"] for parent in parents]
         parent_columns = {
@@ -350,16 +371,16 @@ def _get_nested_rows(
             resume_url = None
 
             for results, next_url in _iter_pages(session, first_url, logger, config.data_selector):
-                if not results:
-                    continue
-                yield [
-                    {**item, "project_id": project_id, parent_key: parent_id, **parent_columns[parent_id]}
-                    for item in results
-                ]
-                if next_url:
-                    resumable_source_manager.save_state(
-                        HoneybadgerResumeConfig(next_url=next_url, project_id=project_id, **{parent_key: parent_id})
-                    )
+                if results:
+                    yield [
+                        {**item, "project_id": project_id, parent_key: parent_id, **parent_columns[parent_id]}
+                        for item in results
+                    ]
+                    if next_url:
+                        resumable_source_manager.save_state(
+                            HoneybadgerResumeConfig(next_url=next_url, project_id=project_id, **{parent_key: parent_id})
+                        )
+                resumable_source_manager.safe_point()
 
             if parent_index + 1 < len(remaining_parents):
                 resumable_source_manager.save_state(

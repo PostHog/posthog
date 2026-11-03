@@ -23,3 +23,14 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     help: 'A batch hog flow run failed during audience resolution and was skipped',
     labelNames: ['hog_flow_id', 'reason'],
 })
+
+export const counterTeamIdSource = new Counter({
+    name: 'cdp_events_team_id_source',
+    help: 'Where the consumer read an event team id from. "body" means the message carried no usable team id header, so the consumer parsed the event to find one.',
+    labelNames: ['source'],
+})
+
+export const counterTeamIdHeaderMismatch = new Counter({
+    name: 'cdp_events_team_id_header_mismatch',
+    help: 'An event body named a different team than its header. The event is parked, because the two teams would send one team data to another team destinations.',
+})
