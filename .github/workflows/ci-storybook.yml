@@ -238,7 +238,7 @@ jobs:
                   }
 
                   CHROMIUM=$(shards chromium "$CHROMIUM_SHARDS")
-                  if [ "${{ github.event_name }}" = "pull_request" ] && [ "$MERGE_QUEUE" != "true" ]; then
+                  if false && [ "${{ github.event_name }}" = "pull_request" ] && [ "$MERGE_QUEUE" != "true" ]; then
                     MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
                   else
                     WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
