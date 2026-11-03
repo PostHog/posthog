@@ -15,7 +15,7 @@ type MigrateResult =
           projectId: string
           store: StoreChoice
           credentialsPath: string | null
-          keychainProblem: string | null
+          keychainError: string | null
           // The file the key came from, which hog leaves as it was.
           legacyFile: string
       }
@@ -58,8 +58,8 @@ export default defineCommand({
         }
         const key = new PersonalAPIKey({ host, projectId, apiKey })
         const loggedIn = await saveLogin(runtime, key)
-        const { store, credentialsPath, keychainProblem } = loggedIn
-        return { status: 'migrated', host, projectId, store, credentialsPath, keychainProblem, legacyFile }
+        const { store, credentialsPath, keychainError } = loggedIn
+        return { status: 'migrated', host, projectId, store, credentialsPath, keychainError, legacyFile }
     },
 
     human({ result, out }) {
@@ -72,8 +72,8 @@ export default defineCommand({
         out.line(
             `${out.style('Moved', 'green', 'bold')} the personal API key for ${escapeControls(result.host)}, project ${result.projectId}, into ${where}.`
         )
-        if (result.keychainProblem) {
-            out.line(out.style(`${escapeControls(result.keychainProblem).replace(/\.$/, '')}.`, 'yellow'))
+        if (result.keychainError) {
+            out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
         }
         out.line(
             out.style(`hog no longer reads ${result.legacyFile}. Delete it once posthog-cli doesn't need it.`, 'dim')

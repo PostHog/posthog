@@ -30,7 +30,7 @@ describe('resumeApproval', () => {
         const ctx = new Context(
             runtime,
             {} as GlobalOptions,
-            { agent: 'test', agentReason: '', format: 'json', color: false, columns: undefined },
+            { agent: 'test', agentReason: '', format: 'json', color: false, columns: undefined, ci: false },
             COMMANDS
         )
         const remaining: PollOutcome<string>[] = [...outcomes]

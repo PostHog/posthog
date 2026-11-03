@@ -22,8 +22,8 @@ function keychainError(error: unknown): HogError {
     if ((error as { code?: unknown } | null)?.code === 'ERR_SECRETS_USER_CANCELED') {
         return new HogError(
             'keychain_access_denied',
-            'hog was not allowed to use the keychain.',
-            'Run the command again and allow hog to use the keychain. Choose "Always Allow" so it does not ask again.'
+            "PostHog wasn't allowed to use the keychain.",
+            'Run the command again and allow PostHog to use the keychain. Choose "Always Allow" so it doesn\'t ask again.'
         )
     }
     return new HogError(
@@ -35,7 +35,7 @@ function keychainError(error: unknown): HogError {
 
 // Runs one keychain call. After a moment it tells the person a dialog may be waiting for them, and
 // after KEYCHAIN_TIMEOUT_MS it stops waiting. The dialog can still be answered after that, so `undo`
-// reverts a call that lands late, and no keychain item outlives what settings.json records.
+// reverts a call that lands late.
 async function keychainCall<T>(
     runtime: Runtime,
     operation: () => Promise<T>,
@@ -44,7 +44,7 @@ async function keychainCall<T>(
     const settled = new AbortController()
     void runtime.sleep(KEYCHAIN_PROGRESS_MS, settled.signal).then(() => {
         if (!settled.signal.aborted) {
-            runtime.writeStderr('Waiting for access to the keychain. If a dialog asks, allow hog to use it.\n')
+            runtime.writeStderr('Waiting for access to the keychain. If a dialog asks, allow PostHog to use it.\n')
         }
     })
     const timeout = runtime.sleep(KEYCHAIN_TIMEOUT_MS, settled.signal).then((): never => {
@@ -81,12 +81,12 @@ export class KeychainStore implements CredentialStore {
         return value === null ? undefined : parseSecret(parseJson(value))
     }
 
-    async write(host: string, secret: StoredSecret): Promise<void> {
+    async write(host: string, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {
         const name = hostKey(host)
         await keychainCall(
             this.runtime,
             () => this.runtime.secrets.set(name, JSON.stringify(secret)),
-            () => this.runtime.secrets.delete(name)
+            options.removeIfLate ? () => this.runtime.secrets.delete(name) : undefined
         )
     }
 

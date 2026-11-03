@@ -109,7 +109,11 @@ function fakeClock(start: number): { now: () => number; sleep: Runtime['sleep'] 
                 signal?.addEventListener(
                     'abort',
                     () => {
-                        timers.splice(timers.indexOf(timer), 1)
+                        // A timer that already fired is gone, and splice(-1) would drop another one.
+                        const index = timers.indexOf(timer)
+                        if (index >= 0) {
+                            timers.splice(index, 1)
+                        }
                         resolve()
                     },
                     { once: true }
@@ -131,7 +135,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const runtime: FakeRuntime = {
         env: options.env ?? {},
         platform: 'linux',
-        fromSource: false,
+        isDevelopment: false,
         stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,
