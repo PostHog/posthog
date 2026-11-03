@@ -1,4 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import cast
 from uuid import UUID
@@ -8,6 +9,7 @@ import time_machine
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 
 import dagster
 from clickhouse_driver import Client
@@ -29,6 +31,8 @@ from posthog.dags.deletes import (
     PartitionCleanup,
     PendingDeletesDictionary,
     PendingDeletesTable,
+    PlanDeletionConfig,
+    PlanDeletionPasses,
     StagedDictionary,
     _count_through,
     _count_unswept_rows,
@@ -46,6 +50,7 @@ from posthog.dags.deletes import (
     plan_old_events_cleanup,
     resolve_sweep_targets,
     run_deletes_after_manual_trigger,
+    update_plan_deletions,
     wait_for_delete_mutations_in_shards,
 )
 from posthog.dags.person_overrides import squash_person_overrides
@@ -53,6 +58,7 @@ from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.events_plan_deletion import TeamEventsPlanDeletion, cleanup_date, next_pass_on
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -759,25 +765,29 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
     )
     context = build_op_context()
 
-    plan = plan_old_events_cleanup(context, MonthlyCleanupConfig(), cluster)
+    no_passes = PlanDeletionPasses(run_on=cleanup_date(), due_team_ids=[])
+
+    plan = plan_old_events_cleanup(context, MonthlyCleanupConfig(), cluster, no_passes)
 
     assert plan == OldEventsCleanupPlan(
         partitions=[
             PartitionCleanup(partition=_partition(_mid_month(15)), team_ids=[thirteen.id]),
             PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[thirteen.id, eighteen.id]),
-        ]
+        ],
+        window_months_by_team={thirteen.id: 13, eighteen.id: 18},
     )
 
     only_oldest = plan_old_events_cleanup(
-        context, MonthlyCleanupConfig(partitions=[_partition(_mid_month(20))]), cluster
+        context, MonthlyCleanupConfig(partitions=[_partition(_mid_month(20))]), cluster, no_passes
     )
     assert [item.partition for item in only_oldest.partitions] == [_partition(_mid_month(20))]
 
     only_eighteen = plan_old_events_cleanup(
-        context, MonthlyCleanupConfig(team_ids=[eighteen.id, no_retention.id]), cluster
+        context, MonthlyCleanupConfig(team_ids=[eighteen.id, no_retention.id]), cluster, no_passes
     )
     assert only_eighteen == OldEventsCleanupPlan(
-        partitions=[PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[eighteen.id])]
+        partitions=[PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[eighteen.id])],
+        window_months_by_team={eighteen.id: 18},
     )
 
 
@@ -862,7 +872,211 @@ def test_monthly_retention_events_cleanup_schedule_starts_one_run_when_a_retenti
         run_request = monthly_retention_events_cleanup_schedule(context)
 
     assert isinstance(run_request, dagster.RunRequest)
-    assert (run_request.run_key, run_request.run_config) == ("202701", {})
+    assert (run_request.run_key, run_request.run_config) == (
+        "202701",
+        {"ops": {"update_plan_deletions": {"config": {"max_new_plan_deletion_teams": 0}}}},
+    )
+
+
+def _first_pass() -> date:
+    return next_pass_on(cleanup_date())
+
+
+def _plan_state(team: Team) -> tuple[int, date] | None:
+    row = TeamEventsPlanDeletion.objects.filter(team=team).first()
+    return (row.months, row.next_deletion_on) if row else None
+
+
+@pytest.mark.django_db
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_update_plan_deletions_admits_at_most_the_cap(cluster: ClickhouseCluster):
+    organization = Organization.objects.create(name="One year plan")
+    first, second, third = (
+        Team.objects.create(organization=organization, name=f"Old events {i}", event_retention_months=12)
+        for i in range(3)
+    )
+    young = Team.objects.create(organization=organization, name="Young events", event_retention_months=12)
+    _insert_events(
+        cluster,
+        _events(first.id, _mid_month(11), 0, 1)
+        + _events(second.id, _mid_month(11), 0, 1)
+        + _events(third.id, _mid_month(11), 0, 1)
+        + _events(young.id, _mid_month(1), 0, 1),
+    )
+
+    passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(max_new_plan_deletion_teams=2), cluster)
+
+    assert passes.due_team_ids == []
+    assert [_plan_state(team) for team in (first, second, third, young)] == [
+        (12, _first_pass()),
+        (12, _first_pass()),
+        None,
+        (12, _first_pass()),
+    ]
+
+
+def _both_plans(config: dict) -> dict:
+    return {"plan_old_events_cleanup": {"config": config}, "plan_old_sessions_cleanup": {"config": config}}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "cleanup_ops,months_left,sessions_left,pass_completed",
+    [
+        pytest.param(lambda other: {}, {11: 4}, {11}, True, id="every_team"),
+        pytest.param(
+            lambda other: _both_plans({"team_ids": [other.id]}),
+            {20: 2, 13: 3, 11: 4},
+            {20, 13, 11},
+            False,
+            id="another_team",
+        ),
+        pytest.param(
+            lambda other: _both_plans({"partitions": [_partition(_mid_month(13))]}),
+            {20: 2, 11: 4},
+            {20, 11},
+            False,
+            id="one_month",
+        ),
+        pytest.param(
+            lambda other: {"plan_old_sessions_cleanup": {"config": {"team_ids": [other.id]}}},
+            {11: 4},
+            {20, 13, 11},
+            False,
+            id="sessions_of_another_team",
+        ),
+    ],
+)
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_completed_pass(
+    cluster: ClickhouseCluster,
+    cleanup_ops: Callable[[Team], dict],
+    months_left: dict[int, int],
+    sessions_left: set[int],
+    pass_completed: bool,
+):
+    organization = Organization.objects.create(name="Due")
+    team = Team.objects.create(organization=organization, name="Due", event_retention_months=12)
+    other = Team.objects.create(organization=organization, name="Other", event_retention_months=12)
+    TeamEventsPlanDeletion.objects.create(team=team, months=12, next_deletion_on=cleanup_date())
+    _insert_events(
+        cluster,
+        _events(team.id, _mid_month(20), 0, 2)
+        + _events(team.id, _mid_month(13), 100, 3)
+        + _events(team.id, _mid_month(11), 200, 4),
+    )
+    _insert_sessions(cluster, [(team.id, _mid_month(months)) for months in (20, 13, 11)])
+
+    monthly_retention_events_cleanup_job.execute_in_process(
+        run_config={"ops": cleanup_ops(other)}, resources={"cluster": cluster}
+    )
+
+    assert _count_by_team_and_partition(cluster, [team.id]) == {
+        (team.id, _partition(_mid_month(months))): events for months, events in months_left.items()
+    }
+    assert _sessions_by_team_and_partition(cluster, [team.id]) == dict.fromkeys(
+        SESSIONS_RETENTION_TABLES, {(team.id, _partition(_mid_month(months))) for months in sessions_left}
+    )
+    assert _plan_state(team) == (12, _first_pass() if pass_completed else cleanup_date())
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "months,postponed,deleted_months",
+    [
+        pytest.param(12, False, [13, 20], id="unchanged"),
+        pytest.param(24, False, [], id="longer_window"),
+        pytest.param(6, True, [], id="shorter_window"),
+    ],
+)
+def test_plan_old_events_cleanup_uses_a_pass_changed_after_the_run_started(
+    cluster: ClickhouseCluster, months: int, postponed: bool, deleted_months: list[int]
+):
+    team = Team.objects.create(
+        organization=Organization.objects.create(name="Due"), name="Due", event_retention_months=12
+    )
+    _insert_events(cluster, _events(team.id, _mid_month(13), 0, 1) + _events(team.id, _mid_month(20), 100, 1))
+    passes = PlanDeletionPasses(run_on=cleanup_date(), due_team_ids=[team.id])
+    TeamEventsPlanDeletion.objects.create(
+        team=team, months=months, next_deletion_on=_first_pass() if postponed else cleanup_date()
+    )
+
+    plan = plan_old_events_cleanup(build_op_context(), MonthlyCleanupConfig(), cluster, passes)
+
+    assert [item.partition for item in plan.partitions] == [_partition(_mid_month(m)) for m in deleted_months]
+    assert plan.completed_pass_team_ids == ([] if postponed else [team.id])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "deployment,now,next_pass",
+    [
+        ("US", "2026-11-04T04:00:00Z", date(2027, 2, 3)),
+        ("EU", "2026-11-03T23:30:00Z", date(2027, 3, 3)),
+    ],
+)
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_update_plan_deletions_shorter_window_pushes_the_next_pass(
+    cluster: ClickhouseCluster, deployment: str, now: str, next_pass: date
+):
+    downgraded = Team.objects.create(
+        organization=Organization.objects.create(name="Downgraded"), name="Downgraded", event_retention_months=12
+    )
+    standard = Team.objects.create(
+        organization=Organization.objects.create(name="Standard"), name="Standard", event_retention_months=84
+    )
+    Organization.objects.filter(id=standard.organization_id).update(
+        available_product_features=[{"key": "product_analytics_standard_data_retention"}]
+    )
+    TeamEventsPlanDeletion.objects.create(team=downgraded, months=24, next_deletion_on=date(2026, 11, 10))
+    TeamEventsPlanDeletion.objects.create(team=standard, months=84, next_deletion_on=date(2026, 11, 10))
+
+    with override_settings(CLOUD_DEPLOYMENT=deployment), time_machine.travel(now, tick=False):
+        passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(), cluster)
+
+    assert passes.due_team_ids == []
+    assert (_plan_state(downgraded), _plan_state(standard)) == ((12, next_pass), (24, next_pass))
+
+
+@pytest.mark.django_db
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_update_plan_deletions_keeps_a_window_saved_while_it_admits_teams(cluster: ClickhouseCluster):
+    organization = Organization.objects.create(name="Standard")
+    Organization.objects.filter(id=organization.id).update(
+        available_product_features=[{"key": "product_analytics_standard_data_retention"}]
+    )
+    due = Team.objects.create(organization=organization, name="Due", event_retention_months=84)
+    Team.objects.create(organization=organization, name="Waiting", event_retention_months=84)
+    TeamEventsPlanDeletion.objects.create(team=due, months=12, next_deletion_on=cleanup_date())
+
+    def save_a_window_during_admission(*args: object, **kwargs: object) -> set[int]:
+        TeamEventsRetentionConfig.objects.create(team=due, events_retention_months=36)
+        return set()
+
+    with patch("posthog.dags.deletes.teams_losing_events_at_first_pass", side_effect=save_a_window_during_admission):
+        passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(max_new_plan_deletion_teams=1), cluster)
+
+    assert passes.due_team_ids == [due.id]
+    assert _plan_state(due) == (36, cleanup_date())
+
+
+@pytest.mark.django_db
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
+def test_update_plan_deletions_without_enforcement_passes_no_team(cluster: ClickhouseCluster):
+    organization = Organization.objects.create(name="Not enforced")
+    waiting = Team.objects.create(organization=organization, name="Waiting", event_retention_months=12)
+    due = Team.objects.create(organization=organization, name="Due", event_retention_months=12)
+    downgraded = Team.objects.create(organization=organization, name="Downgraded", event_retention_months=12)
+    TeamEventsRetentionConfig.objects.create(team=downgraded, events_retention_months=36)
+    for team in (due, downgraded):
+        TeamEventsPlanDeletion.objects.create(team=team, months=12, next_deletion_on=cleanup_date())
+    _insert_events(cluster, _events(waiting.id, _mid_month(11), 0, 1))
+
+    passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(max_new_plan_deletion_teams=5), cluster)
+
+    assert passes.due_team_ids == []
+    assert _plan_state(waiting) is None
+    assert _plan_state(due) == (12, cleanup_date())
 
 
 def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:

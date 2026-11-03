@@ -201,6 +201,26 @@ class OrganizationEventsRetention:
     min_months: int
     max_months: int
     months_choices: list[int]
+    next_cleanup_on: date
+
+
+@dataclass(frozen=True)
+class ScheduledEventsDeletion:
+    """The next cleanup that deletes a project's events, and the date before which it deletes them."""
+
+    deletes_on: date
+    deletes_before: date
+
+
+@dataclass(frozen=True)
+class ProjectEventsRetention:
+    """The window set for a project, its next deletion, and its pass dates."""
+
+    project_months: int | None
+    next_deletion: ScheduledEventsDeletion | None
+    scheduled_pass_on: date | None
+    first_pass_on: date
+    default_window_deletes: bool
 
 
 @dataclass(frozen=True)

@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+from datetime import date, datetime, time
 from functools import partial
 
 from django.core.exceptions import ValidationError
@@ -5,23 +7,44 @@ from django.db import transaction
 
 from posthog.event_usage import EventSource, report_user_action, sanitize_header_value
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.events_plan_deletion import (
+    TeamEventsPlanDeletion,
+    cleanup_date,
+    deletion_months,
+    next_cleanup_on,
+    next_pass_on,
+    reschedule_plan_deletions,
+    with_window,
+)
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
+    TeamEventsRetention,
     TeamEventsRetentionConfig,
     describe_months_range,
+    effective_events_retention,
     lock_organization_retention,
+    whole_month_cutoff,
 )
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.event_retention import (
-    STANDARD_DEFAULT_PERIOD_MONTHS,
-    default_period,
+    STANDARD_DEFAULT_WINDOW_MONTHS,
+    TeamPlan,
+    default_window,
+    events_retention_windows,
     has_standard_retention,
     organization_events_retention_months,
+    retention_windows,
+    should_enforce_events_retention,
+    team_plan,
 )
 from posthog.models.user import User
 
-from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
+from products.product_analytics.backend.facade.contracts import (
+    OrganizationEventsRetention,
+    ProjectEventsRetention,
+    ScheduledEventsDeletion,
+)
 
 RETENTION_MONTHS_CHOICES = (1, 3, 12, 24, 36, 60, 84)
 
@@ -89,20 +112,47 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
     standard = has_standard_retention(organization)
     return OrganizationEventsRetention(
         organization_months=config.default_events_retention_months if config else None,
-        default_months=default_period(plan_months, standard, staff_min),
-        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_PERIOD_MONTHS,
+        default_months=default_window(plan_months, standard, staff_min),
+        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_WINDOW_MONTHS,
         plan_months=plan_months,
         min_months=staff_min or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
         months_choices=list(RETENTION_MONTHS_CHOICES),
+        next_cleanup_on=next_cleanup_on(),
     )
 
 
-def project_events_retention_months(team: Team) -> int | None:
-    return (
+def _next_deletion(
+    team_id: int, setting: TeamEventsRetention | None, window_months: int, scheduled_pass_on: date | None
+) -> ScheduledEventsDeletion | None:
+    pass_on = scheduled_pass_on if should_enforce_events_retention(team_id) else None
+    deletes_on = next_cleanup_on() if setting is not None else pass_on
+    if deletes_on is None:
+        return None
+    months = deletion_months(setting, window_months if pass_on is not None and pass_on <= deletes_on else None)
+    if months is None:
+        return None
+    deletes_before = whole_month_cutoff(datetime.combine(deletes_on, time()), months).date()
+    return ScheduledEventsDeletion(deletes_on=deletes_on, deletes_before=deletes_before)
+
+
+def project_events_retention(team: Team) -> ProjectEventsRetention:
+    project_months = (
         TeamEventsRetentionConfig.objects.filter(team_id=team.id)
         .values_list("events_retention_months", flat=True)
         .first()
+    )
+    setting = next(iter(effective_events_retention(team_ids=[team.id])), None)
+    window_months = events_retention_windows([team])[team.id]
+    today = cleanup_date()
+    row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
+    scheduled_pass_on = with_window(row.state, window_months, today).next_deletion_on if row else None
+    return ProjectEventsRetention(
+        project_months=project_months,
+        next_deletion=_next_deletion(team.id, setting, window_months, scheduled_pass_on),
+        scheduled_pass_on=scheduled_pass_on,
+        first_pass_on=next_pass_on(today),
+        default_window_deletes=should_enforce_events_retention(team.id),
     )
 
 
@@ -121,6 +171,17 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
         )
 
 
+def _enforced_plans(teams: Sequence[Team]) -> list[TeamPlan]:
+    return [team_plan(team) for team in teams if should_enforce_events_retention(team.id)]
+
+
+def _schedule_passes(plans: Sequence[TeamPlan], previous_windows: dict[int, int]) -> None:
+    """Give each team whose window the cleanup enforces a pass date, so that its next deletion is known on save."""
+    reschedule_plan_deletions(
+        plans, cleanup_date(), admit={plan.team_id for plan in plans}, previous_windows=previous_windows
+    )
+
+
 def set_organization_events_retention(
     organization: Organization,
     months: int | None,
@@ -137,6 +198,8 @@ def set_organization_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(organization), months)
+        plans = _enforced_plans(Team.objects.filter(organization_id=organization.id))
+        previous_windows = retention_windows(plans)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
         config.full_clean()
@@ -145,6 +208,7 @@ def set_organization_events_retention(
         else:
             config.save()
         _report_retention_set(organization, None, user, before, months, analytics_properties, was_impersonated)
+        _schedule_passes(plans, previous_windows)
 
     log_activity(
         organization_id=organization.id,
@@ -177,6 +241,8 @@ def set_project_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(team.organization), months)
+        plans = _enforced_plans([team])
+        previous_windows = retention_windows(plans)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()
         else:
@@ -185,6 +251,7 @@ def set_project_events_retention(
             config.full_clean()
             config.save()
         _report_retention_set(team.organization, team, user, before, months, analytics_properties, was_impersonated)
+        _schedule_passes(plans, previous_windows)
 
     log_activity(
         organization_id=team.organization_id,
