@@ -906,6 +906,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
+            table_scope=node.table_scope,
             table_args=[self.visit(expr) for expr in node.table_args] if node.table_args is not None else None,
             next_join=self.visit(node.next_join),
             table_final=node.table_final,

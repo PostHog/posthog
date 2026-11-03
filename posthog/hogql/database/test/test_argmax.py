@@ -37,7 +37,7 @@ class TestArgmax(SimpleTestCase):
                 ),
                 ast.Alias(alias="id", expr=ast.Field(chain=["raw_persons", "id"])),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"]), table_scope="database"),
             group_by=[ast.Field(chain=["raw_persons", "id"])],
         )
         self.assertEqual(response, expected)
@@ -72,7 +72,7 @@ class TestArgmax(SimpleTestCase):
                 ),
                 ast.Alias(alias="id", expr=ast.Field(chain=["raw_persons", "id"])),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"]), table_scope="database"),
             group_by=[ast.Field(chain=["raw_persons", "id"])],
             having=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,

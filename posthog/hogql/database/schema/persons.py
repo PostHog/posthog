@@ -69,6 +69,19 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 REVENUE_ANALYTICS_VIRTUAL_PROPERTIES = frozenset({"$virt_mrr", "$virt_revenue"})
 
 
+class _DatabaseTableReferences(TraversingVisitor):
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field):
+            node.table_scope = "database"
+        super().visit_join_expr(node)
+
+
+def _parse_person_select(query: str) -> ast.SelectQuery:
+    select = cast(ast.SelectQuery, parse_select(query))
+    _DatabaseTableReferences().visit(select)
+    return select
+
+
 def _is_virtual_field_requiring_join(expr: ast.Expr) -> bool:
     """
     Check if an expression references a virtual field that requires a joined table.
@@ -142,7 +155,7 @@ def select_from_persons_table(
             )
             inner_select = cast(
                 ast.SelectQuery,
-                parse_select(
+                _parse_person_select(
                     """
                 SELECT id FROM raw_persons as where_optimization
                 """
@@ -158,7 +171,7 @@ def select_from_persons_table(
     if version == PersonsArgMaxVersion.V2:
         select = cast(
             ast.SelectQuery,
-            parse_select(
+            _parse_person_select(
                 """
             SELECT id FROM raw_persons WHERE (id, version) IN (
                SELECT id, max(version) as version

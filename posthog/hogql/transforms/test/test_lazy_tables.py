@@ -39,6 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Organization, PropertyDefinition, Team
+from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -66,7 +67,41 @@ class TestNamespacedLazyTables(SimpleTestCase):
         actual = self._compile(query.format(table=f"posthog.{table}"))
         self.assertEqual(actual.replace(f"posthog__{table}", table), expected)
 
-    def _compile(self, query: str) -> str:
+    @parameterized.expand(
+        [
+            (name, query, version)
+            for name, query in (
+                ("unused", "WITH raw_persons AS (SELECT 7 AS marker) SELECT id FROM persons"),
+                (
+                    "used",
+                    "WITH raw_persons AS (SELECT 7 AS marker) SELECT persons.id FROM persons CROSS JOIN raw_persons",
+                ),
+                (
+                    "materialized",
+                    "WITH raw_persons AS MATERIALIZED (SELECT 7 AS marker) SELECT id FROM persons",
+                ),
+                (
+                    "filter",
+                    "WITH raw_persons AS (SELECT id FROM persons) SELECT id FROM persons WHERE id IN (SELECT id FROM raw_persons)",
+                ),
+            )
+            for version in (PersonsArgMaxVersion.V1, PersonsArgMaxVersion.V2)
+        ]
+        + [
+            ("groups", "WITH raw_groups AS (SELECT 7 AS marker) SELECT key FROM groups", PersonsArgMaxVersion.V1),
+            (
+                "identities",
+                "WITH raw_person_distinct_ids AS (SELECT 7 AS marker) SELECT person_id FROM person_distinct_ids",
+                PersonsArgMaxVersion.V1,
+            ),
+        ]
+    )
+    def test_ctes_do_not_shadow_generated_backing_tables(
+        self, _name: str, query: str, version: PersonsArgMaxVersion
+    ) -> None:
+        self._compile(query, HogQLQueryModifiers(personsArgMaxVersion=version))
+
+    def _compile(self, query: str, modifiers: HogQLQueryModifiers | None = None) -> str:
         context = HogQLContext(
             team_id=1,
             team=Team(id=1, organization=Organization()),
@@ -74,6 +109,7 @@ class TestNamespacedLazyTables(SimpleTestCase):
             enable_select_queries=True,
             use_new_events_schema=False,
             apply_events_retention_floor=False,
+            modifiers=modifiers or HogQLQueryModifiers(),
             restricted_properties=set(),
         )
         with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):

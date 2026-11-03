@@ -1218,6 +1218,7 @@ class JoinExpr(Expr):
             "Field",
         ]
     ] = None
+    table_scope: Literal["database"] | None = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     column_aliases: Optional[list[str]] = None

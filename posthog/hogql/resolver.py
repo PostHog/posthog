@@ -1517,7 +1517,11 @@ class Resolver(CloningVisitor):
                 if self.dialect == "trino" and node.table_args is not None
                 else None
             )
-            cte_table = self.ctes.get(".".join(table_name_chain)) if internal_table_function is None else None
+            cte_table = (
+                self.ctes.get(".".join(table_name_chain))
+                if internal_table_function is None and node.table_scope != "database"
+                else None
+            )
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
