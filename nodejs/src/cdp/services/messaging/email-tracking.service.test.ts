@@ -8,7 +8,7 @@ import express from 'ultimate-express'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
-import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
+import { hideHogFlowsFromReplica, insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
@@ -530,11 +530,17 @@ describe('EmailTrackingService', () => {
                     .send(JSON.stringify(envelope))
             }
 
-            it('writes a hog_flow log entry for a bounce that resolves to a flow', async () => {
+            it.each([
+                ['on the replica', false],
+                ['only on the primary, during replica lag', true],
+            ])('writes a hog_flow log entry for a bounce that resolves to a flow %s', async (_, lagging) => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
                     new FixtureHogFlowBuilder().withTeamId(team.id).build()
                 )
+                if (lagging) {
+                    hideHogFlowsFromReplica(hub.postgres, [hogFlow.id])
+                }
 
                 const res = await postBounce({ functionId: hogFlow.id })
                 expect(res.status).toBe(200)
@@ -557,6 +563,8 @@ describe('EmailTrackingService', () => {
                 expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
                 expect(metrics[0].value).toMatchObject({
                     team_id: team.id,
+                    app_source: 'hog_flow',
+                    app_source_id: hogFlow.id,
                     metric_name: 'email_bounced',
                     metric_kind: 'email',
                 })
@@ -586,7 +594,9 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {
+            it('records the metric but writes no log entry and reads no workflow from the primary when the bounce resolves to a hog_function', async () => {
+                const query = jest.spyOn(hub.postgres, 'query')
+
                 const res = await postBounce({ functionId: hogFunction.id })
                 expect(res.status).toBe(200)
 
@@ -602,6 +612,11 @@ describe('EmailTrackingService', () => {
 
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs).toHaveLength(0)
+                expect(
+                    query.mock.calls.filter(
+                        ([target, , , tag]) => target === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows'
+                    )
+                ).toHaveLength(0)
             })
 
             it('attributes the bounce to the version that sent it, not the version live when it lands', async () => {

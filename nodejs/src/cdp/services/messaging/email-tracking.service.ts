@@ -351,7 +351,9 @@ export class EmailTrackingService {
         // The function ID could be one or the other so we load both
         const [hogFunction, hogFlow] = await Promise.all([
             this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
-            this.hogFlowManager.getHogFlow(functionId).catch(() => null),
+            this.getFeedbackHogFlows([functionId])
+                .then((hogFlows) => hogFlows[functionId])
+                .catch(() => null),
         ])
 
         let teamId = hogFunction?.team_id ?? hogFlow?.team_id
@@ -451,7 +453,7 @@ export class EmailTrackingService {
 
         let hogFlows: Record<string, HogFlow | null> = {}
         try {
-            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+            hogFlows = await this.getFeedbackHogFlows(uniqueFunctionIds)
         } catch (error) {
             logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
             emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
@@ -620,6 +622,16 @@ export class EmailTrackingService {
             logger.error('[EmailService] handleWebhook: SES webhook error', { error })
             throw error
         }
+    }
+
+    private async getFeedbackHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const [onReplica, hogFunctions] = await Promise.all([
+            this.hogFlowManager.getHogFlows(ids),
+            this.hogFunctionManager.getHogFunctions(ids),
+        ])
+        const unknown = ids.filter((id) => !onReplica[id] && !hogFunctions[id])
+        const onPrimary = unknown.length > 0 ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(unknown) : {}
+        return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
     }
 
     private parseTrackingParams(query: Record<string, any>): {
