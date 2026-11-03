@@ -388,7 +388,7 @@ describe('inbox hooks', () => {
         }
     })
 
-    test.each(['server error', 'invalid page'])(
+    test.each(['server error', 'invalid page', 'invalid report'])(
         'pages through the ranking, retrying after %s only when asked, reading states once per page',
         async (failure) => {
             let now = Date.now()
@@ -409,7 +409,11 @@ describe('inbox hooks', () => {
                     secondPageFailures -= 1
                     return failure === 'server error'
                         ? jsonResponse({ detail: 'Server error' }, 500)
-                        : jsonResponse({ count: INBOX_PAGE_SIZE + 1, next: null })
+                        : jsonResponse({
+                              count: INBOX_PAGE_SIZE + 1,
+                              next: null,
+                              ...(failure === 'invalid report' ? { results: [{ id: 'synthetic-report' }] } : {}),
+                          })
                 }
                 return jsonResponse(
                     offset === '0'

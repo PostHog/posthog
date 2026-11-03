@@ -472,19 +472,28 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=limit_context,
         ).calculate()
 
-    def test_trends_label(self):
+    @parameterized.expand(
+        [
+            ("unnamed", {}, None),
+            ("custom_name_wins_over_name", {"name": "Views", "custom_name": "Page views"}, "Page views"),
+            ("name_override", {"name": "Views"}, "Views"),
+            ("name_matching_the_event", {"name": "$pageview"}, None),
+        ]
+    )
+    def test_trends_label(self, _name: str, rename: dict[str, str], expected_custom_name: str | None):
         self._create_test_events()
 
         response = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
             IntervalType.DAY,
-            None,
+            [EventsNode(event="$pageview", **rename)],
             None,
             None,
         )
 
         self.assertEqual("$pageview", response.results[0]["label"])
+        self.assertEqual(expected_custom_name, response.results[0]["custom_name"])
 
     def test_multi_series_builds_database_once(self):
         self._create_test_events()
@@ -1738,6 +1747,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["breakdown_value"] == "all"
         assert response.results[3]["count"] == 16
         assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        assert [result["custom_name"] for result in response.results] == [
+            result["label"] for result in response.results
+        ]
 
     def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
         self._create_test_events()
@@ -6667,7 +6680,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
+    def test_flag_call_series_reads_flag_evaluations_when_the_org_reads_flag_evaluations(
         self,
         _name: str,
         series: Callable[[Team, list[str]], EventsNode | ActionsNode],
@@ -6693,24 +6706,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if math is not None:
             node = node.model_copy(update={"math": math})
 
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
-            # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
-            response = self._run_trends_query(
-                "-7d",
-                None,
-                IntervalType.DAY,
-                [node],
-                breakdown=breakdown,
-                filter_test_accounts=filter_test_accounts,
-                hogql_modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    useNewEventsSchema=False,
-                ),
-            )
+        # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
+        # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
+        response = self._run_trends_query(
+            "-7d",
+            None,
+            IntervalType.DAY,
+            [node],
+            breakdown=breakdown,
+            filter_test_accounts=filter_test_accounts,
+            hogql_modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                useNewEventsSchema=False,
+            ),
+        )
 
         assert response.results[0]["count"] == expected_count
         if breakdown is not None:

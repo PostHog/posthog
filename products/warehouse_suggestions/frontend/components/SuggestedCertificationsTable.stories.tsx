@@ -42,6 +42,7 @@ function suggestion(
             human_users: kind === 'certify' ? 9 : 0,
             human_days: kind === 'certify' ? 28 : 0,
             requests_by_surface: kind === 'certify' ? { dashboard: 400, mcp: 240 } : {},
+            days_with_data: 30,
         },
         evidence_window_start: '2026-09-07T00:00:00Z',
         evidence_window_end: '2026-10-07T00:00:00Z',
@@ -66,9 +67,16 @@ interface TableStoryProps {
     width?: 'normal' | 'narrow'
     reviewOpen?: boolean
     confirmSuggestionId?: string
+    deleteView?: boolean
 }
 
-function TableStory({ results, width, reviewOpen = false, confirmSuggestionId }: TableStoryProps): JSX.Element {
+function TableStory({
+    results,
+    width,
+    reviewOpen = false,
+    confirmSuggestionId,
+    deleteView = false,
+}: TableStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
             [LIST_URL]: { count: results.length, results },
@@ -86,8 +94,9 @@ function TableStory({ results, width, reviewOpen = false, confirmSuggestionId }:
         }
         if (confirmSuggestionId) {
             logic.actions.openAcceptConfirm(confirmSuggestionId)
+            logic.actions.setDeleteView(deleteView)
         }
-    }, [reviewOpen, confirmSuggestionId, stripState, logic])
+    }, [reviewOpen, confirmSuggestionId, deleteView, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
             <SuggestedCertificationsTable />
@@ -126,6 +135,15 @@ export const ReviewDialog: Story = {
             suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
             suggestion('2', 'certify', 'table', 'stripe_charges'),
             suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
+            {
+                ...suggestion('4', 'deprecate', 'saved_query', 'signups_scratch'),
+                payload: {
+                    subject_name: 'signups_scratch',
+                    refresh_seconds_per_month: 0,
+                    refresh_bytes_per_month: 0,
+                    materialized: false,
+                },
+            },
         ],
     },
     parameters: dialogSnapshot(1300),
@@ -146,6 +164,15 @@ export const ReviewDialogNarrow: Story = {
 export const DeprecateDialog: Story = {
     args: {
         confirmSuggestionId: '3',
+        results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
+    },
+    parameters: dialogSnapshot(1300),
+}
+
+export const DeleteDialog: Story = {
+    args: {
+        confirmSuggestionId: '3',
+        deleteView: true,
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: dialogSnapshot(1300),
