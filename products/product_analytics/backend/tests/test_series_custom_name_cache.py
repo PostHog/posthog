@@ -27,19 +27,70 @@ from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
+RENAMED = {"custom_name": "Renamed"}
+FORMULA = {"trendsFilter": TrendsFilter(formulaNodes=[TrendsFormulaNode(formula="A", custom_name="Total")])}
+
 
 class TestSeriesCustomNameCache(BaseTest):
     @parameterized.expand(
         [
-            ("trends", TrendsQueryRunner, TrendsQuery, TrendsQueryResponse, {}, None, "Renamed", False),
-            ("stickiness", StickinessQueryRunner, StickinessQuery, StickinessQueryResponse, {}, None, "Renamed", False),
-            ("lifecycle", LifecycleQueryRunner, LifecycleQuery, LifecycleQueryResponse, {}, None, "Renamed", False),
+            ("trends", TrendsQueryRunner, TrendsQuery, TrendsQueryResponse, {}, {}, RENAMED, None, "Renamed", False),
+            (
+                "trends_cleared_custom_name_falls_back_to_name",
+                TrendsQueryRunner,
+                TrendsQuery,
+                TrendsQueryResponse,
+                {},
+                {"name": "Views", "custom_name": "Old"},
+                {"name": "Views"},
+                "Old",
+                "Views",
+                False,
+            ),
+            (
+                "trends_name_matching_the_event_serves_raw",
+                TrendsQueryRunner,
+                TrendsQuery,
+                TrendsQueryResponse,
+                {},
+                {"name": "$pageview"},
+                {"name": "$pageview"},
+                None,
+                None,
+                True,
+            ),
+            (
+                "stickiness",
+                StickinessQueryRunner,
+                StickinessQuery,
+                StickinessQueryResponse,
+                {},
+                {},
+                RENAMED,
+                None,
+                "Renamed",
+                False,
+            ),
+            (
+                "lifecycle",
+                LifecycleQueryRunner,
+                LifecycleQuery,
+                LifecycleQueryResponse,
+                {},
+                {},
+                RENAMED,
+                None,
+                "Renamed",
+                False,
+            ),
             (
                 "trends_formula_keeps_the_formula_name_and_serves_raw",
                 TrendsQueryRunner,
                 TrendsQuery,
                 TrendsQueryResponse,
-                {"trendsFilter": TrendsFilter(formulaNodes=[TrendsFormulaNode(formula="A", custom_name="Total")])},
+                FORMULA,
+                {},
+                RENAMED,
                 "Total",
                 "Total",
                 True,
@@ -53,18 +104,21 @@ class TestSeriesCustomNameCache(BaseTest):
         query_class: type[TrendsQuery | StickinessQuery | LifecycleQuery],
         response_class: type[TrendsQueryResponse | StickinessQueryResponse | LifecycleQueryResponse],
         query_kwargs: dict[str, Any],
+        cached_series: dict[str, str],
+        current_series: dict[str, str],
         cached_custom_name: str | None,
-        expected_custom_name: str,
+        expected_custom_name: str | None,
         served_raw: bool,
     ) -> None:
         cached_rows = [{"order": 0, "custom_name": cached_custom_name, "data": [1]}]
         with mock.patch.object(runner_class, "calculate", return_value=response_class(results=cached_rows)):
-            runner_class(query=query_class(series=[EventsNode(event="$pageview")], **query_kwargs), team=self.team).run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            )
+            runner_class(
+                query=query_class(series=[EventsNode(event="$pageview", **cached_series)], **query_kwargs),
+                team=self.team,
+            ).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         runner = runner_class(
-            query=query_class(series=[EventsNode(event="$pageview", custom_name="Renamed")], **query_kwargs),
+            query=query_class(series=[EventsNode(event="$pageview", **current_series)], **query_kwargs),
             team=self.team,
         )
         runner.serve_raw_cached_results = True

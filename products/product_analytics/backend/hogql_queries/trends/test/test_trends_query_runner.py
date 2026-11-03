@@ -471,19 +471,28 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=limit_context,
         ).calculate()
 
-    def test_trends_label(self):
+    @parameterized.expand(
+        [
+            ("unnamed", {}, None),
+            ("custom_name_wins_over_name", {"name": "Views", "custom_name": "Page views"}, "Page views"),
+            ("name_override", {"name": "Views"}, "Views"),
+            ("name_matching_the_event", {"name": "$pageview"}, None),
+        ]
+    )
+    def test_trends_label(self, _name: str, rename: dict[str, str], expected_custom_name: str | None):
         self._create_test_events()
 
         response = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
             IntervalType.DAY,
-            None,
+            [EventsNode(event="$pageview", **rename)],
             None,
             None,
         )
 
         self.assertEqual("$pageview", response.results[0]["label"])
+        self.assertEqual(expected_custom_name, response.results[0]["custom_name"])
 
     def test_multi_series_builds_database_once(self):
         self._create_test_events()

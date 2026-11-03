@@ -100,6 +100,19 @@ from products.product_analytics.backend.hogql_queries.trends.trends_query_builde
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
+def resolve_series_custom_name(
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode], series_label: str
+) -> str | None:
+    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
+    # "Rename graph series" modal; a `name` that differs from the series label is a rename applied
+    # via the query editor or API. Either should win over the raw event name.
+    if series.custom_name:
+        return series.custom_name
+    if series.name and series.name != series_label:
+        return series.name
+    return None
+
+
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
@@ -752,7 +765,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     ]
 
             series_object["order"] = series.series_order
-            series_object["custom_name"] = series.series.custom_name
+            series_object["custom_name"] = resolve_series_custom_name(
+                series.series, "All events" if series_label is None else series_label
+            )
             res.append(series_object)
         return res
 
@@ -888,6 +903,30 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return ", ".join(events)
 
         return None  # type: ignore [unreachable]
+
+    def series_custom_name(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
+        """The `custom_name` that build_series_response writes on the rows of this series."""
+        if series.custom_name:
+            return series.custom_name
+        if not series.name:
+            return None
+        # The series label costs a query for an action series, so it is resolved only when a `name` needs comparing
+        try:
+            series_label = self.series_event(series)
+        except Action.DoesNotExist:
+            # build_series_response drops a series whose action is gone, so no row reads this name
+            return None
+        return resolve_series_custom_name(series, "All events" if series_label is None else series_label)
+
+    def _series_custom_names(self) -> list[str | None] | None:
+        if super()._series_custom_names() is None:
+            return None
+        return self._resolved_series_custom_names
+
+    @cached_property
+    def _resolved_series_custom_names(self) -> list[str | None]:
+        # A cache hit asks for the names twice: to decide whether to parse the results, then to patch them
+        return [self.series_custom_name(series) for series in self.query.series]
 
     def update_hogql_modifiers(self) -> None:
         if (
