@@ -23,6 +23,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
+    ClickHouseUnknownTableError,
     add_log_comment_param,
     encode_clickhouse_data,
 )
@@ -192,6 +193,10 @@ def _mock_internal_session_post(return_value):
             "Code: 279. DB::Exception: All replicas are stale: While executing Remote. (ALL_REPLICAS_ARE_STALE) (version x.x.x.x (official build))",
             ClickHouseAllReplicasAreStaleError,
         ),
+        (
+            "Code: 60. DB::Exception: Table posthog.missing_table does not exist. (UNKNOWN_TABLE)",
+            ClickHouseUnknownTableError,
+        ),
     ],
     ids=[
         "MEMORY_LIMIT_EXCEEDED",
@@ -199,6 +204,7 @@ def _mock_internal_session_post(return_value):
         "TOO_MANY_SIMULTANEOUS_QUERIES",
         "TIMEOUT_EXCEEDED",
         "ALL_REPLICAS_ARE_STALE",
+        "UNKNOWN_TABLE",
     ],
 )
 def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, expected_exception):

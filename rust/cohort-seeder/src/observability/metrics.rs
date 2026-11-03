@@ -45,11 +45,12 @@ pub const CONDITIONS_CLASSIFIED: &str = "seeder_conditions_classified_total";
 /// `unsupported_op` bucket.
 pub const CONDITIONS_UNANALYZABLE: &str = "seeder_conditions_unanalyzable_total";
 /// Behavioral chunks by whether their scan narrowed, labelled by `outcome`
-/// (`projected`/`full_columns`) and `team_id` (counter). One increment per scanned chunk.
+/// (`projected`/`full_columns`), `table` (`events`/`flag_evaluations`) and `team_id` (counter). One
+/// increment per table a scanned chunk reads.
 ///
-/// `full_columns` is the fail-closed arm: at least one condition active on that chunk reads a whole
-/// object or escaped the static analysis, so the scan selects every column. A team sitting at
-/// `full_columns` is the signal to read the run's census for which event names block it.
+/// `full_columns` is the fail-closed arm: at least one condition active on that chunk's table
+/// reads a whole object or escaped the static analysis, so the scan selects every column. A team
+/// sitting at `full_columns` is the signal to read the run's census for which event names block it.
 pub const CHUNKS_PROJECTED: &str = "seeder_chunks_projected_total";
 /// Shadow-compare verdicts per chunk, labelled by closed `result`
 /// (`match`/`diff`/`error`/`no_rows`/`not_projected`) and `team_id` (counter). Emitted only while
@@ -82,19 +83,21 @@ pub const SHADOW_COMPARE_DURATION_SECONDS: &str = "seeder_shadow_compare_duratio
 /// over-count `sql::render_blob` documents, which lands in `result="diff"` indistinguishably.
 pub const SHADOW_COMPARE_LEGACY_SKIPPED: &str = "seeder_shadow_compare_legacy_skipped_total";
 /// Top-level JSON keys a narrowed scan rebuilds one blob from, labelled by `blob`
-/// (`properties`/`person_properties`) and `team_id` (histogram). Zero means the blob is not read at
-/// all and the scan selects an empty literal for it.
+/// (`properties`/`person_properties`), `table` and `team_id` (histogram). Zero means the blob is
+/// not read at all and the scan selects an empty literal for it.
 ///
 /// A blob some condition needs whole takes no sample: there is no key count to report for it, and a
 /// sentinel would be indistinguishable from a real reading. Those show up as decoded bytes that do
 /// not fall — read this against `seeder_scan_decoded_bytes_total{kind="behavioral"}`.
 pub const PROJECTION_KEYS: &str = "seeder_projection_keys";
-/// Behavioral chunks by row filter `outcome` (`none`/`materialized`/`properties_blob`/`too_long`)
-/// and `team_id` (counter). Only `materialized` saves ClickHouse reads; `properties_blob` saves the
-/// transfer and evaluation of rows no condition matches.
+/// Behavioral chunks by row filter `outcome` (`none`/`materialized`/`properties_blob`/`too_long`),
+/// `table` and `team_id` (counter), one increment per table a scanned chunk reads. Only
+/// `materialized` saves ClickHouse reads. `properties_blob` saves the transfer and evaluation of
+/// rows no condition matches.
 pub const SCAN_ROW_FILTER: &str = "seeder_scan_row_filter_total";
 /// Behavioral chunks by where the scan reads `properties` from, labelled by `source`
-/// (`whole`/`empty`/`columns`/`rebuilt_*`) and `team_id` (counter).
+/// (`whole`/`empty`/`columns`/`rebuilt_*`), `table` and `team_id` (counter), one increment per
+/// table a scanned chunk reads.
 pub const SCAN_PROPERTIES_SOURCE: &str = "seeder_scan_properties_source_total";
 pub const CHUNKS_PLANNED: &str = "seeder_chunks_planned_total";
 pub const CHUNKS_CLAIMED: &str = "seeder_chunks_claimed_total";

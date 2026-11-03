@@ -28,7 +28,8 @@ from django.utils import timezone
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 
 from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.services.slack_auth import (
@@ -78,7 +79,7 @@ def normalize_slack_response(payload: Any) -> dict[str, Any]:
     return {}
 
 
-def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -> dict[str, Any] | None:
+def _get_slack_user_info_from_db(integration: IntegrationRecord, slack_user_id: str) -> dict[str, Any] | None:
     try:
         profile = SlackUserProfileCache.objects.filter(
             integration_id=integration.id, slack_user_id=slack_user_id
@@ -99,7 +100,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
     )
 
 
-def persist_slack_user_info(integration: Integration, slack_user_id: str, user_info: dict[str, Any]) -> None:
+def persist_slack_user_info(integration: IntegrationRecord, slack_user_id: str, user_info: dict[str, Any]) -> None:
     user = user_info.get("user", {})
     profile = user.get("profile", {})
     try:
@@ -120,7 +121,7 @@ def persist_slack_user_info(integration: Integration, slack_user_id: str, user_i
         logger.warning("slack_app_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
-def get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
+def get_slack_user_info(slack: SlackIntegration, integration: IntegrationRecord, slack_user_id: str) -> dict[str, Any]:
     cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
     if isinstance(cached_db, dict):
         return cached_db
@@ -132,14 +133,14 @@ def get_slack_user_info(slack: SlackIntegration, integration: Integration, slack
     return {}
 
 
-def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
+def is_slack_workspace_admin(slack: SlackIntegration, integration: IntegrationRecord, slack_user_id: str) -> bool:
     """Whether the Slack user is a workspace admin or owner."""
     user_info = get_slack_user_info(slack, integration, slack_user_id)
     slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
     return bool(slack_user.get("is_admin") or slack_user.get("is_owner"))
 
 
-def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
+def _get_slack_user_id_by_email_from_db(integration: IntegrationRecord, normalized_email: str) -> str | None:
     try:
         profile = SlackUserProfileCache.objects.filter(
             integration_id=integration.id,
@@ -155,7 +156,7 @@ def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_ema
 
 def lookup_slack_user_id_by_email(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: IntegrationRecord,
     email: str,
 ) -> str | None:
     """Resolve a Slack user ID from a PostHog user email.
@@ -197,7 +198,7 @@ def lookup_slack_user_id_by_email(
     return slack_user_id
 
 
-def _purge_stale_email_rows(integration: Integration, normalized_email: str, keep_slack_user_id: str) -> None:
+def _purge_stale_email_rows(integration: IntegrationRecord, normalized_email: str, keep_slack_user_id: str) -> None:
     """Drop rows that share an email with the authoritative Slack user ID we just resolved.
 
     Without this, an orphan row (same email, older Slack user ID) can outrank the fresh one
@@ -278,7 +279,7 @@ def invalidate_workspace_bot_user_id(slack_team_id: str) -> None:
         logger.warning("slack_app_workspace_bot_user_cache_delete_failed", slack_team_id=slack_team_id)
 
 
-def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:
+def get_cached_bot_user_id(slack: SlackIntegration, integration: IntegrationRecord) -> str | None:
     """Return the bot's Slack user id for ``integration``, populating the
     shared auth-state cache as a side effect.
 
@@ -338,7 +339,7 @@ def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) ->
 _USER_MENTION_RE = re.compile(r"<@([A-Z0-9]+)(?:\|[^>]*)?>")
 
 
-def find_addressed_bot_user_id(slack: SlackIntegration, integration: Integration, text: str) -> str | None:
+def find_addressed_bot_user_id(slack: SlackIntegration, integration: IntegrationRecord, text: str) -> str | None:
     """The user id of a bot other than ours that this message tags, or ``None``.
 
     Callers ask this to tell a message addressed to another app from one addressed to us.
