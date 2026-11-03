@@ -80,6 +80,9 @@ import type {
     WarehouseMigrationItemApi,
     WarehouseMigrationSkipItemsApi,
     WarehouseMigrationSkipItemsResponseApi,
+    WarehouseMigrationStartUploadApi,
+    WarehouseMigrationUploadConnectionsApi,
+    WarehouseMigrationUploadResponseApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
     WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
@@ -1769,6 +1772,27 @@ export const warehouseMigrationsDestroy = async (
     })
 }
 
+export const getWarehouseMigrationsConnectionsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/connections/`
+}
+
+/**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationUploadConnectionsApi?: WarehouseMigrationUploadConnectionsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationUploadResponseApi> => {
+    return apiMutator<WarehouseMigrationUploadResponseApi>(getWarehouseMigrationsConnectionsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationUploadConnectionsApi),
+    })
+}
+
 export const getWarehouseMigrationsItemsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
 }
@@ -1882,4 +1906,24 @@ export const warehouseMigrationsConnectLinkRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getWarehouseMigrationsUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/upload/`
+}
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const warehouseMigrationsUploadCreate = async (
+    projectId: string,
+    warehouseMigrationStartUploadApi: WarehouseMigrationStartUploadApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationStartUploadApi),
+    })
 }

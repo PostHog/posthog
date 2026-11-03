@@ -83659,6 +83659,8 @@ export namespace Schemas {
       created_at: string;
       /** How many connections fall into each group. */
       item_counts: WarehouseMigrationItemCounts;
+      /** False when an agent uploaded the vendor account. Such a migration cannot be refreshed; upload the connections again instead. */
+      has_vendor_key: boolean;
     }
 
     export interface PaginatedWarehouseMigrationList {
@@ -122803,6 +122805,65 @@ export namespace Schemas {
       skipped_item_ids: string[];
       /** Items that stay as they are because they are being created or are already PostHog sources. */
       not_skipped_item_ids: string[];
+    }
+
+    export interface WarehouseMigrationStartUpload {
+      /** The ETL vendor to import from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+    }
+
+    /**
+     * The Fivetran account info response, unchanged. Send it once, with the first upload.
+     * @nullable
+     */
+    export type WarehouseMigrationUploadConnectionsAccount = { [key: string]: unknown } | null;
+
+    export type WarehouseMigrationUploadConnectionsDestinationsItem = { [key: string]: unknown };
+
+    /**
+     * The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.
+     */
+    export type WarehouseMigrationUploadedConnectionConnection = { [key: string]: unknown };
+
+    /**
+     * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+     * @nullable
+     */
+    export type WarehouseMigrationUploadedConnectionSchemaConfig = { [key: string]: unknown } | null;
+
+    export interface WarehouseMigrationUploadedConnection {
+      /** The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay. */
+      connection: WarehouseMigrationUploadedConnectionConnection;
+      /**
+         * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+         * @nullable
+         */
+      schema_config?: WarehouseMigrationUploadedConnectionSchemaConfig;
+    }
+
+    export interface WarehouseMigrationUploadConnections {
+      /**
+         * The Fivetran account info response, unchanged. Send it once, with the first upload.
+         * @nullable
+         */
+      account?: WarehouseMigrationUploadConnectionsAccount;
+      /**
+         * Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone.
+         * @maxItems 100
+         */
+      destinations?: WarehouseMigrationUploadConnectionsDestinationsItem[];
+      /**
+         * At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.
+         * @maxItems 25
+         */
+      connections?: WarehouseMigrationUploadedConnection[];
+    }
+
+    export interface WarehouseMigrationUploadResponse {
+      /** The planned items for the uploaded connections. */
+      items: WarehouseMigrationItem[];
     }
 
     /**

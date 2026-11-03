@@ -14969,6 +14969,8 @@ export interface WarehouseMigrationApi {
     created_at: string
     /** How many connections fall into each group. */
     item_counts: WarehouseMigrationItemCountsApi
+    /** False when an agent uploaded the vendor account. Such a migration cannot be refreshed; upload the connections again instead. */
+    has_vendor_key: boolean
 }
 
 export interface PaginatedWarehouseMigrationListApi {
@@ -14989,6 +14991,53 @@ export interface WarehouseMigrationCreateApi {
     api_key: string
     /** Secret that belongs to the API key. */
     api_secret: string
+}
+
+/**
+ * The Fivetran account info response, unchanged. Send it once, with the first upload.
+ * @nullable
+ */
+export type WarehouseMigrationUploadConnectionsApiAccount = { [key: string]: unknown } | null
+
+export type WarehouseMigrationUploadConnectionsApiDestinationsItem = { [key: string]: unknown }
+
+/**
+ * The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.
+ */
+export type WarehouseMigrationUploadedConnectionApiConnection = { [key: string]: unknown }
+
+/**
+ * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+ * @nullable
+ */
+export type WarehouseMigrationUploadedConnectionApiSchemaConfig = { [key: string]: unknown } | null
+
+export interface WarehouseMigrationUploadedConnectionApi {
+    /** The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay. */
+    connection: WarehouseMigrationUploadedConnectionApiConnection
+    /**
+     * The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.
+     * @nullable
+     */
+    schema_config?: WarehouseMigrationUploadedConnectionApiSchemaConfig
+}
+
+export interface WarehouseMigrationUploadConnectionsApi {
+    /**
+     * The Fivetran account info response, unchanged. Send it once, with the first upload.
+     * @nullable
+     */
+    account?: WarehouseMigrationUploadConnectionsApiAccount
+    /**
+     * Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone.
+     * @maxItems 100
+     */
+    destinations?: WarehouseMigrationUploadConnectionsApiDestinationsItem[]
+    /**
+     * At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.
+     * @maxItems 25
+     */
+    connections?: WarehouseMigrationUploadedConnectionApi[]
 }
 
 /**
@@ -15146,6 +15195,11 @@ export interface WarehouseMigrationItemApi {
     error: string
 }
 
+export interface WarehouseMigrationUploadResponseApi {
+    /** The planned items for the uploaded connections. */
+    items: WarehouseMigrationItemApi[]
+}
+
 export interface WarehouseMigrationSkipItemsApi {
     /**
      * Items to skip. Pass this or `keep_item_ids`, not both.
@@ -15172,6 +15226,13 @@ export interface WarehouseMigrationConnectLinkApi {
     connect_url: string
     /** What the agent should tell the user and do next. */
     instructions: string
+}
+
+export interface WarehouseMigrationStartUploadApi {
+    /** The ETL vendor to import from.
+     *
+     * * `fivetran` - Fivetran */
+    provider: WarehouseMigrationProviderEnumApi
 }
 
 export type ExternalDataDestinationsListParams = {
