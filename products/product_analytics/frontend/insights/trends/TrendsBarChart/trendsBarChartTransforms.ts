@@ -90,7 +90,6 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     isPercentStackView: boolean
     isGrouped: boolean
     yAxisScaleType?: string | null
-    /** @default true */
     showGrid?: boolean
     interval?: TimeInterval | null
     timezone?: string

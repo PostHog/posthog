@@ -187,7 +187,6 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     yAxisStartAtZero?: boolean | null
     yAxisMin?: number | null
     yAxisMax?: number | null
-    /** @default true */
     showGrid?: boolean
     interval?: TimeInterval | null
     timezone?: string

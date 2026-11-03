@@ -118,7 +118,6 @@ export interface BuildRetentionChartConfigOpts {
     isIntervalView?: boolean
     period?: string
     timezone?: string
-    /** @default true */
     showGrid?: boolean
 }
 

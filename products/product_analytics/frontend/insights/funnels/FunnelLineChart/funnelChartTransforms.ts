@@ -81,7 +81,6 @@ export interface BuildFunnelLineConfigOpts {
     goalLines?: SchemaGoalLine[] | null
     incompletenessOffsetFromEnd?: number
     showTrendLines: boolean
-    /** @default true */
     showGrid?: boolean
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
     tooltip?: TooltipConfig
