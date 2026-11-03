@@ -903,6 +903,13 @@ export interface dashboardLogicActions {
     changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => {
         groupDisplay: TileGroupDisplay
     }
+    renameTileGroup: (
+        groupKey: string,
+        title: string
+    ) => {
+        groupKey: string
+        title: string
+    }
     clearAddWidgetSelectedTypes: () => {
         value: true
     }
@@ -2030,6 +2037,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         selectTileGroupTab: (sectionKey: string) => ({ sectionKey }),
         refreshOpenTileGroupsWaiting: true,
         changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => ({ groupDisplay }),
+        renameTileGroup: (groupKey: string, title: string) => ({ groupKey, title }),
         refreshTileGroup: (groupKey: string) => ({ groupKey }),
         setWaitingTileRefresh: (waiting: WaitingTileRefresh) => ({ waiting }),
         clearWaitingTileRefresh: (tileIds: number[]) => ({ tileIds }),
@@ -5680,6 +5688,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         changeTileGroupDisplay: ({ groupDisplay }) => {
             actions.triggerDashboardUpdate({ group_display: groupDisplay })
+        },
+        renameTileGroup: ({ groupKey, title }) => {
+            // The API replaces every group on write, so send the others back unchanged.
+            const groups = values.dashboard?.customization?.groups ?? {}
+            actions.triggerDashboardUpdate({
+                groups: { ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } },
+            })
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
