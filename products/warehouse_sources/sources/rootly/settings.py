@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 
 def _timestamp_field(name: str) -> IncrementalField:
@@ -32,6 +32,12 @@ class RootlyEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
     page_size: int = 100
+    # "links_next" follows the JSON:API `links.next` URL. "cursor" sends `meta.next_cursor` back as
+    # `page[after]`, for feeds that return no `links`.
+    pagination: Literal["links_next", "cursor"] = "links_next"
+    # Set for endpoints that are only reachable under a parent resource (one request series per parent).
+    fanout: Optional[DependentEndpointConfig] = None
+    default_incremental_field: Optional[str] = None
 
 
 # Endpoint catalog. Paths are relative to https://api.rootly.com/v1. The set mirrors the streams a
@@ -72,6 +78,34 @@ ROOTLY_ENDPOINTS: dict[str, RootlyEndpointConfig] = {
         incremental_fields=_UPDATED_THEN_CREATED,
         should_sync_default=False,
     ),
+    # The flat event feed across all alerts. It filters and sorts only on `created_at`, and caps
+    # `page[size]` at 50. High volume, so off by default.
+    "alert_events": RootlyEndpointConfig(
+        name="alert_events",
+        path="/alert_events",
+        supports_incremental=True,
+        incremental_fields=[_timestamp_field("created_at")],
+        pagination="cursor",
+        page_size=50,
+        should_sync_default=False,
+    ),
+    # Rootly lists incident timeline events only per incident and with no time filter, so this
+    # fans out over every incident on each sync. Off by default because of the request volume.
+    "incident_events": RootlyEndpointConfig(
+        name="incident_events",
+        path="/incidents/{incident_id}/events",
+        fanout=DependentEndpointConfig(
+            parent_name="incidents",
+            resolve_param="incident_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "incident_id"},
+            # An incident deleted between the parent listing and its child fetch must not fail the sync.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+        primary_keys=["incident_id", "id"],
+        should_sync_default=False,
+    ),
     # Configuration / reference resources — small and slowly-changing, so full refresh each sync.
     "users": RootlyEndpointConfig(name="users", path="/users"),
     "teams": RootlyEndpointConfig(name="teams", path="/teams"),
@@ -80,6 +114,7 @@ ROOTLY_ENDPOINTS: dict[str, RootlyEndpointConfig] = {
     "schedules": RootlyEndpointConfig(name="schedules", path="/schedules"),
     "escalation_policies": RootlyEndpointConfig(name="escalation_policies", path="/escalation_policies"),
     "workflows": RootlyEndpointConfig(name="workflows", path="/workflows"),
+    "statuses": RootlyEndpointConfig(name="statuses", path="/statuses"),
     # Small enumeration resources whose timestamp columns we haven't confirmed against the live API.
     # Partitioning a handful of rows buys nothing, so don't risk partitioning on an absent field.
     "environments": RootlyEndpointConfig(name="environments", path="/environments", partition_key=None),
@@ -96,5 +131,5 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in ROOTLY_ENDPOINTS.items() if config.incremental_fields
 }
 
-# Per-endpoint default sync flag; only pulses (the high-volume activity timeline) is off by default.
+# Per-endpoint default sync flag; the high-volume timeline and event endpoints are off by default.
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: config.should_sync_default for name, config in ROOTLY_ENDPOINTS.items()}
