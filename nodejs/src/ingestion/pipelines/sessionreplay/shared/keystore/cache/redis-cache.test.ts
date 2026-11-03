@@ -187,9 +187,20 @@ describe('RedisCachedKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should clear cache and call delegate', async () => {
+        it('should clear cache before and after the delegate deletes', async () => {
+            const calls: string[] = []
+            mockRedisClient.del.mockImplementation(() => {
+                calls.push('del')
+                return Promise.resolve(1)
+            })
+            mockDelegate.deleteKey.mockImplementation(() => {
+                calls.push('delete')
+                return Promise.resolve({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+            })
+
             const result = await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
 
+            expect(calls).toEqual(['del', 'delete', 'del'])
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1, 'test@example.com')
             expect(result).toEqual({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
@@ -234,7 +245,6 @@ describe('RedisCachedKeyStore', () => {
             // Should only delete team 1's cache key
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockRedisClient.del).not.toHaveBeenCalledWith('@posthog/replay/recording-key:2:session-123')
-            expect(mockRedisClient.del).toHaveBeenCalledTimes(1)
         })
     })
 

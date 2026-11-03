@@ -86,7 +86,10 @@ export class RedisCachedKeyStore implements KeyStore {
     async deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult> {
         // Clear cache first to ensure stale data isn't served
         await this.deleteCached(sessionId, teamId)
-        return this.delegate.deleteKey(sessionId, teamId, deletedBy)
+        const result = await this.delegate.deleteKey(sessionId, teamId, deletedBy)
+        // A getKey between the first clear and the delete re-caches the live key for a day, so clear it again.
+        await this.deleteCached(sessionId, teamId)
+        return result
     }
 
     stop(): void {

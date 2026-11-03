@@ -18,7 +18,7 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginS
 
 import { RecordingApiOp, createRecordingApiAuthMiddleware } from './auth'
 import { ClickHouseCredential } from './clickhouse-credential'
-import { RecordingService } from './recording-service'
+import { RecordingDeletedResult, RecordingService } from './recording-service'
 import {
     DeleteRecordingsBodySchema,
     EncryptBlocksBodySchema,
@@ -27,6 +27,10 @@ import {
     TeamParamsSchema,
 } from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor, RecordingEncryptor } from './types'
+
+function sendRecordingDeleted(res: express.Response, deletion: RecordingDeletedResult): void {
+    res.status(410).json({ error: 'recording_deleted', deleted_at: deletion.deletedAt, deleted_by: deletion.deletedBy })
+}
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
@@ -275,11 +279,7 @@ export class RecordingApi {
             // Serialize response
             if (!result.ok) {
                 if (result.error === 'deleted') {
-                    res.status(410).json({
-                        error: 'recording_deleted',
-                        deleted_at: result.deletedAt,
-                        deleted_by: result.deletedBy,
-                    })
+                    sendRecordingDeleted(res, result)
                     return
                 }
                 res.status(404).json({ error: 'Block not found' })
@@ -321,6 +321,12 @@ export class RecordingApi {
 
         try {
             const blocks = await this.recordingService.listBlocks(sessionId, teamId)
+            const deletion =
+                blocks.length > 0 ? await this.deletionOrNull(this.recordingService, sessionId, teamId) : null
+            if (deletion) {
+                sendRecordingDeleted(res, deletion)
+                return
+            }
             res.json({ blocks })
         } catch (error) {
             logger.error('[RecordingApi] Error listing blocks', {
@@ -330,6 +336,24 @@ export class RecordingApi {
             })
             captureException(error)
             res.status(500).json({ error: 'Failed to list blocks' })
+        }
+    }
+
+    // The listing only reports a deletion early. A key store outage must not stop it, because getBlock still returns 410.
+    private async deletionOrNull(
+        service: RecordingService,
+        sessionId: string,
+        teamId: number
+    ): Promise<RecordingDeletedResult | null> {
+        try {
+            return await service.getDeletion(sessionId, teamId)
+        } catch (error) {
+            logger.warn('[RecordingApi] Could not check deletion while listing blocks', {
+                error: serializeError(error),
+                teamId,
+                sessionId,
+            })
+            return null
         }
     }
 
@@ -370,11 +394,7 @@ export class RecordingApi {
                     res.status(503).json({ error: 'key_unavailable' })
                     return
                 }
-                res.status(410).json({
-                    error: 'recording_deleted',
-                    deleted_at: result.deletedAt,
-                    deleted_by: result.deletedBy,
-                })
+                sendRecordingDeleted(res, result)
                 return
             }
             res.json({ blocks: result.blocks.map((b) => b.toString('base64')) })
