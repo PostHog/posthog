@@ -18,6 +18,7 @@ from django.conf import settings
 from django.test import SimpleTestCase
 
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+from opentelemetry.trace import StatusCode
 from parameterized import parameterized
 from rest_framework import status
 
@@ -46,6 +47,7 @@ from posthog.api.query import (
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
     MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
     set_query_id_on_span,
+    start_process_query_span,
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
@@ -88,6 +90,25 @@ class TestQueryTraceCorrelation(SimpleTestCase):
             set_query_id_on_span(span, query_id)
         assert isinstance(span, ReadableSpan)
         self.assertEqual(dict(span.attributes or {}), {"query.client_query_id": query_id} if expected else {})
+
+    @parameterized.expand(
+        [
+            ("budget_throttle", APIQueriesBudgetExceeded(wait=30), StatusCode.UNSET),
+            ("concurrency_limit", ConcurrencyLimitExceeded("limit"), StatusCode.UNSET),
+            ("unexpected_error", ValueError("boom"), StatusCode.ERROR),
+        ]
+    )
+    def test_process_query_span_marks_only_unexpected_errors(
+        self, _name: str, exc: Exception, expected_status: StatusCode
+    ) -> None:
+        provider = TracerProvider()
+        self.addCleanup(provider.shutdown)
+        with self.assertRaises(type(exc)):
+            with start_process_query_span(provider.get_tracer(__name__)) as span:
+                raise exc
+        assert isinstance(span, ReadableSpan)
+        self.assertEqual(span.status.status_code, expected_status)
+        self.assertEqual([event.name for event in span.events], ["exception"])
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):

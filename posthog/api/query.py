@@ -1,4 +1,6 @@
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from time import perf_counter
 from typing import Any, NoReturn
 
@@ -11,6 +13,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -177,6 +180,20 @@ def set_query_id_on_span(span: trace.Span, query_id: str) -> None:
     # Client IDs are free text in the API, so only export opaque UUIDs to traces.
     if re.fullmatch(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", query_id):
         span.set_attribute("query.client_query_id", query_id)
+
+
+@contextmanager
+def start_process_query_span(span_tracer: trace.Tracer) -> Iterator[trace.Span]:
+    with span_tracer.start_as_current_span("posthog.query.process_query_model", set_status_on_exception=False) as span:
+        try:
+            yield span
+        except (Throttled, ConcurrencyLimitExceeded):
+            # The view turns these into a 429 with Retry-After. The span keeps the exception event,
+            # but an expected throttle must not count toward the span error rate.
+            raise
+        except Exception as e:
+            span.set_status(Status(StatusCode.ERROR, f"{type(e).__name__}: {e}"))
+            raise
 
 
 def _process_query_request(
@@ -370,7 +387,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             is_query_service = get_query_tag_value("access_method") == "personal_api_key"
             if is_query_service:
                 tag_queries(api_queries_budgeted=True)
-            with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
+            with start_process_query_span(tracer) as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
                 process_span.set_attribute("query.is_query_service", is_query_service)
