@@ -15,7 +15,8 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: {
-        slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
+        slackAppWorkspaceSetup: (integrationId: number | string): string =>
+            `/integrations/slack/${integrationId}/setup`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
