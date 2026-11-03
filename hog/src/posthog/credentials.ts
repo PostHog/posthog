@@ -6,7 +6,7 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
 import { PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
-import { hostKey, trimHost } from './host'
+import { hostKey, sameHost } from './host'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
@@ -205,7 +205,7 @@ export async function resolveCredentials(
             // Before a renewal, so hog never renews a key it then refuses to send.
             checkConfigHost(login.key.host)
             // Logins are kept per origin, so another path on it is another PostHog the login isn't for.
-            if (options.host !== undefined && trimHost(options.host) !== login.key.host) {
+            if (options.host !== undefined && !sameHost(options.host, login.key.host)) {
                 throw new HogError(
                     'host_mismatch',
                     `Your login for ${hostKey(options.host)} is for ${login.key.host}, not ${options.host}.`,
