@@ -281,32 +281,42 @@ class TestReviewQueuesApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("add", None, status.HTTP_400_BAD_REQUEST),
-            ("move_in", "Source queue", status.HTTP_400_BAD_REQUEST),
-            ("stay", "Restricted queue", status.HTTP_200_OK),
+            ("add", "viewer", None, "post", "Restricted queue", status.HTTP_400_BAD_REQUEST),
+            ("move_in", "viewer", "Source queue", "patch", "Restricted queue", status.HTTP_400_BAD_REQUEST),
+            ("stay", "viewer", "Restricted queue", "patch", "Restricted queue", status.HTTP_200_OK),
+            ("move_out", "viewer", "Restricted queue", "patch", "Source queue", status.HTTP_400_BAD_REQUEST),
+            ("remove", "viewer", "Restricted queue", "delete", None, status.HTTP_403_FORBIDDEN),
+            ("open_in_hidden_queue", "none", "Restricted queue", "get", None, status.HTTP_404_NOT_FOUND),
         ]
     )
     @patch(
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
-    def test_queueing_a_trace_needs_editor_access_to_the_queue(
-        self, _name: str, current_queue: str | None, expected_status: int
+    def test_queue_items_follow_the_access_of_their_queue(
+        self,
+        _name: str,
+        access_level: str,
+        item_queue: str | None,
+        method: str,
+        target_queue: str | None,
+        expected_status: int,
     ) -> None:
         queues = {name: self._create_queue(name=name) for name in ("Source queue", "Restricted queue")}
-        restricted = queues["Restricted queue"]
         AccessControl.objects.create(
-            team=self.team, resource="llm_analytics", resource_id=str(restricted.id), access_level="viewer"
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(queues["Restricted queue"].id),
+            access_level=access_level,
         )
         self.client.force_login(self._create_user("member@example.com"))
+        body = {"queue_id": str(queues[target_queue].id)} if target_queue else None
 
-        if current_queue is None:
+        if item_queue is None:
             response = self.client.post(
-                self._queue_items_endpoint(), {"queue_id": str(restricted.id), "trace_id": "trace_new"}, format="json"
+                self._queue_items_endpoint(), {**(body or {}), "trace_id": "trace_new"}, format="json"
             )
         else:
-            item = self._create_queue_item(queue=queues[current_queue], trace_id="trace_pending")
-            response = self.client.patch(
-                f"{self._queue_items_endpoint()}{item.id}/", {"queue_id": str(restricted.id)}, format="json"
-            )
+            item = self._create_queue_item(queue=queues[item_queue], trace_id="trace_pending")
+            response = getattr(self.client, method)(f"{self._queue_items_endpoint()}{item.id}/", body, format="json")
 
-        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(response.status_code, expected_status, response.content)
