@@ -15,6 +15,7 @@ from posthog.schema import (
     CustomChannelOperator,
     CustomChannelRule,
     FilterLogicalOperator,
+    HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
     WebAnalyticsQueryModifiers,
@@ -79,7 +80,7 @@ def _runner(
     )
     runner.query.properties = properties or []
     runner.query.breakdownBy = breakdown_by
-    runner.modifiers.customChannelTypeRules = custom_channel_rules
+    runner.modifiers = HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules)
     runner._test_account_filters = test_account_filters or []
     # A project-local range: the current day in New York ends after the UTC now below.
     runner.query_date_range.date_from.return_value = date_from or datetime(2026, 3, 1, tzinfo=tz)
@@ -104,6 +105,9 @@ class TestDimensionalReadSelection(SimpleTestCase):
         retention_patcher = patch(f"{_READ}.events_retention_months_for_team", return_value=None)
         self.retention_months = retention_patcher.start()
         self.addCleanup(retention_patcher.stop)
+        insert_modifiers_patcher = patch(f"{_READ}.dimensional_insert_modifiers", return_value=HogQLQueryModifiers())
+        insert_modifiers_patcher.start()
+        self.addCleanup(insert_modifiers_patcher.stop)
 
     @parameterized.expand(
         [

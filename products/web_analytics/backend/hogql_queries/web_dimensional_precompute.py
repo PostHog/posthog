@@ -345,7 +345,17 @@ DIMENSIONAL_INSERT_SETTINGS: dict[str, int | str] = {
 DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
 
 
-def _insert_modifiers(team: Team) -> HogQLQueryModifiers:
+# Modifier fields that change what the INSERTs store. Modifiers are not part of the job identity,
+# so a read whose values differ from the build's cannot use these jobs.
+DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
+    "bounceRateDurationSeconds",
+    "bounceRatePageViewMode",
+    "sessionsV2JoinMode",
+    "sessionTableVersion",
+)
+
+
+def dimensional_insert_modifiers(team: Team) -> HogQLQueryModifiers:
     return create_default_modifiers_for_team(
         team, HogQLQueryModifiers(sessionTimestampBufferMinutes=DIMENSIONAL_SESSION_BUFFER_MINUTES)
     )
@@ -372,7 +382,7 @@ def ensure_web_stats_dimensional_precomputed(
         run_inserts=run_inserts,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
-        modifiers=_insert_modifiers(team),
+        modifiers=dimensional_insert_modifiers(team),
     )
 
 
@@ -397,7 +407,7 @@ def ensure_web_bounces_dimensional_precomputed(
         run_inserts=run_inserts,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
-        modifiers=_insert_modifiers(team),
+        modifiers=dimensional_insert_modifiers(team),
     )
 
 

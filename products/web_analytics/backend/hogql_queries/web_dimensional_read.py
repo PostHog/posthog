@@ -27,9 +27,11 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder i
 )
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS,
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
     WEB_STATS_DIMENSIONAL_READ_TABLE,
     DimensionalJobIds,
+    dimensional_insert_modifiers,
     dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
@@ -61,6 +63,14 @@ def ready_dimensional_job_ids(
     # The channel breakdown and filter use the built-in channel rules, because the stored dimensions
     # cannot evaluate custom rules that match on the entry URL.
     if runner.modifiers.customChannelTypeRules and _reads_channel_type(runner):
+        return None
+
+    # A per-request override, such as a longer bounce duration, would count the stored rows differently.
+    build_modifiers = dimensional_insert_modifiers(runner.team)
+    if any(
+        getattr(runner.modifiers, field) != getattr(build_modifiers, field)
+        for field in DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS
+    ):
         return None
 
     periods = [runner.query_date_range]

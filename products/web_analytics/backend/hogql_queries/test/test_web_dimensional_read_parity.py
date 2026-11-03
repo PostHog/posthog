@@ -279,6 +279,15 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 {"Desktop": (1.0, 1.0), "Mobile": (1.0, 1.0)},
             ),
             (
+                "bounce_duration_override",
+                DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                WebStatsBreakdown.DEVICE_TYPE,
+                [],
+                HogQLQueryModifiers(bounceRateDurationSeconds=60),
+                None,
+                {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)},
+            ),
+            (
                 "range_before_retention_floor",
                 DateRange(date_from=DATE_FROM, date_to=DATE_TO),
                 WebStatsBreakdown.DEVICE_TYPE,
