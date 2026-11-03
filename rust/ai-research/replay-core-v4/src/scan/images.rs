@@ -448,10 +448,15 @@ fn css_escape(escaped: &[u8]) -> Option<(char, usize)> {
     Some((ch, digits + whitespace))
 }
 
+/// A browser removes tabs and line breaks inside the scheme too, but the first letter is read as it is, so a read that starts at an escaped tab stops there and the search stays linear.
 fn after_data_scheme(bytes: &[u8], start: usize) -> Option<usize> {
-    let mut at = start;
-    for expected in "data:".chars() {
-        let (ch, len) = url_char(bytes, at, true)?;
+    let (first, len) = url_char(bytes, start, true)?;
+    if !first.eq_ignore_ascii_case(&'d') {
+        return None;
+    }
+    let mut at = start + len;
+    for expected in "ata:".chars() {
+        let (ch, len) = header_char(bytes, at, true)?;
         if ch.to_ascii_lowercase() != expected {
             return None;
         }
@@ -887,6 +892,11 @@ mod tests {
                 r#"\")}"}"#,
             ),
             (
+                r#"{"textContent":".a{background:url(\""#,
+                format!(r"d\\9 ata:image/png;base64,{base64}"),
+                r#"\")}"}"#,
+            ),
+            (
                 r#"{"style":"background:url("#,
                 format!(r"data:image/png\\3b base64\\2c {base64}"),
                 r#")"}"#,
@@ -1227,7 +1237,7 @@ mod tests {
             extract_images(unbroken.as_bytes(), &mut images),
             Cow::Borrowed(_)
         ));
-        let escaped_tabs = format!("{}x\"", r"\\9 ".repeat(200_000));
+        let escaped_tabs = format!("d{}x\"", r"\\9 ".repeat(200_000));
         let mut images = sink(ImageLimits::default());
         assert!(matches!(
             extract_images(escaped_tabs.as_bytes(), &mut images),
