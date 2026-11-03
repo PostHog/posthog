@@ -50,7 +50,12 @@ describe('linkSlackThreadLogic', () => {
 
         // A refresh, not a load: the linked opening comment can sort mid-list, so the reader stays put
         await expectLogic(logic, () => logic.actions.submit())
-            .toDispatchActions(['submit', discussion.actionTypes.refreshComments, 'closeModal'])
+            .toDispatchActions([
+                'submit',
+                discussion.actionTypes.addLinkedSlackThread,
+                discussion.actionTypes.refreshComments,
+                'closeModal',
+            ])
             .toNotHaveDispatchedActions([discussion.actionTypes.loadComments])
             .toMatchValues({ isOpen: false, isSubmitting: false, error: null })
         expect(linkBody).toEqual({ scope: 'Ticket', item_id: 'ticket-1', integration_id: 9, url: LINK })
@@ -68,6 +73,37 @@ describe('linkSlackThreadLogic', () => {
 
         logic.actions.setUrl('https://example.slack.com/archives/C1/p1')
         expect(logic.values.error).toBeNull()
+    })
+
+    it('leaves a reopened modal alone when an earlier request finishes', async () => {
+        let release: () => void = () => {}
+        const released = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/comments/link_slack_thread': async () => {
+                    await released
+                    return [400, { type: 'validation_error', detail: 'That channel is shared.' }]
+                },
+            },
+        })
+        logic.actions.openModal()
+        logic.actions.setIntegrationId(9)
+        logic.actions.setUrl(LINK)
+        logic.actions.submit()
+        logic.actions.closeModal()
+
+        logic.actions.openModal()
+        logic.actions.setUrl('https://example.slack.com/archives/C1/p1767225700000100')
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({
+            isOpen: true,
+            error: null,
+            url: 'https://example.slack.com/archives/C1/p1767225700000100',
+        })
     })
 
     it('belongs to one discussion, so another discussion on screen stays closed', () => {
