@@ -105,7 +105,7 @@ pub fn parse_datadog_tags(ddtags: Option<&str>) -> HashMap<String, String> {
     attributes
 }
 
-fn extract_token_from_auth_header(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn extract_token_from_auth_header(headers: &HeaderMap) -> Option<String> {
     headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -121,7 +121,7 @@ fn extract_token_from_auth_header(headers: &HeaderMap) -> Option<String> {
         })
 }
 
-fn hex_to_base64(hex_str: &str) -> String {
+pub(crate) fn hex_to_base64(hex_str: &str) -> String {
     // Remove any 0x prefix if present
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
 

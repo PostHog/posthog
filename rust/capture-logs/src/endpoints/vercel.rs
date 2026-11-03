@@ -1,0 +1,399 @@
+use crate::authorizer::Signal;
+use crate::endpoints::datadog::{extract_token_from_auth_header, hex_to_base64};
+use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
+use crate::service::{decode_body_if_gzip_magic, Service};
+use axum::{
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::Json,
+};
+use bytes::Bytes;
+use chrono::Utc;
+use metrics::counter;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use tracing::{debug, error, instrument};
+use uuid::Uuid;
+
+const RECORDS_COUNTER: &str = "capture_logs_vercel_records_total";
+
+/// One line of a Vercel log drain delivery. Fields follow the drain's logs schema; unknown
+/// fields are ignored so a schema addition on their side never fails a delivery.
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VercelLog {
+    pub id: Option<String>,
+    pub deployment_id: Option<String>,
+    pub source: Option<String>,
+    pub host: Option<String>,
+    pub timestamp: Option<i64>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub level: Option<String>,
+    pub message: Option<String>,
+    pub build_id: Option<String>,
+    pub entrypoint: Option<String>,
+    pub destination: Option<String>,
+    pub path: Option<String>,
+    #[serde(rename = "type")]
+    pub log_type: Option<String>,
+    pub status_code: Option<i64>,
+    pub request_id: Option<String>,
+    pub environment: Option<String>,
+    pub custom_environment: Option<String>,
+    pub branch: Option<String>,
+    pub ja3_digest: Option<String>,
+    pub ja4_digest: Option<String>,
+    pub edge_type: Option<String>,
+    pub execution_region: Option<String>,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    #[serde(rename = "trace.id")]
+    pub trace_id_dotted: Option<String>,
+    #[serde(rename = "span.id")]
+    pub span_id_dotted: Option<String>,
+    pub proxy: Option<VercelProxy>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct VercelProxy {
+    pub timestamp: Option<i64>,
+    pub method: Option<String>,
+    pub host: Option<String>,
+    pub path: Option<String>,
+    // An array of strings per the schema; a bare string is accepted too.
+    pub user_agent: Option<Value>,
+    pub region: Option<String>,
+    pub referer: Option<String>,
+    pub status_code: Option<i64>,
+    pub client_ip: Option<String>,
+    pub scheme: Option<String>,
+    pub response_byte_size: Option<i64>,
+    pub cache_id: Option<String>,
+    pub path_type: Option<String>,
+    pub path_type_variant: Option<String>,
+    pub vercel_id: Option<String>,
+    pub vercel_cache: Option<String>,
+    pub lambda_region: Option<String>,
+    pub waf_action: Option<String>,
+    pub waf_rule_id: Option<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct ParsedDelivery {
+    pub logs: Vec<VercelLog>,
+    pub invalid: u64,
+}
+
+/// Reads a delivery in either drain format: a JSON array (or one object) or NDJSON. Entries that
+/// do not parse are skipped and counted, so one bad line does not make the drain retry the whole
+/// batch.
+pub fn parse_delivery(body: &[u8]) -> Result<ParsedDelivery, serde_json::Error> {
+    let text = String::from_utf8_lossy(body);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(ParsedDelivery::default());
+    }
+    if trimmed.starts_with('[') {
+        let mut parsed = ParsedDelivery::default();
+        for item in serde_json::from_str::<Vec<Value>>(trimmed)? {
+            match serde_json::from_value::<VercelLog>(item) {
+                Ok(log) => parsed.logs.push(log),
+                Err(_) => parsed.invalid += 1,
+            }
+        }
+        return Ok(parsed);
+    }
+    if !trimmed.contains('\n') {
+        let log = serde_json::from_str::<VercelLog>(trimmed)?;
+        return Ok(ParsedDelivery {
+            logs: vec![log],
+            invalid: 0,
+        });
+    }
+    let mut parsed = ParsedDelivery::default();
+    for line in trimmed.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        match serde_json::from_str::<VercelLog>(line) {
+            Ok(log) => parsed.logs.push(log),
+            Err(_) => parsed.invalid += 1,
+        }
+    }
+    Ok(parsed)
+}
+
+pub fn normalize_vercel_severity(level: Option<&str>) -> (String, i32) {
+    match level.map(str::to_lowercase).as_deref() {
+        Some("fatal") => ("fatal".to_string(), 21),
+        Some("error") => ("error".to_string(), 17),
+        Some("warning") | Some("warn") => ("warn".to_string(), 13),
+        _ => ("info".to_string(), 9),
+    }
+}
+
+fn put(map: &mut HashMap<String, String>, key: &str, value: Option<impl Serialize>) {
+    if let Some(value) = value {
+        map.insert(key.to_string(), json!(value).to_string());
+    }
+}
+
+fn first_user_agent(user_agent: &Option<Value>) -> Option<String> {
+    match user_agent {
+        Some(Value::Array(values)) => values.first().and_then(|v| v.as_str()).map(String::from),
+        Some(Value::String(value)) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+pub fn vercel_log_to_kafka_row(log: VercelLog) -> (KafkaLogRow, bool) {
+    let (severity_text, severity_number) = normalize_vercel_severity(log.level.as_deref());
+    let proxy = log.proxy.unwrap_or_default();
+    let raw_timestamp = datetime_from_millis(log.timestamp.or(proxy.timestamp));
+
+    let service_name = log
+        .project_name
+        .clone()
+        .or_else(|| log.project_id.clone())
+        .unwrap_or_default();
+
+    let mut resource_attributes = HashMap::new();
+    if !service_name.is_empty() {
+        put(
+            &mut resource_attributes,
+            "service.name",
+            Some(&service_name),
+        );
+    }
+    put(
+        &mut resource_attributes,
+        "vercel.project.id",
+        log.project_id,
+    );
+    put(
+        &mut resource_attributes,
+        "vercel.project.name",
+        log.project_name,
+    );
+    put(
+        &mut resource_attributes,
+        "vercel.deployment.id",
+        log.deployment_id,
+    );
+    put(
+        &mut resource_attributes,
+        "deployment.environment.name",
+        log.environment,
+    );
+    put(
+        &mut resource_attributes,
+        "vercel.custom_environment",
+        log.custom_environment,
+    );
+    put(&mut resource_attributes, "vcs.ref.head.name", log.branch);
+
+    let (url_path, url_query) = match proxy.path.as_deref() {
+        Some(full) => match full.split_once('?') {
+            Some((path, query)) => (Some(path.to_string()), Some(query.to_string())),
+            None => (Some(full.to_string()), None),
+        },
+        None => (None, None),
+    };
+    let status_code = proxy.status_code.or(log.status_code);
+    let user_agent = first_user_agent(&proxy.user_agent);
+
+    // A request line from the edge carries no message, so the record gets an access-log style
+    // body instead of an empty one.
+    let body = match log.message.filter(|m| !m.is_empty()) {
+        Some(message) => message,
+        None => match (&proxy.method, &proxy.path) {
+            (Some(method), Some(path)) => match status_code {
+                Some(code) => format!("{method} {path} {code}"),
+                None => format!("{method} {path}"),
+            },
+            _ => String::new(),
+        },
+    };
+
+    let mut attributes = HashMap::new();
+    put(&mut attributes, "vercel.log.id", log.id);
+    put(&mut attributes, "vercel.source", log.source);
+    put(&mut attributes, "vercel.type", log.log_type);
+    put(&mut attributes, "vercel.entrypoint", log.entrypoint);
+    put(&mut attributes, "vercel.function.path", log.path);
+    put(&mut attributes, "vercel.request.id", log.request_id);
+    put(&mut attributes, "vercel.build.id", log.build_id);
+    put(&mut attributes, "vercel.destination", log.destination);
+    put(&mut attributes, "vercel.edge_type", log.edge_type);
+    put(
+        &mut attributes,
+        "vercel.execution_region",
+        log.execution_region,
+    );
+    put(&mut attributes, "http.request.method", proxy.method);
+    put(&mut attributes, "server.address", proxy.host.or(log.host));
+    put(&mut attributes, "url.scheme", proxy.scheme);
+    put(&mut attributes, "url.path", url_path);
+    put(&mut attributes, "url.query", url_query);
+    put(&mut attributes, "http.response.status_code", status_code);
+    put(
+        &mut attributes,
+        "http.response.body.size",
+        proxy.response_byte_size,
+    );
+    put(
+        &mut attributes,
+        "http.request.header.referer",
+        proxy.referer,
+    );
+    put(&mut attributes, "client.address", proxy.client_ip);
+    put(&mut attributes, "user_agent.original", user_agent);
+    put(&mut attributes, "tls.client.ja3", log.ja3_digest);
+    put(&mut attributes, "tls.client.ja4", log.ja4_digest);
+    put(&mut attributes, "vercel.proxy.region", proxy.region);
+    put(&mut attributes, "vercel.proxy.id", proxy.vercel_id);
+    put(&mut attributes, "vercel.cache", proxy.vercel_cache);
+    put(&mut attributes, "vercel.cache_id", proxy.cache_id);
+    put(&mut attributes, "vercel.path_type", proxy.path_type);
+    put(
+        &mut attributes,
+        "vercel.path_type_variant",
+        proxy.path_type_variant,
+    );
+    put(&mut attributes, "vercel.lambda_region", proxy.lambda_region);
+    put(&mut attributes, "vercel.waf.action", proxy.waf_action);
+    put(&mut attributes, "vercel.waf.rule_id", proxy.waf_rule_id);
+
+    let trace_id = log
+        .trace_id
+        .or(log.trace_id_dotted)
+        .map(|id| hex_to_base64(&id))
+        .unwrap_or_default();
+    let span_id = log
+        .span_id
+        .or(log.span_id_dotted)
+        .map(|id| hex_to_base64(&id))
+        .unwrap_or_default();
+
+    let (timestamp, was_overridden) = apply_timestamp_override(raw_timestamp, &mut attributes);
+
+    let row = KafkaLogRow {
+        uuid: Uuid::now_v7().to_string(),
+        trace_id,
+        span_id,
+        trace_flags: 0,
+        timestamp,
+        observed_timestamp: Utc::now(),
+        body,
+        severity_text,
+        severity_number,
+        service_name,
+        resource_attributes,
+        instrumentation_scope: String::new(),
+        event_name: String::new(),
+        attributes,
+        bytes_uncompressed: None,
+        retention_days: None,
+        pattern: None,
+        pattern_version: None,
+    }
+    .with_computed_bytes();
+    (row, was_overridden)
+}
+
+#[derive(Deserialize, Debug)]
+pub struct VercelQueryParams {
+    pub token: Option<String>,
+}
+
+#[instrument(skip_all, fields(
+    token = tracing::field::Empty,
+    content_type = %headers.get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or(""),
+    content_length = %headers.get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")))
+]
+pub async fn export_vercel_logs_http(
+    State(service): State<Service>,
+    path_token: Option<Path<String>>,
+    Query(query_params): Query<VercelQueryParams>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // The drain config takes custom headers, so `Authorization: Bearer <token>` is the usual
+    // shape; the path and query forms cover setups that only edit the URL.
+    let token = match path_token {
+        Some(Path(t)) if !t.is_empty() => t,
+        _ => match extract_token_from_auth_header(&headers) {
+            Some(t) if !t.is_empty() => t,
+            _ => match query_params.token {
+                Some(t) if !t.is_empty() => t,
+                _ => {
+                    error!("No token provided");
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(json!({"error": "No token provided"})),
+                    ));
+                }
+            },
+        },
+    };
+
+    service.authorizer.authorize_token(&token, Signal::Logs)?;
+    tracing::Span::current().record("token", &token);
+
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
+
+    let parsed = match parse_delivery(&body) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            error!("Failed to parse Vercel logs: {}", e);
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Failed to parse Vercel logs: {}", e)})),
+            ));
+        }
+    };
+    if parsed.invalid > 0 {
+        counter!(RECORDS_COUNTER, "kind" => "invalid").increment(parsed.invalid);
+    }
+    counter!(RECORDS_COUNTER, "kind" => "valid").increment(parsed.logs.len() as u64);
+
+    // The drain sends a test request when it is created; an empty delivery acknowledges it.
+    if parsed.logs.is_empty() {
+        return Ok(Json(json!({})));
+    }
+
+    let results: Vec<(KafkaLogRow, bool)> = parsed
+        .logs
+        .into_iter()
+        .map(vercel_log_to_kafka_row)
+        .collect();
+    let row_count = results.len();
+    let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
+    let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
+
+    if let Err(e) = service
+        .sink
+        .write(
+            &token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            None,
+            None,
+        )
+        .await
+    {
+        error!("Failed to send Vercel logs to Kafka: {}", e);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "Internal server error"})),
+        ));
+    }
+    debug!("Successfully sent {} Vercel logs to Kafka", row_count);
+
+    Ok(Json(json!({})))
+}

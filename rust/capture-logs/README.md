@@ -187,6 +187,27 @@ A customer creates a Firehose stream with this URL as its HTTP endpoint and the 
 Metrics: `capture_logs_firehose_records_total{kind}` (`data`, `control`, `raw`, `invalid`) and `capture_logs_firehose_events_total`.
 Request outcomes are on the shared `http_requests_total{path,status}` and rejected tokens on `capture_logs_requests_rejected_total`.
 
+## Vercel log drains
+
+`POST /i/v1/logs/vercel[/<token>]` accepts a [Vercel log drain](https://vercel.com/docs/drains/reference/logs) with a custom endpoint.
+A customer creates a log drain with this URL and the project API key, in either drain format.
+
+- Auth: the project API key in an `Authorization: Bearer <token>` custom header, in the path, or as `?token=`.
+  The same shape check as every other route applies.
+- Body: a JSON array or NDJSON, gzip or plain.
+  Every valid line becomes a log row.
+  A line that does not parse is skipped and counted, so one bad line does not make the drain retry the batch.
+  An empty body is acknowledged with 200, which covers the test request the drain sends when it is created.
+- Row mapping: `body` = `message`, or `<method> <path> <status>` for a request line that has no message; `timestamp` = the line's `timestamp` in milliseconds; `service.name` = the project name, else the project ID.
+  Severity comes from `level` (`fatal`, `error`, `warning`, else `info`).
+  Request fields use OpenTelemetry semantic conventions (`http.request.method`, `server.address`, `url.path`, `url.query`, `http.response.status_code`, `client.address`, `user_agent.original`, `tls.client.ja3`); other drain fields keep a `vercel.*` name (`vercel.source`, `vercel.cache`, `vercel.path_type`, `vercel.waf.action`, and so on).
+  Resource attributes are `service.name`, `vercel.project.id`, `vercel.project.name`, `vercel.deployment.id`, `deployment.environment.name` and `vcs.ref.head.name`.
+  `traceId`/`spanId` (hex) become the row's trace and span IDs.
+- Delivery is at-least-once: a Kafka failure returns 500 and the drain sends the request again.
+
+Metrics: `capture_logs_vercel_records_total{kind}` (`valid`, `invalid`).
+Request outcomes are on the shared `http_requests_total{path,status}`.
+
 ## Endpoints
 
 ### Log Ingestion
@@ -195,6 +216,7 @@ Request outcomes are on the shared `http_requests_total{path,status}` and reject
 - `POST /i/v1/logs` - Alternative endpoint for OTLP logs
 - `POST /i/v1/logs/datadog[/<token>]` - Datadog agent intake
 - `POST /i/v1/logs/aws/firehose` - Amazon Data Firehose HTTP endpoint destination
+- `POST /i/v1/logs/vercel[/<token>]` - Vercel log drain (JSON or NDJSON)
 - `OPTIONS /v1/logs` - CORS preflight support
 - `OPTIONS /i/v1/logs` - CORS preflight support
 
