@@ -1289,9 +1289,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             "mirrors to exactly one Slack thread: re-calling with the same channel returns the "
             "existing mirror; a different channel is a 400 naming the existing one. 409 while a "
             "concurrent send is in flight. 404 when the feature is not enabled for the team. "
-            "Ticket discussions need editor access to the ticket (403) and cannot go to a channel "
-            "shared with another Slack workspace (400). 429 when the Slack integration has made "
-            "too many channel lookups in the last minute."
+            "Ticket discussions cannot go to a channel shared with another Slack workspace (400). "
+            "429 when the Slack integration has made too many channel lookups in the last minute."
         ),
     )
     @action(methods=["POST"], detail=True)
@@ -1309,12 +1308,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # A Slack channel has no observation access check, in either direction.
             raise exceptions.ValidationError("Replay Vision observation notes cannot be sent to Slack")
         is_ticket_discussion = comment.scope in TICKET_COMMENT_SCOPES
-        if is_ticket_discussion:
-            if is_scout_sandbox_request(request):
-                raise exceptions.PermissionDenied("Scouts can't send ticket discussions to Slack.")
-            _require_ticket_editor_access(
-                team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
-            )
+        if is_ticket_discussion and is_scout_sandbox_request(request):
+            raise exceptions.PermissionDenied("Scouts can't send ticket discussions to Slack.")
 
         params = SendCommentToSlackSerializer(data=request.data)
         params.is_valid(raise_exception=True)
