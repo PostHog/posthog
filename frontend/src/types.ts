@@ -7935,6 +7935,10 @@ export type OAuthScopeResolution = {
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
+    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    already_granted_scopes?: string[]
+    /** Where the newest earlier grant applies. A step-up pre-selects it, so the token keeps its projects. Both lists empty means all of them. */
+    earlier_access?: { scoped_teams: number[]; scoped_organizations: string[] }
 }
 
 export type OAuthApplicationPublicMetadata = {
