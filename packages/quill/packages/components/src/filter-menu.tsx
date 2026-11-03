@@ -299,7 +299,7 @@ export function FilterSearchSubMenu({
                         />
                     </div>
                     <ComboboxEmpty>{emptyText}</ComboboxEmpty>
-                    <ComboboxList className="max-h-72">
+                    <ComboboxList>
                         {(option: SearchOption) => (
                             <ComboboxItem
                                 key={option.value ?? 'all'}
