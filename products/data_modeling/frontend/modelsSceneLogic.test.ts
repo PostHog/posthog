@@ -108,6 +108,23 @@ describe('modelsSceneLogic', () => {
         expect(logic.values.lineageTabVisited).toBe(tab === 'lineage')
     })
 
+    it.each([
+        [
+            '/models?tab=lineage&search=%2Borders%2B&node_id=n1',
+            '/data-catalog',
+            { tab: 'lineage', search: '+orders+', node_id: 'n1' },
+        ],
+        ['/models?tab=data-quality', '/data-catalog', { tab: 'tables' }],
+        ['/models?tab=models', '/models', { tab: 'models' }],
+    ])('with the catalog restructure on, %s lands on %s', async (path, pathname, searchParams) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true })
+
+        await mount(path)
+
+        expect(router.values.location.pathname.endsWith(pathname)).toBe(true)
+        expect(router.values.searchParams).toEqual(searchParams)
+    })
+
     it('falls back to overview when the usage tab is disabled', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_USAGE]: false })
 
