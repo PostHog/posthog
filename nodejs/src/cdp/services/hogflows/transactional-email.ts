@@ -41,6 +41,8 @@ export const TransactionalEmailRequestSchema = z.object({
     idempotency_key: z.string().min(1).max(255).optional(),
 })
 
+export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
+
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }

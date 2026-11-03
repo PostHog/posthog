@@ -55,6 +55,7 @@ import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     AcceptedSendRequestSchema,
+    CODE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
@@ -400,7 +401,7 @@ export class CdpApi {
         )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
-            asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema))
+            asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -1177,7 +1178,7 @@ export class CdpApi {
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
     private postTransactionalEmail =
-        (schema: z.ZodType<TransactionalEmailRequest, unknown>) =>
+        (schema: z.ZodType<TransactionalEmailRequest, unknown>, tokenClaims?: Record<string, string>) =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
@@ -1191,7 +1192,15 @@ export class CdpApi {
                         error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
                     })
                 }
-                if (!this.verifyScopedWorkflowJwt(this.transactionalEmailJwt, req, res, 'transactional email')) {
+                if (
+                    !this.verifyScopedWorkflowJwt(
+                        this.transactionalEmailJwt,
+                        req,
+                        res,
+                        'transactional email',
+                        tokenClaims
+                    )
+                ) {
                     transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
