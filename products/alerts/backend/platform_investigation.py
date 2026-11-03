@@ -51,6 +51,7 @@ from products.alerts.backend.platform_investigation_detail import (
     requested_investigation,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     AlertEventKind,
     HeldDelivery,
     HeldDeliveryAddress,
@@ -65,6 +66,9 @@ logger = structlog.get_logger(__name__)
 
 _CLAIM_LOCK_SQL: Final = "SELECT pg_advisory_xact_lock(hashtext(%s))"
 HOLD_REASON: Final = "investigation"
+METRICS_HOLD_REASON: Final = "metrics_investigation"
+# A metrics investigation is a few bounded queries, so its firing waits minutes at most, not the agent's grace.
+METRICS_HOLD_SECONDS: Final = 5 * 60
 _EVALUATED_KEYS: Final = ("anomaly_scores", "triggered_points", "triggered_dates", "interval", "triggered_metadata")
 # A verdict-change follow-up is recorded under the key of the firing it follows up plus this suffix,
 # so it gets a delivery of its own.
@@ -182,7 +186,19 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
         group = replace(
             group, source_detail={**group.source_detail, METRICS_INVESTIGATION_REQUESTED_KEY: str(alert.id)}
         )
-        return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),))
+        # Held, as the insight stack sends a metrics firing with its explanation. The hold also lets
+        # delivery drop the incident trigger of a firing that resolved while it waited.
+        metrics_held = None
+        if evaluation.deliveries:
+            (request,) = evaluation.deliveries
+            metrics_held = HeldDelivery(
+                request=request, reason=METRICS_HOLD_REASON, release_after_seconds=METRICS_HOLD_SECONDS
+            )
+        return replace(
+            evaluation,
+            outcomes=(replace(outcome, groups=(group,), held_delivery=metrics_held),),
+            deliveries=() if metrics_held else evaluation.deliveries,
+        )
     decision = decide_investigation(
         alert,
         firing=True,
@@ -243,7 +259,16 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
                 evaluated={"value": group.value},
             )
             if claim.claimed:
-                metrics.append(MetricsInvestigationRun(team_id=team_id, investigation_id=str(claim.investigation_id)))
+                metrics.append(
+                    MetricsInvestigationRun(
+                        team_id=team_id,
+                        investigation_id=str(claim.investigation_id),
+                        configuration_id=str(outcome.configuration_id),
+                        evaluation_key=outcome.evaluation_key,
+                    )
+                )
+            elif outcome.held_delivery is not None and (request := _release_metrics_hold(team_id, outcome)):
+                deliveries.append(request)
             continue
         claim = claim_investigation(
             alert,
@@ -283,6 +308,28 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
         if request is not None:
             deliveries.append(request)
     return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries), metrics=tuple(metrics))
+
+
+def _release_metrics_hold(team_id: int, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
+    return release_held(
+        HeldDeliveryAddress(
+            team_id=team_id, configuration_id=str(outcome.configuration_id), evaluation_key=outcome.evaluation_key
+        ),
+        suppress=False,
+        released_by=HoldReleasedBy.CLAIM_REFUSED,
+    )
+
+
+def release_metrics_firing(run: MetricsInvestigationRun) -> AlertDeliveryRequest | None:
+    """Sends the firing a metrics investigation held, once the run ended or could not start. Returns
+    the request the caller starts. A retry gets the same request back."""
+    return release_held(
+        HeldDeliveryAddress(
+            team_id=run.team_id, configuration_id=run.configuration_id, evaluation_key=run.evaluation_key
+        ),
+        suppress=False,
+        released_by=HoldReleasedBy.VERDICT,
+    )
 
 
 def fail_unstarted_metrics_investigation(run: MetricsInvestigationRun) -> None:

@@ -2,6 +2,7 @@ import uuid
 import asyncio
 import threading
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
 from unittest.mock import patch
@@ -47,6 +48,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     GroupOutcome,
+    HeldDelivery,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceEvaluationInputs,
@@ -593,7 +595,11 @@ async def test_a_record_that_fails_while_a_check_still_runs_records_again_at_the
     assert sorted(configuration_id for attempt in attempts[1:] for configuration_id in attempt) == [fast, slow]
 
 
-async def test_a_metrics_firing_is_delivered_only_after_its_investigation(environment: WorkflowEnvironment) -> None:
+async def test_a_metrics_firing_is_delivered_once_its_investigation_releases_it(
+    environment: WorkflowEnvironment,
+) -> None:
+    released: list[AlertDeliveryRequest] = []
+
     @activity.defn(name="plan_platform_insight_checks_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
         return [] if inputs.exclude else [AdmittedInsightCheck(configuration_id=ADMITTED[0], owned_by_platform=True)]
@@ -624,7 +630,13 @@ async def test_a_metrics_firing_is_delivered_only_after_its_investigation(enviro
             destination_alert_id="legacy-alert",
             event_ids_by_kind={"firing": "$insight_alert_firing"},
         )
-        return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,))
+        # Held by the check, so only the investigation's release starts it.
+        held = replace(
+            outcome,
+            held_delivery=HeldDelivery(request=delivery, reason="metrics_investigation", release_after_seconds=300),
+        )
+        released.append(delivery)
+        return SourceBatchEvaluation(outcomes=(held,), deliveries=())
 
     @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
     async def record(inputs: SourceOutcomeInputs) -> int:
@@ -635,8 +647,8 @@ async def test_a_metrics_firing_is_delivered_only_after_its_investigation(enviro
         return InvestigationClaims(metrics=(MetricsInvestigationRun(team_id=1, investigation_id="inv-1"),))
 
     @activity.defn(name="run_platform_metrics_investigations_activity")
-    async def investigate(inputs: MetricsInvestigationsInputs) -> None:
-        return None
+    async def investigate(inputs: MetricsInvestigationsInputs) -> list[AlertDeliveryRequest]:
+        return released
 
     async with Worker(
         environment.client,

@@ -52,6 +52,9 @@ class MetricsInvestigationRun:
 
     team_id: int
     investigation_id: str
+    # The firing the run explains, whose held delivery the run releases once it ends.
+    configuration_id: str = ""
+    evaluation_key: str = ""
 
 
 @frozen
