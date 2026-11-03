@@ -1,10 +1,11 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/react'
+import { waitFor, within } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataCatalogScene } from './DataCatalogScene'
@@ -194,6 +195,67 @@ const viewLinks = [
     },
 ]
 
+function schemaTable(name: string, columns: Record<string, string>): Record<string, unknown> {
+    return {
+        type: 'posthog',
+        id: name,
+        name,
+        fields: Object.fromEntries(
+            Object.entries(columns).map(([column, type]) => [
+                column,
+                { name: column, hogql_value: column, type, schema_valid: true },
+            ])
+        ),
+    }
+}
+
+const databaseTables = Object.fromEntries(
+    [
+        schemaTable('events', { person_id: 'string', distinct_id: 'string', properties: 'json' }),
+        schemaTable('persons', { id: 'string', created_at: 'datetime', properties: 'json' }),
+    ].map((table) => [table.name as string, table])
+)
+
+const joinValidation = {
+    is_valid: true,
+    msg: null,
+    hogql: null,
+    columns: ['source_key', 'joining_key'],
+    results: [
+        ['person-1', 'person-1'],
+        ['person-2', 'person-2'],
+    ],
+    total_rows: 1300,
+    matched_rows: 1240,
+    match_rate: 0.95,
+}
+
+async function openJoinEditor(canvasElement: HTMLElement): Promise<void> {
+    const menuTrigger = await waitFor(() => {
+        const trigger = canvasElement.querySelector<HTMLButtonElement>(
+            '[data-attr="data-catalog-relationships-row-actions"]'
+        )
+        if (!trigger) {
+            throw new Error('Join row not rendered yet')
+        }
+        return trigger
+    })
+    menuTrigger.click()
+    const editItem = await waitFor(() => {
+        const item = document.querySelector<HTMLElement>('[data-attr="data-catalog-relationships-edit-join"]')
+        if (!item) {
+            throw new Error('Join menu not open yet')
+        }
+        return item
+    })
+    editItem.click()
+    await waitFor(() => {
+        if (!document.querySelector('[data-attr="data-catalog-join-editor"]')) {
+            throw new Error('Join editor not open yet')
+        }
+    })
+}
+
 const inMainContent =
     (widthClass: string): Decorator =>
     (Story) => (
@@ -246,6 +308,15 @@ const meta: Meta<typeof DataCatalogScene> = {
                         count: 1,
                     },
                 },
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                        const { query } = (await request.json()) as { query: { kind: string } }
+                        return query.kind === NodeKind.DatabaseSchemaQuery
+                            ? [200, { tables: databaseTables, joins: [] }]
+                            : [200, {}]
+                    },
+                    '/api/projects/:team_id/warehouse_view_link/validate/': joinValidation,
+                },
             },
         },
         testOptions: { snapshotBrowsers: [] },
@@ -294,4 +365,9 @@ export const Relationships: Story = {
 export const RelationshipsNarrow: Story = {
     parameters: { pageUrl: urls.dataCatalog('relationships') },
     decorators: [inMainContent('w-128')],
+}
+
+export const RelationshipsEditJoin: Story = {
+    parameters: { pageUrl: urls.dataCatalog('relationships') },
+    play: async ({ canvasElement }) => openJoinEditor(canvasElement),
 }

@@ -2,11 +2,10 @@ import { useValues } from 'kea'
 
 import { Skeleton } from '@posthog/quill'
 
-import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
-
 import { relationshipsLogic } from '../relationshipsLogic'
 import { CatalogRelationshipsTable } from './CatalogRelationshipsTable'
 import { CatalogRelationshipsToolbar } from './CatalogRelationshipsToolbar'
+import { JoinEditorDialog } from './JoinEditorDialog'
 import { RelationshipProposalDialog } from './RelationshipProposalDialog'
 
 const SKELETON_ROWS = 5
@@ -29,7 +28,7 @@ export function CatalogRelationshipsSection(): JSX.Element {
             <CatalogRelationshipsToolbar />
             {(proposalsLoading || joinsLoading) && rows.length === 0 ? <LoadingRows /> : <CatalogRelationshipsTable />}
             <RelationshipProposalDialog />
-            <ViewLinkModal />
+            <JoinEditorDialog />
         </section>
     )
 }
