@@ -118,6 +118,12 @@ export const buildAlertFilterConfig = (
 export const listensOnEvent = (hogFunction: Pick<HogFunctionType, 'filters'>, eventId: string): boolean =>
     hogFunction.filters?.events?.some((event) => event.id === eventId) ?? false
 
+// The opened event alone stands for a PagerDuty destination, so a count sees it once.
+export const buildAlertDestinationCountFilterGroups = (alertId: string): CyclotronJobFiltersType[] => [
+    buildAlertFilterConfig(alertId),
+    buildAlertFilterConfig(alertId, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID),
+]
+
 export const buildAlertDestinationFilterGroups = (alertId: string): CyclotronJobFiltersType[] =>
     [INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID].map(
         (eventId) => buildAlertFilterConfig(alertId, eventId)

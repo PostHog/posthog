@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -26,7 +26,7 @@ import { FunnelVizType, InsightLogicProps } from '~/types'
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../frontend/src/types'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
-import { buildAlertFilterConfig } from './alertNotifications'
+import { buildAlertDestinationCountFilterGroups } from './alertNotifications'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -294,11 +294,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     const alertIds = new Set(alerts.map((alert) => alert.id))
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
-                        // The opened event alone, so a PagerDuty destination counts once.
-                        filter_groups: alerts.flatMap((alert) => [
-                            buildAlertFilterConfig(alert.id),
-                            buildAlertFilterConfig(alert.id, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID),
-                        ]),
+                        filter_groups: alerts.flatMap((alert) => buildAlertDestinationCountFilterGroups(alert.id)),
                         full: true,
                         limit: 500,
                     })
