@@ -3,9 +3,10 @@ import { editor, languages } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { retryImport } from 'lib/utils/retryImport'
 
 import type { codeEditorLogicType } from './codeEditorLogic'
-import type { FormatHogQLFailure } from './formatHogQL'
+import type { FormatHogQLFailure, FormatHogQLResult } from './formatHogQL'
 
 const FAILURE_MESSAGES: Record<FormatHogQLFailure | 'raw_sql', string> = {
     raw_sql: 'Formatting is only available for HogQL queries. Turn off "Send raw query" to format this one.',
@@ -23,14 +24,23 @@ function isRawSqlModel(model: editor.ITextModel): boolean {
     return !!sourceQuery && 'sendRawQuery' in sourceQuery && !!sourceQuery.sendRawQuery
 }
 
+async function formatQuery(query: string, options: languages.FormattingOptions): Promise<FormatHogQLResult> {
+    try {
+        const { formatHogQL } = await retryImport(() => import('./formatHogQL'))
+        return await formatHogQL(query, { tabWidth: options.tabSize, useTabs: !options.insertSpaces })
+    } catch (error) {
+        posthog.captureException(error)
+        return { formatted: null, failure: 'unverified' }
+    }
+}
+
 export const hogQLFormattingProvider: () => languages.DocumentFormattingEditProvider = () => ({
     provideDocumentFormattingEdits: async (model, options) => {
         // The formatter emits LF line breaks, so compare against an LF view of a CRLF model too.
         const query = model.getValue(editor.EndOfLinePreference.LF)
-        const { formatHogQL } = await import('./formatHogQL')
         const result = isRawSqlModel(model)
             ? ({ formatted: null, failure: 'raw_sql' } as const)
-            : await formatHogQL(query, { tabWidth: options.tabSize, useTabs: !options.insertSpaces })
+            : await formatQuery(query, options)
         posthog.capture('sql-editor-query-formatted', {
             succeeded: result.failure === null,
             changed: result.formatted !== null && result.formatted !== query,
