@@ -34,7 +34,7 @@ const MAX_HEADER_CHAR_BYTES: usize = 12;
 /// The escape spells one of the five characters of `data:`, so the scheme starts at it or at a `d` up to four characters before it.
 const ESCAPED_SCHEME_LOOKBEHIND: usize = 4 * MAX_HEADER_CHAR_BYTES;
 
-/// The payload bytes that tell a raster image under another label: each signature and an AVIF `ftyp` box fit.
+/// The payload bytes read past whitespace and a byte order mark to find the `<` that starts SVG markup.
 const SNIFFED_PAYLOAD_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Copy)]
@@ -228,37 +228,35 @@ fn continues_past(bytes: &[u8], end: usize) -> bool {
     }
 }
 
-/// A browser shows raster bytes as an image whatever the label says, so an SVG label keeps a data URI inline only when this is false.
-fn payload_is_raster(bytes: &[u8], payload_start: usize, base64: bool) -> bool {
-    let payload = &bytes[payload_start..];
-    let prefix = if base64 {
-        let mut chars = Vec::new();
-        let mut rest = payload;
-        while chars.len() < SNIFFED_PAYLOAD_BYTES.div_ceil(3) * 4 {
-            rest = match rest {
-                [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', tail @ ..]
-                | [b'\\', b'/', tail @ ..] => {
-                    chars.push(b'/');
-                    tail
-                }
-                [byte, tail @ ..] if is_base64(*byte) => {
-                    chars.push(*byte);
-                    tail
-                }
-                _ => break,
-            };
-        }
-        chars.truncate(chars.len() / 4 * 4);
+/// No raster format starts with `<`, and a browser shows raster bytes as an image whatever the label says, so an SVG label keeps a data URI inline only when this is true.
+fn payload_is_markup(bytes: &[u8], payload_start: usize, base64: bool) -> bool {
+    let mut chars = Vec::new();
+    let mut rest = &bytes[payload_start..];
+    while chars.len() < SNIFFED_PAYLOAD_BYTES * 3 {
+        let (byte, tail) = match rest {
+            [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', tail @ ..] | [b'\\', b'/', tail @ ..] => {
+                (b'/', tail)
+            }
+            [b'\\', b't' | b'n' | b'r' | b'f', tail @ ..] => (b' ', tail),
+            [b'"' | b'\\', ..] | [] => break,
+            [byte, tail @ ..] => (*byte, tail),
+        };
+        chars.push(byte);
+        rest = tail;
+    }
+    let decoded = if base64 {
+        chars.retain(|byte| !byte.is_ascii_whitespace());
+        let run = chars
+            .iter()
+            .position(|&byte| !is_base64(byte))
+            .unwrap_or(chars.len());
+        chars.truncate(run / 4 * 4);
         FORGIVING_BASE64.decode(&chars).unwrap_or_default()
     } else {
-        let window = &payload[..payload.len().min(SNIFFED_PAYLOAD_BYTES * 3)];
-        let end = window
-            .iter()
-            .position(|&b| matches!(b, b'"' | b'\\'))
-            .unwrap_or(window.len());
-        percent_encoding::percent_decode(&window[..end]).collect()
+        percent_encoding::percent_decode(&chars).collect()
     };
-    raster_type(&prefix).is_some() || is_avif_header(&prefix)
+    let text = decoded.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&decoded);
+    text.trim_ascii_start().first() == Some(&b'<')
 }
 
 enum DataUri {
@@ -377,15 +375,20 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
     Some(percent_encoding::percent_decode(text.as_bytes()).collect())
 }
 
-/// Reads the header through CSS escapes and the JSON escapes of `/`, as a browser does. The end of the JSON string, or any other JSON escape, gives `None`.
+/// Reads the header through CSS escapes and the JSON escapes of `/`, and skips the tabs and line breaks that a browser removes from a URL. The end of the JSON string, or any other JSON escape, gives `None`.
 fn header_char(bytes: &[u8], at: usize) -> Option<(char, usize)> {
-    match bytes.get(at..)? {
+    let mut removed = 0;
+    while let Some([b'\\', b't' | b'n' | b'r', ..]) = bytes.get(at + removed..) {
+        removed += 2;
+    }
+    let (ch, len) = match bytes.get(at + removed..)? {
         [b'\\', b'/', ..] => Some(('/', 2)),
         [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..] => Some(('/', 6)),
         [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
         [b'"' | b'\\', ..] | [] => None,
         [byte, ..] => Some((char::from(*byte), 1)),
-    }
+    }?;
+    Some((ch, removed + len))
 }
 
 /// The length counts from after the backslash, and a hex escape takes the one whitespace after it, as CSS reads it.
@@ -466,7 +469,7 @@ fn read_data_uri(
     let media_type = meta.split(';').next().unwrap_or_default();
     let subtype = &media_type["image/".len()..];
     let base64 = meta.contains("base64");
-    if subtype.starts_with("svg") && !payload_is_raster(bytes, payload_start, base64) {
+    if subtype.starts_with("svg") && payload_is_markup(bytes, payload_start, base64) {
         return DataUri::Svg;
     }
     if !base64 {
@@ -782,11 +785,21 @@ mod tests {
                 format!("data:image/png;name={};base64,{base64}", "a".repeat(80)),
                 r#""}"#,
             ),
+            (
+                r#"{"src":""#,
+                format!(r"data:image/png;\tbase64,{base64}"),
+                r#""}"#,
+            ),
             // Raster bytes under an SVG label, which a browser shows as an image.
             (r#"{"src":""#, format!("data:image/svg+xml,{percent}"), r#""}"#),
             (
                 r#"{"src":""#,
                 format!(r"data:image/sv\\67+xml;base64,{base64}"),
+                r#""}"#,
+            ),
+            (
+                r#"{"src":""#,
+                format!("data:image/svg+xml;base64, {base64}"),
                 r#""}"#,
             ),
             (
@@ -880,6 +893,14 @@ mod tests {
                 limits,
                 ImageDecline::Unsupported,
             ),
+            (
+                format!(
+                    r"data:image/svg+xml;base64,\\69{}",
+                    &STANDARD.encode(png(&[7; 52]))[1..]
+                ),
+                limits,
+                ImageDecline::Undecodable,
+            ),
         ];
         for (uri, limits, reason) in cases {
             let event = format!(r#"{{"src":"{uri}","alt":"x"}}"#);
@@ -903,6 +924,10 @@ mod tests {
         for event in [
             format!(r#"{{"src":"{}"}}"#, data_uri("image/svg+xml", b"<svg/>")),
             r#"{"src":"data:image/svg+xml,%3Csvg%2F%3E"}"#.to_owned(),
+            format!(
+                r#"{{"src":"data:image/svg+xml;base64, {}"}}"#,
+                STANDARD.encode(b"<svg/>")
+            ),
             r#"{"src":"data:image/gif;base64,"}"#.to_owned(),
             // A URI without a comma before its string ends: the next comma separates JSON fields.
             r#"{"src":"data:image/png;base64","alt":"x"}"#.to_owned(),
