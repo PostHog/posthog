@@ -82,7 +82,7 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
-4. Keep in the inputs every module that outside suites run without an import: a module with a signal receiver on a sender of core or another product, and a module that a test outside the product names by dotted path, as a patch target does.
+4. Keep in the inputs every module that outside suites run without an import: a module with a signal receiver on a sender of core or another product, a module that a test outside the product names by dotted path, as a patch target does, and a module that core loads by name through `load_product_modules`.
    `hogli product:lint` finds both and fails until each module is in the inputs.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
