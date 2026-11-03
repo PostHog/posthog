@@ -7,6 +7,10 @@ New and existing chats open as full-screen stack pages. Back returns to the prev
 configured default page for a direct link. The title-free header uses the shared blur and fading edge;
 New chat and the ellipsis share the Inbox's pill control. The composer clears the keyboard and safe area.
 
+An active incident affecting PostHog AI in the selected cloud region appears below the header in new and existing chats.
+The notice shows the published incident title and phase. Tap it to read the update. For other services, open **PostHog status** below the project name in the
+main tabs’ ellipsis menu. An indicator on that menu signals a regional incident or in-progress maintenance. The menu shows the highest current impact and the number of concurrent incidents. The status row has a green dot for a healthy region, yellow for degraded performance or maintenance, and red for partial or major outages. Chat warnings use the impact on the regional AI component.
+
 The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
 web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.
 The menu is disabled for an unsaved new chat. Model, Mode, and attachment options still open as overlays.
@@ -390,6 +394,8 @@ New chat drops it.
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- Compacting and clearing each show one active spinner, even when the stream repeats the start.
+  Completion removes that spinner, so a later compaction or clear can show a new one.
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
 - Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
   Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
