@@ -1258,7 +1258,8 @@ mod tests {
         keys.sessions.insert(id, key);
         keys.team_months.insert(7, [6; 32]);
         let mut stats = BlockStats::default();
-        let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
+        let images = crate::urls::FlushImages::new([&block], &keys, "2026-10", &|_| false);
+        let jobs = crate::urls::fetch_jobs(&images, [(0, &block, &mut stats)], 1, &|_| false);
         let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
 
         let lines = String::from_utf8(lines).unwrap();
