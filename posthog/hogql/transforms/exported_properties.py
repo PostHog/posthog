@@ -109,7 +109,9 @@ class _ExportedPropertiesNarrower:
         self.context = context
         self._decisions: dict[tuple[int, str], bool] = {}
         self._local_decisions: dict[tuple[int, str], bool] = {}
+        # Each decision walks one way, up through the parents or down through the children, and guards its own cycle
         self._deciding: set[tuple[int, str]] = set()
+        self._deciding_locally: set[tuple[int, str]] = set()
         self._narrowed: set[tuple[int, str]] = set()
 
     def run(self) -> None:
@@ -157,13 +159,13 @@ class _ExportedPropertiesNarrower:
         key = (id(node), name)
         if key in self._local_decisions:
             return self._local_decisions[key]
-        if key in self._deciding:
+        if key in self._deciding_locally:
             return False
-        self._deciding.add(key)
+        self._deciding_locally.add(key)
         try:
             decision = self._decide(node, name)
         finally:
-            self._deciding.discard(key)
+            self._deciding_locally.discard(key)
         self._local_decisions[key] = decision
         return decision
 
