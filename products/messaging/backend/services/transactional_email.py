@@ -2,6 +2,7 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
+import json
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -27,6 +28,7 @@ from products.messaging.backend.facade.contracts import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
     InvalidIdempotencyKey,
@@ -563,6 +565,9 @@ def _queue(
 
     if response.status_code != 202:
         refusal_code = _refusal_code(response)
+        unknown_field = _unknown_send_field(refusal_code) if response.status_code == 400 else None
+        if unknown_field is not None:
+            raise FieldNotAccepted(unknown_field)
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
         if refusal is not None:
             error_class, message = refusal
@@ -578,6 +583,21 @@ def _queue(
 
     body = response.json()
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+
+
+def _unknown_send_field(error: str | None) -> str | None:
+    """The first field of `send` that the CDP service refused as unknown. A CDP service older than this code
+    answers a field it doesn't take yet with its schema issues as JSON in `error`, and queues nothing."""
+    try:
+        issues = json.loads(error or "")
+    except ValueError:
+        return None
+    for issue in issues if isinstance(issues, list) else []:
+        if isinstance(issue, dict) and issue.get("code") == "unrecognized_keys" and issue.get("path") == ["send"]:
+            keys = issue.get("keys")
+            if isinstance(keys, list) and keys and isinstance(keys[0], str):
+                return keys[0]
+    return None
 
 
 def _refusal_code(response: requests.Response) -> str | None:

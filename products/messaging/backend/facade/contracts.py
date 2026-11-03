@@ -102,6 +102,16 @@ class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
 
+class FieldNotAccepted(TransactionalEmailError):
+    """The email pipeline doesn't take a field of the send yet, so it refused the whole send."""
+
+    code = "invalid_request"
+
+    def __init__(self, field: str) -> None:
+        super().__init__(f"PostHog doesn't take `{field}` yet.")
+        self.field = field
+
+
 @frozen
 class EmailAttachment:
     filename: str

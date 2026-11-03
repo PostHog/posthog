@@ -1,3 +1,4 @@
+import json
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -624,6 +625,21 @@ class TestTransactionalEmail(APIBaseTest):
             assert response.json()["code"] == expected_code
         else:
             assert response.json() == {"message_id": "first-send", "replayed": True}
+
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, _capture):
+        issues = [{"code": "unrecognized_keys", "keys": ["attachments"], "path": ["send"], "message": "Unrecognized"}]
+        mock_post.return_value = MagicMock(status_code=400, json=lambda: {"error": json.dumps(issues)})
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url,
+            self._code_send(attachments=[{"filename": "receipt.pdf", "content": "JVBERg=="}]),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
+        assert body["why"] and body["fix"]
 
     def test_two_racing_first_sends_of_a_key_make_one_workflow(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

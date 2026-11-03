@@ -222,6 +222,20 @@ class CodeSendFieldRefused(serializers.ValidationError):
         self.fix = reason.fix
 
 
+_NOT_ACCEPTED_REASON = _Reason(
+    why="This PostHog version doesn't take the field yet, so it refused the email instead of sending it without it.",
+    fix="Send the email without this field, or send it again once PostHog takes the field.",
+)
+
+
+def field_not_accepted_refusal(field: str) -> CodeSendFieldRefused:
+    return CodeSendFieldRefused(
+        attr=field,
+        detail="PostHog doesn't take this field yet, so it didn't send the email.",
+        reason=_NOT_ACCEPTED_REASON,
+    )
+
+
 def template_send_refusal(field: str) -> serializers.ValidationError:
     return serializers.ValidationError(
         {field: "Only a send with `template_key` takes this field."}, code="template_key_only"

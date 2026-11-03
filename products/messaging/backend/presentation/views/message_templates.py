@@ -63,6 +63,7 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -83,6 +84,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     AttachmentListField,
     CodeSendFieldRefused,
     code_send_refusal,
+    field_not_accepted_refusal,
     is_bare_address,
     template_send_refusal,
 )
@@ -786,6 +788,9 @@ class TransactionalEmailSendMixin:
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+        except FieldNotAccepted as e:
+            outcome.update({"outcome": "rejected", "error_code": e.code})
+            raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e)

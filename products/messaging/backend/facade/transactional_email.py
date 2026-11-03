@@ -6,6 +6,7 @@ from products.messaging.backend.facade.contracts import (
     EmailAttachment,
     EmailDeliveryStatus,
     EmailStatus,
+    FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "SENDER_ADDRESS_PATTERN",
     "CodeEmail",
     "DeliveryUnavailable",
+    "FieldNotAccepted",
     "EmailAttachment",
     "EmailDeliveryStatus",
     "EmailStatus",
