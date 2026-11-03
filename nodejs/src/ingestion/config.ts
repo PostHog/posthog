@@ -158,6 +158,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: string
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
+    /** Fails a personhog store flush still writing past this many ms; 0 disables. Set it under the host's poll or ack deadline. */
+    PERSONHOG_STORE_FLUSH_DEADLINE_MS: number
     PERSONS_PREFETCH_ENABLED: boolean
 
     // Person properties config
@@ -358,6 +360,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '',
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
+        PERSONHOG_STORE_FLUSH_DEADLINE_MS: 0,
         PERSONS_PREFETCH_ENABLED: false,
 
         // Person properties config

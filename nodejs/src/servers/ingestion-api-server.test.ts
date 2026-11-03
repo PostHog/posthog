@@ -55,7 +55,7 @@ describe('IngestionApiServer', () => {
                 flush: jest.fn().mockResolvedValue([]),
                 shutdown: jest.fn().mockResolvedValue(undefined),
             }
-            ;(server as any).pipelinePersonsStore = personsStore
+            ;(server as any).personsStore = personsStore
             ;(server as any).groupStore = groupStore
 
             await expect((server as any).drainStores()).rejects.toThrow('persons flush failed')
@@ -64,32 +64,30 @@ describe('IngestionApiServer', () => {
             expect(groupStore.shutdown).toHaveBeenCalledTimes(1)
         })
 
-        // In shadow mode only the pipeline's store writes both backends; the raw store writes Postgres only.
-        it('drains the pipeline persons store at shutdown and produces its messages, not the raw Postgres store', async () => {
+        it('drains the persons store at shutdown, produces its messages, then closes the personhog clients', async () => {
             const message = { output: PERSONS_OUTPUT, value: Buffer.from('person-payload') }
             const personsStore = {
-                flush: jest.fn().mockResolvedValue([]),
-                shutdown: jest.fn().mockResolvedValue(undefined),
-            }
-            const pipelinePersonsStore = {
                 flush: jest.fn().mockResolvedValue([{ messages: [message], teamId: 1, distinctId: 'd1', uuid: 'u1' }]),
                 shutdown: jest.fn().mockResolvedValue(undefined),
             }
             const ingestionOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+            const closePersonsStore = jest.fn()
             ;(server as any).personsStore = personsStore
-            ;(server as any).pipelinePersonsStore = pipelinePersonsStore
             ;(server as any).ingestionOutputs = ingestionOutputs
+            ;(server as any).closePersonsStore = closePersonsStore
 
             await (server as any).drainStores()
 
-            expect(pipelinePersonsStore.flush).toHaveBeenCalledTimes(1)
-            expect(personsStore.flush).not.toHaveBeenCalled()
+            expect(personsStore.flush).toHaveBeenCalledTimes(1)
             expect(ingestionOutputs.produce).toHaveBeenCalledWith(PERSONS_OUTPUT, {
                 key: null,
                 value: message.value,
                 teamId: 1,
             })
-            expect(pipelinePersonsStore.shutdown).toHaveBeenCalledTimes(1)
+            expect(personsStore.shutdown).toHaveBeenCalledTimes(1)
+            expect(closePersonsStore.mock.invocationCallOrder[0]).toBeGreaterThan(
+                personsStore.shutdown.mock.invocationCallOrder[0]
+            )
         })
     })
 })

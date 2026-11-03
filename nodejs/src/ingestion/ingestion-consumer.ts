@@ -40,9 +40,8 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { PersonsStoreConfig, buildPersonsStore } from '~/ingestion/common/persons/persons-store-factory'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
@@ -72,6 +71,7 @@ import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     UsageIngestionConfig &
+    PersonsStoreConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
     // merge-events gate and the flag-evaluations fork read their topics, so surface them here rather
@@ -141,6 +141,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personsStore: PersonsStore
+    private closePersonsStore: () => void
     public groupStore: BatchWritingGroupStore
     private eventFilterManagerComponent: EventFilterManagerComponent
     private eventFilterManager!: EventFilterManager
@@ -235,21 +236,9 @@ export class IngestionConsumer {
 
         this.hogTransformer = deps.hogTransformer
 
-        this.personsStore = new BatchWritingPersonsStore(this.deps.personRepository, this.deps.outputs, {
-            dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-            useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
-            maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
-            mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
-            mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
-            mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
-            mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
-            mergeNoopMappingEmissionEnabled: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED,
-            mergeNoopMappingEmissionCacheSize: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE,
-            mergeNoopMappingEmissionTtlMs: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS,
-        })
+        const builtPersonsStore = buildPersonsStore(this.config, this.deps.personRepository, this.deps.outputs)
+        this.personsStore = builtPersonsStore.personsStore
+        this.closePersonsStore = builtPersonsStore.close
 
         this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
@@ -386,6 +375,8 @@ export class IngestionConsumer {
             await this.personsStore.shutdown()
         } catch (error) {
             logger.error('🚨', `${this.name} - personsStore.shutdown() failed`, { error })
+        } finally {
+            this.closePersonsStore()
         }
         try {
             await this.groupStore.shutdown()
