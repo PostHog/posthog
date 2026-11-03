@@ -456,7 +456,9 @@ class _SubscriptionWrite:
                 raise SubscriptionRequestInvalidError({"start_date": [f"{base}."]})
             raise SubscriptionRequestInvalidError(f"{base}.")
 
-        if target_type == Subscription.SubscriptionTarget.TEAMS:
+        destination_changed = bool({"target_type", "target_value", "integration_id", "delivery_config"} & attrs.keys())
+        validate_destination = existing is None or not turning_off or destination_changed
+        if target_type == Subscription.SubscriptionTarget.TEAMS and validate_destination:
             submitted = (attrs.get("target_value") or "").strip()
             if self.instance and submitted and submitted == self.instance.recipient_label:
                 raise SubscriptionRequestInvalidError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
@@ -464,7 +466,7 @@ class _SubscriptionWrite:
             if not is_microsoft_teams_webhook_url(target_value):
                 raise SubscriptionRequestInvalidError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
 
-        if target_type == Subscription.SubscriptionTarget.SLACK:
+        if target_type == Subscription.SubscriptionTarget.SLACK and validate_destination:
             if not integration_id:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["A Slack integration is required for Slack subscriptions."]}
