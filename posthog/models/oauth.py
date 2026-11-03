@@ -143,6 +143,17 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
     )
 
+    # Set only by PostHog staff in the admin. No CIMD field, DCR field or API sets it, so a
+    # client cannot opt itself in and a metadata refresh never changes it.
+    supports_step_up: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client handles an insufficient_scope challenge by asking the user for more scopes. "
+            "Its tokens then get a WWW-Authenticate challenge naming the required scopes on a missing-scope 403."
+        ),
+    )
+
     auth_brand: models.CharField = models.CharField(
         max_length=32,
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
@@ -557,6 +568,14 @@ class OAuthAccessToken(AbstractAccessToken):
             models.Index(fields=["token"], name="oauthaccesstoken_token_idx"),
         ]
 
+    def save(self, *args, **kwargs):
+        # Copied from the application at every mint, refresh included, so a staff change to the
+        # app reaches existing connections at their next refresh. Done here so every mint path,
+        # including partner provisioning and direct mints, carries it.
+        if self._state.adding and self.application_id is not None:
+            self.supports_step_up = self.application.supports_step_up
+        super().save(*args, **kwargs)
+
     @classmethod
     def with_scope(cls, scope: str) -> models.QuerySet["OAuthAccessToken"]:
         return cls.objects.alias(scope_tokens=oauth_scope_tokens_expression()).filter(
@@ -588,6 +607,8 @@ class OAuthAccessToken(AbstractAccessToken):
         related_name="+",
         db_index=True,
     )
+
+    supports_step_up: models.BooleanField = models.BooleanField(default=False, db_default=False)
 
     # Optional user-facing label set at mint time. Carried across refreshes so
     # it persists for the life of the connection, not just one rotated token.

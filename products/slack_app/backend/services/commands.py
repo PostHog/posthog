@@ -343,7 +343,7 @@ def _handle_project_show(
     )
 
 
-def _handle_project_set(
+def _reachable_project_integration(
     slack: SlackIntegration,
     channel: str,
     thread_ts: str,
@@ -351,11 +351,10 @@ def _handle_project_set(
     slack_workspace_id: str,
     user_id: int,
     target_team_id: int,
-    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
-) -> None:
+    workspace_candidates: Sequence[WorkspaceIntegration] | None,
+) -> WorkspaceIntegration | None:
+    """The workspace's install for the target project, or None after telling the Slack user why not."""
     from posthog.models.user import User
-
-    from products.slack_app.backend.models import SlackSettings
 
     user = User.objects.get(id=user_id)
     if not user.teams.filter(id=target_team_id).exists():
@@ -366,7 +365,7 @@ def _handle_project_set(
             thread_ts=thread_ts,
             text=f"You don't have access to project `{target_team_id}`.",
         )
-        return
+        return None
 
     if workspace_candidates is not None:
         target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
@@ -380,6 +379,25 @@ def _handle_project_set(
             thread_ts=thread_ts,
             text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
         )
+    return target
+
+
+def _handle_project_set(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    user_id: int,
+    target_team_id: int,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
+) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    target = _reachable_project_integration(
+        slack, channel, thread_ts, slack_user_id, slack_workspace_id, user_id, target_team_id, workspace_candidates
+    )
+    if target is None:
         return
 
     SlackSettings.objects.update_or_create(
@@ -417,9 +435,8 @@ def _handle_project_set_workspace(
     which applies to every Slack user in the workspace without a personal default.
     Restricted to Slack workspace admins and owners.
     """
-    from posthog.models.user import User
 
-    from products.slack_app.backend.models import SlackSettings
+    from products.slack_app.backend.services.slack_settings import set_workspace_default_integration
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     if not is_slack_workspace_admin(slack, integration, slack_user_id):
@@ -432,36 +449,13 @@ def _handle_project_set_workspace(
         )
         return
 
-    user = User.objects.get(id=user_id)
-    if not user.teams.filter(id=target_team_id).exists():
-        post_slack_ephemeral(
-            slack.client,
-            channel=channel,
-            user=slack_user_id,
-            thread_ts=thread_ts,
-            text=f"You don't have access to project `{target_team_id}`.",
-        )
-        return
-
-    if workspace_candidates is not None:
-        target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
-    else:
-        target = get_team_workspace_integration(target_team_id, slack_workspace_id)
-    if target is None:
-        post_slack_ephemeral(
-            slack.client,
-            channel=channel,
-            user=slack_user_id,
-            thread_ts=thread_ts,
-            text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
-        )
-        return
-
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=slack_workspace_id,
-        slack_user_id=None,
-        defaults={"default_integration_id": target.id},
+    target = _reachable_project_integration(
+        slack, channel, thread_ts, slack_user_id, slack_workspace_id, user_id, target_team_id, workspace_candidates
     )
+    if target is None:
+        return
+
+    set_workspace_default_integration(slack_workspace_id, target.id)
     post_slack_ephemeral(
         slack.client,
         channel=channel,

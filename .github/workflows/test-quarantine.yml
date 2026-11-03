@@ -28,6 +28,20 @@ jobs:
             SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.github/actions/setup-uv/
+                      /.test_quarantine.json
+                      /pyproject.toml
+                      /tools/hogli-commands/hogli_commands/__init__.py
+                      /tools/hogli-commands/hogli_commands/quarantine/
+                  sparse-checkout-cone-mode: false
+
+            - name: Restore product directories for selector validation
+              run: |
+                  git ls-tree -dz --name-only HEAD:products | while IFS= read -r -d '' product; do
+                      mkdir -p "products/$product"
+                  done
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0

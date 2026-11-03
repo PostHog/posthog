@@ -107,6 +107,12 @@
                                     ],
                                     "description": "The actual period measured by baseline_value, in minutes. Required when a baseline is supplied."
                                 },
+                                "purpose": {
+                                    "default": "expectation",
+                                    "description": "`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.",
+                                    "enum": ["expectation", "minimum_evidence"],
+                                    "type": "string"
+                                },
                                 "reference_period_minutes": {
                                     "description": "The period the comparison target describes, in minutes. Independent of the soak and run schedule.",
                                     "exclusiveMinimum": 0,
