@@ -206,9 +206,9 @@ tools:
             to store an internal note visible only to team members. To include an image such as a screenshot, upload it
             first with media-image-upload-start and media-image-upload-complete, using purpose "conversations". Then
             pass rich_content as a TipTap doc that holds the text as paragraph nodes and the image as {"type": "image",
-            "attrs": {"src": <url from media-image-upload-complete>, "alt": <short description>}}. Also put the image
-            in message as markdown ![alt](url). An image in message alone does not reach the customer: email and Slack
-            send only the images in rich_content. Every image src must be the url of an image uploaded to this project,
+            "attrs": {"src": <url from media-image-upload-complete>, "alt": <short description>}}. Also put the image in
+            message as markdown ![alt](url). An image in message alone does not reach the customer: email and Slack send
+            only the images in rich_content. Every image src must be the url of an image uploaded to this project,
             otherwise the reply is rejected with a 400.
     conversations-tickets-retrieve:
         operation: conversations_tickets_retrieve
