@@ -37,8 +37,18 @@ class OktaEndpointConfig:
     # False skips fan-out checkpoints: the shared fan-out re-sorts and re-saves every finished parent
     # on each checkpoint, which grows quadratically when the parent is every user in the org.
     resumable: bool = True
-    # Top-level row keys never written to the warehouse.
+    # Row keys never written to the warehouse. A dotted name drops a nested key.
     excluded_fields: tuple[str, ...] = ()
+    # False for list endpoints that paginate by Link header but whose `limit` maximum is undocumented.
+    send_limit: bool = True
+    # The custom-role endpoints wrap rows in an object and put the next page in `_links.next.href`.
+    data_selector: Optional[str] = None
+    next_link_in_body: bool = False
+    # Policy list endpoints require a `type`, so the table reads every policy type in turn.
+    per_policy_type: bool = False
+    # Copies a nested value to a top-level column, for keys Okta only returns inside an object.
+    lifted_fields: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    description: Optional[str] = None
     # Limit the first sync to the last N days instead of full history. Only used by
     # endpoints with a true time filter (System Log retention is bounded anyway).
     default_lookback_days: Optional[int] = None
@@ -86,6 +96,7 @@ OKTA_ENDPOINTS: dict[str, OktaEndpointConfig] = {
         primary_keys=["uuid"],
         page_size=1000,
         default_lookback_days=90,
+        description="Only syncs the last 90 days on initial sync",
     ),
     "group_rules": OktaEndpointConfig(
         name="group_rules",
@@ -170,7 +181,140 @@ OKTA_ENDPOINTS: dict[str, OktaEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    "policies": OktaEndpointConfig(
+        name="policies",
+        path="/policies",
+        partition_key="created",
+        send_limit=False,
+        per_policy_type=True,
+    ),
+    "policy_rules": OktaEndpointConfig(
+        name="policy_rules",
+        path="/policies/{policyId}/rules",
+        partition_key="created",
+        primary_keys=["policy_id", "id"],
+        send_limit=False,
+        per_policy_type=True,
+        # The policy type loop checkpoints between types instead.
+        resumable=False,
+        fanout=DependentEndpointConfig(
+            parent_name="policies",
+            resolve_param="policyId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "policy_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "devices": OktaEndpointConfig(
+        name="devices",
+        path="/devices",
+        # The `search` filter reads an eventually consistent index, so it cannot carry a watermark.
+        partition_key="created",
+        page_size=200,
+        description="Requires Okta Identity Engine",
+    ),
+    "device_users": OktaEndpointConfig(
+        name="device_users",
+        path="/devices/{deviceId}/users",
+        partition_key="created",
+        primary_keys=["device_id", "user_id"],
+        paginated=False,
+        resumable=False,
+        lifted_fields={"user_id": ("user", "id")},
+        description="Requires Okta Identity Engine",
+        fanout=DependentEndpointConfig(
+            parent_name="devices",
+            resolve_param="deviceId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "device_id"},
+            parent_params={"limit": 200},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "custom_roles": OktaEndpointConfig(
+        name="custom_roles",
+        path="/iam/roles",
+        partition_key="created",
+        send_limit=False,
+        data_selector="roles",
+        next_link_in_body=True,
+    ),
+    "user_role_assignments": OktaEndpointConfig(
+        name="user_role_assignments",
+        path="/users/{userId}/roles",
+        partition_key="created",
+        primary_keys=["user_id", "id"],
+        paginated=False,
+        resumable=False,
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="userId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "user_id"},
+            parent_params={"limit": 200},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "group_role_assignments": OktaEndpointConfig(
+        name="group_role_assignments",
+        path="/groups/{groupId}/roles",
+        partition_key="created",
+        primary_keys=["group_id", "id"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="groups",
+            resolve_param="groupId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "group_id"},
+            parent_params={"limit": 200},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "identity_providers": OktaEndpointConfig(
+        name="identity_providers",
+        path="/idps",
+        partition_key="created",
+        page_size=200,
+        # OIDC and social IdPs return their client secret here.
+        excluded_fields=("protocol.credentials",),
+    ),
+    "identity_provider_users": OktaEndpointConfig(
+        name="identity_provider_users",
+        path="/idps/{idpId}/users",
+        partition_key="created",
+        primary_keys=["idp_id", "id"],
+        page_size=200,
+        fanout=DependentEndpointConfig(
+            parent_name="identity_providers",
+            resolve_param="idpId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "idp_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
 }
+
+# Every value of the PolicyType enum in the Management API spec. An org rejects a type it does not
+# have (for example ACCESS_POLICY on Classic Engine), and the source skips that type.
+POLICY_TYPES: tuple[str, ...] = (
+    "OKTA_SIGN_ON",
+    "PASSWORD",
+    "MFA_ENROLL",
+    "IDP_DISCOVERY",
+    "ACCESS_POLICY",
+    "PROFILE_ENROLLMENT",
+    "POST_AUTH_SESSION",
+    "ENTITY_RISK",
+    "DEVICE_SIGNAL_COLLECTION",
+    "SESSION_VIOLATION_DETECTION",
+    "CLIENT_UPDATE",
+    "IDENTITY_CLAIM_SOURCING",
+)
 
 ENDPOINTS = tuple(OKTA_ENDPOINTS.keys())
 
