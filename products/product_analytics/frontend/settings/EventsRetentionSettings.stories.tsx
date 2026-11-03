@@ -30,6 +30,7 @@ const retentionMocks = (
         plan_retention_months: 36,
         min_retention_months: 1,
         max_retention_months: 36,
+        next_monthly_cleanup_on: '2026-11-03',
     }
     const project: EventsRetentionApi = {
         ...organization,
@@ -37,6 +38,11 @@ const retentionMocks = (
         retained_from: '2024-11-01',
         docs_url: 'https://posthog.com/docs/data/events-retention',
         project_retention_months: projectMonths,
+        next_deletion_on: null,
+        next_deletion_before: null,
+        scheduled_pass_on: null,
+        first_pass_on: '2027-02-03',
+        default_window_deletes: false,
     }
     return mswDecorator({
         get: {

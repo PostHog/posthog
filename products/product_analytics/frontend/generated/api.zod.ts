@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Sets how long every project without its own window keeps events. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long every project without its own window keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the organization's events retention window
  */
 
@@ -20,7 +20,7 @@ export const OrganizationEventsRetentionUpdateBody = /* @__PURE__ */ zod.object(
         .min(1)
         .nullable()
         .describe(
-            "The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window."
+            "The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window."
         ),
 })
 
@@ -207,7 +207,7 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets how long this project keeps events, overriding the organization's window. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long this project keeps events, overriding the organization's window. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the events retention window for a project
  */
 
@@ -217,7 +217,7 @@ export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .nullable()
         .describe(
-            "The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window."
+            "The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window."
         ),
 })
 

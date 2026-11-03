@@ -32,7 +32,7 @@ def _row(retention: ConfiguredEventsRetention, now: datetime) -> _RetentionRow:
     elif retention.organization_default_months is not None:
         source = "Organization default"
     else:
-        source = "Not set, events are kept"
+        source = "Not set"
     low, high = retention.organization_min_months, retention.organization_max_months
     months = retention.months
     return _RetentionRow(

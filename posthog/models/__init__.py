@@ -17,6 +17,7 @@ from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
+from .events_plan_deletion import TeamEventsPlanDeletion
 from .events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -171,6 +172,7 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamEventsPlanDeletion",
     "TeamEventsRetentionConfig",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
