@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use cohort_core::seed::CoverageStartMs;
 use futures::FutureExt;
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, gauge, histogram, Histogram};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -40,7 +40,7 @@ use crate::observability::metrics::{
     MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
     OUTPUT_WINDOW_WAITS_TOTAL, SLICES_BEGUN_TOTAL, SLICE_COVERED_SINCE_SECONDS,
     STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
+    STAGE1_REDIRECT_LOOKUP_DURATION, STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::router::WorkerInbox;
@@ -332,6 +332,7 @@ async fn run_worker(
     let mut last_yield = Instant::now();
     let mut last_updated_clock = LastUpdatedClock::default();
     let mut window = ProduceWindow::new(partition_id, Arc::clone(&sink), Arc::clone(&merge));
+    let event_partition = EventPartition::new(partition_id);
     // Two locals, not `inbox.live`/`inbox.seeds`: both branch futures live at once inside the
     // macro, so they must borrow disjoint places.
     let WorkerInbox {
@@ -465,7 +466,7 @@ async fn run_worker(
                         Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
                     max_broker_ts = max_broker_ts.max(broker_ts_ms);
                     let effects = handle_event(
-                        partition_id,
+                        &event_partition,
                         &handle,
                         &catalog,
                         &event,
@@ -789,10 +790,28 @@ struct EventEffects {
     re_keys: Vec<CohortStreamEvent>,
 }
 
+/// The partition a worker folds events on, with the meters labelled by it. The worker builds it
+/// once, so each event records into an already-registered handle instead of a per-event registry
+/// lookup, and [`Self::new`] derives the `partition` label from the same id the events fold under.
+struct EventPartition {
+    id: u16,
+    redirect_lookup: Histogram,
+}
+
+impl EventPartition {
+    fn new(id: u16) -> Self {
+        let label: Arc<str> = Arc::from(id.to_string());
+        Self {
+            id,
+            redirect_lookup: histogram!(STAGE1_REDIRECT_LOOKUP_DURATION, "partition" => label),
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[hotpath::measure]
 async fn handle_event(
-    partition_id: u16,
+    partition: &EventPartition,
     handle: &StoreHandle,
     catalog: &CatalogHandle,
     event: &CohortStreamEvent,
@@ -800,6 +819,7 @@ async fn handle_event(
     partition_count: u32,
     event_name_gating: EventNameGating,
 ) -> EventEffects {
+    let partition_id = partition.id;
     let snapshot = catalog.load();
     let Some(team_filters) = snapshot.team(TeamId(event.team_id)) else {
         counter!(STAGE1_EVENTS_SKIPPED, "reason" => SkipReason::NoTeamFilters.as_str())
@@ -808,16 +828,20 @@ async fn handle_event(
     };
     let filters: &TeamFilters = team_filters;
 
-    let resolved: Cow<'_, CohortStreamEvent> =
-        match redirect_for_tombstone(partition_id, handle, event, partition_count).await {
-            Redirected::Process(event) => event,
-            Redirected::ReKey(re_keyed) => {
-                return EventEffects {
-                    re_keys: vec![re_keyed],
-                    ..EventEffects::default()
-                }
+    let lookup_started = Instant::now();
+    let redirected = redirect_for_tombstone(partition_id, handle, event, partition_count).await;
+    partition
+        .redirect_lookup
+        .record(lookup_started.elapsed().as_secs_f64());
+    let resolved: Cow<'_, CohortStreamEvent> = match redirected {
+        Redirected::Process(event) => event,
+        Redirected::ReKey(re_keyed) => {
+            return EventEffects {
+                re_keys: vec![re_keyed],
+                ..EventEffects::default()
             }
-        };
+        }
+    };
 
     let started = Instant::now();
     let result =
@@ -1883,7 +1907,7 @@ mod tombstone_redirect_tests {
 
         let straggler = person_event(p_old, "u@p.com", 5, 101);
         let effects = handle_event(
-            partition_id,
+            &EventPartition::new(partition_id),
             &test_handle(&store),
             &catalog,
             &straggler,
@@ -2113,10 +2137,13 @@ mod tombstone_redirect_tests {
         assert_ne!(source_partition, target_partition);
         write_tombstone(&store, source_partition, p_old, p_new);
         let handle = test_handle(&store);
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let prometheus = recorder.handle();
+        let _local = metrics::set_default_local_recorder(&recorder);
 
         let straggler = person_event(p_old, "u@p.com", 5, 9);
         let mut effects = handle_event(
-            source_partition,
+            &EventPartition::new(source_partition),
             &handle,
             &catalog,
             &straggler,
@@ -2131,7 +2158,7 @@ mod tombstone_redirect_tests {
         let re_keyed = effects.re_keys.pop().unwrap();
 
         let effects = handle_event(
-            target_partition,
+            &EventPartition::new(target_partition),
             &handle,
             &catalog,
             &re_keyed,
@@ -2161,7 +2188,7 @@ mod tombstone_redirect_tests {
         );
 
         let dup = handle_event(
-            target_partition,
+            &EventPartition::new(target_partition),
             &handle,
             &catalog,
             &re_keyed,
@@ -2172,6 +2199,17 @@ mod tombstone_redirect_tests {
         .await;
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
+
+        let rendered = prometheus.render();
+        for (partition, lookups) in [(source_partition, 1), (target_partition, 2)] {
+            let series = format!(
+                "{STAGE1_REDIRECT_LOOKUP_DURATION}_count{{partition=\"{partition}\"}} {lookups}"
+            );
+            assert!(
+                rendered.lines().any(|line| line == series),
+                "the re-keyed lookup counts too, under its own partition: {series} not in\n{rendered}",
+            );
+        }
     }
 
     #[tokio::test]
@@ -2186,7 +2224,7 @@ mod tombstone_redirect_tests {
             ..person_event(p_old, "u@p.com", 5, 9)
         };
         let effects = handle_event(
-            partition_id,
+            &EventPartition::new(partition_id),
             &test_handle(&store),
             &catalog,
             &straggler,
@@ -2221,7 +2259,7 @@ mod tombstone_redirect_tests {
 
         let event = person_event(alice, "u@p.com", 5, 0);
         let effects = handle_event(
-            partition_id,
+            &EventPartition::new(partition_id),
             &test_handle(&store),
             &catalog,
             &event,

@@ -501,7 +501,10 @@ function startRustIngestionConsumer(
             KAFKA_CONSUMER_AUTO_OFFSET_RESET: 'earliest',
             CONSUMER_BATCH_SIZE: RUST_BATCH_SIZE.toString(),
             CONSUMER_BATCH_TIMEOUT_MS: '1000',
-            CONSUMER_MAX_BACKGROUND_TASKS: '1',
+            CONSUMER_PARTITION_BUDGET_EVENTS: '10000',
+            CONSUMER_PARTITION_BUDGET_BYTES: '268435456',
+            CONSUMER_IN_FLIGHT_EVENTS: '100000',
+            CONSUMER_IN_FLIGHT_BYTES: '1073741824',
             INGESTION_WORKER_CONCURRENT_BATCHES: '1',
             // A request packs every ready key up to the target, so a poll would
             // go to one worker whole; a small target spreads it over both.

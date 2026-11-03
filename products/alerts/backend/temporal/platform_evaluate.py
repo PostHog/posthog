@@ -57,6 +57,11 @@ CHECK_START_TO_CLOSE = alert_timeouts(None).evaluate_start_to_close
 # check below its own budget.
 CHECK_QUEUE_TOLERANCE = dt.timedelta(minutes=1)
 CHECK_SCHEDULE_TO_CLOSE = CHECK_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
+# Production's heartbeat and retries for an hourly or slower check. A worker that never runs its
+# task, such as one that gets it while it shuts down, stops heartbeating, so Temporal retries the
+# check on another worker after the heartbeat timeout instead of after the whole budget.
+CHECK_HEARTBEAT_TIMEOUT = alert_timeouts(None).heartbeat_timeout
+CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
 # Production's real-time budget: a shorter attempt, and one retry inside the same total.
 _REAL_TIME_TIMEOUTS = alert_timeouts(AlertCalculationInterval.REAL_TIME)
 REAL_TIME_CHECK_START_TO_CLOSE = _REAL_TIME_TIMEOUTS.evaluate_start_to_close
@@ -66,7 +71,7 @@ REAL_TIME_CHECK_RETRY_POLICY = _REAL_TIME_TIMEOUTS.evaluate_retry_policy
 REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 # Production's retries for an AI detector check, inside the default budget. A judge that reaches
 # no verdict raises for another attempt, and the last attempt records the failure.
-LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
+LLM_CHECK_RETRY_POLICY = CHECK_RETRY_POLICY
 # A firing's chart renders in its own activity, after the check has released its pool slot. It
 # outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
 CHART_START_TO_CLOSE = dt.timedelta(minutes=2)
@@ -482,14 +487,15 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                 heartbeat_timeout=REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
                 retry_policy=REAL_TIME_CHECK_RETRY_POLICY,
             )
-        # One attempt each. In a run that records as checks finish, a check that does not finish is
-        # recorded as errored. In an older run it leaves no outcome and keeps its due time.
+        # In a run that records as checks finish, a check whose every attempt fails is recorded as
+        # errored. In an older run it leaves no outcome and keeps its due time.
         return await workflow.execute_activity(
             evaluate_platform_insight_check_activity,
             check_inputs,
             start_to_close_timeout=CHECK_START_TO_CLOSE,
             schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            heartbeat_timeout=CHECK_HEARTBEAT_TIMEOUT,
+            retry_policy=CHECK_RETRY_POLICY,
         )
 
     async def _plan_round(
@@ -754,11 +760,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:
-    if check.uses_llm_detector:
-        return LLM_CHECK_RETRY_POLICY.maximum_attempts
-    if check.real_time:
+    # `_check` sends an AI detector check to its own queue under the default policy, whatever its cadence.
+    if check.real_time and not check.uses_llm_detector:
         return REAL_TIME_CHECK_RETRY_POLICY.maximum_attempts
-    return 1
+    return CHECK_RETRY_POLICY.maximum_attempts
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
