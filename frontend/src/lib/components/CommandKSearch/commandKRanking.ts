@@ -325,18 +325,19 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
     if (clean) {
         return clean
     }
-    if (name) {
-        return { ...name, field: 'name' }
-    }
-    for (const alias of candidate.aliases ?? []) {
-        const hit = hitInWords(token, unifiedWords(alias))
-        if (hit) {
-            return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias', alias }
-        }
-    }
+    const alias = (candidate.aliases ?? [])
+        .map((text) => ({ text, hit: hitInWords(token, unifiedWords(text)) }))
+        .find(({ hit }) => hit)
     const context = hitInWords(token, (candidate.context ?? []).flatMap(unifiedWords))
-    if (context) {
-        return { ...context, position: MAX_POSITION_PENALTY, field: 'context' }
+    const fuzzy: TokenHit[] = [
+        ...(name ? [{ ...name, field: 'name' as const }] : []),
+        ...(alias?.hit
+            ? [{ ...alias.hit, position: MAX_POSITION_PENALTY, field: 'alias' as const, alias: alias.text }]
+            : []),
+        ...(context ? [{ ...context, position: MAX_POSITION_PENALTY, field: 'context' as const }] : []),
+    ]
+    if (fuzzy.length) {
+        return fuzzy.reduce((best, hit) => (hit.typos < best.typos ? hit : best))
     }
     return candidate.matchesQuery
         ? { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true }

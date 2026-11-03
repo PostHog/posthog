@@ -297,6 +297,20 @@ describe('buildRankedResults', () => {
             expected: ['Results: Replay vision, Replay, Session replay'],
         },
         {
+            name: 'with unified ranking, an exact folder match beats a name that needs a typo',
+            query: 'revenue',
+            results: [
+                result('1', 'Revenue board', 'dashboard', [-1, 0, 0, 0, -1, 0, 1, 0, -2]),
+                {
+                    ...result('2', 'Revenge', 'insight', [-1, 0, 0, 1, -1, 0, 5, 0, -1]),
+                    record: { type: 'insight', ref: '2', path: 'Revenue/Revenge' },
+                },
+            ],
+            products: [],
+            unifiedRanking: true,
+            expected: ['Results: Revenue board, Revenge'],
+        },
+        {
             name: 'with unified ranking, a search keyword still matches with a typo',
             query: 'recordigns',
             results: [],
