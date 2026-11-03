@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.migration.fivetran.planner import (
     PlannedItem,
     TableMatchLike,
     plan_items,
+    with_unique_prefixes,
 )
 from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
@@ -26,6 +27,7 @@ _KEEP_ON_REFRESH = (
     WarehouseMigrationItem.Status.APPLIED,
     WarehouseMigrationItem.Status.SKIPPED,
 )
+_REPLANNED_FIELDS = ("vendor_service", "name", "verdict", "caveats", "proposal", "status", "error")
 _AUTH_FAILED_MESSAGE = (
     "Fivetran rejected the API key. Check that the key is active and can read connections and destinations."
 )
@@ -112,11 +114,19 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...])
     items = WarehouseMigrationItem.objects.for_team(migration.team_id).filter(migration=migration)
     # Locked so an apply cannot claim an item between this read and the save below.
     existing = {item.vendor_connection_id: item for item in items.select_for_update()}
+    # Kept items keep their sources, so a refreshed connection must not reuse one of their prefixes.
+    reserved = {
+        (ExternalDataSourceType(item.proposal["source_type"]), item.proposal["prefix"])
+        for item in existing.values()
+        if item.status in _KEEP_ON_REFRESH and item.proposal
+    }
+    planned = with_unique_prefixes(planned, reserved)
 
     for plan in planned:
         item = existing.get(plan.vendor_connection_id)
         if item is not None and item.status in _KEEP_ON_REFRESH:
             continue
+        is_new = item is None
         if item is None:
             item = WarehouseMigrationItem(
                 team_id=migration.team_id,
@@ -131,7 +141,7 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...])
         item.proposal = plan.proposal.to_json() if plan.proposal else None
         item.status = WarehouseMigrationItem.Status.PENDING
         item.error = ""
-        item.save()
+        item.save(update_fields=None if is_new else [*_REPLANNED_FIELDS, "updated_at"])
 
     planned_ids = {plan.vendor_connection_id for plan in planned}
     items.exclude(vendor_connection_id__in=planned_ids).exclude(status__in=_KEEP_ON_REFRESH).delete()

@@ -143,13 +143,17 @@ def plan_items(
         )
         for connection in snapshot.connections
     ]
-    return _with_unique_prefixes(items)
+    return with_unique_prefixes(items)
 
 
-def _with_unique_prefixes(items: list[PlannedItem]) -> tuple[PlannedItem, ...]:
+def with_unique_prefixes(
+    items: Iterable[PlannedItem], reserved: Collection[tuple[ExternalDataSourceType, str]] = ()
+) -> tuple[PlannedItem, ...]:
+    """Rename prefixes that clash with an earlier item or a `reserved` (source type, prefix) pair."""
     # Fivetran names are unique only within a destination, but a PostHog prefix must be unique per source type.
+    items = list(items)
     taken = {(item.proposal.source_type, item.proposal.prefix) for item in items if item.proposal is not None}
-    used: set[tuple[ExternalDataSourceType, str]] = set()
+    used: set[tuple[ExternalDataSourceType, str]] = set(reserved)
     unique: list[PlannedItem] = []
     for item in items:
         proposal = item.proposal
