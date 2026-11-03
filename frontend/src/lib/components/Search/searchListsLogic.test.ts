@@ -1,3 +1,4 @@
+import { buildRankedResults } from 'lib/components/CommandKSearch/commandKRankedResults'
 import { strictLocalMatches } from 'lib/components/CommandKSearch/commandKRanking'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -134,9 +135,24 @@ describe('searchListsLogic', () => {
         ])
         const items = logic.values.settingsItems
 
-        expect(filterSearchItems(items, query).map((item) => item.id)).toContain(id)
+        const fuzzy = filterSearchItems(items, query)
+        expect(fuzzy.map((item) => item.id)).toContain(id)
         const strictIds = strictLocalMatches(items, query).map((item) => item.id)
         expect(ranked ? strictIds : [id]).toContain(id)
+        const rankedRows = buildRankedResults({
+            query,
+            highlightWords: [],
+            results: [],
+            products: [],
+            settings: strictLocalMatches(fuzzy, query),
+            state: 'ready',
+            scoped: false,
+        }).flatMap((section) => section.rows)
+        expect(
+            [...fuzzy, ...rankedRows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))]
+                .map((item) => item.matchedSearchKeyword ?? null)
+                .filter(Boolean)
+        ).toEqual([])
     })
 
     it('shows only the Inbox Scouts destination', () => {

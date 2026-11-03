@@ -1,7 +1,8 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, IconTerminal } from '@posthog/icons'
 
+import { compareRanks, rankLocalItem, searchWords } from 'lib/components/CommandKSearch/commandKRanking'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
@@ -378,6 +379,7 @@ const settingsItem = (
     category: 'settings',
     href,
     itemType: 'settings',
+    hideMatchedKeyword: true,
     record: { type: 'settings', ...record },
     ...fields,
 })
@@ -459,3 +461,26 @@ export const settingsSearchItems = (
     ]
     return [...new Map(items.map((item) => [item.id, item])).values()]
 }
+
+export const bestSettingsFirst = (items: SearchItem[], query: string): SearchItem[] => {
+    const wordCount = searchWords(query).length
+    const exact = (rank: number[] | undefined): number[] | null =>
+        rank && -rank[0] === wordCount && rank[1] === 0 ? rank : null
+    const tiers = items.map((item, index) => {
+        const name = String(item.displayName || item.name)
+        const byName = exact(rankLocalItem(query, name)?.rank)
+        const byAlias = byName ? null : exact(rankLocalItem(query, name, item.searchKeywords)?.rank)
+        return { item, index, tier: byName ? 0 : byAlias ? 1 : 2, rank: byName ?? byAlias ?? [] }
+    })
+    return tiers
+        .sort((a, b) => a.tier - b.tier || compareRanks(a.rank, b.rank) || a.index - b.index)
+        .map((entry) => entry.item)
+}
+
+export const seeAllSettingsItem = (count: number, query: string): SearchItem =>
+    settingsItem(
+        'settings-see-all',
+        `See all ${count} settings`,
+        combineUrl(urls.settings(), { search: query }).url,
+        {}
+    )

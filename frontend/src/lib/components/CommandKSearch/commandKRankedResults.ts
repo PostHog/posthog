@@ -75,7 +75,10 @@ function rankItems(items: SearchItem[], query: string, groupKey: string): Ranked
         return ranked
             ? [
                   {
-                      item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                      item:
+                          ranked.matchedAlias && !item.hideMatchedKeyword
+                              ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
+                              : item,
                       rank: ranked.rank,
                       groupKey,
                   },

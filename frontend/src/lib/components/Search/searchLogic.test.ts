@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
+import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 
 import { searchListsLogic } from './searchListsLogic'
@@ -192,6 +193,36 @@ describe('searchLogic', () => {
         expect(keys).toContain('settings')
         expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeGreaterThan(-1)
         expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeLessThan(keys.indexOf('settings'))
+    })
+
+    it('shows the best settings matches first and links to the rest', async () => {
+        const component = {} as JSX.Element
+        searchListsLogic({ commandPalette: false }).actions.setSettingsSections([
+            {
+                id: 'user-customization',
+                level: 'user',
+                title: 'Customization',
+                settings: [{ id: 'theme', title: 'Theme', keywords: ['zebra'], component }],
+            },
+            ...(['one', 'two', 'three', 'four', 'five', 'six'] as const).map((suffix) => ({
+                id: `user-${suffix}` as SettingSectionId,
+                level: 'user' as const,
+                title: `Zebra ${suffix}`,
+                settings: [],
+            })),
+        ])
+        await searchOnceProductsLoad('zebra')
+
+        const settings = logic.values.allCategories.find((category) => category.key === 'settings')?.items ?? []
+        expect(settings.map((item) => item.displayName)).toEqual([
+            'Zebra one',
+            'Zebra two',
+            'Zebra three',
+            'Zebra four',
+            'Zebra five',
+            'See all 7 settings',
+        ])
+        expect(settings[5].href).toBe('/settings/project?search=zebra')
     })
 
     it.each([

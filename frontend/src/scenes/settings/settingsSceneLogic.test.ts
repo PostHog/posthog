@@ -45,6 +45,12 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toEqual({ 'person-display-name': true })
     })
 
+    it('prefills the settings search from the search param of a level link', async () => {
+        router.actions.push('/settings/project', { search: 'timezone' })
+
+        await expectLogic(logic).toMatchValues({ searchTerm: 'timezone' })
+    })
+
     it('redirects environment URLs to project', async () => {
         router.actions.push('/settings/environment-autocapture')
         await expectLogic(logic).toMatchValues({
