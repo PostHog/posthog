@@ -29,13 +29,9 @@ class Migration(migrations.Migration):
                 ),
                 ("name", models.CharField(max_length=200)),
                 ("issuer", models.CharField(max_length=255)),
-                ("repository", models.CharField(max_length=255)),
-                ("repository_id", models.CharField(max_length=100)),
-                ("ref", models.CharField(blank=True, default="", max_length=255)),
-                (
-                    "environment",
-                    models.CharField(blank=True, default="", max_length=255),
-                ),
+                ("subject_name", models.CharField(max_length=255)),
+                ("subject", models.CharField(max_length=255)),
+                ("conditions", models.JSONField(blank=True, default=dict)),
                 (
                     "scopes",
                     django.contrib.postgres.fields.ArrayField(

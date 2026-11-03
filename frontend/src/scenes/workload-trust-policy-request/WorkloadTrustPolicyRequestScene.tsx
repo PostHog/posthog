@@ -113,6 +113,10 @@ function RequestDetailTable({
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const claimLabels = policyRequest.claim_labels
+    const conditions = policyRequest.conditions ?? {}
+    // A claim the provider no longer offers still shows, so the admin sees every condition they approve.
+    const conditionClaims = [...new Set([...Object.keys(claimLabels.conditions), ...Object.keys(conditions)])]
 
     return (
         <div className="border rounded px-3">
@@ -121,15 +125,18 @@ function RequestDetailTable({
                 {currentTeam?.name} <span className="text-secondary">in {currentOrganization?.name}</span>
             </DetailRow>
             <DetailRow label="Name">{policyRequest.name}</DetailRow>
-            <DetailRow label="CI provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
-            <DetailRow label="Repository">
-                <span className="font-mono">{policyRequest.repository}</span>{' '}
-                <span className="text-secondary">(ID {policyRequest.repository_id})</span>
+            <DetailRow label="Provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
+            <DetailRow label={claimLabels.subject_name}>
+                <span className="font-mono">{policyRequest.subject_name}</span>
             </DetailRow>
-            <DetailRow label="Ref">{policyRequest.ref || <span className="text-secondary">Any ref</span>}</DetailRow>
-            <DetailRow label="Environment">
-                {policyRequest.environment || <span className="text-secondary">Any environment</span>}
+            <DetailRow label={claimLabels.subject}>
+                <span className="font-mono">{policyRequest.subject}</span>
             </DetailRow>
+            {conditionClaims.map((claim) => (
+                <DetailRow key={claim} label={claimLabels.conditions[claim] ?? claim}>
+                    {conditions[claim] || <span className="text-secondary">Any value</span>}
+                </DetailRow>
+            ))}
             <DetailRow label="Scopes">
                 <span className="flex flex-wrap gap-1">
                     {policyRequest.scopes.map((scope) => (
@@ -221,7 +228,7 @@ function RequestDetails({
 
             {isPending ? (
                 <p className="m-0 text-sm">
-                    Approving adds a trusted workload to this project. The CI jobs that match it get short-lived tokens
+                    Approving adds a trusted workload to this project. Workloads that match it get short-lived tokens
                     that act as the organization owner, with only the scopes below.
                 </p>
             ) : null}

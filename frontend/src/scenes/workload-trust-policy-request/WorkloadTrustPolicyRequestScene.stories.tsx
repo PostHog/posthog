@@ -23,10 +23,14 @@ const policyRequest = {
     issuer: 'https://ci.example.com',
     provider: 'example_ci',
     provider_name: 'Example CI',
-    repository: 'acme/web',
-    repository_id: '123456',
-    ref: 'refs/heads/main',
-    environment: '',
+    subject_name: 'acme/web',
+    subject: '123456',
+    conditions: { ref: 'refs/heads/main' },
+    claim_labels: {
+        subject: 'Repository ID',
+        subject_name: 'Repository',
+        conditions: { ref: 'Branch or tag', environment: 'Environment' },
+    },
     scopes: ['annotation:write', 'error_tracking:write', 'organization_member:write'],
     risky_scopes: {
         'organization_member:write': 'Invites and removes organization members and changes their roles.',
