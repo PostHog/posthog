@@ -372,29 +372,47 @@ describe('hog auth login', () => {
         [
             "a key posthog-cli saved moves into the keychain, and posthog-cli's file stays",
             { [LEGACY_CLI_FILE]: STORED },
+            200,
             0,
             { status: 'migrated', host: 'https://eu.posthog.com', projectId: '42', store: 'keychain' },
         ],
         [
             'nothing to move points to login',
             {},
+            200,
             0,
             { status: 'nothing_to_migrate', legacyFile: LEGACY_CLI_FILE, next: 'hog auth login' },
         ],
         [
             'a broken file fails with a hint',
             { [LEGACY_CLI_FILE]: JSON.stringify({ token: 'abc', env_id: '42' }) },
+            200,
             1,
             { code: 'invalid_legacy_credentials', hint: expect.any(String) },
         ],
-    ])('migrate: %s', async (_name, files: Record<string, string>, exitCode, expected) => {
-        const result = await runHog(['auth', 'migrate'], { env: { CLAUDECODE: '1' }, files })
+        [
+            'a key PostHog rejects stays out of the store',
+            { [LEGACY_CLI_FILE]: STORED },
+            401,
+            1,
+            { code: 'legacy_key_rejected', hint: expect.stringContaining('hog auth login') },
+        ],
+    ])('migrate: %s', async (_name, files: Record<string, string>, keyStatus, exitCode, expected) => {
+        const result = await runHog(['auth', 'migrate'], {
+            env: { CLAUDECODE: '1' },
+            files,
+            respond: (url) =>
+                url === 'https://eu.posthog.com/api/personal_api_keys/@current/'
+                    ? { status: keyStatus, body: keyStatus === 200 ? { scopes: ['query:read'] } : {} }
+                    : { status: 500, body: {} },
+        })
 
         expect(result.exitCode).toBe(exitCode)
         expect(exitCode === 0 ? result.json() : result.error()).toMatchObject(expected)
         expect(result.files[LEGACY_CLI_FILE]).toBe(files[LEGACY_CLI_FILE])
-        if (exitCode === 0 && files[LEGACY_CLI_FILE]) {
-            expect(JSON.parse(result.keychain['https://eu.posthog.com'] ?? '{}')).toEqual({ apiKey: 'phx_secret' })
-        }
+        const migrated = exitCode === 0 && files[LEGACY_CLI_FILE] !== undefined
+        expect(result.keychain['https://eu.posthog.com']).toBe(
+            migrated ? JSON.stringify({ apiKey: 'phx_secret' }) : undefined
+        )
     })
 })

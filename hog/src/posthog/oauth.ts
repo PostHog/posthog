@@ -4,9 +4,10 @@ import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
+import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
-import type { Credential, CredentialStatus, CredentialStorage, LogoutOutcome } from './credential'
-import { hostKey, hostUrl, type OAuthSecret, type StoreChoice } from './credential-store'
+import type { OAuthSecret, StoreChoice } from './credential-store/types'
+import { hostKey, hostUrl } from './host'
 import type { LoginRecord } from './settings'
 
 // hog's CIMD client ID: the URL of its client metadata document, which PostHog fetches.
@@ -61,7 +62,7 @@ export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Pro
 }
 
 // What `hog auth login` gets from the OAuth device grant. The access token works in one project.
-export class OAuthLogin implements Credential {
+export class OAuthLogin implements AccessKey {
     readonly host: string
     readonly projectId: string
     readonly accessToken: string
@@ -120,7 +121,7 @@ export class OAuthLogin implements Credential {
     // When PostHog rotates refresh tokens, it revokes the whole login if a rotated refresh token is
     // used again, so two hog processes must never refresh at once: the refresh runs under a lock
     // file, and re-reads the stored login inside it to pick up a token another process just stored.
-    async fresh(runtime: Runtime, storage: CredentialStorage): Promise<Credential> {
+    async fresh(runtime: Runtime, storage: AccessKeyStorage): Promise<AccessKey> {
         if (this.hasTimeLeft(runtime)) {
             return this
         }
@@ -179,7 +180,7 @@ export class OAuthLogin implements Credential {
         )
     }
 
-    status(): CredentialStatus {
+    status(): AccessKeyStatus {
         return { kind: 'oauth', scopes: this.scopes, expiresAt: this.expiresAt }
     }
 

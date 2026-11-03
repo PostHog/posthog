@@ -2,8 +2,8 @@ import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
-import { LOGIN_COMMAND } from '@/posthog/login'
-import { logout } from '@/posthog/logins'
+import { LOGIN_COMMAND } from '@/posthog/login/flow'
+import { logout } from '@/posthog/login/stored'
 import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {
@@ -17,7 +17,7 @@ interface LogoutResult {
 export default defineCommand({
     description: 'Remove the personal API key hog stored on this machine',
     writes: true,
-    notes: ['The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.'].join('\n'),
+    notes: 'The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.',
     examples: ['hog auth logout', 'hog auth logout --host https://eu.posthog.com'],
 
     async run({ ctx }): Promise<LogoutResult> {

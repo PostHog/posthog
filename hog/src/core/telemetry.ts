@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import type { Credential } from '@/posthog/credential'
-import { posthogFile, type ResolvedCredentials } from '@/posthog/credentials'
+import type { AccessKey } from '@/posthog/access-key'
+import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
@@ -111,7 +111,7 @@ export class Telemetry {
     private enabled: boolean
     readonly invocationId = randomUUID()
     commandName: string | undefined
-    credentials: (() => Promise<ResolvedCredentials>) | undefined
+    credentials: (() => Promise<Credentials>) | undefined
 
     constructor(
         private readonly runtime: Runtime,
@@ -140,8 +140,8 @@ export class Telemetry {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const credential = (await this.credentials?.().catch(() => undefined))?.credential
-        const identity = credential ? await this.identity(credential) : undefined
+        const key = (await this.credentials?.().catch(() => undefined))?.key
+        const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
         const distinctId = identity?.distinctId ?? installId
         const groups = Object.fromEntries(
@@ -153,7 +153,7 @@ export class Telemetry {
             ...this.commonProperties(),
             install_id: installId,
             // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
-            env_id: credential && isCloudHost(credential.host) ? credential.projectId : null,
+            env_id: key && isCloudHost(key.host) ? key.projectId : null,
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
         }
@@ -206,8 +206,8 @@ export class Telemetry {
 
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
-    private async identity(credential: Credential): Promise<Identity | undefined> {
-        if (!isCloudHost(credential.host)) {
+    private async identity(key: AccessKey): Promise<Identity | undefined> {
+        if (!isCloudHost(key.host)) {
             return undefined
         }
         let path: string
@@ -216,9 +216,7 @@ export class Telemetry {
         } catch {
             return undefined
         }
-        const key = createHash('sha256')
-            .update(`${credential.host}\n${credential.projectId}\n${credential.loginKey}`)
-            .digest('hex')
+        const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.loginKey}`).digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
             const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
@@ -229,17 +227,17 @@ export class Telemetry {
         } catch {
             // No cache yet.
         }
-        const cached = cache[key]
+        const cached = cache[cacheKey]
         const now = this.runtime.now()
         if (cached && now - cached.checkedAt < (cached.distinctId ? 30 : 1) * DAY_MS) {
             return cached
         }
-        const identity = await this.lookup(credential)
+        const identity = await this.lookup(key)
         // Entries old enough to be looked up again anyway are dropped, so logins that ended don't pile up.
         cache = Object.fromEntries(
             Object.entries(cache).filter(([, entry]) => now - (entry.checkedAt ?? 0) < 30 * DAY_MS)
         )
-        cache[key] = { ...identity, checkedAt: now }
+        cache[cacheKey] = { ...identity, checkedAt: now }
         try {
             await this.runtime.writePrivateFile(path, JSON.stringify(cache))
         } catch {
@@ -248,11 +246,11 @@ export class Telemetry {
         return identity
     }
 
-    private async lookup(credential: Credential): Promise<Identity> {
+    private async lookup(key: AccessKey): Promise<Identity> {
         const get = async (path: string): Promise<Record<string, any> | undefined> => {
             try {
-                const response = await this.runtime.fetch(new URL(path, credential.host), {
-                    headers: { Authorization: `Bearer ${credential.token}` },
+                const response = await this.runtime.fetch(new URL(path, key.host), {
+                    headers: { Authorization: `Bearer ${key.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
                 return response.ok ? ((await response.json()) as Record<string, any>) : undefined
@@ -260,10 +258,7 @@ export class Telemetry {
                 return undefined
             }
         }
-        const [user, project] = await Promise.all([
-            get('/api/users/@me/'),
-            get(`/api/projects/${credential.projectId}/`),
-        ])
+        const [user, project] = await Promise.all([get('/api/users/@me/'), get(`/api/projects/${key.projectId}/`)])
         return {
             distinctId: text(user?.distinct_id),
             organization: text(project?.organization) ?? text(user?.organization?.id),

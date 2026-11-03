@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
+import { PersonalAPIKey } from '@/posthog/access-key'
+import { FileStore } from '@/posthog/credential-store/file'
 import { fakeRuntime } from '@/testing'
 
-import { PersonalApiKey } from './credential'
-import { FileStore } from './credential-store'
-import { writeLogin } from './logins'
+import { writeLogin } from './stored'
 
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'
 
-function login(host: string, apiKey: string): PersonalApiKey {
-    return new PersonalApiKey(host, '42', apiKey)
+function login(host: string, apiKey: string): PersonalAPIKey {
+    return new PersonalAPIKey({ host, projectId: '42', apiKey })
 }
 
 describe('writeLogin', () => {
