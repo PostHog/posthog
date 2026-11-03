@@ -123,7 +123,11 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
 
         const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue)
-        await paginator.processPage(teamId, state, { jobId: 'rerun-1', createdAt: DateTime.now() })
+        await paginator.processPage(
+            teamId,
+            { ...state, request: { ...state.request, replay_code_sends: true } },
+            { jobId: 'rerun-1', createdAt: DateTime.now() }
+        )
 
         expect(hogFlowQueue.queueInvocations).toHaveBeenCalledTimes(1)
         const [enqueued, opts] = hogFlowQueue.queueInvocations.mock.calls[0]
@@ -143,6 +147,45 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
     })
+
+    it.each([undefined, false])(
+        'skips a run that sent an email from code when replay_code_sends is %j',
+        async (allowed) => {
+            const persistedState = {
+                event: { uuid: 'evt-3', distinct_id: 'd-3', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
+                actionStepCount: 1,
+                variables: {},
+                send: {
+                    content: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi' },
+                    from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
+                    tracking: { captureEngagement: false },
+                },
+            }
+            const rows = [
+                {
+                    invocation_id: 'inv-3',
+                    parent_run_id: '',
+                    attempts: 0,
+                    last_scheduled_at: '2026-06-01 09:00:00.000000',
+                    first_scheduled_at: '2026-06-01 09:00:00.000000',
+                    invocation_globals: JSON.stringify(persistedState),
+                },
+            ]
+
+            const hogFlowQueue = {
+                queueInvocations: jest.fn().mockResolvedValue(undefined),
+            } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
+
+            const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue)
+            await paginator.processPage(
+                teamId,
+                { ...state, request: { ...state.request, replay_code_sends: allowed } },
+                { jobId: 'rerun-3', createdAt: DateTime.now() }
+            )
+
+            expect(hogFlowQueue.queueInvocations.mock.calls.flatMap(([invocations]) => invocations)).toEqual([])
+        }
+    )
 
     it('leaves currentAction undefined for a flow that never progressed (fresh start is correct there)', async () => {
         const persistedState = {
