@@ -661,7 +661,7 @@ class _RowWalk:
     def _walk_page(self) -> Iterator[list[dict[str, Any]]]:
         config = self._config
         page = self._resume.page or 1
-        page_zero_tried = self._resumed
+        page_zero_tried = False
         # Rows actually kept, not page * page_size: a row that shifted pages mid-walk arrives
         # twice but counts once toward the server's unique total, so counting raw items could
         # reach the total a page early and drop the final page. This also stays exact if the
@@ -678,14 +678,13 @@ class _RowWalk:
 
             batch = self._read(params)
             total = self._reported_total
-            if not page_zero_tried and self._listed_no_rows_against_a_total(batch):
+            if not page_zero_tried and self._ended_short_of_the_total(batch, rows_walked):
                 page_zero_tried = True
                 page = 0
                 continue
-            page_zero_tried = True
             rows_walked += len(batch.fresh)
             page_rows = max(page_rows, len(batch.items))
-            exhausted = self._page_walk_exhausted(page, rows_walked, page_rows, total, batch)
+            exhausted = page_zero_tried or self._page_walk_exhausted(page, rows_walked, page_rows, total, batch)
 
             if batch.fresh:
                 yield batch.fresh
@@ -696,9 +695,10 @@ class _RowWalk:
 
             page += 1
 
-    def _listed_no_rows_against_a_total(self, batch: _Batch) -> bool:
+    def _ended_short_of_the_total(self, batch: _Batch, rows_walked: int) -> bool:
         total = _usable_total(self._reported_total)
-        return not batch.items and batch.pagination.get(self._config.data_key) == [] and bool(total)
+        listed_no_rows = not batch.items and batch.pagination.get(self._config.data_key) == []
+        return listed_no_rows and total is not None and rows_walked < total
 
     def _page_walk_exhausted(self, page: int, rows_walked: int, page_rows: int, reported: Any, batch: _Batch) -> bool:
         # A page of only already-seen rows does not end the walk: the catalog can shift rows
