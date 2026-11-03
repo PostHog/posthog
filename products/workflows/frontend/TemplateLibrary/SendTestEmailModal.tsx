@@ -13,7 +13,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/utils'
+import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/sandboxEmailSender'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
 
