@@ -98,8 +98,7 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
-/** Discussions ride the message timer at 1/4 the rate, so ~20s. */
-const DISCUSSION_POLL_EVERY_N_TICKS = 4
+const TICKET_CONTEXT_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
 const EMPTY_DELIVERY_STATUS_BY_MESSAGE_ID = new Map<string, MessageDeliveryStatus>()
@@ -797,7 +796,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     } catch (error) {
                         // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
                         console.error('Failed to load linked reports:', error)
-                        return []
+                        return values.linkedReports
                     }
                 },
             },
@@ -1397,16 +1396,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Start message polling using disposables pattern
                 cache.disposables.dispose('messagePolling')
-                cache.discussionPollTick = 0
+                cache.ticketContextPollTick = 0
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
                         actions.loadMessages()
-                        // A discussion is a slower conversation than the ticket itself, and a Slack
-                        // reply landing a few seconds late costs nothing — so it rides the same timer
-                        // at a fraction of the rate rather than starting a second one.
-                        cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
-                        if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
+                        cache.ticketContextPollTick = (cache.ticketContextPollTick ?? 0) + 1
+                        if (cache.ticketContextPollTick % TICKET_CONTEXT_POLL_EVERY_N_TICKS === 0) {
                             actions.pollDiscussionThread()
+                            actions.loadLinkedReports()
                         }
                     }, MESSAGE_POLL_INTERVAL)
                     return () => clearInterval(intervalId)

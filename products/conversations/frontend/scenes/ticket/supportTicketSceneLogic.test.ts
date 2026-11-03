@@ -91,10 +91,17 @@ import {
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
 } from 'products/conversations/frontend/generated/api'
+import { signalsReportsList } from 'products/signals/frontend/generated/api'
+import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+
+jest.mock('products/signals/frontend/generated/api', () => ({
+    signalsReportsList: jest.fn().mockResolvedValue({ results: [] }),
+}))
 
 const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
 const submitAiHumanOutcomeMock = conversationsTicketsAiHumanOutcomeCreate as jest.Mock
 const fullEmailRetrieveMock = conversationsTicketsMessagesFullEmailRetrieve as jest.Mock
+const signalsReportsListMock = signalsReportsList as jest.Mock
 
 function makeAiComment(id: string, isPrivate: boolean = true): CommentType {
     return {
@@ -1371,6 +1378,61 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic linked report polling', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const report = {
+        id: 'report-1',
+        status: 'ready',
+        title: 'fix conversations reply delivery',
+        updated_at: '2026-01-01T00:01:00Z',
+    } as SignalReportApi
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+        initKeaTests()
+        ticketGetMock.mockReset().mockResolvedValue(makeTicket())
+        signalsReportsListMock
+            .mockReset()
+            .mockResolvedValueOnce({ results: [] })
+            .mockResolvedValue({ results: [report] })
+        logic = supportTicketSceneLogic({ id: 42 })
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        jest.useRealTimers()
+        signalsReportsListMock.mockReset().mockResolvedValue({ results: [] })
+    })
+
+    it('refreshes linked reports while the ticket stays open', async () => {
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(logic.values.linkedReports).toEqual([])
+        expect(signalsReportsListMock).toHaveBeenCalledTimes(1)
+
+        await jest.advanceTimersByTimeAsync(20_000)
+
+        expect(logic.values.linkedReports).toEqual([report])
+        expect(signalsReportsListMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the current linked reports when a refresh fails', async () => {
+        const consoleError = jest.spyOn(console, 'error').mockImplementation()
+        signalsReportsListMock.mockReset().mockRejectedValue(new Error('Signals unavailable'))
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(1)
+        logic.actions.loadLinkedReportsSuccess([report])
+
+        logic.actions.loadLinkedReports()
+        await jest.advanceTimersByTimeAsync(1)
+
+        expect(logic.values.linkedReports).toEqual([report])
+        consoleError.mockRestore()
     })
 })
 
