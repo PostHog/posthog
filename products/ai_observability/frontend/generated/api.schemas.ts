@@ -1580,21 +1580,9 @@ export interface TraceEvaluationResultsApi {
     summary: TraceEvaluationSummaryApi
 }
 
-export type TraceExportPurposeEnumApi = (typeof TraceExportPurposeEnumApi)[keyof typeof TraceExportPurposeEnumApi]
-
-export const TraceExportPurposeEnumApi = {
-    Download: 'download',
-    Copy: 'copy',
-} as const
-
 export interface TraceExportCreateApi {
     /** When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table. */
     timestamp_hint?: string
-    /** What the file is for. A copy stops at a smaller size and is not recorded as a download.
-     *
-     * * `download` - download
-     * * `copy` - copy */
-    purpose?: TraceExportPurposeEnumApi
 }
 
 export type ExportStatusEnumApi = (typeof ExportStatusEnumApi)[keyof typeof ExportStatusEnumApi]
@@ -1610,10 +1598,6 @@ export interface TraceExportApi {
     id: number
     /** Whether the file is still being written, ready, or failed. */
     status: ExportStatusEnumApi
-    /** What the file is for. A copy export stops at a smaller size and is not recorded as a download. */
-    purpose: TraceExportPurposeEnumApi
-    /** True when the export failed because the trace passed the size limit for its purpose. */
-    tooLarge: boolean
     /** The name the downloaded JSON file gets. */
     filename: string
     /** When the export was requested. */
@@ -5887,6 +5871,25 @@ export type AiObservabilityTracesClustersRetrieveParams = {
      */
     created_at: string
 }
+
+export type AiObservabilityTracesExportsContentRetrieveParams = {
+    /**
+     * What the file is read for. Only a download is recorded as one.
+     *
+     * * `download` - Download
+     * * `copy` - Copy
+     * @minLength 1
+     */
+    purpose?: AiObservabilityTracesExportsContentRetrievePurpose
+}
+
+export type AiObservabilityTracesExportsContentRetrievePurpose =
+    (typeof AiObservabilityTracesExportsContentRetrievePurpose)[keyof typeof AiObservabilityTracesExportsContentRetrievePurpose]
+
+export const AiObservabilityTracesExportsContentRetrievePurpose = {
+    Download: 'download',
+    Copy: 'copy',
+} as const
 
 export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**

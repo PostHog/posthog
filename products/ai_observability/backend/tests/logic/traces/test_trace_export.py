@@ -6,7 +6,6 @@ import pytest
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.facade.contracts import TraceExportPurpose
 from products.ai_observability.backend.logic.traces.trace_export import (
     TRACE_EXPORT_STUCK_MESSAGE,
     InvalidTraceExportRequestError,
@@ -19,18 +18,12 @@ from products.ai_observability.backend.logic.traces.trace_export import (
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
 
-@parameterized.expand([("with a hint", T0, "download"), ("without a hint", None, "download"), ("a copy", T0, "copy")])
-def test_the_request_round_trips_through_the_export_context(
-    _name: str, timestamp_hint: datetime | None, purpose: TraceExportPurpose
-) -> None:
-    request = TraceExportRequest(trace_id="a/b c", timestamp_hint=timestamp_hint, purpose=purpose)
+@parameterized.expand([("with a hint", T0), ("without a hint", None)])
+def test_the_request_round_trips_through_the_export_context(_name: str, timestamp_hint: datetime | None) -> None:
+    request = TraceExportRequest(trace_id="a/b c", timestamp_hint=timestamp_hint)
 
     assert TraceExportRequest.from_context(json.loads(json.dumps(request.to_context()))) == request
     assert request.to_context()["filename"] == "trace-a/b c"
-
-
-def test_an_export_written_before_copies_existed_reads_as_a_download() -> None:
-    assert TraceExportRequest.from_context({"kind": "llm_trace", "trace_id": "trace-1"}).purpose == "download"
 
 
 @parameterized.expand(
@@ -39,7 +32,6 @@ def test_an_export_written_before_copies_existed_reads_as_a_download() -> None:
         ("no trace id", {"kind": "llm_trace"}),
         ("an empty trace id", {"kind": "llm_trace", "trace_id": ""}),
         ("a malformed hint", {"kind": "llm_trace", "trace_id": "trace-1", "timestamp_hint": "yesterday"}),
-        ("an unknown purpose", {"kind": "llm_trace", "trace_id": "trace-1", "purpose": "print"}),
     ]
 )
 def test_a_context_that_is_not_a_trace_export_is_refused(_name: str, context: dict[str, object]) -> None:

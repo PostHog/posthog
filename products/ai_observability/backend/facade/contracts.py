@@ -380,19 +380,11 @@ class TracePullRequestLookup(Contract):
 
 TraceExportStatus = Literal["pending", "complete", "failed"]
 TRACE_EXPORT_STATUSES: tuple[TraceExportStatus, ...] = get_args(TraceExportStatus)
-TraceExportPurpose = Literal["download", "copy"]
-TRACE_EXPORT_PURPOSES: tuple[TraceExportPurpose, ...] = get_args(TraceExportPurpose)
 
 
 class TraceExport(Contract):
     id: int = Field(description="The export id, used to read its status and download the file.")
     status: TraceExportStatus = Field(description="Whether the file is still being written, ready, or failed.")
-    purpose: TraceExportPurpose = Field(
-        description="What the file is for. A copy export stops at a smaller size and is not recorded as a download."
-    )
-    too_large: bool = Field(
-        description="True when the export failed because the trace passed the size limit for its purpose."
-    )
     filename: str = Field(description="The name the downloaded JSON file gets.")
     created_at: datetime = Field(description="When the export was requested.")
     expires_after: datetime | None = Field(description="When the file is deleted.")

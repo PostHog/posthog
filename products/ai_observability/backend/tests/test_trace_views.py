@@ -758,10 +758,8 @@ class TestTraceExportViews(APIBaseTest):
         url = f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/exports/"
         return url if export_id is None else f"{url}{export_id}/{suffix}"
 
-    def _create(self, trace_id: str = "a/b", purpose: str = "download") -> dict[str, Any]:
-        response = self.client.post(
-            self._url(_encode(trace_id)), {"timestamp_hint": T0.isoformat(), "purpose": purpose}, format="json"
-        )
+    def _create(self, trace_id: str = "a/b") -> dict[str, Any]:
+        response = self.client.post(self._url(_encode(trace_id)), {"timestamp_hint": T0.isoformat()}, format="json")
         assert response.status_code == 201, response.content
         return response.json()
 
@@ -769,16 +767,7 @@ class TestTraceExportViews(APIBaseTest):
         export = self._create()
         export_id = export["id"]
 
-        assert set(export) == {
-            "id",
-            "status",
-            "purpose",
-            "tooLarge",
-            "filename",
-            "createdAt",
-            "expiresAfter",
-            "exception",
-        }
+        assert set(export) == {"id", "status", "filename", "createdAt", "expiresAfter", "exception"}
         assert (export["status"], export["exception"]) == ("pending", None)
         self.start_workflow.assert_awaited_once()
         assert self.client.get(self._url(_encode("a/b"), export_id)).json()["status"] == "pending"
@@ -815,24 +804,27 @@ class TestTraceExportViews(APIBaseTest):
         assert (export["status"], export["exception"]) == expected
         assert (status["status"], status["exception"]) == expected
 
-    @parameterized.expand([("a download", "download", True), ("a copy", "copy", False)])
+    @parameterized.expand([("a download", "", True), ("a copy", "?purpose=copy", False)])
     @patch("products.ai_observability.backend.presentation.views.report_user_action")
-    def test_tracks_only_downloads(
-        self, _name: str, purpose: str, tracked: bool, report_user_action: MagicMock
-    ) -> None:
-        export = self._create(purpose=purpose)
-        ExportedAsset.objects.filter(id=export["id"]).update(content=b'{"trace":{},"nodes":[]}')
+    def test_tracks_only_downloads(self, _name: str, query: str, tracked: bool, report_user_action: MagicMock) -> None:
+        export_id = self._create()["id"]
+        ExportedAsset.objects.filter(id=export_id).update(content=b'{"trace":{},"nodes":[]}')
 
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.get(self._url(_encode("a/b"), export["id"], "content/"))
+            response = self.client.get(self._url(_encode("a/b"), export_id, f"content/{query}"))
 
-        assert (export["purpose"], response.status_code) == (purpose, 200)
+        assert (response.status_code, response.content) == (200, b'{"trace":{},"nodes":[]}')
         if tracked:
             report_user_action.assert_called_once_with(
-                self.user, "llma trace export downloaded", {"export_id": export["id"]}, team=self.team, request=ANY
+                self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
             )
         else:
             report_user_action.assert_not_called()
+
+    def test_rejects_an_unknown_content_purpose(self) -> None:
+        export_id = self._create()["id"]
+
+        assert self.client.get(self._url(_encode("a/b"), export_id, "content/?purpose=print")).status_code == 400
 
     def test_a_failed_export_reports_its_reason(self) -> None:
         export_id = self._create()["id"]

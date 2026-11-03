@@ -6,9 +6,9 @@ from products.exports.backend.facade.api import InvalidExportContext, save_expor
 
 from ..facade import api
 from ..logic.traces.trace_export import (
+    MAX_TRACE_EXPORT_MEGABYTES,
     TRACE_EXPORT_DATABASE_FALLBACK_BYTES,
     InvalidTraceExportRequestError,
-    TraceExportRequest,
     TraceExportTooLargeError,
 )
 
@@ -36,7 +36,7 @@ def export_trace_json(asset: "ExportedAsset") -> None:
         raise InvalidExportContext("You no longer have access to this trace.") from error
     except TraceExportTooLargeError as error:
         raise InvalidExportContext(
-            TraceExportRequest.from_context(asset.export_context or {}).too_large_message
+            f"This trace is larger than {MAX_TRACE_EXPORT_MEGABYTES} MB, so it can't be exported."
         ) from error
     finally:
         if file_path is not None:

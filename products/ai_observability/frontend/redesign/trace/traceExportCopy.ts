@@ -1,21 +1,30 @@
-import { ApiConfig } from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 
 import {
-    aiObservabilityTracesExportsContentRetrieve,
     aiObservabilityTracesExportsCreate,
     aiObservabilityTracesExportsRetrieve,
+    getAiObservabilityTracesExportsContentRetrieveUrl,
 } from '../../generated/api'
-import { ExportStatusEnumApi, TraceExportPurposeEnumApi, type TraceExportApi } from '../../generated/api.schemas'
+import {
+    AiObservabilityTracesExportsContentRetrievePurpose,
+    ExportStatusEnumApi,
+    type TraceExportApi,
+} from '../../generated/api.schemas'
 import { encodeTraceIdSegment } from './traceIdSegment'
 
+export const COPY_TRACE_MAX_MEGABYTES = 5
+const COPY_TRACE_MAX_BYTES = COPY_TRACE_MAX_MEGABYTES * 1_000_000
 const FIRST_POLL_DELAY_MS = 500
 const MAX_POLL_DELAY_MS = 3000
 const CLIPBOARD_TEXT_TYPE = 'text/plain'
 
 export class TraceExportFailedError extends Error {}
 
-/** The server refuses a copy export past its size cap, and the message says so. */
-export class TraceTooLargeToCopyError extends Error {}
+export class TraceTooLargeToCopyError extends Error {
+    constructor(readonly traceExport: TraceExportApi) {
+        super(`The trace is larger than ${COPY_TRACE_MAX_MEGABYTES} MB.`)
+    }
+}
 
 export interface TraceExportText {
     text: string
@@ -57,11 +66,36 @@ async function waitForExport(
     return traceExport
 }
 
+async function readCapped(
+    response: Response,
+    traceExport: TraceExportApi,
+    stopReading: () => void
+): Promise<TraceExportText> {
+    if (!response.body) {
+        throw new Error('The export came back empty.')
+    }
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let sizeBytes = 0
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        sizeBytes += chunk.value.byteLength
+        if (sizeBytes > COPY_TRACE_MAX_BYTES) {
+            // Abort the request rather than cancel the reader: the API client keeps a clone of the response,
+            // and a cancel waits until every clone of the body is cancelled too.
+            stopReading()
+            throw new TraceTooLargeToCopyError(traceExport)
+        }
+        chunks.push(chunk.value)
+    }
+    const decoder = new TextDecoder()
+    const text = chunks.map((chunk) => decoder.decode(chunk, { stream: true })).join('') + decoder.decode()
+    return { text, sizeBytes }
+}
+
 /**
- * Writes a copy export of the trace and reads it back as text.
+ * Writes a trace export and reads it back as text, giving up once it passes the copy cap.
  *
- * Throws `TraceTooLargeToCopyError` when the trace is over the server's copy cap, and `TraceExportFailedError` when
- * the export fails for another reason.
+ * Throws `TraceExportFailedError` when the export fails and `TraceTooLargeToCopyError` past the cap.
  */
 export async function readTraceExportText({
     traceId,
@@ -73,20 +107,28 @@ export async function readTraceExportText({
     const created = await aiObservabilityTracesExportsCreate(
         projectId,
         segment,
-        {
-            purpose: TraceExportPurposeEnumApi.Copy,
-            ...(timestampHint ? { timestamp_hint: timestampHint } : {}),
-        },
+        timestampHint ? { timestamp_hint: timestampHint } : {},
         { signal }
     )
     const traceExport = await waitForExport(projectId, segment, created, signal)
     if (traceExport.status === ExportStatusEnumApi.Failed) {
-        const message = traceExport.exception ?? "Couldn't export this trace. Try again."
-        throw traceExport.tooLarge ? new TraceTooLargeToCopyError(message) : new TraceExportFailedError(message)
+        throw new TraceExportFailedError(traceExport.exception ?? "Couldn't export this trace. Try again.")
     }
-    const file = await aiObservabilityTracesExportsContentRetrieve(projectId, segment, traceExport.id, { signal })
-    const text = JSON.stringify(file)
-    return { text, sizeBytes: new TextEncoder().encode(text).byteLength }
+    const read = new AbortController()
+    const stopReading = (): void => read.abort(signal.reason)
+    signal.addEventListener('abort', stopReading, { once: true })
+    try {
+        // nosemgrep: prefer-codegen-api -- an export download; the generated client parses JSON, and the cap needs the raw body stream
+        const response = await api.getResponse(
+            getAiObservabilityTracesExportsContentRetrieveUrl(projectId, segment, traceExport.id, {
+                purpose: AiObservabilityTracesExportsContentRetrievePurpose.Copy,
+            }),
+            { signal: read.signal }
+        )
+        return await readCapped(response, traceExport, () => read.abort())
+    } finally {
+        signal.removeEventListener('abort', stopReading)
+    }
 }
 
 /**

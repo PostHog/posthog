@@ -4,7 +4,7 @@ from typing import IO, Self
 
 from posthog.dataclasses import frozen
 
-from ...facade.contracts import TraceExportPurpose, TraceExportStatus
+from ...facade.contracts import TraceExportStatus
 
 TRACE_EXPORT_KIND = "llm_trace"
 TRACE_EXPORT_FORMAT = "application/json"
@@ -12,8 +12,6 @@ TRACE_EXPORT_TTL = timedelta(days=7)
 TRACE_EXPORT_NODE_BATCH_SIZE = 20
 MAX_TRACE_EXPORT_MEGABYTES = 250
 MAX_TRACE_EXPORT_BYTES = MAX_TRACE_EXPORT_MEGABYTES * 1_000_000
-MAX_TRACE_COPY_MEGABYTES = 5
-MAX_TRACE_COPY_BYTES = MAX_TRACE_COPY_MEGABYTES * 1_000_000
 # The largest file the export row may hold when object storage is off or fails.
 TRACE_EXPORT_DATABASE_FALLBACK_BYTES = 50_000_000
 TRACE_EXPORT_STUCK_MESSAGE = "This export took too long to finish. Try again."
@@ -31,56 +29,29 @@ class TraceExportTooLargeError(Exception):
 class TraceExportRequest:
     trace_id: str
     timestamp_hint: datetime | None
-    purpose: TraceExportPurpose = "download"
 
     @classmethod
     def from_context(cls, context: Mapping[str, object]) -> Self:
         trace_id = context.get("trace_id")
         if context.get("kind") != TRACE_EXPORT_KIND or not isinstance(trace_id, str) or not trace_id:
             raise InvalidTraceExportRequestError("The export context does not name a trace.")
-        purpose = cls._purpose_from_context(context)
         hint = context.get("timestamp_hint")
         if hint is None:
-            return cls(trace_id=trace_id, timestamp_hint=None, purpose=purpose)
+            return cls(trace_id=trace_id, timestamp_hint=None)
         if not isinstance(hint, str):
             raise InvalidTraceExportRequestError("The export context has a malformed timestamp hint.")
         try:
-            return cls(trace_id=trace_id, timestamp_hint=datetime.fromisoformat(hint), purpose=purpose)
+            return cls(trace_id=trace_id, timestamp_hint=datetime.fromisoformat(hint))
         except ValueError as error:
             raise InvalidTraceExportRequestError("The export context has a malformed timestamp hint.") from error
-
-    @staticmethod
-    def _purpose_from_context(context: Mapping[str, object]) -> TraceExportPurpose:
-        match context.get("purpose"):
-            # Exports written before copies existed carry no purpose.
-            case None | "download":
-                return "download"
-            case "copy":
-                return "copy"
-            case _:
-                raise InvalidTraceExportRequestError("The export context has an unknown purpose.")
 
     def to_context(self) -> dict[str, object]:
         return {
             "kind": TRACE_EXPORT_KIND,
             "trace_id": self.trace_id,
             "timestamp_hint": self.timestamp_hint.isoformat() if self.timestamp_hint is not None else None,
-            "purpose": self.purpose,
             "filename": f"trace-{self.trace_id[:64]}",
         }
-
-    @property
-    def max_bytes(self) -> int:
-        return MAX_TRACE_COPY_BYTES if self.purpose == "copy" else MAX_TRACE_EXPORT_BYTES
-
-    @property
-    def too_large_message(self) -> str:
-        if self.purpose == "copy":
-            return (
-                f"This trace is larger than {MAX_TRACE_COPY_MEGABYTES} MB, so it can't be copied. "
-                "Download it as a JSON file instead."
-            )
-        return f"This trace is larger than {MAX_TRACE_EXPORT_MEGABYTES} MB, so it can't be exported."
 
 
 @frozen

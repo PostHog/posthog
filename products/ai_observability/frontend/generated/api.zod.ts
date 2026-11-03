@@ -313,20 +313,12 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 /**
  * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
  */
-export const aiObservabilityTracesExportsCreateBodyPurposeDefault = `download`
-
 export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({
     timestamp_hint: zod.iso
         .datetime({ offset: true })
         .optional()
         .describe(
             'When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.'
-        ),
-    purpose: zod
-        .enum(['download', 'copy'])
-        .default(aiObservabilityTracesExportsCreateBodyPurposeDefault)
-        .describe(
-            'What the file is for. A copy stops at a smaller size and is not recorded as a download.\n\n\* `download` - download\n\* `copy` - copy'
         ),
 })
 

@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 from django.http import HttpResponseBase
 
 from drf_spectacular.types import OpenApiTypes
@@ -104,16 +104,26 @@ EXPORT_ID_PARAMETER = OpenApiParameter(
 EXPORT_NOT_FOUND_RESPONSE = OpenApiResponse(description="You have no export with this id for this trace.")
 
 
+# Gives the export request body its own schema, apart from the trace read's query parameters.
 class TraceExportCreateSerializer(TraceQuerySerializer):
-    purpose = serializers.ChoiceField(
-        choices=contracts.TRACE_EXPORT_PURPOSES,
-        default="download",
-        help_text="What the file is for. A copy stops at a smaller size and is not recorded as a download.",
-    )
+    pass
 
 
 class TraceExportErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the file cannot be downloaded yet.")
+
+
+class TraceExportContentPurpose(models.TextChoices):
+    DOWNLOAD = "download", "Download"
+    COPY = "copy", "Copy"
+
+
+class TraceExportContentQuerySerializer(serializers.Serializer):
+    purpose = serializers.ChoiceField(
+        choices=TraceExportContentPurpose.choices,
+        default=TraceExportContentPurpose.DOWNLOAD,
+        help_text="What the file is read for. Only a download is recorded as one.",
+    )
 
 
 class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -429,7 +439,6 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             _user(request),
             trace_id,
             request.validated_data.get("timestamp_hint"),
-            purpose=request.validated_data["purpose"],
             was_impersonated=is_impersonated(request),
         )
         return Response(export.model_dump(mode="json", by_alias=True), status=status.HTTP_201_CREATED)
@@ -455,10 +464,10 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(export.model_dump(mode="json", by_alias=True))
 
     @extend_schema(
-        parameters=[TRACE_ID_PARAMETER, EXPORT_ID_PARAMETER],
+        parameters=[TRACE_ID_PARAMETER, EXPORT_ID_PARAMETER, TraceExportContentQuerySerializer],
         responses={
             (200, "application/json"): OpenApiResponse(response=contracts.TraceExportFile),
-            400: OpenApiResponse(description="The encoded trace id is malformed."),
+            400: OpenApiResponse(description="The encoded trace id or the purpose is malformed."),
             404: EXPORT_NOT_FOUND_RESPONSE,
             409: OpenApiResponse(
                 response=TraceExportErrorSerializer, description="The export is still being written, or failed."
@@ -469,6 +478,8 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=True, methods=["GET"], url_path=r"exports/(?P<export_id>\d+)/content")
     def export_content(self, request: Request, pk: str, export_id: str, **kwargs: Any) -> HttpResponseBase:
         """Downloads a completed export as a JSON file."""
+        query = TraceExportContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         try:
             export = self._trace_export(request, pk, export_id)
         except MalformedTraceIdSegmentError:
@@ -480,7 +491,7 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             detail = export.exception or "The export is still being prepared."
             return Response({"detail": detail}, status=status.HTTP_409_CONFLICT)
         response = get_export_asset_content_response(asset=asset, download=True)
-        if export.purpose == "copy":
+        if query.validated_data["purpose"] == TraceExportContentPurpose.COPY:
             return response
         transaction.on_commit(
             partial(
