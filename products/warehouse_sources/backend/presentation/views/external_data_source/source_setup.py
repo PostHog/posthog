@@ -2073,8 +2073,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             instance.soft_delete()
 
         # Best-effort webhook cleanup — soft-deletes are already committed
-        source_type = known_source_key(instance.source_type)
-        source = base.SourceRegistry.get_source(source_type)
+        try:
+            source = base.SourceRegistry.get_source(known_source_key(instance.source_type))
+        except ValueError as e:
+            # The vendor no longer imports, so there is no webhook code to run.
+            base.capture_exception(e)
+            source = None
         if isinstance(source, WebhookSource):
             try:
                 source_inputs = SourceInputsStore.load(instance)

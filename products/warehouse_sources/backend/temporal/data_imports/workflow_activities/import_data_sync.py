@@ -608,7 +608,8 @@ async def _import_data_with_reporting(
 
         await logger.adebug("Running import_data_activity")
 
-        source_type = known_source_key(model.pipeline.source_type)
+        # A plugin key imports its vendor module on first use, which must not block the activity loop.
+        source_type = await database_sync_to_async_pool(known_source_key)(model.pipeline.source_type)
         _attempt_source_type.set(str(source_type))
 
         bind_job_context(

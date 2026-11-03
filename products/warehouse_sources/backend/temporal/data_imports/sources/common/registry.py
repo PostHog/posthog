@@ -113,13 +113,15 @@ class SourceRegistry:
         return list(cls._sources.keys())
 
 
-def known_source_key(key: str) -> SourceKey:
+def known_source_key(key: object) -> SourceKey:
     """Resolve a stored or submitted source type string to its registry key.
 
     Returns the `ExternalDataSourceType` member when one exists, else the plugin key, and raises
     ValueError for a string that is neither. It takes the place of `ExternalDataSourceType(key)`, which
     rejects every plugin key. A plugin key is checked by importing only its own vendor module.
     """
+    if not isinstance(key, str):
+        raise ValueError(f"Unknown source type: {key!r}")
     resolved = source_key(key)
     if not isinstance(resolved, ExternalDataSourceType):
         SourceRegistry.get_source(resolved)

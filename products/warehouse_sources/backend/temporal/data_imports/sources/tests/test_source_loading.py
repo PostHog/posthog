@@ -152,6 +152,8 @@ def _register_fake_plugin_source(*_args) -> None:
         (ExternalDataSourceType.PYPI.value, ExternalDataSourceType.PYPI),
         ("FakePluginVendor", "FakePluginVendor"),
         ("NotARealSource", None),
+        ([], None),
+        ({}, None),
     ],
 )
 def test_known_source_key_resolves_members_and_registered_plugin_keys_without_the_full_load(
