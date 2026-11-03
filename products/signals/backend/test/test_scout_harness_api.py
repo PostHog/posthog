@@ -1686,6 +1686,31 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("legacy_task_key", ["signal_scout:write", "task:write"], status.HTTP_200_OK),
+            ("inbox_key", ["signal_scout:write", "inbox:write"], status.HTTP_200_OK),
+            ("narrow_key", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_adding_an_inbox_tool_accepts_the_legacy_task_scope(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self._become_admin()
+        config = self._config()
+        SignalScoutConfig.objects.filter(pk=config.pk).update(allowed_mcp_tools=["insight-get"])
+        raw = self._personal_api_key(key_scopes)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"allowed_mcp_tools": ["insight-get", "inbox-reports-claim"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
             ("read", ["insight-get"], []),
             ("write", ["dashboard-create"], ["dashboard:write"]),
             ("empty", [], []),
@@ -2869,18 +2894,25 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
     @parameterized.expand(
         [
             # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
-            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # which the report API gates on `inbox:read`. A scout-only token must not read around that,
             # so all derived origins are withheld together — a new one must not reopen the gap.
-            ("without_report_read", ["signal_scout:read"], {"steering"}),
+            ("without_report_read", ["signal_scout:read"], {"steering"}, set()),
             (
                 "with_report_read",
+                ["signal_scout:read", "inbox:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+                set(),
+            ),
+            (
+                "with_legacy_task_read",
                 ["signal_scout:read", "task:read"],
                 {"steering", "derived from a dismissal", "derived from feedback"},
+                {"inbox:read"},
             ),
         ]
     )
     def test_list_withholds_derived_notes_from_callers_without_report_read(
-        self, _name: str, scopes: list[str], expected: set[str]
+        self, _name: str, scopes: list[str], expected: set[str], fallback_scopes: set[str]
     ) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -2900,10 +2932,17 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
         self.client.logout()
 
-        response = self.client.get(self._list_url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        cache.clear()
+        with patch("posthog.permissions.posthoganalytics.capture") as capture:
+            response = self.client.get(self._list_url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert {row["content"] for row in response.json()} == expected
+        assert {
+            call.kwargs["properties"]["required_scope"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "api scope fallback used"
+        } == fallback_scopes
 
 
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
@@ -4003,20 +4042,26 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         [
             ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, "integration:read"),
             (
-                "missing_task_scope",
+                "missing_inbox_scope",
                 ["signal_scout:write", "integration:read"],
                 status.HTTP_403_FORBIDDEN,
-                "task:read",
+                "inbox:read",
             ),
             (
-                "integration_and_task_scopes",
+                "integration_and_inbox_scopes",
+                ["signal_scout:write", "integration:read", "inbox:read"],
+                status.HTTP_200_OK,
+                None,
+            ),
+            (
+                "integration_and_legacy_task_scopes",
                 ["signal_scout:write", "integration:read", "task:read"],
                 status.HTTP_200_OK,
                 None,
             ),
         ]
     )
-    def test_partial_update_slack_destination_requires_integration_and_task_scopes(
+    def test_partial_update_slack_destination_requires_integration_and_inbox_scopes(
         self, _name: str, scopes: list[str], expected_status: int, expected_missing_scope: str | None
     ) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")

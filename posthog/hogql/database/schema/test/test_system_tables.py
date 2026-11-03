@@ -10,7 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, _compute_system_table_access_decision, system_table_denials
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.errors import QueryError
@@ -18,6 +18,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.auth import ProjectSecretAPIKeyUser
+from posthog.constants import AvailableFeature
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -32,11 +34,13 @@ from posthog.models import (
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
 from products.aeo.backend.facade.testing import create_citation_check
@@ -1482,6 +1486,45 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesInboxAccess(BaseTest):
+    @parameterized.expand(
+        [
+            ("inbox_read", ["inbox:read"], True),
+            ("legacy_task_read", ["task:read"], True),
+            ("unrelated", ["insight:read"], False),
+        ]
+    )
+    def test_project_secret_api_key_inbox_system_table_visibility(
+        self, _name: str, scopes: list[str], expected_visible: bool
+    ) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="inbox-tables", secure_value="sha256$" + "e" * 64, scopes=scopes
+        )
+
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+
+        assert ("inbox_reports" not in denied) is expected_visible
+        assert ("tasks" not in denied) is (scopes == ["task:read"])
+
+    @parameterized.expand([("default_access", None, False), ("task_access_none", "none", True)])
+    def test_member_reads_inbox_system_tables_like_task_tables(
+        self, _name: str, task_access_level: str | None, expected_denied: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        if task_access_level is not None:
+            AccessControl.objects.create(team=self.team, resource="task", access_level=task_access_level)
+
+        denied = system_table_denials(self.team, self.user)
+
+        assert ("tasks" in denied) is expected_denied
+        assert ("inbox_reports" in denied) is expected_denied
 
 
 class TestSystemTablesInboxDeletedExclusionIsolation(NonAtomicBaseTest):

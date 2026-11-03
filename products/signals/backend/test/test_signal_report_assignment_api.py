@@ -744,6 +744,56 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("inbox_only_claim", ["inbox:write"], {}, status.HTTP_200_OK, False),
+            (
+                "legacy_task_only_pr",
+                ["task:write"],
+                {"pr_url": "https://github.com/example/private/pull/9"},
+                status.HTTP_200_OK,
+                True,
+            ),
+            (
+                "inbox_only_pr_url",
+                ["inbox:write"],
+                {"pr_url": "https://github.com/example/private/pull/9"},
+                status.HTTP_403_FORBIDDEN,
+                False,
+            ),
+            (
+                "inbox_only_pull_requests",
+                ["inbox:write"],
+                {"pull_requests": ["https://github.com/example/private/pull/9"]},
+                status.HTTP_403_FORBIDDEN,
+                False,
+            ),
+            (
+                "inbox_and_task_pull_requests",
+                ["inbox:write", "task:write"],
+                {"pull_requests": ["https://github.com/example/private/pull/9"]},
+                status.HTTP_200_OK,
+                True,
+            ),
+        ]
+    )
+    @patch(
+        "products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository",
+        return_value=None,
+    )
+    def test_linking_a_pull_request_needs_task_scope(
+        self, _name: str, scopes: list[str], body: dict, expected: int, linked: bool, _integration: MagicMock
+    ) -> None:
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._claim_url(report), data=body, format="json")
+
+        assert response.status_code == expected, response.content
+        assert SignalReportPullRequest.objects.for_team(self.team.id).filter(number=9).exists() is linked
+
+    @parameterized.expand(
+        [
             ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK),
             ("responsible_user", None, False, False, status.HTTP_200_OK),
             ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK),

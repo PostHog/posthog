@@ -416,26 +416,55 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert [r["github_login"] for r in json.loads(new_row.content)] == ["bob"]
         assert [r["github_login"] for r in self._latest_reviewers(report)] == ["bob"]
 
-    def test_put_reviewers_re_evaluates_autostart(self):
-        # Appending a reviewers status re-runs the (idempotent) auto-start evaluation on commit.
+    @parameterized.expand(
+        [
+            ("put_session", "put", None, True),
+            ("put_inbox_and_task_key", "put", ["inbox:write", "task:write"], True),
+            ("put_inbox_only_key", "put", ["inbox:write"], False),
+            ("post_inbox_and_task_key", "post", ["inbox:write", "task:write"], True),
+            ("post_inbox_only_key", "post", ["inbox:write"], False),
+        ]
+    )
+    def test_reviewer_writes_need_task_scope_and_re_evaluate_autostart(
+        self, _name: str, method: str, scopes: list[str] | None, allowed: bool
+    ):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        if scopes is not None:
+            api_key = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        content = [{"github_login": "alice"}, {"github_login": "bob"}]
 
         with patch(
             "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
             new_callable=AsyncMock,
         ) as mock_autostart:
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.put(
-                    self._detail_url(str(report.id), str(artefact.id)),
-                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
-                    content_type="application/json",
-                )
+                if method == "put":
+                    response = self.client.put(
+                        self._detail_url(str(report.id), str(artefact.id)),
+                        data=json.dumps({"content": content}),
+                        content_type="application/json",
+                    )
+                else:
+                    response = self.client.post(
+                        self._list_url(str(report.id)),
+                        data=json.dumps({"artefact_type": "suggested_reviewers", "content": content}),
+                        content_type="application/json",
+                    )
 
-        assert response.status_code == status.HTTP_200_OK
-        mock_autostart.assert_awaited_once()
-        assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
-        assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+        if allowed:
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == (
+            ["alice", "bob"] if allowed else ["alice"]
+        )
+        assert mock_autostart.await_count == (1 if allowed else 0)
+        if allowed:
+            assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
+            assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
 
     def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
         # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
