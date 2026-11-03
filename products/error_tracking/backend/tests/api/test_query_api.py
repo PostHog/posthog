@@ -856,14 +856,23 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["trend"]["current_occurrences"] == 2
         assert data["trend"]["current_from"] == "2026-04-22T12:00:00+00:00"
 
+    @parameterized.expand(
+        [
+            ("context_query", "EventsQueryRunner", "top_in_app_frame"),
+            ("summary_read", "summaries_facade.read_issue_summary", "summary"),
+        ]
+    )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:
+    def test_issue_detail_returns_the_issue_when_an_optional_lookup_fails(
+        self, _name: str, failing: str, missing_key: str
+    ) -> None:
         self.create_issue()
         self.create_exception_event()
         flush_persons_and_events()
 
-        with patch("products.error_tracking.backend.presentation.views.query.EventsQueryRunner") as events_query_runner:
-            events_query_runner.side_effect = RuntimeError("boom")
+        with patch(
+            f"products.error_tracking.backend.presentation.views.query.{failing}", side_effect=RuntimeError("boom")
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
                 data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
@@ -872,7 +881,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["id"] == self.issue_id
-        assert "top_in_app_frame" not in response.json()
+        assert missing_key not in response.json()
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:

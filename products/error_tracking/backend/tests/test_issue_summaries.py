@@ -19,6 +19,7 @@ from redis.exceptions import RedisError
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, User
 from posthog.redis import TEST_clear_clients
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume
 
 from products.access_control.backend.facade.api import upsert_property_access_control
@@ -428,22 +429,30 @@ class TestIssueSummaryGeneration(BaseTest):
         assert generate_issue_created_summary_activity(self._issue_created_inputs()) == "generated"
         assert slots.acquire(blocking=False)
 
-    def test_issue_created_summary_activity_raises_for_a_retry_while_its_event_is_not_ingested(self) -> None:
+    @parameterized.expand(
+        [
+            ("event_not_ingested", WorkflowEventUnavailable, 0),
+            ("model_fails", NonReportableApplicationError, 1),
+        ]
+    )
+    def test_issue_created_summary_activity_raises_for_a_retry(
+        self, name: str, expected_error: type[Exception], failed_llm_calls: int
+    ) -> None:
         fetch = self.enterContext(
-            patch.object(
-                issue_created_activities,
-                "fetch_event_properties",
-                side_effect=IssueCreatedEventNotFoundError("not yet"),
-            )
+            patch.object(issue_created_activities, "fetch_event_properties", return_value={"$lib": "web"})
         )
+        if name == "event_not_ingested":
+            fetch.side_effect = IssueCreatedEventNotFoundError("not yet")
+        else:
+            self.completions.side_effect = TimeoutError("slow")
 
-        with self.assertRaises(WorkflowEventUnavailable):
+        with self.assertRaises(expected_error):
             generate_issue_created_summary_activity(self._issue_created_inputs())
-        assert self.llm_calls == 0
+        assert self.llm_calls == failed_llm_calls
         assert not issue_summaries.get_client().exists(self._lock_key)
 
         fetch.side_effect = None
-        fetch.return_value = {"$lib": "web"}
+        self.completions.side_effect = None
         assert generate_issue_created_summary_activity(self._issue_created_inputs()) == "generated"
 
     def _issue_created_inputs(self) -> IssueCreatedWorkflowInputs:

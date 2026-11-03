@@ -27,6 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
@@ -300,7 +301,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_sparkline: bool,
     ) -> Response:
         summary_started_at = time.monotonic()
-        summary_read = summaries_facade.read_issue_summary(self.team.id, issue_id, user=cast(User, request.user))
+        # The summary is optional, so a failed lookup still returns the issue facts.
+        try:
+            summary_read = summaries_facade.read_issue_summary(self.team.id, issue_id, user=cast(User, request.user))
+        except Exception as error:
+            capture_exception(error, {"team_id": self.team.id, "issue_id": issue_id})
+            summary_read = contracts.IssueSummaryRead(
+                status=contracts.IssueSummaryStatus.UNAVAILABLE, summary=None, reason=None
+            )
         summary_finished_at = time.monotonic()
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
