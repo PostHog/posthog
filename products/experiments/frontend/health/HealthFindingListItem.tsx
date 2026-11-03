@@ -30,7 +30,7 @@ export function HealthFindingListItem({
                 onClick={() => {
                     // The first issue shows without a click, so only a reader's own pick reports the finding as opened.
                     if (!isSelected) {
-                        // pinned: `open_kind` value, kept from the "Why?" button that opened the detail before
+                        // pinned: insights count `why` as opening the detail of a finding
                         reportOpened('why')
                     }
                     onSelect()

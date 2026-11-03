@@ -8,7 +8,6 @@ export const HEALTH_CHECK_STATUS_DISPLAY: Record<ListedHealthCheck['status'], { 
     not_applicable: { icon: <IconMinus className="text-tertiary" />, label: "Doesn't apply" },
 }
 
-/** The outcome of a check, with the reason when the check didn't run. */
 export function healthCheckStatusText(check: ListedHealthCheck): string {
     const { label } = HEALTH_CHECK_STATUS_DISPLAY[check.status]
     if (!check.reason) {
