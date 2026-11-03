@@ -199,7 +199,6 @@ export const SettingsEnvironmentErrorTracking: Story = {
                     per_issue_rate_limit_value: null,
                     per_issue_rate_limit_bucket_size_minutes: null,
                     ingestion_enabled: true,
-                    linear_status_sync_enabled: false,
                 },
             },
         }),
