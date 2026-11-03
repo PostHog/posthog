@@ -14026,6 +14026,22 @@ snapshots:
         hash: v1.k794b7964.d2a3ac80bc595c41015ae9618ba546c8d809578894bc04d89b172e33e53b3b9f.qbyifaSmWrRx2hMDaS-IaEgheGNnbCHyJB7_EUrs0m0
     scenes-app-mcp-analytics--activity--light:
         hash: v1.k794b7964.c04cc27b140152a363fb6e789aabcb4b4453d4798ca8fe81c460be84b1284ab5.HzUuZj5kOugUnIrnPIlW9GVDNLORwJWXcs9Le_FM9Ow
+    scenes-app-mcp-analytics--activity-weekly-report-offer--dark:
+        hash: v1.k794b7964.015d41d53e1e8a466f1298fbf4650bf693c8cf4a032881ef88e5ac26f27a4acf.Ap1TLeW53SN53WtDCXBqV7RKiqk8sSYJTWOa_JPqWTE
+    scenes-app-mcp-analytics--activity-weekly-report-offer--light:
+        hash: v1.k794b7964.c2a31ef509fca27a5b553a75be3b0513563a2120bceac7fe0fe5183628d536d0.3bg1-20HvCvb3wYelRjuOtNmaNBbvD8L3vyEC7c2MvM
+    scenes-app-mcp-analytics--activity-weekly-report-offer-failed--dark:
+        hash: v1.k794b7964.9e931d7beb03f0369c1cfcff95292acd3afaeb1a6b7461644188041bf8a53405.q7_gUO4HHpIOGMhJQfNMTIQPKu9QBeOnjKrUMoN5EiM
+    scenes-app-mcp-analytics--activity-weekly-report-offer-failed--light:
+        hash: v1.k794b7964.f87c7f7ed986ceeb889147d6995fbf0b09d7723c7623e2303d367d6ab292a5cc.oQ58OGokdXnymMViiDfdzR8S-K0NJhxesoPLcnmnBkQ
+    scenes-app-mcp-analytics--activity-weekly-report-offer-narrow--dark:
+        hash: v1.k794b7964.58f914c4e06a5dc7a4ff15d2d5d7275422eda120054ad8acd2022ac5c9e52740.MepuCgXQOk1feYUH4PNgdD5tvqoGu1lqAIDEyPA6PLY
+    scenes-app-mcp-analytics--activity-weekly-report-offer-narrow--light:
+        hash: v1.k794b7964.658fa4dc8524b276a16f818adb63791012f6d8868a7bec2e8f8214202b775a9b.axbru-R97XHtl3u-i8RhkXLPQx33wWyk0rADnPhcxu8
+    scenes-app-mcp-analytics--activity-weekly-report-offer-needs-consent--dark:
+        hash: v1.k794b7964.83e185e1e11ee68625fd8d44f54097ff5567e32fb9a2d76f87b92f9aa5e6b4e9.pTLGthRIF3-gSVAuijDIo7ItzG_jTIwGQcikpAWhg08
+    scenes-app-mcp-analytics--activity-weekly-report-offer-needs-consent--light:
+        hash: v1.k794b7964.2daa5ec0a27c8907f8184097aaf3c126c314dde8c3fa8da8f8c37d26ade16848.L5-MBfozdbWrV8D23tlz_FW618NAzE5xiGvHtgFRTe8
     scenes-app-mcp-analytics--dashboard--medium--dark:
         hash: v1.k794b7964.dd7d59b4a53412ddfa4d33b8752189a73ac5567ba08076d4421081564f7f182b.HVcCDSxVMKWB4PP8x3x9ffFtOwVpQlMSHQky7E23wjY
     scenes-app-mcp-analytics--dashboard--medium--light:
