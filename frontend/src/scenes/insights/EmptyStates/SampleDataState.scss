@@ -78,6 +78,19 @@
     }
 }
 
+// The cells reuse the real table's renderers, so links, avatars and icons bring their own colors.
+// Muting them keeps invented rows from reading as real data. `!important` beats the table's own link
+// rules (for example `.LemonTable a.Link`), because the card renders inside the table. Avatars keep
+// their own text color, so their initials stay readable on the grayscale background.
+.SampleDataState__cell {
+    filter: grayscale(1);
+
+    &,
+    *:not(.ProfilePicture, .ProfilePicture *) {
+        color: inherit !important;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .SampleDataState__viz,
     .SampleDataState__chart,

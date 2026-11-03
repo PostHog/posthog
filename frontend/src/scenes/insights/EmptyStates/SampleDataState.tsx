@@ -115,7 +115,7 @@ function SampleTable({ table }: { table?: SampleTableContent }): JSX.Element {
                 >
                     {table
                         ? cells.map((value, cellIndex) => (
-                              <div key={cellIndex} className="flex-1 min-w-0 truncate">
+                              <div key={cellIndex} className="SampleDataState__cell flex-1 min-w-0 truncate">
                                   {value ?? <div className="SampleDataState__row-cell w-16 max-w-full" />}
                               </div>
                           ))
