@@ -10,12 +10,13 @@ use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::refs::UrlAsset;
 use replay_core_v4::scan::message::read_message;
 use replay_core_v4::seal::image_url_key;
+use replay_core_v4::url_policy::without_credentials;
 use replay_recorder_v4::batch::{Block, Origin, SessionKey, Tp};
 use replay_recorder_v4::urls::url_reference;
 use replay_recorder_v4::write::{write_block, WriterCounts};
 use serde_json::{json, Value};
 
-/// The query value of every refused URL. No other part of a generated page holds it.
+/// The credential of every refused URL, in its query, userinfo, fragment or path. No other part of a page holds it.
 const SECRET: &str = "pbtsecret";
 /// The host label of every accepted URL. No other part of a generated page holds it.
 const ACCEPTED: &str = "pbt-ok";
@@ -27,7 +28,14 @@ const HOSTS: &[&str] = &[
     "CDN.Example.COM",
     "bucket.s3.amazonaws.com",
 ];
-const REFUSALS: &[&str] = &["?token=", "?X-Amz-Signature=", "?sig="];
+/// Where a refused URL holds its credential, after its path.
+const REFUSALS: &[&str] = &[
+    "?token=",
+    "?X-Amz-Signature=",
+    "?sig=",
+    "#access_token=",
+    ";jsessionid=",
+];
 
 /// Past the 1,024 levels of JSON that the inspector reads, as each node takes two.
 const DEEP_NODES: usize = 600;
@@ -46,6 +54,11 @@ enum Slot {
     StyleObjectChange,
     StyleText,
     PictureSource,
+    Href,
+    FormAction,
+    DataSrc,
+    Filter,
+    Import,
 }
 
 const SLOTS: &[Slot] = &[
@@ -65,16 +78,44 @@ const SLOTS: &[Slot] = &[
     Slot::StyleObjectChange,
     Slot::StyleText,
     Slot::PictureSource,
+    Slot::Href,
+    Slot::FormAction,
+    Slot::DataSrc,
+    Slot::Filter,
+    Slot::Import,
 ];
 
 impl Slot {
     fn is_css(self) -> bool {
-        !matches!(self, Slot::ImgSrc | Slot::Srcset | Slot::PictureSource)
+        !matches!(
+            self,
+            Slot::ImgSrc
+                | Slot::Srcset
+                | Slot::PictureSource
+                | Slot::Href
+                | Slot::FormAction
+                | Slot::DataSrc
+        )
+    }
+
+    fn is_html_url(self) -> bool {
+        matches!(
+            self,
+            Slot::ImgSrc | Slot::Href | Slot::FormAction | Slot::DataSrc
+        )
+    }
+
+    /// No fetch takes the URL, so the block keeps it without its credentials, and with no reference.
+    fn is_link(self) -> bool {
+        matches!(
+            self,
+            Slot::Href | Slot::FormAction | Slot::DataSrc | Slot::Filter | Slot::Import
+        )
     }
 
     /// The bundled font's reference names no URL.
     fn names_its_url(self) -> bool {
-        self != Slot::FontFace("Roboto")
+        !self.is_link() && self != Slot::FontFace("Roboto")
     }
 
     /// A set keeps its candidate as the page wrote it, so it cannot keep an escaped one, or one that another image function holds.
@@ -107,25 +148,44 @@ fn draw_index(tc: &TestCase, len: usize) -> usize {
 }
 
 fn draw_url(tc: &TestCase, index: usize, refused: bool) -> String {
-    let host = if refused {
-        HOSTS[draw_index(tc, HOSTS.len())].to_owned()
-    } else {
-        format!("{ACCEPTED}-{index}.example.com")
-    };
     let path = ["a.png", "img/b.png", "f.woff2"][draw_index(tc, 3)];
     let scheme = ["https://", "//"][draw_index(tc, 2)];
-    let query = if refused {
-        format!("{}{SECRET}", REFUSALS[draw_index(tc, REFUSALS.len())])
-    } else {
-        String::new()
-    };
-    format!("{scheme}{host}/{path}{query}")
+    if !refused {
+        return format!("{scheme}{ACCEPTED}-{index}.example.com/{path}");
+    }
+    let host = HOSTS[draw_index(tc, HOSTS.len())];
+    match draw_index(tc, 4) {
+        0 => format!(
+            "/{path}{}{SECRET}",
+            REFUSALS[draw_index(tc, REFUSALS.len())]
+        ),
+        1 => format!("{scheme}u:{SECRET}@{host}/{path}"),
+        _ => format!(
+            "{scheme}{host}/{path}{}{SECRET}",
+            REFUSALS[draw_index(tc, REFUSALS.len())]
+        ),
+    }
+}
+
+/// The bytes of `url` that a spelling must leave alone, so that the secret stays readable as plain text.
+fn secret_range(url: &str) -> std::ops::Range<usize> {
+    url.find(SECRET).map_or(0..0, |at| at..at + SECRET.len())
 }
 
 /// `url` as the URL parser reads it the same: the scheme and host in any letter case, the default port, a dot segment in the path, or the first letter of the host percent-encoded.
 fn parsed_alike(tc: &TestCase, url: &str) -> String {
-    let (scheme, rest) = url.split_once("//").unwrap();
-    let (host, path) = rest.split_once('/').unwrap();
+    let Some((scheme, rest)) = url.split_once("//") else {
+        return url.to_owned();
+    };
+    let (authority, path) = rest.split_once('/').unwrap();
+    let (userinfo, host) = authority
+        .rsplit_once('@')
+        .map_or(("", authority), |(userinfo, host)| (userinfo, host));
+    let userinfo = if userinfo.is_empty() {
+        String::new()
+    } else {
+        format!("{userinfo}@")
+    };
     let scheme = if scheme.is_empty() {
         ""
     } else {
@@ -152,15 +212,18 @@ fn parsed_alike(tc: &TestCase, url: &str) -> String {
     }
     let port = if draw_index(tc, 4) == 0 { ":443" } else { "" };
     let dots = ["", "", "./", "x/../"][draw_index(tc, 4)];
-    format!("{scheme}//{host}{port}/{dots}{path}")
+    format!("{scheme}//{userinfo}{host}{port}/{dots}{path}")
 }
 
 /// `url` with CSS escapes in the part before its query, so the secret stays readable as plain text.
 fn css_escaped(tc: &TestCase, url: &str) -> String {
     let query_at = url.find('?').unwrap_or(url.len());
+    let secret = secret_range(url);
     let mut out = String::new();
     for (at, ch) in url.char_indices() {
-        let escape = at < query_at && tc.draw(gs::integers::<u8>().min_value(0).max_value(5)) == 0;
+        let escape = at < query_at
+            && !secret.contains(&at)
+            && tc.draw(gs::integers::<u8>().min_value(0).max_value(5)) == 0;
         if !escape {
             out.push(ch);
             continue;
@@ -187,7 +250,8 @@ fn html_spelled(tc: &TestCase, url: &str) -> String {
     let query_at = out.find('?').unwrap_or(out.len());
     for _ in 0..draw_index(tc, 3) {
         let at = draw_index(tc, query_at);
-        if out.is_char_boundary(at) {
+        let secret = secret_range(&out);
+        if out.is_char_boundary(at) && !(secret.start < at && at < secret.end) {
             out.insert(at, ['\t', '\n'][draw_index(tc, 2)]);
         }
     }
@@ -222,7 +286,7 @@ fn draw_spelling(tc: &TestCase, slot: Slot, url: &str) -> (String, String) {
     let css_escapes = slot.is_css() && tc.draw(gs::booleans());
     if css_escapes {
         spelled = css_escaped(tc, &spelled);
-    } else if slot == Slot::ImgSrc && tc.draw(gs::booleans()) {
+    } else if slot.is_html_url() && tc.draw(gs::booleans()) {
         spelled = html_spelled(tc, &spelled);
     }
     let written = with_stripped_ends(tc, slot, &spelled);
@@ -238,9 +302,11 @@ fn draw_spelling(tc: &TestCase, slot: Slot, url: &str) -> (String, String) {
 
 /// `url` as the URL parser writes it, which is what a script reads back from a slot.
 fn serialized(url: &str) -> String {
-    let (_, rest) = url.split_once("//").unwrap();
-    let (host, tail) = rest.split_once('/').unwrap();
-    format!("https://{}/{tail}", host.to_ascii_lowercase())
+    let Some((_, rest)) = url.split_once("//") else {
+        return format!("https://app.example.com{url}");
+    };
+    let (authority, tail) = rest.split_once('/').unwrap();
+    format!("https://{}/{tail}", authority.to_ascii_lowercase())
 }
 
 /// The CSS `url()` of `written`, quoted or not, under any spelling of its name. A comment can follow a quoted string.
@@ -430,6 +496,19 @@ fn events(tc: &TestCase, placed: &[Placed], shape: Shape) -> String {
                 incremental.push(mutation(json!({"texts": [{"id": id,
                     "value": format!(".t{{background:{}}}", function())}]})));
             }
+            Slot::Href => added.push(element(&mut id, "a", json!({"href": written}))),
+            Slot::FormAction => added.push(element(&mut id, "form", json!({"action": written}))),
+            Slot::DataSrc => added.push(element(&mut id, "img", json!({"data-src": written}))),
+            Slot::Filter => added.push(element(
+                &mut id,
+                "div",
+                json!({"style": format!("filter:{}", function())}),
+            )),
+            Slot::Import => added.push(element(
+                &mut id,
+                "style",
+                json!({"_cssText": format!("@import {};", function())}),
+            )),
             Slot::PictureSource => {
                 known.push(element(&mut id, "picture", json!({})));
                 let parent = id;
@@ -536,7 +615,6 @@ fn block_of(events: &str) -> Option<Block> {
         font_urls: found.font_urls,
         url_limit: found.url_limit,
         edits: found.edits,
-        declined: found.declined,
         unplaced: found.unplaced,
         visited_urls: Vec::new(),
         captured_at_ms: None,
@@ -579,12 +657,19 @@ struct Page {
 fn draw_page(tc: &TestCase) -> Page {
     let refused = tc.draw(gs::integers::<usize>().min_value(0).max_value(3));
     let accepted = tc.draw(gs::integers::<usize>().min_value(0).max_value(2));
+    // A link keeps an accepted URL as the page wrote it, so only an image slot takes one.
+    let image_slots: Vec<Slot> = SLOTS
+        .iter()
+        .copied()
+        .filter(|slot| !slot.is_link())
+        .collect();
     let placed: Vec<Placed> = (0..refused)
         .map(|index| (index, true))
         .chain((0..accepted).map(|index| (index, false)))
         .map(|(index, refused)| {
             let url = draw_url(tc, index, refused);
-            draw_placed(tc, SLOTS, url, refused)
+            let slots = if refused { SLOTS } else { &image_slots };
+            draw_placed(tc, slots, url, refused)
         })
         .collect();
     let shape = draw_shape(tc);
@@ -596,17 +681,52 @@ fn draw_page(tc: &TestCase) -> Page {
     }
 }
 
+/// v4 stores pages unscrubbed, so each copy of a URL outside a URL slot keeps its text, and a slot keeps no credential.
 #[hegel::test]
 #[ignore = "a search for bugs, run on demand"]
-fn a_stored_block_holds_no_refused_url(tc: TestCase) {
+fn a_stored_block_holds_a_credential_only_in_copies(tc: TestCase) {
     let page = draw_page(&tc);
-    if let Ok(lines) = stored(&tc, &page.events) {
-        assert!(
-            !decoded(&lines).contains(SECRET),
+    let Ok(lines) = stored(&tc, &page.events) else {
+        return;
+    };
+    let mut rest = decoded(&lines);
+    let mut copies: Vec<String> = page
+        .placed
+        .iter()
+        .flat_map(|placed| &placed.copies)
+        .map(|copy| json!(copy).to_string())
+        .collect();
+    copies.sort();
+    for copy in copies.chunk_by(|a, b| a == b) {
+        assert_eq!(
+            rest.matches(&copy[0]).count(),
+            copy.len(),
             "{}\n---\n{lines}",
             page.events
         );
+        rest = rest.replace(&copy[0], "");
     }
+    let rest = rest
+        .replace("\\t", "")
+        .replace("\\n", "")
+        .to_ascii_lowercase();
+    assert!(!rest.contains(SECRET), "{}\n---\n{lines}", page.events);
+}
+
+/// Every spelling of a refused URL that a browser loads holds a credential that the policy finds, and loses it.
+#[hegel::test]
+#[ignore = "a search for bugs, run on demand"]
+fn a_url_without_its_credentials_holds_no_secret(tc: TestCase) {
+    let url = draw_url(&tc, 0, true);
+    let (written, _) = draw_spelling(&tc, Slot::ImgSrc, &url);
+    let kept = without_credentials(&written).unwrap_or_else(|| panic!("{written:?}"));
+    assert!(
+        !kept
+            .replace(['\t', '\n'], "")
+            .to_ascii_lowercase()
+            .contains(SECRET),
+        "{written:?} => {kept:?}"
+    );
 }
 
 #[hegel::test]
