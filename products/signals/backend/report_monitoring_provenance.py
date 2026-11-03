@@ -18,6 +18,7 @@ from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.source_repository import _issue_repository
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery
+from products.tasks.backend.facade.repo_selection import filter_repository_candidates_for_sources
 
 if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
@@ -96,20 +97,16 @@ def _read_monitoring_source_references(team: Team, report_ids: set[str], remaini
     )
 
 
-def monitoring_repository_sources(team_id: int, signals: list[SignalData]) -> MonitoringRepositorySources | None:
-    pending = {
-        MonitoringUnresolvedSignalExtra.model_validate(signal.extra).report_id
-        for signal in signals
-        if signal.source_product == SignalSourceProduct.SIGNALS_CHECK
-        and signal.source_type == SignalSourceType.MONITORING_UNRESOLVED
-    }
-    if not pending:
-        return None
-    repositories = {repository for signal in signals if (repository := _issue_repository(signal))}
+def _resolve_monitoring_repository_sources(
+    team: Team, references: _MonitoringReferences
+) -> MonitoringRepositorySources:
+    if references.incomplete:
+        return MonitoringRepositorySources(repositories=references.repositories, require_private_destination=True)
+    pending = set(references.parents)
+    repositories = set(references.repositories)
     seen: set[str] = set()
-    private_required = False
-    team = Team.objects.get(id=team_id)
-    remaining_rows = 500
+    private_required: bool = False
+    remaining_rows = 500 - references.row_count
     for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
         frontier = pending - seen
         if not frontier:
@@ -121,7 +118,7 @@ def monitoring_repository_sources(team_id: int, signals: list[SignalData]) -> Mo
         available = {
             str(report_id)
             for report_id in SignalReport.objects.using("default")
-            .filter(team_id=team_id, id__in=frontier)
+            .filter(team_id=team.id, id__in=frontier)
             .values_list("id", flat=True)
         }
         private_required = private_required or available != frontier
@@ -129,7 +126,7 @@ def monitoring_repository_sources(team_id: int, signals: list[SignalData]) -> Mo
             break
         selections = (
             SignalReportArtefact.objects.using("default")
-            .filter(team_id=team_id, report_id__in=available, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            .filter(team_id=team.id, report_id__in=available, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
             .order_by("report_id", "-created_at", "-id")
             .distinct("report_id")
             .values_list("content", flat=True)
@@ -153,4 +150,40 @@ def monitoring_repository_sources(team_id: int, signals: list[SignalData]) -> Mo
         private_required = bool(pending - seen) or private_required
     return MonitoringRepositorySources(
         repositories=frozenset(repositories), require_private_destination=private_required or not repositories
+    )
+
+
+def monitoring_repository_sources(team_id: int, signals: list[SignalData]) -> MonitoringRepositorySources | None:
+    pending = {
+        MonitoringUnresolvedSignalExtra.model_validate(signal.extra).report_id
+        for signal in signals
+        if signal.source_product == SignalSourceProduct.SIGNALS_CHECK
+        and signal.source_type == SignalSourceType.MONITORING_UNRESOLVED
+    }
+    if not pending:
+        return None
+    return _resolve_monitoring_repository_sources(
+        Team.objects.get(id=team_id),
+        _MonitoringReferences(
+            repositories=frozenset(repository for signal in signals if (repository := _issue_repository(signal))),
+            parents=frozenset(pending),
+            origins=frozenset(),
+            row_count=0,
+            incomplete=False,
+        ),
+    )
+
+
+def monitoring_repository_allowed(
+    team_id: int, report_id: str, repository: str, *, signals: list[SignalData] | None = None
+) -> bool:
+    sources = monitoring_repository_sources(team_id, signals) if signals is not None else None
+    if sources is None:
+        team = Team.objects.get(id=team_id)
+        references = _read_monitoring_source_references(team, {report_id}, 500)
+        if not references.parents and not references.incomplete:
+            return True
+        sources = _resolve_monitoring_repository_sources(team, references)
+    return repository in filter_repository_candidates_for_sources(
+        team_id, [repository], sources.repositories, sources.require_private_destination
     )

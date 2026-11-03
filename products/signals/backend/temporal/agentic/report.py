@@ -71,7 +71,10 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
-from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
+from products.signals.backend.report_monitoring_provenance import (
+    monitoring_repository_allowed,
+    monitoring_repository_sources,
+)
 from products.signals.backend.report_monitoring_signals import (
     MONITORING_EVIDENCE_MAX_CHARS,
     MONITORING_EVIDENCE_MIN_CHARS,
@@ -828,6 +831,7 @@ async def _persist_agentic_report_artefacts(
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
     reviewer_selection_enabled: bool = False,
+    signals: list[SignalData] | None = None,
 ) -> None:
     reviewer_resolution = None
     reviewers_content: list[ReviewerContent] = []
@@ -929,16 +933,23 @@ async def _persist_agentic_report_artefacts(
             repository=repo_selection.repository,
         )
 
-    # Losing code access must not erase the target a reviewer already selected.
+    # Keep a reviewer's target after an access outage only while source privacy still permits it.
     previous = (
         await database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(report_id)
         if repo_selection.research_context and repo_selection.research_context.mode == "data_only"
         else None
     )
+    preserve_previous = (
+        previous is not None
+        and previous.repository is not None
+        and await database_sync_to_async(monitoring_repository_allowed, thread_sensitive=False)(
+            team_id, report_id, previous.repository, signals=signals
+        )
+    )
     artefacts = [
         *(
             []
-            if superseded_mid_run or (previous is not None and previous.repository is not None)
+            if superseded_mid_run or preserve_previous
             else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
@@ -1353,6 +1364,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 priority_judgment_id=priority_judgment_id,
                 reviewer_proposal=reviewer_proposal,
                 reviewer_selection_enabled=reviewer_selection_enabled,
+                signals=input.signals,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()

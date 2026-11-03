@@ -23,7 +23,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.models import Team
+from posthog.models import Integration, Team
 
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import (
@@ -38,7 +38,10 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalSpend,
 )
-from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
+from products.signals.backend.report_monitoring_provenance import (
+    monitoring_repository_allowed,
+    monitoring_repository_sources,
+)
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
@@ -388,6 +391,28 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
         assert sources is not None
         assert sources.repositories == (frozenset() if missing else frozenset({"example/private"}))
         assert sources.require_private_destination is missing
+        receiving = SignalReport.objects.create(team=self.team, status="ready")
+        self._emit_version(
+            document_id="receiving-monitoring",
+            report_id=str(receiving.id),
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            inserted_at=self.base,
+            extra=signal.extra,
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "public", "full_name": "example/public", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+        assert not monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public")
+        assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/private")
 
 
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):

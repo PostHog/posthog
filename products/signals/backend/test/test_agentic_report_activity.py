@@ -81,6 +81,7 @@ from products.signals.backend.temporal.agentic.report import (
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
+    _persist_agentic_report_artefacts,
     _resolve_report_metrics_payload,
     run_agentic_report_activity,
 )
@@ -715,6 +716,10 @@ async def test_select_repository_activity_reuses_previous_selection(
     previous = RepoSelectionResult(
         repository="EXAMPLE/PRIVATE" if private_origin and reused else "posthog/posthog", reason="Previously selected"
     )
+    report = await SignalReport.objects.acreate(team=ateam, status="in_progress")
+    await SignalReportArtefact.objects.acreate(
+        team=ateam, report=report, type="repo_selection", content=previous.model_dump_json()
+    )
     if connected:
         await Integration.objects.acreate(
             team=ateam,
@@ -722,8 +727,8 @@ async def test_select_repository_activity_reuses_previous_selection(
             integration_id="123",
             config={"installation_id": 123},
             repository_cache=[
-                {"full_name": "posthog/posthog", "private": False},
-                {"full_name": "example/private", "private": True},
+                {"id": 1, "name": "posthog", "full_name": "posthog/posthog", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
             ],
             repository_cache_updated_at=timezone.now(),
         )
@@ -768,7 +773,7 @@ async def test_select_repository_activity_reuses_previous_selection(
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
             SelectRepositoryInput(
-                team_id=ateam.id, report_id=str(uuid4()), signals=signals, github_optional=github_optional
+                team_id=ateam.id, report_id=str(report.id), signals=signals, github_optional=github_optional
             )
         )
 
@@ -778,6 +783,13 @@ async def test_select_repository_activity_reuses_previous_selection(
         assert result.repository is None
         assert ("No allowed destination" if private_origin else "No GitHub integration") in result.reason
     assert select_repo_called is (private_origin and not reused)
+
+    if private_origin and not reused and github_optional:
+        await _persist_agentic_report_artefacts(
+            ateam.id, str(report.id), _build_research_output(), result, signals=signals
+        )
+        latest = await SignalReportArtefact.objects.filter(report=report, type="repo_selection").alatest("created_at")
+        assert RepoSelectionResult.model_validate_json(latest.content).repository is None
 
 
 @pytest.mark.asyncio

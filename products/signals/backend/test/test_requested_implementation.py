@@ -4,8 +4,11 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.models import Integration
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -86,7 +89,21 @@ class TestRequestedImplementation(BaseTest):
             after_run_count=1,
         )
 
-    def test_resumes_existing_task_once_with_fresh_research(self) -> None:
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_resumes_existing_task_once_with_fresh_research(self, monitoring: bool, private_destination: bool) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "repo", "full_name": "example/repo", "private": private_destination},
+                {"id": 2, "name": "source", "full_name": "example/source", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+
         def fake_run_task(*args: object, **kwargs: object) -> SimpleNamespace:
             new_run = TaskRun.objects.create(
                 team=self.team,
@@ -104,7 +121,25 @@ class TestRequestedImplementation(BaseTest):
                 "products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False
             ) as free_trial_flag,
             patch.object(tasks_facade, "run_task", side_effect=fake_run_task) as run_task,
+            patch(
+                "products.signals.backend.report_monitoring_provenance.execute_hogql_query",
+                return_value=SimpleNamespace(
+                    results=[
+                        (str(self.report.id), "signals_check", "monitoring_unresolved", "", str(origin.id)),
+                        (str(origin.id), "github", "issue", "https://github.com/example/source/issues/1", ""),
+                    ]
+                    if monitoring
+                    else []
+                ),
+            ),
         ):
+            if monitoring and not private_destination:
+                with self.assertRaisesMessage(RequestedImplementationUnavailable, "source privacy"):
+                    start_requested_implementation(self.request())
+                run_task.assert_not_called()
+                self.report.refresh_from_db()
+                assert self.report.implemented_at_run_count == 1
+                return
             new_run_id = start_requested_implementation(self.request())
             assert start_requested_implementation(self.request()) == "already_started"
 
