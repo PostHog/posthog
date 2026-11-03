@@ -42,3 +42,11 @@ def team_flag_explicitly_off(flag: str, team_id: int) -> bool:
     except Exception:
         logger.exception("error_tracking_flag_check_failed", flag=flag, team_id=team_id)
         return False
+
+
+def team_flag_payload(flag: str, team_id: int) -> object:
+    try:
+        return posthoganalytics.get_feature_flag_payload(flag, str(team_id), **_project_flag_options(team_id))
+    except Exception:
+        logger.exception("error_tracking_flag_payload_failed", flag=flag, team_id=team_id)
+        return None

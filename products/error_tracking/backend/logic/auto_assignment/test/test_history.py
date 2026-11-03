@@ -1,0 +1,142 @@
+from datetime import timedelta
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock
+
+from django.test import SimpleTestCase
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.clickhouse.client import sync_execute
+
+from products.error_tracking.backend.logic.auto_assignment.base import Assignee
+from products.error_tracking.backend.logic.auto_assignment.evidence import (
+    IssueEmbedding,
+    IssueEvidence,
+    SimilarAssignedIssue,
+    SimilarIssueLookup,
+)
+from products.error_tracking.backend.logic.auto_assignment.gate import AutoAssignmentConfig, HistoryConfig
+from products.error_tracking.backend.logic.auto_assignment.history import HistoryVote
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
+
+ALICE = Assignee(type="user", id="1")
+BOB = Assignee(type="user", id="2")
+CONFIG = AutoAssignmentConfig(history=HistoryConfig(top_k=3, max_distance=0.2, min_confidence=0.66))
+MODEL = "text-embedding-3-small-1536"
+
+
+def _evidence(*matches: tuple[Assignee, float]) -> MagicMock:
+    evidence = MagicMock()
+    evidence.similar_assigned_issues = SimilarIssueLookup(
+        issues=tuple(
+            SimilarAssignedIssue(issue_id=f"issue-{i}", assignee=assignee, distance=distance)
+            for i, (assignee, distance) in enumerate(matches)
+        ),
+        searched_fingerprints=len(matches),
+        duration_ms=1.0,
+    )
+    return evidence
+
+
+class TestHistoryVote(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("agree", [(ALICE, 0.05), (ALICE, 0.1), (BOB, 0.12)], ALICE, 2 / 3, ("issue-0", "issue-1")),
+            (
+                "disagree_nearest_wins_tie",
+                [(BOB, 0.05), (ALICE, 0.1), (Assignee(type="role", id="r"), 0.12)],
+                BOB,
+                1 / 3,
+                ("issue-0",),
+            ),
+            ("far_matches_do_not_vote", [(ALICE, 0.05), (BOB, 0.3), (BOB, 0.4)], ALICE, 1 / 3, ("issue-0",)),
+            (
+                "only_top_k_vote",
+                [(ALICE, 0.01), (ALICE, 0.02), (BOB, 0.03), (BOB, 0.04), (BOB, 0.05)],
+                ALICE,
+                2 / 3,
+                ("issue-0", "issue-1"),
+            ),
+        ]
+    )
+    def test_vote(
+        self,
+        _name: str,
+        matches: list[tuple[Assignee, float]],
+        assignee: Assignee,
+        confidence: float,
+        similar_issue_ids: tuple[str, ...],
+    ) -> None:
+        candidate = HistoryVote().propose(_evidence(*matches), CONFIG)
+
+        assert candidate is not None
+        assert candidate.assignee == assignee
+        assert candidate.confidence == confidence
+        assert candidate.evidence.similar_issue_ids == similar_issue_ids
+
+    @parameterized.expand(
+        [
+            ("no_history", ()),
+            ("all_below_similarity_threshold", ((ALICE, 0.3), (ALICE, 0.4))),
+        ]
+    )
+    def test_no_candidate(self, _name: str, matches: tuple[tuple[Assignee, float], ...]) -> None:
+        assert HistoryVote().propose(_evidence(*matches), CONFIG) is None
+
+    def test_no_embedding_means_no_candidate(self) -> None:
+        evidence = MagicMock(similar_assigned_issues=None)
+
+        assert HistoryVote().propose(evidence, CONFIG) is None
+
+
+def _vector(*values: float) -> list[float]:
+    return [*values, *([0.0] * (1536 - len(values)))]
+
+
+class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
+    def _issue(self, fingerprint: str, vector: list[float], *, assigned: bool = True) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name=fingerprint)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        if assigned:
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+        now = timezone.now()
+        sync_execute(
+            """
+            INSERT INTO distributed_posthog_document_embeddings_text_embedding_3_small_1536 (
+                team_id, product, document_type, rendering, document_id, timestamp, inserted_at,
+                content, metadata, embedding, _timestamp, _offset, _partition
+            ) VALUES
+            """,
+            [(self.team.id, "error_tracking", "fingerprint", "r", fingerprint, now, now, "", "{}", vector, now, 0, 0)],
+            flush=True,
+            team_id=self.team.pk,
+        )
+        return issue
+
+    def test_returns_assigned_past_issues_nearest_first(self) -> None:
+        near = self._issue("near", _vector(1.0, 0.1))
+        far = self._issue("far", _vector(1.0, 1.0))
+        self._issue("unassigned", _vector(1.0), assigned=False)
+        late = self._issue("assigned-later", _vector(1.0))
+        target = self._issue("target", _vector(1.0))
+        created_at = timezone.now() + timedelta(minutes=1)
+        ErrorTrackingIssueAssignment.objects.filter(issue=late).update(created_at=created_at + timedelta(hours=1))
+
+        evidence = IssueEvidence(
+            team=self.team,
+            issue_id=str(target.id),
+            created_at=created_at,
+            embedding=IssueEmbedding(model_name=MODEL, rendering="r", vector=tuple(_vector(1.0))),
+        )
+        lookup = evidence.similar_assigned_issues
+
+        assert lookup is not None
+        assert [issue.issue_id for issue in lookup.issues] == [str(near.id), str(far.id)]
+        assert lookup.issues[0].assignee == Assignee(type="user", id=str(self.user.id))
+        assert evidence.similar_issue_lookup_ms == lookup.duration_ms
