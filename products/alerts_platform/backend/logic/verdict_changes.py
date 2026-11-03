@@ -51,6 +51,7 @@ def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliv
         previous_state=alert.state,
         state=alert.state,
         episode_started_at=change.episode_started_at,
+        labels=alert.labels,
         consecutive_failures=configuration.consecutive_failures,
         now=now,
         source_detail=change.source_detail,

@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -176,3 +179,22 @@ class TestRecordVerdictChange(ClickhouseTestMixin, APIBaseTest):
                 ),
                 now=FIRING_AT + timedelta(minutes=20),
             )
+
+
+class TestVerdictChangeKey(SimpleTestCase):
+    def test_each_group_gets_a_key_that_fits_a_thread(self) -> None:
+        def key(grouping_key: str) -> str:
+            return VerdictChange(
+                team_id=1,
+                configuration_id=uuid4(),
+                firing_evaluation_key=FIRING_KEY,
+                episode_started_at=FIRING_AT,
+                firing_event_id=FIRING_EVENT,
+                grouping_key=grouping_key,
+            ).evaluation_key
+
+        longest = key("a" * 255)
+
+        assert len(longest) <= 255
+        assert longest != key("a" * 254 + "b")
+        assert key("") == f"{FIRING_KEY}#verdict"
