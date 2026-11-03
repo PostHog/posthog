@@ -150,7 +150,6 @@ export function MaterializationStatusPanel({
         syncFrequencyDraft,
         savingMaterialization,
         cadencePin,
-        keepingUpstreamId,
         nodeFrequency,
         nodeFrequencyLoading,
     } = useValues(jobsLogic)
@@ -164,7 +163,6 @@ export function MaterializationStatusPanel({
         setIncrementalDraft,
         setSyncFrequencyDraft,
         setPinDraft,
-        keepUpstreamAtOwnSetting,
     } = useActions(jobsLogic)
 
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
@@ -311,8 +309,6 @@ export function MaterializationStatusPanel({
                                             }
                                             pin={cadencePin}
                                             onUnpin={() => setPinDraft(false)}
-                                            onKeepUpstream={keepUpstreamAtOwnSetting}
-                                            keepingUpstreamId={keepingUpstreamId}
                                         />
                                     ) : null}
                                     {showRunActions && (

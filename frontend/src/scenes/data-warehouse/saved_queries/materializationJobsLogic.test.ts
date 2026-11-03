@@ -4,8 +4,6 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -822,33 +820,6 @@ describe('materializationJobsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pinDraft).toBeNull()
             expect(logic.values.hasMaterializationChanges).toBe(false)
-        })
-
-        it.each([
-            [200, []],
-            [
-                400,
-                [
-                    [
-                        "Couldn't keep upstream view org_universe at its own setting. Pick how often this view refreshes before pinning it.",
-                    ],
-                ],
-            ],
-        ])('keeps an upstream view at its own setting (%s)', async (status, expectedErrorCalls) => {
-            const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
-            useMocks(pinMocks({ pinned: false, patchStatus: status }))
-            logic = materializationJobsLogic({ viewId: 'view-1' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
-
-            logic.actions.keepUpstreamAtOwnSetting(orgUniverse)
-            expect(logic.values.keepingUpstreamId).toBe('up-node')
-            await expectLogic(logic).toDispatchActions(['finishKeepingUpstream']).toFinishAllListeners()
-
-            expect(nodePatches).toEqual([{ id: 'up-node', body: { pinned: true } }])
-            expect(logic.values.keepingUpstreamId).toBeNull()
-            expect(toastError.mock.calls).toEqual(expectedErrorCalls)
-            toastError.mockRestore()
         })
     })
     it.each(['Running', 'Completed'])(

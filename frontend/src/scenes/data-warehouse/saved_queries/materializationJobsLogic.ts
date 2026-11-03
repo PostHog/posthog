@@ -37,7 +37,6 @@ import { DataModelingJobsListEngine } from 'products/data_warehouse/frontend/gen
 import type {
     DataModelingJobApi,
     PaginatedDataModelingJobListApi,
-    SyncFrequencyBlockerApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import {
@@ -104,7 +103,6 @@ export interface materializationJobsLogicValues {
     jobsPage: number
     jobsPageResults: PaginatedDataModelingJobListApi | null
     jobsRefreshPending: boolean
-    keepingUpstreamId: string | null
     lastSuccessfulSyncAt: string | null
     latestCompletedJob: PaginatedDataModelingJobListApi | null
     latestCompletedJobLoading: boolean
@@ -187,14 +185,8 @@ export interface materializationJobsLogicActions {
     finishDeletingView: () => {
         value: true
     }
-    finishKeepingUpstream: () => {
-        value: true
-    }
     finishSavingMaterialization: () => {
         value: true
-    }
-    keepUpstreamAtOwnSetting: (view: SyncFrequencyBlockerApi) => {
-        view: SyncFrequencyBlockerApi
     }
     loadDataModelingJobs: (_: void) => void
     loadDataModelingJobsFailure: (
@@ -442,8 +434,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         setSyncFrequencyDraft: (frequency: SyncFrequencyValue) => ({ frequency }),
         clearSyncFrequencyDraft: true,
         setPinDraft: (pinned: boolean | null) => ({ pinned }),
-        keepUpstreamAtOwnSetting: (view: SyncFrequencyBlockerApi) => ({ view }),
-        finishKeepingUpstream: true,
         discardMaterializationChanges: true,
         saveMaterializationChanges: true,
         finishSavingMaterialization: true,
@@ -633,13 +623,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             {
                 setPinDraft: (_, { pinned }) => pinned,
                 discardMaterializationChanges: () => null,
-            },
-        ],
-        keepingUpstreamId: [
-            null as string | null,
-            {
-                keepUpstreamAtOwnSetting: (_, { view }) => view.id,
-                finishKeepingUpstream: () => null,
             },
         ],
         savingMaterialization: [
@@ -1062,19 +1045,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         updateDataWarehouseSavedQueryFailed: ({ viewId }) => {
             if (viewId === props.viewId) {
                 actions.finishSavingMaterialization()
-            }
-        },
-        keepUpstreamAtOwnSetting: async ({ view }) => {
-            try {
-                await dataModelingNodesPartialUpdate(String(ApiConfig.getCurrentProjectId()), view.id, {
-                    pinned: true,
-                })
-                lemonToast.success(`Upstream view ${view.name} now keeps its own setting.`)
-                actions.refreshMaterialization()
-            } catch (e) {
-                lemonToast.error(`Couldn't keep upstream view ${view.name} at its own setting. ${apiErrorDetail(e)}`)
-            } finally {
-                actions.finishKeepingUpstream()
             }
         },
         resumeMaterialization: async () => {

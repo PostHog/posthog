@@ -1,12 +1,12 @@
 import { IconInfo, IconPinFilled, IconRabbit, IconTortoise, IconX } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataModelingSyncInterval } from '~/types'
 
 import { NodePinDelayApi } from 'products/data_modeling/frontend/generated/api.schemas'
-import { SyncFrequencyBlockerApi, SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
 
@@ -91,8 +91,6 @@ export interface SyncFrequencySelectProps {
     pin?: CadencePin | null
     onUnpin?: () => void
     /** Pins an upstream view this cadence would speed up. Omit to hide the action. */
-    onKeepUpstream?: (view: SyncFrequencyBlockerApi) => void
-    keepingUpstreamId?: string | null
 }
 
 /**
@@ -110,14 +108,11 @@ export function SyncFrequencySelect({
     'data-attr': dataAttr,
     pin,
     onUnpin,
-    onKeepUpstream,
-    keepingUpstreamId,
 }: SyncFrequencySelectProps): JSX.Element {
     const unpinning = pin && !pin.pinned && pin.pending ? unpinnedCadence(pin.delaysBy, value) : null
     const inherited = pin?.pinned || unpinning ? null : inheritedCadence(bounds, value)
     const selected = unpinning?.cadence ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)
     const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
-    const upstreamToKeep = onKeepUpstream && value && value !== 'never' ? speedUpViews(bounds, value) : []
     const options = buildOptions(bounds, {
         canPin: !!pin,
         pinned: !!pin?.pinned,
@@ -201,29 +196,6 @@ export function SyncFrequencySelect({
                     <WithUpstreamRule text={selectedSpeedUp} />
                 </span>
             )}
-            {!loading && upstreamToKeep.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                    {upstreamToKeep.map((view) => (
-                        <LemonButton
-                            key={view.id}
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconPinFilled />}
-                            onClick={() => onKeepUpstream?.(view)}
-                            loading={keepingUpstreamId === view.id}
-                            disabledReason={
-                                keepingUpstreamId && keepingUpstreamId !== view.id
-                                    ? 'Pinning another upstream view.'
-                                    : undefined
-                            }
-                            tooltip={`Pins upstream view ${view.name} to its own setting, so it stops refreshing every ${CADENCE_LABELS[value as DataModelingSyncInterval]} for this view.`}
-                            data-attr="sync-frequency-keep-upstream"
-                        >
-                            Keep upstream view {view.name} at its own setting
-                        </LemonButton>
-                    ))}
-                </div>
-            )}
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
     )
@@ -252,15 +224,6 @@ export function speedUpWarning(
     return `${subject} also ${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} to keep up with this view.`
 }
 
-/** The upstream views a cadence speeds up that the caller can name, and so can pin. */
-export function speedUpViews(
-    bounds: SyncFrequencyBoundsApi | null | undefined,
-    cadence: DataModelingSyncInterval
-): SyncFrequencyBlockerApi[] {
-    return bounds?.options.find((option) => option.cadence === cadence)?.speeds_up ?? []
-}
-
-/** True when a cadence is refused only because a downstream view needs fresher data, which a pin allows. */
 export function unpinnedCadence(
     delaysBy: Partial<Record<string, { name: string }[]>>,
     value: SyncFrequencyValue | null
@@ -284,6 +247,7 @@ export function unpinnedCadence(
     }
 }
 
+/** True when a cadence is refused only because a downstream view needs fresher data, which a pin allows. */
 export function needsPin(bounds: SyncFrequencyBoundsApi | null | undefined, cadence: SyncFrequencyValue): boolean {
     const option = bounds?.options.find((candidate) => candidate.cadence === cadence)
     return !!option && !option.allowed && option.blocked_by === 'consumer'

@@ -9,7 +9,6 @@ import {
     pinNote,
     SyncFrequencyValue,
     unpinnedCadence,
-    speedUpViews,
     speedUpWarning,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
@@ -313,18 +312,6 @@ describe('SyncFrequencySelect', () => {
             ],
         ])('when %s', (_case, names, withheld, expected) => {
             expect(speedUpWarning(withSpeedsUp(names, withheld), '6hour')).toBe(expected)
-        })
-
-        it.each([
-            [
-                'names each slower upstream view it can pin',
-                ['org_universe', 'accounts'],
-                true,
-                ['id-org_universe', 'id-accounts'],
-            ],
-            ['offers nothing to pin when every view is withheld', [], true, []],
-        ])('%s', (_case, names, withheld, expectedIds) => {
-            expect(speedUpViews(withSpeedsUp(names, withheld), '6hour').map((view) => view.id)).toEqual(expectedIds)
         })
     })
 
