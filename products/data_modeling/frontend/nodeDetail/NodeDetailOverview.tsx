@@ -2,7 +2,12 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
-import { CADENCE_LABELS, modeDisabledReason } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
+import {
+    CADENCE_LABELS,
+    inheritedCadence,
+    modeDisabledReason,
+    SyncFrequencyValue,
+} from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
 import { DataModelingSyncInterval } from '~/types'
@@ -75,7 +80,14 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     // run stopped, not that this model stopped refreshing.
     const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
     const suspended = !!suspension
-    const cadence = savedQuery?.sync_frequency
+    // The saved setting is a lower bound: a downstream view can make this one run more often unless it is pinned.
+    const inherited = node.pinned
+        ? null
+        : inheritedCadence(
+              savedQuery?.sync_frequency_bounds,
+              (savedQuery?.sync_frequency as SyncFrequencyValue | undefined) ?? null
+          )
+    const cadence = inherited?.cadence ?? savedQuery?.sync_frequency
     const schedule = suspended
         ? 'Suspended after repeated failures'
         : node.type === 'endpoint'
