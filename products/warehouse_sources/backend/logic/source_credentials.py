@@ -179,7 +179,9 @@ class WarehouseSourceCredentialsStore:
         current = _fields_of(row.sensitive_config)
         # Each save of a source writes all its inputs again, so most writes change no field. Such a
         # write needs no confirmation, also when the row is shared.
-        if current is not None and same_connection_fields(current, fields):
+        if current is not None and same_connection_fields(
+            comparable_connection_fields(source_type, current), comparable_connection_fields(source_type, fields)
+        ):
             return IntegrationReference.from_legacy_id(pk)
         try:
             # A source whose inputs do not decode may use the row, so it blocks a delete. It does not make an
@@ -410,9 +412,27 @@ def same_connection_fields(first: Mapping[str, Any], second: Mapping[str, Any]) 
     return _set_values(first) == _set_values(second)
 
 
+def comparable_connection_fields(source_type: str, fields: Mapping[str, Any]) -> dict[str, Any]:
+    """The fields with each select branch in its container. A row written before a source moved its
+    fields into a select holds them at the top level, and they still name the same connection."""
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (  # noqa: PLC0415 — keeps the registry off the store import path
+        nest_flat_select_containers,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415 — as above
+        SourceRegistry,
+    )
+
+    source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    return nest_flat_select_containers(dict(fields), source.get_source_config.fields, source.flat_stored_selects)
+
+
 def _set_values(fields: Mapping[str, Any]) -> dict[str, Any]:
     # A parsed config writes its unset optional fields as None, so a missing key and an empty value match.
-    return {key: value for key, value in _normalized(fields).items() if value not in ("", {}, [])}
+    # The same holds inside a nested container, such as a select branch.
+    values = {
+        key: _set_values(value) if isinstance(value, Mapping) else value for key, value in _normalized(fields).items()
+    }
+    return {key: value for key, value in values.items() if value not in ("", {}, [])}
 
 
 def _fields_of(sensitive_config: Any) -> dict[str, Any] | None:
