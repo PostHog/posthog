@@ -135,7 +135,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const runtime: FakeRuntime = {
         env: options.env ?? {},
         platform: 'linux',
-        fromSource: false,
+        isDevelopment: false,
         stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,

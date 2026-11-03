@@ -90,11 +90,10 @@ async function startPending<Pending extends PendingApproval, Value>(
     flow: ApprovalFlow<Pending, Value>
 ): Promise<Pending> {
     const existing = await readPending<Pending>(runtime, flow.command)
-    const reusable =
-        existing !== undefined &&
-        existing.expiresAt - runtime.now() > REUSE_MARGIN_MS &&
-        flow.reuse?.(existing) === true
-    const pending = reusable ? existing : await flow.start()
+    if (existing && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS && flow.reuse?.(existing)) {
+        return existing
+    }
+    const pending = await flow.start()
     // The pending item can hold a secret, like a device code, so only its owner may read it.
     await runtime.writePrivateFile(pendingPath(runtime, flow.command), JSON.stringify(pending))
     return pending

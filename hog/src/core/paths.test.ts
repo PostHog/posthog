@@ -16,7 +16,7 @@ describe('hogDir', () => {
             'C:\\Users\\ana\\AppData\\Roaming\\hog',
             false,
         ],
-    ] as const)('%s', (_name, platform, env, expected, fromSource) => {
-        expect(hogDir({ platform, env, homeDir: () => '/Users/ana', fromSource })).toBe(expected)
+    ] as const)('%s', (_name, platform, env, expected, isDevelopment) => {
+        expect(hogDir({ platform, env, homeDir: () => '/Users/ana', isDevelopment })).toBe(expected)
     })
 })
