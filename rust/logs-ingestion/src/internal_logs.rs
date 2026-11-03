@@ -32,13 +32,22 @@ pub struct InternalLogs {
 }
 
 pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolicy> {
-    HashMap::from([(
-        "hog_flow".to_string(),
-        InternalSourcePolicy {
-            billed: false,
-            team_rules: false,
-        },
-    )])
+    HashMap::from([
+        (
+            "hog_flow".to_string(),
+            InternalSourcePolicy {
+                billed: false,
+                team_rules: false,
+            },
+        ),
+        (
+            "hog_function".to_string(),
+            InternalSourcePolicy {
+                billed: false,
+                team_rules: false,
+            },
+        ),
+    ])
 }
 
 fn is_valid_source(source: &str) -> bool {
