@@ -53,3 +53,14 @@ def render_routing_comment(*, decision: RoutingDecision, org: str) -> str | None
         lines.append(f"- `{handle}`: {_plain_reason(cut.reason)}")
     lines += ["", "If you were listed here and want to review, you can still assign yourself as a reviewer."]
     return "\n".join(lines)
+
+
+def render_approved_routing_comment() -> str:
+    """The comment for a head that stamphog approved, when owners of sensitive or new paths were requested."""
+    return "\n".join(
+        [
+            ROUTING_COMMENT_MARKER,
+            "Stamphog approved this pull request, so review requests went only to the owners of "
+            "sensitive or new paths. The other owners of the changed code were not requested.",
+        ]
+    )

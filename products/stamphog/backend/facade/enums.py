@@ -18,6 +18,16 @@ class ReviewMode(LabeledStrEnum):
     LABEL = "label", "Labeled pull requests"
 
 
+class RoutingMode(LabeledStrEnum):
+    """When reviewer routing requests the owners of the changed code."""
+
+    OFF = "off", "Off"
+    # Request owners when a pull request opens ready for review or is marked ready.
+    ALWAYS = "always", "Always"
+    # Request owners only when stamphog does not approve. An approval requests only pinned owners.
+    FALLBACK = "fallback", "When stamphog does not approve"
+
+
 class ReviewRunStatus(StrEnum):
     QUEUED = "queued"
     GATED = "gated"

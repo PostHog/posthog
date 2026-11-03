@@ -100,7 +100,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -1880,6 +1880,15 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
+    # Stamphog's own follow-up, called directly rather than registered, because registering it at
+    # app-ready would pull the task module onto the django.setup() path. It only queues a task.
+    queue_routing_after_verdict(
+        pull_request.repo_config,
+        pr_number=pull_request.pr_number,
+        head_sha=run.head_sha,
+        status=status,
+        verdict=ReviewVerdict(run.verdict),
+    )
 
 
 @activity.defn

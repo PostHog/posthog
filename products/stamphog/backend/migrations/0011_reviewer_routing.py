@@ -16,12 +16,17 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="routing_enabled",
-            field=models.BooleanField(db_default=False, default=False),
+            name="routing_mode",
+            field=models.CharField(
+                choices=[("off", "Off"), ("always", "Always"), ("fallback", "When stamphog does not approve")],
+                db_default="off",
+                default="off",
+                max_length=16,
+            ),
         ),
         migrations.AddField(
             model_name="stamphogrepoconfig",
-            name="routing_label_only_teams",
-            field=models.JSONField(db_default=[], default=list),
+            name="routing_fork_labels",
+            field=models.JSONField(db_default={}, default=dict),
         ),
     ]

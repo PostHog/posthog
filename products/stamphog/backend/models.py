@@ -23,6 +23,7 @@ from .facade.enums import (
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
+    RoutingMode,
 )
 
 
@@ -54,12 +55,17 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # The review sandbox's short-lived LLM gateway token is minted under this identity, mirroring how
     # tasks mints under task.created_by. Null means "never synced": hosted reviews fail closed.
     connected_by_user_id = models.BigIntegerField(null=True, blank=True)
-    # Opt-in: request reviews from the owners of the changed code when a PR opens or becomes ready.
-    # Independent of `enabled`, because routing never reads or waits for a verdict.
+    # When to request reviews from the owners of the changed code (logic/routing/service.py).
     # db_default on both: the previous release still inserts rows without these columns during a deploy.
-    routing_enabled = models.BooleanField(default=False, db_default=False)
-    # Team slugs that a fork PR labels instead of requesting, so an outside author cannot ping them.
-    routing_label_only_teams = models.JSONField(default=list, db_default=[])
+    routing_mode = models.CharField(
+        max_length=16,
+        choices=RoutingMode.choices,
+        default=RoutingMode.OFF.value,
+        db_default=RoutingMode.OFF.value,
+    )
+    # Team slug -> label name. A fork PR adds the label instead of requesting that team, so an
+    # outside author cannot ping it.
+    routing_fork_labels = models.JSONField(default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

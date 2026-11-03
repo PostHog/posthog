@@ -174,13 +174,30 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
 ## Reviewer routing
 
-A repository with `routing_enabled` gets review requests for every owner of the changed code when a PR opens ready for review or is marked ready (`backend/logic/routing/`, queued by its own webhook consumer).
+Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
 Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
 When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
 Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
-A comment names the cut owners and why. Fork PRs label the teams in `routing_label_only_teams` instead of requesting them.
-Routing is independent of the approval review: it never reads or waits for a verdict, and it routes bot and fork PRs too.
-The latest result is stored on `PullRequest.routing`, which also stops a retry or a redelivery for the same head and action from requesting anybody twice.
+A comment names the cut owners and why.
+
+`routing_mode` on the repo config decides when routing runs:
+
+- `off` (the default): never.
+- `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too.
+- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, bot or untrusted author, or label mode without the trigger label), routing runs at once, like `always`. Otherwise the head waits for the verdict:
+  - An approval requests only the pinned owners and says so in the comment. This happens once per PR.
+  - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there.
+  - Any other outcome (refused, escalate, gated, failed) routes in full.
+  - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
+  - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
+
+`routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
+
+There is no API or admin page for these settings yet. Set them with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_mode="fallback", routing_fork_labels={"team-alpha": "team/alpha"})`.
+
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`) and status (`waiting`, `routing`, `requested` or `done`).
+`full_routed_head` and `pinned_routed_head` (with their `_at` times) carry over to every later record, so the PR-level rules hold across pushes.
+The record stops a retry or a redelivery from requesting anybody twice, and a compare-and-swap claim stops a verdict and a safety net that fire together from both routing.
 
 ## How it runs
 
