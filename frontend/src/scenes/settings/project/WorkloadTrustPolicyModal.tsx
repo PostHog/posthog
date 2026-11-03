@@ -20,6 +20,7 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
         scopeSearchTerm,
         editingPolicy,
         editingProvider,
+        conditionFields,
         claimLabels,
     } = useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm, setConditionValue } =
@@ -85,7 +86,7 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                             <LemonInput />
                         </LemonField>
                     </div>
-                    {editingProvider && editingProvider.condition_claims.length > 0 ? (
+                    {conditionFields.length > 0 ? (
                         <LemonField
                             name="conditions"
                             label="Conditions"
@@ -93,11 +94,11 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                         >
                             {() => (
                                 <div className="flex flex-wrap gap-4 w-full">
-                                    {editingProvider.condition_claims.map((claim) => (
+                                    {conditionFields.map((claim) => (
                                         <LemonField.Pure
                                             key={claim.name}
                                             label={claim.label}
-                                            help={claim.help_text || undefined}
+                                            help={claim.helpText || undefined}
                                             className="flex-1 min-w-60"
                                         >
                                             <LemonInput
