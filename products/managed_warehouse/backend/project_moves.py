@@ -128,11 +128,12 @@ def undo(move: ProjectMoveOut) -> None:
     try:
         if not connection.in_atomic_block:
             connection.close_if_unusable_or_obsolete()  # a failed commit can leave it broken
-        organization = Project.objects.filter(pk=move.project_id).values_list("organization_id", flat=True)
+        in_old_org = Project.objects.filter(pk=move.project_id, organization_id=move.organization_id)
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute("SET LOCAL lock_timeout = '3s'")
-            committed = str(organization.select_for_update(no_key=True).get()) != move.organization_id
+            # A deleted project counts as moved: there is nothing to restore it into.
+            committed = not in_old_org.select_for_update(no_key=True).exists()
         if committed:  # its commit hooks may not have run, e.g. when the commit's acknowledgement was lost
             failed = []
             _after_commit(move.organization_id, [int(row["team_id"]) for row in move.rows])
@@ -141,7 +142,7 @@ def undo(move: ProjectMoveOut) -> None:
         failed = [row for row in move.rows if not _ok(_call("POST", move.organization_id, "/teams", row))]
         cp_teams.invalidate_org_cache(move.organization_id)
         # A concurrent move may have committed, and run its own repeat, before the rows went back.
-        if str(organization.get()) != move.organization_id:
+        if not in_old_org.exists():
             repeat_move_out(move.organization_id, [int(row["team_id"]) for row in move.rows])
     except Exception:
         logger.exception("Project move undo failed", organization_id=move.organization_id, project_id=move.project_id)

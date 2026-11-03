@@ -2271,7 +2271,8 @@ class ProjectViewSet(
             except Project.DoesNotExist:
                 raise exceptions.NotFound("Project not found.")
 
-            current_organization, target_organization = self._check_project_move(project, user, target_organization_id)
+            current_organization = project.organization
+            target_organization = self._check_project_move(project, user, target_organization_id)
 
             teams = list(project.teams.all())
             # Registers the warehouse removal's after-commit repeats first, so other commit hooks can't skip them.
@@ -2371,16 +2372,15 @@ class ProjectViewSet(
         )
 
     @staticmethod
-    def _check_project_move(
-        project: Project, user: User, target_organization_id: Any
-    ) -> tuple[Organization, Organization]:
-        """The move's permission and same-organization checks: once before it starts, again under its lock."""
-        current_organization = project.organization
+    def _check_project_move(project: Project, user: User, target_organization_id: Any) -> Organization:
+        """The move's permission and same-organization checks: once before it starts, again under its lock.
 
+        Returns the target organization.
+        """
         try:
             target_organization = Organization.objects.get(pk=target_organization_id)
             current_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=current_organization
+                user=user, organization=project.organization
             )
             target_organization_membership = OrganizationMembership.objects.get(
                 user=user, organization=target_organization
@@ -2401,7 +2401,7 @@ class ProjectViewSet(
         # comparing it to the UUID organization_id never matches and would let a same-org request through.
         if project.organization_id == target_organization.id:
             raise exceptions.ValidationError("Project is already in the target organization.")
-        return current_organization, target_organization
+        return target_organization
 
     @staticmethod
     def _reconcile_current_project_of_affected_users(teams: list[Team], target_organization: Organization) -> None:
