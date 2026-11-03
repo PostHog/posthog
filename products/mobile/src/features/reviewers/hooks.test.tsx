@@ -9,7 +9,7 @@ import { useSetReviewersAction } from './hooks'
 jest.mock('@/auth/useProjectScope', () => ({
     useProjectScope: () => ({ host: 'https://app.example.com', projectId: 2 }),
 }))
-jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
+jest.mock('@/lib/analytics', () => ({ ...jest.requireActual('@/lib/analytics'), track: jest.fn() }))
 
 describe('useSetReviewersAction', () => {
     beforeEach(() => {

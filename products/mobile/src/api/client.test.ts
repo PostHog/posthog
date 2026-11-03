@@ -1,3 +1,4 @@
+import { setAnalyticsClient } from '@/lib/analytics'
 import { isAppReloadBlocked } from '@/lib/appReload'
 
 import { BUDGETS, BudgetExceededError, resetBudgets } from './budget'
@@ -14,6 +15,12 @@ describe('api client send path', () => {
     beforeEach(() => {
         resetBudgets()
         resetServerClock()
+        setAnalyticsClient({
+            capture: jest.fn(),
+            identify: jest.fn(),
+            reset: jest.fn(),
+            getSessionId: () => 'example-mobile-session',
+        })
         setAuthProvider({
             getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
             refreshAccessToken: async () => null,
@@ -25,11 +32,14 @@ describe('api client send path', () => {
             text: async () => '{}',
         }))
         globalThis.fetch = fetchMock as unknown as typeof fetch
+        const { fetch: streamFetch } = jest.requireMock('expo/fetch') as { fetch: jest.Mock }
+        streamFetch.mockReset().mockImplementation((...args: Parameters<typeof fetch>) => globalThis.fetch(...args))
     })
 
     afterEach(() => {
         jest.useRealTimers()
         setAuthProvider(null)
+        setAnalyticsClient(null)
     })
 
     test('identifies mobile creation, continuation and permission answers on every task action', async () => {
@@ -62,10 +72,40 @@ describe('api client send path', () => {
             expect(init).toEqual(
                 expect.objectContaining({
                     method: 'POST',
-                    headers: expect.objectContaining({ 'X-PostHog-Client-Platform': 'mobile' }),
+                    headers: expect.objectContaining({
+                        'X-PostHog-Client-Platform': 'mobile',
+                        'X-Posthog-Session-Id': 'example-mobile-session',
+                        'X-PostHog-Client-Action-Id': expect.any(String),
+                        'User-Agent': expect.stringContaining('posthog/mobile.hog.dev'),
+                    }),
                 })
             )
         }
+        expect(fetchMock.mock.calls[2]?.[1].headers['X-PostHog-Client-Action-Id']).toBe('message-1')
+        expect(fetchMock.mock.calls[3]?.[1].headers['X-PostHog-Client-Action-Id']).toBe('answer-1')
+    })
+
+    test.each([
+        ['JSON', apiJson],
+        ['stream', apiStream],
+    ] as const)('%s retries keep the initiating session and action ID', async (_, send) => {
+        setAuthProvider({
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'old-token', projectId: 2, session: 1 }),
+            refreshAccessToken: async () => 'new-token',
+        })
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 401,
+            headers: { get: () => null },
+            text: async () => '{}',
+        })
+        await send('/api/projects/2/tasks/')
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        const first = fetchMock.mock.calls[0]?.[1].headers
+        const retry = fetchMock.mock.calls[1]?.[1].headers
+        expect(retry).toEqual({ ...first, Authorization: 'Bearer new-token' })
+        expect(retry['X-Posthog-Session-Id']).toBe('example-mobile-session')
+        expect(retry['X-PostHog-Client-Action-Id']).toEqual(expect.any(String))
     })
 
     test('keeps the server clock offset from the Date header', async () => {

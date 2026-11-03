@@ -11,7 +11,17 @@ export type ChartInterval = 'hour' | 'day' | 'week' | 'month'
 export type ChartVariant = 'compact' | 'inline' | 'fullscreen'
 
 /** Where a chart sits, for the `mobile_chart_*` events. */
-export type ChartTrackingContext = 'pin' | 'view' | 'fullscreen'
+export type ChartTrackingContext =
+    | 'pin'
+    | 'view'
+    | 'fullscreen'
+    | {
+          context: 'pin' | 'view' | 'fullscreen'
+          insight_id?: number | null
+          insight_short_id?: string
+          dashboard_id?: string | null
+          tile_id?: number
+      }
 
 /** `at` is the bucket start in epoch milliseconds, a plain number that worklets can read. `value` NaN = gap. */
 export interface ChartPoint {

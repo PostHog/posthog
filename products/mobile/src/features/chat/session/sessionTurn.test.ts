@@ -43,7 +43,18 @@ describe('SessionTurnTracker', () => {
         tracker.finish('abandoned')
 
         expect(capture.mock.calls).toEqual([
-            ['mobile_session_finished', { status, duration_s: 12, had_decision: true }],
+            [
+                'mobile_session_finished',
+                expect.objectContaining({
+                    status,
+                    duration_s: 12,
+                    had_decision: true,
+                    task_id: 'task-1',
+                    run_id: 'run-1',
+                    client_surface: 'mobile',
+                    client_action_id: expect.any(String),
+                }),
+            ],
         ])
     })
 })

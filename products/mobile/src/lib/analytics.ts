@@ -1,3 +1,5 @@
+import { randomUUID } from 'expo-crypto'
+
 export type AnalyticsEvent =
     | 'mobile_signed_in'
     | 'mobile_sign_in_started'
@@ -11,9 +13,6 @@ export type AnalyticsEvent =
     | 'mobile_demo_started'
     | 'mobile_demo_ended'
     | 'mobile_settings_opened'
-    | 'mobile_default_page_changed'
-    | 'mobile_default_page_defaulted'
-    | 'mobile_appearance_changed'
     | 'mobile_push_enable_pressed'
     | 'mobile_push_permission_resolved'
     | 'mobile_push_registration_finished'
@@ -28,12 +27,6 @@ export type AnalyticsEvent =
     | 'mobile_inbox_report_menu_opened'
     | 'mobile_inbox_report_menu_action'
     | 'mobile_inbox_page_requested'
-    | 'mobile_inbox_filters_opened'
-    | 'mobile_inbox_sort_changed'
-    | 'mobile_inbox_created_window_changed'
-    | 'mobile_inbox_source_filter_changed'
-    | 'mobile_inbox_filters_cleared'
-    | 'mobile_inbox_filtered_empty_shown'
     | 'mobile_inbox_report_swiped'
     | 'mobile_report_opened'
     | 'mobile_report_chart_scrubbed'
@@ -57,9 +50,6 @@ export type AnalyticsEvent =
     | 'mobile_report_action_pressed'
     | 'mobile_report_replay_opened'
     | 'mobile_report_read'
-    | 'mobile_report_details_opened'
-    | 'mobile_report_details_link_opened'
-    | 'mobile_report_details_read'
     | 'mobile_report_load_failed'
     | 'mobile_pull_request_opened'
     | 'mobile_external_handoff_opened'
@@ -94,11 +84,6 @@ export type AnalyticsEvent =
     | 'mobile_chat_mention_opened'
     | 'mobile_chat_report_attached'
     | 'mobile_chat_report_removed'
-    | 'mobile_chat_attach_menu_opened'
-    | 'mobile_chat_file_attached'
-    | 'mobile_chat_file_rejected'
-    | 'mobile_chat_file_removed'
-    | 'mobile_chat_file_upload_failed'
     | 'mobile_chat_options_opened'
     | 'mobile_chat_draft_restored'
     | 'mobile_chat_suggestion_picked'
@@ -122,8 +107,6 @@ export type AnalyticsEvent =
     | 'mobile_pins_reordered'
     | 'mobile_pin_display_changed'
     | 'mobile_pin_tile_chosen'
-    | 'mobile_pin_hint_shown'
-    | 'mobile_pin_hint_dismissed'
     | 'mobile_views_refreshed'
     | 'mobile_views_searched'
     | 'mobile_date_range_changed'
@@ -136,8 +119,6 @@ export type AnalyticsEvent =
     | 'mobile_views_reauth_shown'
     | 'mobile_browse_list_opened'
     | 'mobile_browse_list_paged'
-    | 'mobile_nav_pin_changed'
-    | 'mobile_nav_tab_web_opened'
     | 'mobile_edit_pins_opened'
     | 'mobile_edit_pins_closed'
     | 'mobile_pin_tile_sheet_opened'
@@ -146,6 +127,44 @@ export type AnalyticsEvent =
     | 'mobile_date_range_sheet_opened'
     | 'mobile_view_more_opened'
     | 'mobile_dashboard_tiles_shown'
+    | 'mobile_chat_created'
+    | 'mobile_chat_new_pressed'
+    | 'mobile_chat_link_copied'
+    | 'mobile_chat_link_copy_failed'
+    | 'mobile_notification_preference_changed'
+    | 'mobile_notification_preference_failed'
+    | 'mobile_chart_value_copied'
+    | 'mobile_chart_value_copy_failed'
+    | 'mobile_dashboard_link_opened'
+    | 'mobile_view_item_refreshed'
+    | 'mobile_view_retried'
+    | 'mobile_ai_org_rechecked'
+    | 'mobile_session_stop_failed'
+    | 'mobile_decision_failed'
+    | 'mobile_report_action_failed'
+    | 'mobile_push_destination_opened'
+    | 'mobile_link_launch_failed'
+    | 'mobile_default_page_changed'
+    | 'mobile_default_page_defaulted'
+    | 'mobile_appearance_changed'
+    | 'mobile_inbox_filters_opened'
+    | 'mobile_inbox_sort_changed'
+    | 'mobile_inbox_created_window_changed'
+    | 'mobile_inbox_source_filter_changed'
+    | 'mobile_inbox_filters_cleared'
+    | 'mobile_inbox_filtered_empty_shown'
+    | 'mobile_report_details_opened'
+    | 'mobile_report_details_link_opened'
+    | 'mobile_report_details_read'
+    | 'mobile_chat_attach_menu_opened'
+    | 'mobile_chat_file_attached'
+    | 'mobile_chat_file_rejected'
+    | 'mobile_chat_file_removed'
+    | 'mobile_chat_file_upload_failed'
+    | 'mobile_pin_hint_shown'
+    | 'mobile_pin_hint_dismissed'
+    | 'mobile_nav_pin_changed'
+    | 'mobile_nav_tab_web_opened'
     | 'mobile_errors_opened'
     | 'mobile_errors_refreshed'
     | 'mobile_errors_window_changed'
@@ -173,7 +192,42 @@ export type AnalyticsEvent =
     | 'mobile_replay_chat_opened'
     | 'mobile_replay_issue_opened'
 
-export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
+export type AnalyticsProperties = Record<
+    string,
+    string | number | boolean | null | undefined | string[] | Record<string, string>
+>
+
+interface AnalyticsContext {
+    identity: string | null
+    properties: AnalyticsProperties
+}
+
+let contextProvider: () => AnalyticsContext = () => ({ identity: null, properties: {} })
+let screenContext: AnalyticsProperties = {}
+
+export function setAnalyticsContextProvider(provider: () => AnalyticsContext): void {
+    contextProvider = provider
+}
+
+export function setAnalyticsScreenContext(properties: AnalyticsProperties): void {
+    screenContext = properties
+}
+
+export function setChatAnalyticsContext(taskId: string | null, runId: string | null): void {
+    if (screenContext.screen === 'chat') {
+        screenContext = { ...screenContext, task_id: taskId, run_id: runId }
+    }
+}
+
+export function analyticsContextProperties(): AnalyticsProperties {
+    const sessionId = analyticsSessionId()
+    return {
+        ...contextProvider().properties,
+        ...screenContext,
+        client_surface: 'mobile',
+        ...(sessionId ? { $session_id: sessionId } : {}),
+    }
+}
 
 export interface AnalyticsClient {
     capture: (event: AnalyticsEvent, properties?: AnalyticsProperties) => void
@@ -183,6 +237,7 @@ export interface AnalyticsClient {
     identify: (distinctId: string) => void
     /** Starts a new anonymous identity, so the next user on this device is not merged with the last. */
     reset: () => void
+    getSessionId?: () => string
 }
 
 let client: AnalyticsClient | null = null
@@ -198,13 +253,35 @@ export function setAnalyticsClient(next: AnalyticsClient | null): void {
     pending = []
     if (next) {
         for (const { event, properties } of queued) {
-            next.capture(event, properties)
+            track(event, properties)
         }
     }
 }
 
 export function track(event: AnalyticsEvent, properties?: AnalyticsProperties): void {
-    client?.capture(event, properties)
+    client?.capture(event, { ...analyticsContextProperties(), ...properties, client_surface: 'mobile' })
+}
+
+/** Retains the action's project and screen, and drops a late result after the account changes. */
+export interface ActionTracker {
+    (event: AnalyticsEvent, properties?: AnalyticsProperties): void
+    actionId: string
+}
+
+export function actionTracker(properties: AnalyticsProperties = {}): ActionTracker {
+    const identity = contextProvider().identity
+    const actionId = typeof properties.client_action_id === 'string' ? properties.client_action_id : randomUUID()
+    const context = { ...analyticsContextProperties(), ...properties, client_action_id: actionId }
+    const capture: typeof track = (event, detail) => {
+        if (contextProvider().identity === identity) {
+            client?.capture(event, { ...context, ...detail, client_surface: 'mobile' })
+        }
+    }
+    return Object.assign(capture, { actionId })
+}
+
+export function analyticsSessionId(): string | undefined {
+    return client?.getSessionId?.()
 }
 
 /**
@@ -213,14 +290,14 @@ export function track(event: AnalyticsEvent, properties?: AnalyticsProperties): 
  */
 export function trackWhenReady(event: AnalyticsEvent, properties?: AnalyticsProperties): void {
     if (client) {
-        client.capture(event, properties)
+        track(event, properties)
     } else if (pending.length < MAX_PENDING) {
         pending.push({ event, properties })
     }
 }
 
 export function trackScreen(name: string, properties?: AnalyticsProperties): void {
-    client?.screen?.(name, properties)
+    client?.screen?.(name, { ...analyticsContextProperties(), ...properties, client_surface: 'mobile' })
 }
 
 export function captureError(error: Error): void {

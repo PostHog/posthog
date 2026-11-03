@@ -1,6 +1,4 @@
-import { Linking } from 'react-native'
-
-import { track } from './analytics'
+import { openTrackedUrl } from './openTrackedUrl'
 
 export const PRIVACY_POLICY_URL = 'https://posthog.com/privacy'
 export const TERMS_URL = 'https://posthog.com/terms'
@@ -14,7 +12,6 @@ export function deleteAccountUrl(host: string): string {
 
 export type LegalLink = 'privacy' | 'terms' | 'support' | 'delete_account'
 
-export function openLegalLink(link: LegalLink, url: string, surface: 'sign_in' | 'settings'): void {
-    track('mobile_legal_link_opened', { link, surface })
-    Linking.openURL(url).catch(() => undefined)
+export function openLegalLink(link: LegalLink, url: string, surface: 'sign_in' | 'settings' | 'ai_consent'): void {
+    void openTrackedUrl(url, 'mobile_legal_link_opened', { link, surface })
 }

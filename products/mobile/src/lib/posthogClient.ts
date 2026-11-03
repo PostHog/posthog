@@ -1,19 +1,26 @@
 import PostHog from 'posthog-react-native'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useDemoMode } from '@/demo/demoMode'
 
-import { type AnalyticsProperties, setAnalyticsClient } from './analytics'
-import { appVariant, hostKind, updateChannel } from './environment'
+import {
+    type AnalyticsProperties,
+    analyticsContextProperties,
+    setAnalyticsClient,
+    setAnalyticsContextProvider,
+} from './analytics'
+import { deepLinkKind } from './deepLinkKind'
+import { appVariant, hostKind, updateChannel, updateId } from './environment'
 import { setFeatureFlags } from './featureFlags'
 
 const DEFAULT_HOST = 'https://us.i.posthog.com'
 
 function definedProperties(
     properties: AnalyticsProperties | undefined
-): Record<string, string | number | boolean | null> {
-    const result: Record<string, string | number | boolean | null> = {}
+): Record<string, Exclude<AnalyticsProperties[string], undefined>> {
+    const result: Record<string, Exclude<AnalyticsProperties[string], undefined>> = {}
     for (const [key, value] of Object.entries(properties ?? {})) {
         if (value !== undefined) {
             result[key] = value
@@ -29,20 +36,35 @@ function signedInProjectId(): number | null {
 
 // A self-hosted address can name a customer, so events carry only the kind of host, never the host itself.
 // `data_mode` is null until the persisted demo flag loads, because before that `enabled` is only the build default.
-function superProperties(): Record<string, string | number | null> {
-    const { host } = useAuthStore.getState()
+function superProperties(): AnalyticsProperties {
+    const { host, status, projectId, projects } = useAuthStore.getState()
     const demo = useDemoMode.getState().enabled
+    const project = status === 'signed_in' && !demo ? projects.find((item) => item.id === projectId) : undefined
     return {
+        client_surface: 'mobile',
+        client_os: Platform.OS,
         app_variant: appVariant,
         update_channel: updateChannel,
+        update_id: updateId,
         api_host_kind: host ? hostKind(host) : null,
         data_mode: useDemoMode.persist.hasHydrated() ? (demo ? 'demo' : 'live') : null,
-        project_id: signedInProjectId(),
+        project_id: project?.id ?? null,
+        organization_id: project?.organizationId ?? null,
+        $groups: project
+            ? { organization: project.organizationId, ...(project.uuid ? { project: project.uuid } : {}) }
+            : {},
     }
 }
 
 // Expo inlines `EXPO_PUBLIC_*` variables at build time, so they must be read as literal `process.env` members.
 export function initAnalytics(): void {
+    setAnalyticsContextProvider(() => ({
+        identity:
+            useAuthStore.getState().status === 'signed_in'
+                ? `${useAuthStore.getState().host}|${useAuthStore.getState().user?.uuid}|${sessionGeneration()}`
+                : null,
+        properties: superProperties(),
+    }))
     const apiKey = process.env.EXPO_PUBLIC_POSTHOG_KEY
     if (!apiKey) {
         return
@@ -51,17 +73,27 @@ export function initAnalytics(): void {
         host: process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
         captureAppLifecycleEvents: true,
         before_send: (event) => {
-            if (!event || event.event !== 'Application Opened') {
+            if (!event) {
                 return event
             }
-            // The SDK adds the launch URL, which can contain OAuth credentials or private object labels.
-            const properties = { ...event.properties }
-            delete properties.url
-            return { ...event, properties }
+            let properties = event.properties ?? {}
+            if (event.event === 'Application Opened') {
+                const { url: initialUrl, ...rest } = properties
+                properties = {
+                    ...rest,
+                    deep_link_kind: typeof initialUrl === 'string' ? deepLinkKind(initialUrl) : null,
+                }
+            }
+            const context = definedProperties(analyticsContextProperties())
+            event.properties =
+                event.event.startsWith('mobile_') || event.event === '$screen'
+                    ? { ...context, ...properties, client_surface: 'mobile' }
+                    : { ...properties, ...context, client_surface: 'mobile' }
+            return event
         },
     })
     const registerSuperProperties = (): void => {
-        void posthog.register(superProperties())
+        void posthog.register(definedProperties(superProperties()))
     }
     let flagContext: string | undefined
     let flagRequest = 0
@@ -128,6 +160,7 @@ export function initAnalytics(): void {
         screen: (name, properties) => void posthog.screen(name, definedProperties(properties)),
         captureError: (error) => posthog.captureException(error),
         identify: (distinctId) => posthog.identify(distinctId),
+        getSessionId: () => posthog.getSessionId(),
         reset: () => {
             posthog.reset()
             // reset() drops registered super properties and person properties for flags with the identity.

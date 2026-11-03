@@ -35,7 +35,7 @@ jest.mock('@/auth/useProjectScope', () => {
     const scope = { host: 'https://app.example.com', projectId: 2 }
     return { useProjectScope: () => scope }
 })
-jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
+jest.mock('@/lib/analytics', () => ({ ...jest.requireActual('@/lib/analytics'), track: jest.fn() }))
 
 const mockNavigate = jest.fn()
 const REPORT = reportFixture()
