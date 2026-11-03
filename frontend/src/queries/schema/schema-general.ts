@@ -202,6 +202,7 @@ export enum NodeKind {
     AccountsQuery = 'AccountsQuery',
     AccountsTableQuery = 'AccountsTableQuery',
     AccountUsersQuery = 'AccountUsersQuery',
+    AccountActivityMatrixQuery = 'AccountActivityMatrixQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -297,6 +298,7 @@ export type AnyDataNode =
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
+    | AccountActivityMatrixQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -431,6 +433,7 @@ export type QuerySchema =
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
+    | AccountActivityMatrixQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -3475,6 +3478,54 @@ export interface AccountUsersQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.AccountUsersQuery
     /** ID of the account whose users to list. */
     accountId: string
+}
+
+export interface AccountActivityMatrixRow {
+    key: string
+    label: string
+}
+
+export interface AccountActivityMatrixColumn {
+    key: string
+    partial: boolean
+}
+
+export interface AccountActivityMatrixSeries {
+    key: string
+    label: string
+}
+
+export interface AccountActivityMatrixCell {
+    row: string
+    column: string
+    series: string
+    value: number
+}
+
+export type AccountActivityMatrixEmptyReason = 'no_external_id' | 'no_group_type' | 'no_metrics'
+
+export interface AccountActivityMatrixResult {
+    rows: AccountActivityMatrixRow[]
+    columns: AccountActivityMatrixColumn[]
+    series: AccountActivityMatrixSeries[]
+    data: AccountActivityMatrixCell[]
+    truncated: boolean
+    skippedMetricIds: string[]
+    emptyReason?: AccountActivityMatrixEmptyReason
+}
+
+export interface AccountActivityMatrixQueryResponse extends AnalyticsQueryResponseBase {
+    results: AccountActivityMatrixResult
+}
+
+export type CachedAccountActivityMatrixQueryResponse = CachedQueryResponse<AccountActivityMatrixQueryResponse>
+
+export interface AccountActivityMatrixQuery extends DataNode<AccountActivityMatrixQueryResponse> {
+    kind: NodeKind.AccountActivityMatrixQuery
+    accountId: string
+    weeks?: integer
+    metricIds?: string[]
+    rowLimit?: integer
 }
 
 export interface TimelineEntry {

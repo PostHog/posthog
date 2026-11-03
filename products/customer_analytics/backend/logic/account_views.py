@@ -131,23 +131,31 @@ def validate_properties_widget_config(config: dict[str, Any]) -> list[str]:
     return []
 
 
+def _dot_matrix_key_list_errors(keys: object, label: str) -> list[str]:
+    if (
+        not isinstance(keys, list)
+        or len(keys) > 64
+        or any(not isinstance(key, str) or not 1 <= len(key) <= 128 for key in keys)
+    ):
+        return [f"Dot matrix config must contain up to 64 {label} of 1 to 128 characters."]
+    if len(set(keys)) != len(keys):
+        return [f"Dot matrix config cannot contain duplicate {label}."]
+    return []
+
+
 def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
-    if set(config).difference({"dataset", "mode", "selectedSeries"}):
+    if set(config).difference({"dataset", "mode", "selectedSeries", "weeks", "metricIds"}):
         return ["Dot matrix config has unsupported fields."]
     if config.get("dataset", "people") not in ("product_activity", "people", "ci"):
         return ["Dot matrix config has an unsupported dataset."]
     if config.get("mode", "dots") not in ("dots", "count"):
         return ["Dot matrix config has an unsupported display."]
-    selection = config.get("selectedSeries", [])
-    if (
-        not isinstance(selection, list)
-        or len(selection) > 64
-        or any(not isinstance(key, str) or not 1 <= len(key) <= 128 for key in selection)
-    ):
-        return ["Dot matrix config must contain up to 64 series keys of 1 to 128 characters."]
-    if len(set(selection)) != len(selection):
-        return ["Dot matrix config cannot contain duplicate series keys."]
-    return []
+    weeks = config.get("weeks", 8)
+    if isinstance(weeks, bool) or not isinstance(weeks, int) or not 4 <= weeks <= 26:
+        return ["Dot matrix config weeks must be a whole number from 4 to 26."]
+    return _dot_matrix_key_list_errors(config.get("selectedSeries", []), "series keys") or _dot_matrix_key_list_errors(
+        config.get("metricIds", []), "metric IDs"
+    )
 
 
 def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, Any], str]:
