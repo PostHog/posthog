@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
@@ -407,15 +408,21 @@ def revenuecat_api_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    def items() -> Iterator[list[dict[str, Any]]]:
+    def dict_rows() -> Iterator[list[dict[str, Any]]]:
         # The framework passes non-dict page entries through untouched (data_map only runs on
         # dicts), so drop them here — matching the old client's per-row dict guard — before a
         # malformed row can reach the delta writer.
         for page in resource:
             yield [row for row in page if isinstance(row, dict)]
+            # The framework staged the cursor after this page before it handed the page on, and the
+            # guard holds no rows, so the run can stop here.
+            resumable_source_manager.safe_point()
+
+    # As a `Resource` the guard also keeps the framework's safe points before each retry wait.
+    pages = Resource(dict_rows, name=schema_name, hints=resource._hints)
 
     return SourceResponse(
-        items=items,
+        items=lambda: pages,
         primary_keys=endpoint.primary_keys,
         name=schema_name,
         partition_keys=endpoint.partition_keys,

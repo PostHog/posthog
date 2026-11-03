@@ -1,6 +1,7 @@
 /**
- * The URL policy of the collector, reached through the v4 native addon rather than reimplemented
- * here. One public suffix list keeps producer and consumer canonicalization aligned.
+ * The URL policy and the crawl history rule of the recorder, reached through the v4 native addon
+ * rather than reimplemented here. One public suffix list keeps producer and consumer
+ * canonicalization aligned.
  *
  * The addon is a native library, and `index.ts` imports every server whatever mode the pod runs.
  * This loads the addon on first use rather than at import, so only a pod in this lane pays for it.
@@ -14,9 +15,11 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
         if (
             typeof loaded.politenessKey !== 'function' ||
             typeof loaded.isPublicHost !== 'function' ||
-            typeof loaded.tryCanonicalizeUrl !== 'function'
+            typeof loaded.tryCanonicalizeUrl !== 'function' ||
+            typeof loaded.urlJob !== 'function' ||
+            typeof loaded.isUrlHistoryValue !== 'function'
         ) {
-            throw new Error('the ai-research-v4-native addon is missing the url policy: rebuild index.node')
+            throw new Error('the ai-research-v4-native addon is missing a shared rule: rebuild index.node')
         }
         cached = loaded
     }
@@ -24,14 +27,28 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
 }
 
 /**
- * Load the addon now and run one URL through it, so a stale `index.node` stops the pod at startup.
+ * Load the addon now and run one URL and one crawl history entry through it, so a stale `index.node` stops the pod at
+ * startup.
  *
- * The parser calls into it for every URL. A stale addon must stop the pod before it reads a batch.
+ * The parser calls into it for every URL, and the crawl history reader for every URL row. A stale addon must stop the
+ * pod before it reads a batch.
  */
 export function assertUrlPolicyLoaded(): void {
     const verdict = addon().tryCanonicalizeUrl('https://example.com/probe.png')
     if (!verdict.ok) {
         throw new Error(`the ai-research-v4-native addon refused a plain URL (${verdict.decline}): rebuild index.node`)
+    }
+    if (!readsCrawlHistory()) {
+        throw new Error('the ai-research-v4-native addon misread a crawl history entry: rebuild index.node')
+    }
+}
+
+function readsCrawlHistory(): boolean {
+    const entry = JSON.stringify({ kind: 'url', key: 'probe', nextFetchAtMs: 1, storageExpiresAtMs: 1, outcome: 'ok' })
+    try {
+        return addon().urlJob(1, undefined, 0) === 'drop' && addon().isUrlHistoryValue('probe', entry)
+    } catch {
+        return false
     }
 }
 
@@ -56,4 +73,16 @@ export function canonicalizeUrl(url: string): import('@posthog/ai-research-v4-na
 
 export function tryCanonicalizeUrl(url: string): import('@posthog/ai-research-v4-native').UrlPolicyVerdict {
     return addon().tryCanonicalizeUrl(url)
+}
+
+export function urlJob(
+    nextFetchAtMs: number,
+    storedAtMs: number | undefined,
+    nowMs: number
+): import('@posthog/ai-research-v4-native').UrlJob {
+    return addon().urlJob(nextFetchAtMs, storedAtMs, nowMs)
+}
+
+export function isUrlHistoryValue(key: string, value: string): boolean {
+    return addon().isUrlHistoryValue(key, value)
 }
