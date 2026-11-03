@@ -468,7 +468,7 @@ def _request(
         for key, move in moves.items()
         if (action := decide_incident_action(move.before, move.after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
     }
-    if actions and not _has_incident_destination(check, destination_alert_id):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -498,19 +498,20 @@ def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[st
     return {"": _Move(before=AlertState(check.instance().state), after=outcome.new_state)}
 
 
-def _has_incident_destination(check: PlatformAlertCheckInput, destination_alert_id: str) -> bool:
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
     """Whether a destination of this alert follows the incident events, as a HogFunction or as a
     destination the platform keeps. Read only on a firing edge. A copy's destinations are always
     HogFunctions, so only an alert with no logs row can have the platform's."""
+    if check.legacy_configuration_id is None and has_incident_destination(
+        team_id=check.team_id, configuration_id=check.id
+    ):
+        return True
     return bool(
         configured_destination_template_ids(
             team_id=check.team_id,
-            alert_id=destination_alert_id,
+            alert_id=str(check.destination_alert_id),
             allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
-    ) or (
-        check.legacy_configuration_id is None
-        and has_incident_destination(team_id=check.team_id, configuration_id=check.id)
     )
 
 
@@ -697,14 +698,8 @@ def _as_configured_now(
     current: list[PlatformAlertCheckInput] = []
     stopped: list[Decision] = []
     for check in checks:
-        if check.legacy_configuration_id is None:
-            if check.owned_by_platform:
-                current.append(check)
-            else:
-                stopped.append(_stopped(check, now=now))
-            continue
         alert = alerts.get(check.legacy_configuration_id)
-        if check.owned_by_platform and alert is not None:
+        if check.owned_by_platform and (check.legacy_configuration_id is None or alert is not None):
             current.append(check)
             continue
         if alert is None or not alert.enabled:

@@ -80,6 +80,7 @@ from products.logs.backend.temporal.batch_slot import LogsBatchSlot
 
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+_NATIVE: dict[str, Any] = {"legacy_configuration_id": None, "destinations_owner": "platform"}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 # Settings a check reads from the logs alert rather than from its platform copy.
 _LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
@@ -197,20 +198,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_paging_destination", False, "source", False),
-            ("with_a_paging_destination", True, "source", False),
-            ("owned_by_the_platform", False, "platform", False),
-            ("created_without_a_logs_row", False, "platform", True),
-            ("created_without_a_logs_row_and_paged_natively", True, "platform", True),
+            ("without_a_paging_destination", False, "source", {}),
+            ("with_a_paging_destination", True, "source", {}),
+            ("owned_by_the_platform", False, "platform", {}),
+            ("created_without_a_logs_row", False, "platform", _NATIVE),
+            ("created_without_a_logs_row_and_paged_natively", True, "platform", _NATIVE),
         ]
     )
     def test_a_breaching_configuration_fires_and_records_its_own_state(
-        self, _name: str, paged: bool, owner: str, native: bool
+        self, _name: str, paged: bool, owner: str, fields: dict[str, Any]
     ) -> None:
-        native_fields: dict[str, Any] = (
-            {"legacy_configuration_id": None, "destinations_owner": "platform"} if native else {}
-        )
-        configuration = self._configuration(owner=owner, **native_fields)
+        configuration = self._configuration(owner=owner, **fields)
         if paged:
             self._add_incident_destination(configuration)
 
@@ -972,13 +970,6 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
             self.team.id,
             [
                 PlatformAlertSignal(
-                    alert_id=str(native.id),
-                    action="firing",
-                    result_count=30,
-                    consecutive_failures=0,
-                    evaluation_key="k-1",
-                ),
-                PlatformAlertSignal(
                     alert_id=str(alert.id),
                     action="firing",
                     result_count=500,
@@ -997,18 +988,25 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
                     grouping_key='{"service_name":"web"}',
                     labels={"service_name": "web"},
                 ),
+                PlatformAlertSignal(
+                    alert_id=str(native.id),
+                    action="firing",
+                    result_count=30,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                ),
             ],
         )
 
         assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
-            (str(native.id), "Web errors", CONDITION["threshold_count"], 30, {"serviceNames": ["web"]}),
             (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]}),
             (str(alert.id), "API errors", 10, 700, {"serviceNames": ["api"]}),
+            (str(native.id), "Web errors", CONDITION["threshold_count"], 30, {"serviceNames": ["web"]}),
         ]
         # A retried emission of the same announcement must not start a second signal, and a second
         # group of the same evaluation is not a retry.
-        assert [n.idempotency_key for n in notified[1:]] == [
+        assert [n.idempotency_key for n in notified[:2]] == [
             f"{alert.id}:firing:k-1",
             f'{alert.id}:firing:k-1:{{"service_name":"web"}}',
         ]
-        assert notified[2].group_labels == {"service_name": "web"}
+        assert notified[1].group_labels == {"service_name": "web"}

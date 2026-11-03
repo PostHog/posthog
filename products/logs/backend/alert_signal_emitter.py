@@ -12,7 +12,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.api import get_configuration
-from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.logs.backend.alert_state_machine import NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_source_config import filters_of
@@ -166,34 +166,41 @@ class _AlertFacts:
     window_minutes: int
     filters: dict
 
-
-def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFacts]:
-    """What a signal says about each alert: from its logs row, or from the platform configuration
-    when the platform created the alert without one."""
-    facts = {
-        str(alert.id): _AlertFacts(
+    @classmethod
+    def of_logs_alert(cls, alert: LogsAlertConfiguration) -> _AlertFacts:
+        return cls(
             name=alert.name,
             threshold_count=alert.threshold_count,
             threshold_operator=alert.threshold_operator,
             window_minutes=alert.window_minutes,
             filters=alert.filters,
         )
-        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=alert_ids)
-    }
-    for alert_id in alert_ids - facts.keys():
-        configuration = get_configuration(
-            team_id=team_id, source_kinds=[SourceKind.LOGS.value], configuration_id=UUID(alert_id)
-        )
-        if configuration is None:
-            continue
+
+    @classmethod
+    def of_configuration(cls, configuration: PlatformAlertConfigurationView) -> _AlertFacts:
         condition = configuration.source_config["condition"]
-        facts[alert_id] = _AlertFacts(
+        return cls(
             name=configuration.name,
             threshold_count=condition["threshold_count"],
             threshold_operator=condition["threshold_operator"],
             window_minutes=condition["window_minutes"],
             filters=filters_of(configuration.source_config),
         )
+
+
+def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFacts]:
+    """What a signal says about each alert: from its logs row, or from the platform configuration
+    when the platform created the alert without one."""
+    facts = {
+        str(alert.id): _AlertFacts.of_logs_alert(alert)
+        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=alert_ids)
+    }
+    for alert_id in alert_ids - facts.keys():
+        configuration = get_configuration(
+            team_id=team_id, source_kinds=[SourceKind.LOGS.value], configuration_id=UUID(alert_id)
+        )
+        if configuration is not None:
+            facts[alert_id] = _AlertFacts.of_configuration(configuration)
     return facts
 
 
