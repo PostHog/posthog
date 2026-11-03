@@ -5,6 +5,7 @@ tach does not check this file (`unchecked` in `tach.toml`). To remove a name fro
 a module the product exposes (`common` or the facade) and re-export it from `products.warehouse_sources.sources.sdk`.
 """
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BinaryColumnReporter,
+    evolve_pyarrow_schema,
     normalize_column_name,
     restrict_schema_to_columns,
     table_from_iterator,
@@ -29,7 +31,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    initial_datetime,
+)
 from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_analytics.azure_log_analytics import (
     AzureLogAnalyticsResumeConfig,
@@ -60,14 +65,17 @@ __all__ = [
     "MongoDBSource",
     "NamingConvention",
     "PARTITION_KEY",
+    "SourceInputsStore",
     "Transient_Error_Messages",
     "WORKSPACE_FIELDS",
     "WorkspaceCredentials",
     "append_partition_key_to_table",
     "check_extraction",
+    "evolve_pyarrow_schema",
     "filter_trino_incremental_fields",
     "incremental_type_to_initial_value",
     "incremental_value_for_trino_column",
+    "initial_datetime",
     "is_schema_flag_enabled",
     "normalize_column_name",
     "restrict_schema_to_columns",
