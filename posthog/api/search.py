@@ -400,6 +400,11 @@ def class_queryset(
 
     # full-text search rank
     if query:
+        if klass in (EventDefinition, PropertyDefinition):
+            # Every word the rank keeps appears in the name, so a cheap substring check runs first
+            # and the costly ts_rank only scores names that can match, not every definition.
+            for word in re.findall(r"[^\W_]+", query):
+                qs = qs.filter(name__icontains=word)
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
