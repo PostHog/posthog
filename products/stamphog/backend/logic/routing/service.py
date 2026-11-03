@@ -493,7 +493,9 @@ def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan
     requested["refused"] = refused
     requested[REQUESTED_OWNERS] = sorted({*(plan.get(REQUESTED_OWNERS) or []), *plan["request_owners"]})
     if plan["scope"] == SCOPE_PINNED:
-        requested.update({PINNED_ROUTED_HEAD: plan["head_sha"], "pinned_routed_at": plan["routed_at"]})
+        # A pinned routing from partial data must not stop the safety net, which routes this head in full.
+        if plan["additions_resolved"] and not plan["files_truncated"]:
+            requested.update({PINNED_ROUTED_HEAD: plan["head_sha"], "pinned_routed_at": plan["routed_at"]})
     else:
         requested.update({FULL_ROUTED_HEAD: plan["head_sha"], "full_routed_at": plan["routed_at"]})
     if not _save_claimed(pr_obj, requested):

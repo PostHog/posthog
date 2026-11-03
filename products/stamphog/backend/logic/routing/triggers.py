@@ -24,6 +24,7 @@ from products.stamphog.backend.logic.routing.service import (
     PINNED_ROUTED_HEAD,
     SCOPE_FULL,
     SCOPE_PINNED,
+    STATUS_DONE,
     STATUS_WAITING,
     TRIGGER_SAFETY_NET,
     RoutingBusy,
@@ -128,6 +129,8 @@ def _execute(
     if is_foreign_claim(state.stored, state.task_id):
         if retry_when_busy:
             raise RoutingBusy(f"another task holds the routing claim of PR {state.pr_number}")
+        # The claiming task can still run out of retries, so the safety net checks again later.
+        review_path.schedule_safety_net(state.repo_config, state.pr_number)
         return
 
     pr_obj = routing_pull_request(state.repo_config, state.pr_number)
@@ -224,12 +227,22 @@ def _fallback_repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConf
     return repo_config
 
 
+def _upgrades_pinned(at_head: dict[str, Any], outcome: str) -> bool:
+    # A re-review of the same head, after a base retarget or a manual request, can withdraw the
+    # approval. Its non-approval still owes the full routing that the pinned-only routing left out.
+    return (
+        outcome not in (ReviewVerdict.APPROVED, ReviewVerdict.WAIT)
+        and at_head.get("status") == STATUS_DONE
+        and at_head.get("scope") == SCOPE_PINNED
+    )
+
+
 def _verdict_step(client: StamphogGitHubClient, state: _State, *, head_sha: str, outcome: str) -> _Step | None:
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None
     at_head = record if record is not None and record.get("head_sha") == head_sha else None
-    if at_head is not None and at_head.get("status") != STATUS_WAITING:
+    if at_head is not None and at_head.get("status") != STATUS_WAITING and not _upgrades_pinned(at_head, outcome):
         # Another task already routed or claimed this head.
         return None
     if outcome == ReviewVerdict.WAIT and at_head is not None:
@@ -302,5 +315,5 @@ def route_on_safety_net(
     if _resume(client, state):
         return
     step = _safety_net_step(client, state)
-    # A net that finds another task routing has nothing left to cover.
+    # A net that finds another task routing schedules itself again instead of retrying.
     _execute(client, state, step, review_path, retry_when_busy=False)

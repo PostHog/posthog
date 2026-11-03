@@ -1595,8 +1595,8 @@ class StamphogGitHubClient:
     def add_pr_labels(self, repo: str, number: int, labels: list[str]) -> bool:
         """Add labels to a PR (``POST .../issues/{number}/labels``). Returns whether GitHub took them.
 
-        Best-effort and never raises over the response: a label is a hint, and a refused one must not
-        stop the review requests.
+        A refused label (403, 422) returns False, because it must not stop the review requests. A 5xx
+        raises, so the caller retries: for a fork PR the label is the only signal those teams get.
         """
         if not labels:
             return True
@@ -1608,6 +1608,10 @@ class StamphogGitHubClient:
         )
         if response.status_code == 200:
             return True
+        if response.status_code >= 500:
+            raise StamphogGitHubError(
+                f"Failed to add labels on {repo}#{number}: {response.text[:200]}", status_code=response.status_code
+            )
         logger.info("stamphog github: labels not added", repo=repo, pr_number=number, status_code=response.status_code)
         return False
 

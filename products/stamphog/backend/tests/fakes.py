@@ -198,6 +198,8 @@ class GitHubRecorder:
         self.unrequestable_reviewers: set[str] = set()
         # How many review requests answer 500 before GitHub takes them again.
         self.reviewer_request_failures = 0
+        # How many label requests answer 500 before GitHub takes them again.
+        self.label_request_failures = 0
         # How many times the ownership reader looked up the default branch head.
         self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
@@ -285,6 +287,9 @@ class GitHubRecorder:
         if method == "POST" and (m := _REQUESTED_REVIEWERS_RE.match(path)):
             return self._request_reviewers(m.group("repo"), int(m.group("number")), json_body or {})
         if method == "POST" and (m := _ISSUE_LABELS_RE.match(path)):
+            if self.label_request_failures > 0:
+                self.label_request_failures -= 1
+                return FakeResponse(500, text="server error")
             self._record_write("add_labels", m.group("repo"), int(m.group("number")), json_body)
             return FakeResponse(200, json_data=[])
         if method == "PUT" and (m := _DISMISS_RE.match(path)):

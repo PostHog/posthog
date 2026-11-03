@@ -324,7 +324,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
 ROUTING_APP_SLUG = "stamphog-test"
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoutingChain:
     """Handle for the reviewer routing boundaries: GitHub, the cut model, and analytics."""
 

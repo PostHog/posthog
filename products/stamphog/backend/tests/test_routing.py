@@ -157,9 +157,15 @@ class TestFindCandidates:
             _file("copy.py", status="copied", previous_path="source.py"),
             _file("pnpm-lock.yaml"),
             _file("new/place.py"),
+            _file("frontend/src/generated/owners.yaml"),
         ]
 
-        assert paths_to_resolve(files) == ["new/place.py", "old/place.py", "copy.py"]
+        assert paths_to_resolve(files) == [
+            "new/place.py",
+            "old/place.py",
+            "copy.py",
+            "frontend/src/generated/owners.yaml",
+        ]
 
 
 class TestBuildCutPrompt:

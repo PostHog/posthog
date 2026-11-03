@@ -121,6 +121,8 @@ class OwnerCandidate:
 
 
 def is_excluded(path: str) -> bool:
+    if PurePosixPath(path).name in _OWNERSHIP_FILE_NAMES:
+        return False
     for pattern in EXCLUDED_PATTERNS:
         try:
             if path_matches_pattern(pattern, path):

@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -119,6 +120,10 @@ def _route(action: str = "opened") -> None:
     route_pull_request_reviewers(payload=_payload(action), delivery_id="delivery-1")
 
 
+def _run_event_task(_repo_config: StamphogRepoConfig, *, throw: bool = True) -> Any:
+    return route_pull_request_reviewers.apply(kwargs={"payload": _payload(), "delivery_id": "delivery-1"}, throw=throw)
+
+
 def _writes(chain: RoutingChain, kind: str) -> list[dict[str, Any]]:
     return [write for write in chain.recorder.github_writes if write["kind"] == kind]
 
@@ -237,15 +242,27 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     assert "Move the widget loader" not in str(event)
 
 
+@pytest.mark.parametrize(
+    "name,label_failures",
+    [
+        ("labels_added", 0),
+        # The label is the only signal a fork gives those teams, so a server error retries the task.
+        ("server_error_retries", 1),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(team, user, routing_chain) -> None:
+def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(
+    name: str, label_failures: int, team, user, routing_chain
+) -> None:
     # The label name comes from the config as written, with no naming rule applied to the slug.
     _setup(routing_chain, team, user, head_repo="outsider/widgets", fork_labels={"team-alpha": "area: alpha"})
     routing_chain.cut_model.answer = _CUT_BETA
+    routing_chain.recorder.label_request_failures = label_failures
 
-    _route()
+    assert _run_event_task(MagicMock(), throw=False).successful()
 
     assert routing_chain.cut_model.calls == []
+    assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert _requested(routing_chain) == ({"carol"}, {"team-beta"})
     assert [write["body"] for write in _writes(routing_chain, "add_labels")] == [{"labels": ["area: alpha"]}]
     assert _stored(team.id)["llm_skipped"] == "fork"
@@ -412,6 +429,8 @@ def _on_head_2(step: tuple[Any, ...]) -> tuple[Any, ...]:
             1,
         ),
         ("approval_after_full_routing", [_REFUSED, _PUSH, _on_head_2(_APPROVED)], 1, "verdict:refused", HEAD_SHA, 1),
+        # A re-review of the same head, such as after a base retarget, withdraws the approval.
+        ("same_head_refusal_after_approval", [_APPROVED, _REFUSED, _NET], 2, "verdict:refused", HEAD_SHA, 1),
         # A verdict for a moved head does nothing, and the safety net routes the current head.
         ("safety_net_routes_the_current_head", [_PUSH, _REFUSED, _NET], 1, "safety_net", _HEAD_2, 1),
     ],
@@ -474,6 +493,37 @@ def test_a_failed_kind_lookup_routes_without_the_owners_of_additions(team, user,
     assert all(candidate["pins"] == [] for candidate in record["candidates"])
     assert routing_chain.recorder.head_lookups == 1
     assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+
+
+@pytest.mark.parametrize(
+    "name,setup_kwargs,kind_lookup_fails",
+    [
+        ("failed_kind_lookup", {}, True),
+        ("truncated_file_list", {"changed_files": 5000}, False),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_an_approval_on_partial_ownership_still_gets_the_full_routing_from_the_safety_net(
+    name: str, setup_kwargs: dict[str, Any], kind_lookup_fails: bool, team, user, routing_chain, safety_net
+) -> None:
+    # Partial data can miss a pin, so the pinned-only routing of the approval must not close the head.
+    repo_config = _open_fallback(routing_chain, team, user, **setup_kwargs)
+    lookup = (
+        patch(
+            "posthog.ownership.github_files.GitHubFilesFetcher.path_kinds",
+            side_effect=OwnershipUnavailable("tree lookup failed"),
+        )
+        if kind_lookup_fails
+        else nullcontext()
+    )
+    with lookup:
+        _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
+
+    _fire_safety_net(safety_net)
+
+    assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+    record = _stored(team.id)
+    assert (record["trigger"], record["scope"], record["status"]) == ("safety_net", "full", "done")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -564,10 +614,6 @@ def _seed_claim(repo_config: StamphogRepoConfig, *, claimed_at: datetime) -> dic
     return claim
 
 
-def _run_event_task(_repo_config: StamphogRepoConfig, *, throw: bool = True) -> Any:
-    return route_pull_request_reviewers.apply(kwargs={"payload": _payload(), "delivery_id": "delivery-1"}, throw=throw)
-
-
 def _run_verdict_task(repo_config: StamphogRepoConfig) -> None:
     route_reviewers_after_verdict.apply(
         kwargs={
@@ -589,18 +635,18 @@ def _run_safety_net_task(repo_config: StamphogRepoConfig) -> None:
 
 
 @pytest.mark.parametrize(
-    "name,run_task,raises",
+    "name,run_task,raises,expected_safety_nets",
     [
         # The event and the verdict retry until the claim is gone, so their work is not lost.
-        ("event", _run_event_task, True),
-        ("verdict", _run_verdict_task, True),
-        # A safety net that finds another task routing has nothing left to cover.
-        ("safety_net", _run_safety_net_task, False),
+        ("event", _run_event_task, True, 0),
+        ("verdict", _run_verdict_task, True, 0),
+        # The claiming task can still run out of retries, so the safety net checks again later.
+        ("safety_net", _run_safety_net_task, False, 1),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_another_tasks_claim_on_any_head_blocks_routing(
-    name: str, run_task: Any, raises: bool, team, user, routing_chain, safety_net
+    name: str, run_task: Any, raises: bool, expected_safety_nets: int, team, user, routing_chain, safety_net
 ) -> None:
     repo_config = _setup(routing_chain, team, user, routing_mode="fallback")
     claim = _seed_claim(repo_config, claimed_at=datetime.now(UTC))
@@ -615,7 +661,7 @@ def test_another_tasks_claim_on_any_head_blocks_routing(
 
     assert routing_chain.recorder.github_writes == []
     assert routing_chain.cut_model.calls == []
-    safety_net.assert_not_called()
+    assert safety_net.call_count == expected_safety_nets
     assert _stored(team.id) == claim
 
 
