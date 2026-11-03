@@ -354,7 +354,7 @@ def _write_cadence(
     assert saved_query is not None
     previous_target, previous_pinned = get_declared_target(node), is_declared_pin(node.properties)
     keep_target = frequency is None
-    if keep_target:
+    if frequency is None:
         # A pin on its own keeps the stored cadence, which the write reads again under the row lock.
         target = previous_target
     else:

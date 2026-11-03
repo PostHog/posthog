@@ -521,6 +521,7 @@ class TestMaybeReconcileDag(BaseTest):
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
         set_declared_target(node, H6)
+        assert node.saved_query is not None
 
         with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
             apply_saved_query_frequency_target(node.saved_query, None, pinned=True, keep_target=True)
@@ -530,6 +531,7 @@ class TestMaybeReconcileDag(BaseTest):
 
     def test_a_pin_on_its_own_is_refused_when_the_node_has_no_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        assert node.saved_query is not None
 
         with mock.patch(f"{RECONCILE}.maybe_reconcile_dag"), self.assertRaises(ValueError):
             apply_saved_query_frequency_target(node.saved_query, None, pinned=True, keep_target=True)

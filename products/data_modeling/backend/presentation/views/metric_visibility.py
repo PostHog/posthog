@@ -1,12 +1,13 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
+from uuid import UUID
 
-from django.db.models import Model, Q, QuerySet
+from django.db.models import Q, QuerySet
 
 from rest_framework.exceptions import PermissionDenied
 
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, NodeType
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -17,6 +18,13 @@ if TYPE_CHECKING:
 DELETE_DENIED = "Deleting data models requires data warehouse write access."
 EDIT_DENIED = "Editing data models requires data warehouse write access."
 VIEW_EDIT_DENIED = "You need edit access to this view."
+
+
+def _as_uuid(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
 
 
 class MetricNodeVisibilityMixin:
@@ -73,15 +81,9 @@ class MetricNodeVisibilityMixin:
                 if level is not None and level != "none":
                     reveal(node_ids_by_saved_query[saved_query_id])
 
-        if node_ids_by_table:
-            # One at a time: `warehouse_table` falls back to `external_data_source`, which the bulk call refuses.
-            tables = list(
-                DataWarehouseTable.objects.filter(id__in=node_ids_by_table, team_id=team_id).exclude(deleted=True)
-            )
-            self.user_access_control.preload_object_access_controls(cast(list[Model], tables))
-            for table in tables:
-                if self.user_access_control.check_access_level_for_object(table, "viewer"):
-                    reveal(node_ids_by_table[str(table.id)])
+        table_ids = [table_id for raw in node_ids_by_table if (table_id := _as_uuid(raw)) is not None]
+        for table_id in allowed_table_ids(team_id, self.user_access_control, ids=table_ids):
+            reveal(node_ids_by_table[str(table_id)])
         return visible
 
     def _metric_nodes_hidden(self) -> bool:
