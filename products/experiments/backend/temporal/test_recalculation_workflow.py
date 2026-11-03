@@ -1,5 +1,7 @@
+import json
 import uuid
 import asyncio
+import dataclasses
 from collections.abc import Callable
 from contextlib import ExitStack
 from datetime import timedelta
@@ -35,11 +37,7 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
-from products.experiments.backend.temporal.recalculation_workflow import (
-    ExperimentMetricsRecalculationWorkflow,
-    _calc_dispatch,
-    _CalcDispatch,
-)
+from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
 _CALC_BUDGET = timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
@@ -208,6 +206,35 @@ async def _run_with_calc_queue_workers(
         schedule_to_close_timeouts=budgets,
         history=history,
     )
+
+
+def _as_recorded_by_older_workflow_code(history: WorkflowHistory, metric: ExperimentMetricToRecalculate) -> None:
+    # A rolling deploy can pair a new discovery worker, which returns routes, with workflow code that ignores them.
+    discover_scheduled_ids = {
+        event.event_id
+        for event in history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+        and event.activity_task_scheduled_event_attributes.activity_type.name == "discover_experiment_metrics"
+    }
+    completed = next(
+        event.activity_task_completed_event_attributes
+        for event in history.events
+        if event.HasField("activity_task_completed_event_attributes")
+        and event.activity_task_completed_event_attributes.scheduled_event_id in discover_scheduled_ids
+    )
+    payload = completed.result.payloads[0]
+    discovered = json.loads(payload.data)
+    assert [item["metric_uuid"] for item in discovered] == [metric.metric_uuid]
+    for item in discovered:
+        item["task_queue"] = metric.task_queue
+        item["precomputation_mode"] = metric.precomputation_mode
+    payload.data = json.dumps(discovered).encode()
+    # The older code also gave every calc the 20-minute budget.
+    for event in history.events:
+        if event.HasField("activity_task_scheduled_event_attributes"):
+            scheduled = event.activity_task_scheduled_event_attributes
+            if scheduled.activity_type.name == "calculate_experiment_metric_for_recalculation":
+                scheduled.schedule_to_close_timeout.FromTimedelta(_CALC_BUDGET)
 
 
 @pytest.mark.asyncio
@@ -702,7 +729,7 @@ class TestExperimentMetricsRecalculationWorkflow:
             ("precompute_route", True, True, False, [], [], [("m1", None)], False),
             ("direct_route", False, True, False, [], [("m1", PrecomputationMode.DIRECT)], [], False),
             ("run_off_the_flag_ignores_the_route", True, False, False, [("m1", None)], [], [], True),
-            ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], [], True),
+            ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], [], False),
             (
                 "history_without_routes_replays_with_another_arity",
                 False,
@@ -711,7 +738,7 @@ class TestExperimentMetricsRecalculationWorkflow:
                 [],
                 [("m1", None)],
                 [],
-                True,
+                False,
             ),
         ]
     )
@@ -736,23 +763,14 @@ class TestExperimentMetricsRecalculationWorkflow:
             precomputation_mode=None if routed_to_precompute else PrecomputationMode.DIRECT,
         )
 
-        def dispatch_without_routes(
-            metric: ExperimentMetricToRecalculate, activity_task_queue: str | None
-        ) -> _CalcDispatch:
-            return _CalcDispatch(
-                task_queue=activity_task_queue, precomputation_mode=None, schedule_to_close_timeout=_CALC_BUDGET
-            )
-
-        with patch(
-            f"{_WORKFLOW_MODULE}._calc_dispatch",
-            side_effect=dispatch_without_routes if recorded_without_routes else _calc_dispatch,
-        ):
-            run = await _run_with_calc_queue_workers(
-                activity_task_queue=activity_worker_task_queue if run_on_activity_queue else None,
-                activity_worker_task_queue=activity_worker_task_queue,
-                precompute_worker_task_queue=precompute_worker_task_queue,
-                metric=metric,
-            )
+        run = await _run_with_calc_queue_workers(
+            activity_task_queue=activity_worker_task_queue if run_on_activity_queue else None,
+            activity_worker_task_queue=activity_worker_task_queue,
+            precompute_worker_task_queue=precompute_worker_task_queue,
+            metric=dataclasses.replace(metric, task_queue=None, precomputation_mode=None)
+            if recorded_without_routes
+            else metric,
+        )
 
         assert run.result == {"total": 1, "succeeded": 1, "failed": 0}
         assert run.workflow_queue_calls == expected_workflow_queue_calls
@@ -764,6 +782,8 @@ class TestExperimentMetricsRecalculationWorkflow:
         else:
             # The test server reports an unset budget as a ten-year one.
             assert run.schedule_to_close_timeouts[0] in (None, timedelta(days=3650))
+        if recorded_without_routes:
+            _as_recorded_by_older_workflow_code(run.history, metric)
         await temporalio.worker.Replayer(
             workflows=[ExperimentMetricsRecalculationWorkflow],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),

@@ -663,9 +663,22 @@ class AssistantDataVisualizationBoxPlotSettings(BaseModel):
     )
 
 
+class AssistantDataVisualizationColumnDisplaySettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Table column description shown in the header tooltip.",
+    )
+
+
 class AssistantDataVisualizationColumnSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    display: AssistantDataVisualizationColumnDisplaySettings | None = Field(
+        default=None, description="Display settings for this column."
     )
     formatting: AssistantDataVisualizationAxisFormatting | None = Field(
         default=None,
@@ -1227,6 +1240,7 @@ class ChartSettingsDisplay(BaseModel):
         extra="forbid",
     )
     color: str | None = None
+    description: str | None = None
     displayType: DisplayType | None = None
     excludeFromTotal: bool | None = Field(
         default=None,
@@ -3988,7 +4002,8 @@ class AssistantDataVisualizationColumn(BaseModel):
     )
     column: str = Field(..., description="Name of a column returned by the SQL query.")
     settings: AssistantDataVisualizationColumnSettings | None = Field(
-        default=None, description="Optional number formatting for this column."
+        default=None,
+        description="Optional display and number-formatting settings for this column.",
     )
 
 
@@ -6969,6 +6984,13 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     performanceMaxSearchTermTable: str | None = Field(
         default=None,
         description="Google Ads search term table for Performance Max campaigns.",
+    )
+    queryPageTable: str | None = Field(
+        default=None,
+        description=(
+            "Google Search Console table with one row per query and page, used to find"
+            " the page that ranks for a search."
+        ),
     )
     queryTable: str | None = Field(
         default=None,
