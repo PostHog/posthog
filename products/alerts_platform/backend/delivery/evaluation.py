@@ -412,9 +412,7 @@ def _split_by_path(
     if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
         return announced, ()
     if platform_destinations is not None:
-        if not _has_hog_function_listeners(request):
-            return announced, ()
-        return announced, _emissions(request, announced.transitions)
+        return announced, (_emissions(request, announced.transitions) if _has_hog_function_listeners(request) else ())
 
     # Read once per delivery, because the chooser reads every destination of the alert.
     @cache
@@ -423,7 +421,7 @@ def _split_by_path(
             source=request.source,
             team_id=request.team_id,
             alert_id=request.destination_alert_id,
-            allowed_event_ids=[*request.event_ids_by_kind.values(), *request.event_ids_by_incident_action.values()],
+            allowed_event_ids=_all_event_ids(request),
         )
 
     native: list[AnnouncedTransition] = []
@@ -469,9 +467,14 @@ def _has_hog_function_listeners(request: AlertDeliveryRequest) -> bool:
         for group in list_alert_destination_groups(
             team_id=request.team_id,
             alert_id=request.destination_alert_id,
-            allowed_event_ids=[*request.event_ids_by_kind.values(), *request.event_ids_by_incident_action.values()],
+            allowed_event_ids=_all_event_ids(request),
         )
     )
+
+
+def _all_event_ids(request: AlertDeliveryRequest) -> list[str]:
+    """Every event the alert's HogFunctions can listen to: its message events and its incident events."""
+    return [*request.event_ids_by_kind.values(), *request.event_ids_by_incident_action.values()]
 
 
 def _overflow_notice_keys(
