@@ -13,7 +13,7 @@ from posthog.models import Organization, OrganizationMembership, Project, Team
 
 from products.managed_warehouse.backend import project_moves
 from products.managed_warehouse.backend.facade.api import commit_project_move_out, project_move_out
-from products.managed_warehouse.backend.facade.contracts import ProjectMoveOut
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError, ProjectMoveOut
 from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
 from products.managed_warehouse.backend.presentation.hogtower import TranslatedResponse
 from products.managed_warehouse.backend.tasks.tasks import repeat_project_move_out
@@ -237,6 +237,16 @@ class TestProjectMoveOut(APIBaseTest):
 
         assert self.fake.calls == [("POST", self.org_id, "/moved-teams", {"team_ids": [self.team.pk]})]
         assert self.fake.rows[self.org_id] == [back_row]
+
+    def test_the_delayed_task_raises_for_a_retry_when_hogtower_does_not_confirm(self) -> None:
+        self._give_org_warehouse_state()
+        Team.objects.filter(pk=self.team.pk).update(organization=self.other_org)
+        self.fake.failing.add(("POST", "/moved-teams"))
+
+        with self.assertRaises(CPUnavailableError):
+            repeat_project_move_out(self.org_id, [self.team.pk])
+
+        assert self.fake.rows[self.org_id] == [self.row]
 
     def test_the_delayed_task_does_nothing_for_an_org_without_warehouse_state(self) -> None:
         repeat_project_move_out(self.org_id, [self.team.pk])

@@ -2,7 +2,8 @@
 
 hogtower removes the old organization's rows for them before the move commits, and a failed move puts
 them back once a locked re-read shows it did not commit. After the commit the removal is repeated at
-once and 10 minutes later. Organizations without PostHog warehouse state never call hogtower.
+once and 10 minutes later, retried while hogtower is down. Organizations without PostHog warehouse
+state never call hogtower.
 """
 
 from __future__ import annotations
@@ -110,14 +111,19 @@ def _mixed_with_state(organization_id: str, team_organization_ids: Mapping[int, 
     return len(organization_ids) > 1 and any(has_warehouse_state(org) for org in organization_ids)
 
 
-def repeat_move_out(organization_id: str, team_ids: list[int]) -> None:
-    """Remove the org's rows for the teams it no longer owns, which a writer may have re-created."""
+def repeat_move_out(organization_id: str, team_ids: list[int]) -> bool:
+    """Remove the org's rows for the teams it no longer owns, which a writer may have re-created.
+
+    False when hogtower did not confirm the removal.
+    """
     if not has_warehouse_state(organization_id):
-        return
+        return True
     kept = set(Team.objects.filter(id__in=team_ids, organization_id=organization_id).values_list("id", flat=True))
     moved = [team_id for team_id in team_ids if team_id not in kept]
     if moved and not remove_rows(organization_id, moved):
         logger.warning("move_out_repeat_failed", organization_id=organization_id, team_ids=moved)
+        return False
+    return True
 
 
 def undo(move: ProjectMoveOut) -> None:
