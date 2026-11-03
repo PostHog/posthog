@@ -60,9 +60,7 @@ export function DetailPanel({
             data-attr={dataAttr}
             className={cn(
                 'DetailPanel fixed top-[var(--detail-panel-top)] right-[var(--detail-panel-right)] h-[var(--detail-panel-height)] z-[var(--z-drawer)]',
-                'flex flex-col bg-surface-primary border-l border-primary shadow-xl outline-none',
-                '[--scene-title-section-height:0px]',
-                '[--trace-view-height:calc(var(--detail-panel-height)_-_var(--detail-panel-toolbar-height))]'
+                'flex flex-col bg-surface-primary border-l border-primary shadow-xl outline-none'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={
@@ -80,7 +78,7 @@ export function DetailPanel({
             <div className="flex h-[var(--detail-panel-toolbar-height)] shrink-0 items-center gap-2 border-b border-primary px-3">
                 {toolbar}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4">{children}</div>
         </aside>
     )
 }
