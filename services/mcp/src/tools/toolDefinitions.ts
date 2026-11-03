@@ -55,7 +55,6 @@ export const ToolDefinitionSchema = z
         feature_entitlement: z.string().optional(),
         /** One-line selection hint surfaced in the system prompt's query tool catalog. */
         system_prompt_hint: z.string().optional(),
-        /** Extra words that exec `search` matches at title weight. */
         search_keywords: z.array(z.string()).optional(),
         /**
          * When true, the tool is exposed even when the client passes a `features`

@@ -296,7 +296,6 @@ class _MetricQueryBodySerializer(serializers.Serializer):
 
     def to_internal_value(self, data: Any) -> dict:
         attrs = super().to_internal_value(data)
-        # Read the raw input, because the default of 'aggregation' hides whether the caller set it.
         if (attrs.get("promql") or "").strip():
             if set_fields := [field for field in _PROMQL_EXCLUDED_FIELDS if data.get(field)]:
                 raise serializers.ValidationError(
@@ -1221,7 +1220,6 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": results}, status=status.HTTP_200_OK)
 
     def _enforce_api_queries_budget(self) -> None:
-        # API keys are budgeted as on /query, so these reads debit the budget and stop when it is spent.
         if get_query_tag_value("access_method") != "personal_api_key":
             return
         tag_queries(api_queries_budgeted=True)
@@ -1284,7 +1282,6 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return _series_response(series)
 
     def _run_promql_query(self, request: Request, query_data: dict, date_to: dt.datetime) -> Response:
-        # PromQL goes to Snuffle, which has its own gate, as the PromQL insights and the Prometheus API do.
         if not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
             str(cast(User, request.user).distinct_id),

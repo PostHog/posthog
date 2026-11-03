@@ -48,7 +48,6 @@ export const ToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
-        /** Words for the tool's job that its name, title and description lack, such as "promql". Exec `search` weights them as the title. */
         search_keywords: z.array(z.string().trim().min(1)).optional(),
         /**
          * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
@@ -586,7 +585,6 @@ export const QueryWrapperToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
-        /** Words for the tool's job that its name, title and description lack, such as "promql". Exec `search` weights them as the title. */
         search_keywords: z.array(z.string().trim().min(1)).optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */

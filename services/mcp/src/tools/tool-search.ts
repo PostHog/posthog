@@ -3,7 +3,6 @@ export interface SearchableTool {
     name: string
     title: string
     description: string
-    /** Extra words for the tool's job that the other fields do not contain, such as a vendor name. */
     searchKeywords?: readonly string[]
 }
 
