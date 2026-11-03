@@ -615,7 +615,6 @@ export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
     generatedAt: '2026-09-01T10:20:00Z',
 }
 
-/** A fixed-height scroller, like the step column of the split view. */
 export const withStepScroller: Decorator = (Story) => (
     <div className="h-120 w-160 overflow-y-auto border border-dashed border-primary">
         <Story />

@@ -2,7 +2,6 @@ const MESSAGE_TOGGLE = '[data-attr="trace-view-message-toggle"]'
 const EARLIER_MESSAGES = '[data-earlier-messages]'
 const GAP_PX = 8
 
-/** `align` puts the message at the top of its scroller; `ifBelow` does so only when the message is out of view below. */
 export type RevealMode = 'align' | 'ifBelow'
 
 // The document never scrolls here: moving the page would take the trace header and the tree out of view.
@@ -20,10 +19,7 @@ function prefersReducedMotion(): boolean {
     return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
 }
 
-/**
- * Scrolls the first open message to the top of its scroller, when collapsed messages come before it.
- * The earlier-messages divider goes to the top instead when it is shown, so the reader sees that history is above.
- */
+/** `ifBelow` scrolls only when the first open message is out of view below. The divider, when shown, goes to the top so the history above stays visible. */
 export function revealFirstOpenMessage(container: HTMLElement | null, mode: RevealMode): void {
     const toggles = Array.from(container?.querySelectorAll<HTMLElement>(MESSAGE_TOGGLE) ?? [])
     const firstOpen = toggles.find((toggle) => toggle.getAttribute('aria-expanded') === 'true')

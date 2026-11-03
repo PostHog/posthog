@@ -42,7 +42,6 @@ export function NodeMessagesTab({
         if (hasMessages && !isSearching.current) {
             revealFirstOpenMessage(containerRef.current, 'align')
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stepId, hasMessages])
 
     useEffect(() => {
@@ -50,8 +49,7 @@ export function NodeMessagesTab({
             revealFirstOpenMessage(containerRef.current, 'ifBelow')
         }
         previousListKey.current = listKey
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [listKey])
+    }, [listKey, opening])
 
     const selectOpening = (value: MessagesOpening): void => {
         if (value === opening) {
