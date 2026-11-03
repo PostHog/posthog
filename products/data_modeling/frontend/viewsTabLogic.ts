@@ -9,7 +9,9 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { urls } from 'scenes/urls'
 
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import type {
     DatabaseSchemaEndpointTable,
     DatabaseSchemaManagedViewTable,
@@ -30,6 +32,22 @@ import { ParsedLineageSearch, nodeIdsForLineageSearch, parseLineageSearch } from
 export const PAGE_SIZE = 10
 
 export type ViewTypeFilter = 'all' | 'materialized' | 'view'
+
+export const VIEW_TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
+    { value: 'all', label: 'All types' },
+    { value: 'materialized', label: 'Materialized views' },
+    { value: 'view', label: 'Views' },
+]
+
+export function deleteDisabledReason(view: DataWarehouseSavedQuerySummary): string | undefined {
+    if (view.managed_viewset_kind !== null) {
+        return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
+    }
+    if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
+        return `Cannot delete a view that belongs to an endpoint. You can disable materialization on this endpoint's page.`
+    }
+    return undefined
+}
 
 export interface viewsTabLogicValues {
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
@@ -242,15 +260,17 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         runHistoryMap: [
             {} as Record<string, DataWarehouseSavedQueryRunHistory[]>,
             {
                 loadRunHistory: async ({ viewIds }) => {
-                    const viewsToLoad = viewIds.filter((id) => !values.runHistoryMap[id])
+                    const inFlight: Set<string> = (cache.runHistoryInFlight ??= new Set<string>())
+                    const viewsToLoad = viewIds.filter((id) => !values.runHistoryMap[id] && !inFlight.has(id))
                     if (viewsToLoad.length === 0) {
                         return values.runHistoryMap
                     }
+                    viewsToLoad.forEach((id) => inFlight.add(id))
 
                     const results = await Promise.all(
                         viewsToLoad.map(async (viewId) => {
@@ -263,6 +283,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                             }
                         })
                     )
+                    viewsToLoad.forEach((id) => inFlight.delete(id))
 
                     const newMap = { ...values.runHistoryMap }
                     results.forEach(({ viewId, data }) => {

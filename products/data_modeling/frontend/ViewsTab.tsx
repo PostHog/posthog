@@ -27,29 +27,13 @@ import { NodeSuspensionApi } from './generated/api.schemas'
 import { statusBackgroundClass } from './lineage/nodeStyles'
 import { MODELS_SEARCH_SYNTAX_HELP } from './lineage/SearchSyntaxHelp'
 import { StatusTag } from './lineage/StatusTag'
-import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
+import { PAGE_SIZE, VIEW_TYPE_FILTER_OPTIONS, deleteDisabledReason, viewsTabLogic } from './viewsTabLogic'
 
 type ViewColumn = LemonTableColumn<DataWarehouseSavedQuerySummary, keyof DataWarehouseSavedQuerySummary | undefined>
 
 const VIEW_TYPE_TOOLTIPS = {
     materialized: 'Refreshed on a schedule and stored as a table, so a read hits stored rows.',
     view: 'Runs its query every time it is read.',
-}
-
-const TYPE_FILTER_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
-    { value: 'all', label: 'All types' },
-    { value: 'materialized', label: 'Materialized views' },
-    { value: 'view', label: 'Views' },
-]
-
-const getDisabledReason = (view: DataWarehouseSavedQuerySummary): string | undefined => {
-    if (view.managed_viewset_kind !== null) {
-        return `Cannot delete a view that belongs to a managed viewset. You can turn the viewset off in the ${urls.dataWarehouseManagedViewsets()} page.`
-    }
-    if (view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT) {
-        return `Cannot delete a view that belongs to an endpoint. You can disable materialization on this endpoint's page.`
-    }
-    return undefined
 }
 
 function RunHistoryDisplay({
@@ -283,7 +267,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                                     fullWidth
                                     status="danger"
                                     onClick={() => deleteView(view.id)}
-                                    disabledReason={getDisabledReason(view)}
+                                    disabledReason={deleteDisabledReason(view)}
                                 >
                                     Delete
                                 </LemonButton>
@@ -333,7 +317,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                 <LemonSelect
                     value={typeFilter}
                     onChange={setTypeFilter}
-                    options={TYPE_FILTER_OPTIONS}
+                    options={VIEW_TYPE_FILTER_OPTIONS}
                     size="small"
                     data-attr="views-type-filter"
                 />

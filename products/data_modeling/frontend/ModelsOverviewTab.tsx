@@ -6,15 +6,38 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SuggestedModelsPreview } from 'products/warehouse_suggestions/frontend/components/SuggestedModelsPreview'
 
+import { ModelsList } from './ModelsList'
+import { modelsListLogic } from './modelsListLogic'
 import { ModelsOverviewEmptyState } from './ModelsOverviewEmptyState'
 import { ModelsOverviewIssues } from './ModelsOverviewIssues'
 import { modelsOverviewLogic } from './modelsOverviewLogic'
+import { modelsSceneLogic } from './modelsSceneLogic'
+
+function ModelsListTab(): JSX.Element {
+    const { showFirstView } = useValues(modelsListLogic)
+    const { checksStatus } = useValues(modelsOverviewLogic)
+
+    return (
+        <div data-quill>
+            {showFirstView ? (
+                <ModelsOverviewEmptyState variant="first-view" checksStatus={checksStatus} />
+            ) : (
+                <ModelsList />
+            )}
+        </div>
+    )
+}
 
 export function ModelsOverviewTab(): JSX.Element {
+    const { catalogRestructureEnabled } = useValues(modelsSceneLogic)
     const { showFirstView, checksStatus } = useValues(modelsOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries } = useActions(modelsOverviewLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const attentionRef = useRef<HTMLDivElement>(null)
+
+    if (catalogRestructureEnabled) {
+        return <ModelsListTab />
+    }
 
     if (showFirstView) {
         return (

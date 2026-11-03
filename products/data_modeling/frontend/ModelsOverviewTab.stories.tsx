@@ -368,3 +368,114 @@ export const FilteredToStale: Story = {
         await within(canvasElement).findByText('1–10 of 12')
     },
 }
+
+const RUN_HISTORY_URL = '/api/environments/:team_id/warehouse_saved_queries/:id/run_history/'
+const RECENT_RUNS = ['2026-09-14T20:00:00Z', '2026-09-14T21:00:00Z', '2026-09-14T22:00:00Z', '2026-09-14T23:00:00Z']
+
+function runHistoryFor(savedQueryId: string): Record<string, unknown> {
+    const node = listNodes.find((candidate) => candidate.saved_query_id === savedQueryId)
+    const lastStatus = node?.last_run_status === 'Failed' ? 'Failed' : 'Completed'
+    const earlier = RECENT_RUNS.map((timestamp, index) => ({
+        status: index === 1 && lastStatus === 'Failed' ? 'Failed' : 'Completed',
+        timestamp,
+    }))
+    return { run_history: [{ status: lastStatus, timestamp: '2026-09-15T00:00:00Z' }, ...earlier.reverse()] }
+}
+
+const listNodes = [
+    ...nodes.filter((node) => ['attention-1', 'attention-2', 'attention-3', 'behind-1'].includes(node.id)),
+    ...healthyNodes,
+    {
+        ...healthyNodes[0],
+        id: 'plain-view',
+        name: 'pricing_page_visits',
+        type: 'view',
+        sync_interval: undefined,
+        last_run_at: null,
+        saved_query_id: 'query-plain-view',
+    },
+    {
+        ...healthyNodes[0],
+        id: 'endpoint',
+        name: 'trial_conversions_v2',
+        type: 'endpoint',
+        saved_query_id: 'query-endpoint',
+    },
+].map((node) => (node.id === 'attention-2' ? { ...node, downstream_count: 3 } : node))
+
+function listSavedQueryMocks(rows: typeof listNodes): Mocks['get'] {
+    const results = rows.map((node) => ({
+        id: node.saved_query_id,
+        name: node.name,
+        columns: [],
+        is_materialized: node.type !== 'view',
+        origin: node.type === 'endpoint' ? 'endpoint' : 'data_warehouse',
+        managed_viewset_kind: null,
+        last_run_at: node.last_run_at,
+        status: node.last_run_status,
+    }))
+    const response = { results, count: results.length }
+    return {
+        '/api/environments/:team_id/warehouse_saved_queries/': response,
+        '/api/projects/:team_id/warehouse_saved_queries/': response,
+    }
+}
+
+function listMocks(
+    rows: typeof listNodes,
+    checkRows: Record<string, any>[],
+    extra: Mocks['get'] = {}
+): { mocks: Mocks } {
+    return {
+        mocks: {
+            get: {
+                [NODES_URL]: { results: rows, count: rows.length },
+                ...listSavedQueryMocks(rows),
+                [CHECKS_URL]: { results: checkRows, count: checkRows.length },
+                [RUN_HISTORY_URL]: (request) => [200, runHistoryFor(request.params.id as string)],
+                ...extra,
+            },
+        },
+    }
+}
+
+const healthyListNodes = listNodes.filter((node) => !node.id.startsWith('attention') && !node.id.startsWith('behind'))
+const RUN_DOTS_SELECTOR = '[data-attr="models-list-table"] [data-slot="dot"]'
+
+export const ModelsListNeedsAttention: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+        msw: listMocks(listNodes, checks),
+        testOptions: { waitForSelector: RUN_DOTS_SELECTOR },
+    },
+}
+
+export const ModelsListAll: Story = {
+    ...ModelsListNeedsAttention,
+    play: async ({ canvasElement }) => {
+        const filter = await within(canvasElement).findByRole('group', { name: 'Filter models by health' })
+        fireEvent.click(within(filter).getByText('All'))
+        await within(canvasElement).findByText('trial_conversions v2')
+    },
+}
+
+export const ModelsListNarrow: Story = {
+    ...ModelsListNeedsAttention,
+    decorators: [inMainContent('w-128')],
+}
+
+export const ModelsListHealthy: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+        msw: listMocks(healthyListNodes, passingChecks),
+        testOptions: { waitForSelector: RUN_DOTS_SELECTOR },
+    },
+}
+
+export const ModelsListHealthyWithSuggestions: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE, FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS],
+        msw: listMocks(healthyListNodes, passingChecks, suggestionMocks),
+        testOptions: { waitForSelector: '[data-attr="warehouse-suggestions-review"]' },
+    },
+}
