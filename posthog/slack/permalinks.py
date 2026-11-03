@@ -26,8 +26,11 @@ class SlackMessageLink:
 
 def parse_message_link(url: str) -> SlackMessageLink | None:
     """The channel and message a Slack message link points at, or None for any other URL."""
-    parsed = urlparse(url.strip())
-    host = (parsed.hostname or "").lower()
+    try:
+        parsed = urlparse(url.strip())
+        host = (parsed.hostname or "").lower()
+    except ValueError:  # a malformed authority, such as an unclosed "[" for an IPv6 host
+        return None
     if parsed.scheme != "https" or not (host == "slack.com" or host.endswith(".slack.com")):
         return None
     match = _ARCHIVES_PATH_RE.match(parsed.path)

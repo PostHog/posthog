@@ -744,7 +744,7 @@ class TestLinkSlackThread(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.api.comments.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -773,7 +773,7 @@ class TestLinkSlackThread(APIBaseTest):
         mock_import.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
         client.chat_postMessage.assert_not_called()
 
-    @patch("posthog.api.comments.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
     def test_credits_a_thread_an_app_started_to_that_app(self, mock_slack, _flag, _import):
@@ -786,7 +786,7 @@ class TestLinkSlackThread(APIBaseTest):
         assert res.json()["created_by"] is None
         assert res.json()["item_context"]["slack_author_name"] == "incident.io"
 
-    @patch("posthog.api.comments.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -865,7 +865,7 @@ class TestLinkSlackThread(APIBaseTest):
     # Linking it would post internal discussion replies to the customer. A ticket in another project of
     # the org, a deleted one and a purged one all still own their thread.
     @parameterized.expand([("this_project",), ("another_project_in_the_org",), ("deleted_ticket",), ("purged_ticket",)])
-    @patch("posthog.api.comments.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -975,7 +975,7 @@ class TestLinkSlackThread(APIBaseTest):
 
     # A deleted discussion must free its thread, whether it was deleted on its own or in bulk.
     @parameterized.expand([("deleted_on_its_own",), ("deleted_in_bulk",)])
-    @patch("posthog.api.comments.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -1001,7 +1001,7 @@ class TestLinkSlackThread(APIBaseTest):
         assert second.status_code == status.HTTP_201_CREATED, second.json()
         assert CommentSlackThread.objects.for_team(self.team.id).get().source_comment_id == UUID(second.json()["id"])
 
-    @patch("posthog.api.comments.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -1026,6 +1026,147 @@ class TestLinkSlackThread(APIBaseTest):
         assert set(Comment.objects.filter(id__in=[root_id, reply.id]).values_list("deleted", flat=True)) == {True}
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
         assert self._link().status_code == status.HTTP_201_CREATED
+
+    # The bot can be in private channels the person who connected the workspace isn't in. Linking reads
+    # the history with the bot's access, so the requester must be able to read it in Slack too.
+    @parameterized.expand([("member_of_the_channel", True), ("not_in_the_channel", False)])
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_links_a_private_channel_thread_only_for_someone_in_it(
+        self, _name, in_channel, mock_slack, _flag, mock_profile, _import
+    ):
+        mock_profile.return_value = self.slack_profile
+        Integration.objects.filter(id=self.integration.id).update(created_by=self.user)
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        client.conversations_info.return_value["channel"].update({"is_private": True, "is_group": True})
+        client.conversations_members.return_value = {"members": ["U1", "U9"] if in_channel else ["U1"]}
+
+        res = self._link()
+
+        assert res.status_code == (status.HTTP_201_CREATED if in_channel else status.HTTP_403_FORBIDDEN), res.json()
+        client.conversations_members.assert_called_once()
+        assert CommentSlackThread.objects.for_team(self.team.id).exists() == in_channel
+        if not in_channel:
+            assert "aren't in that private channel" in str(res.json())
+            client.conversations_replies.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay", side_effect=ConnectionError("down"))
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_link_whose_import_cannot_be_queued_says_the_import_failed(self, mock_slack, _flag, mock_profile, _):
+        # The link has committed, so it stands. Left at "pending", the root would wait for history that
+        # never comes; "failed" tells the person to unlink and link it again.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self._link()
+
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        root = Comment.objects.get(id=res.json()["id"])
+        assert (root.item_context or {})["slack_import_state"] == "failed"
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_editing_the_opening_comment_keeps_what_marks_it_linked(self, mock_slack, _flag, mock_profile, _import):
+        # The outbound checks on a linked thread key off from_slack. Dropping it on an edit would let
+        # replies through to a channel that has since been shared outside the workspace.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{root_id}/",
+            {"content": "edited", "item_context": {}},
+            format="json",
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        context = Comment.objects.get(id=root_id).item_context or {}
+        assert (context.get("from_slack"), context.get("slack_import_state")) == (True, "pending")
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_unlinking_needs_the_same_slack_membership_as_linking(self, mock_slack, _flag, mock_profile, _import):
+        mock_profile.return_value = self.slack_profile
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        client.users_lookupByEmail.return_value = {"user": {"team_id": "T123", "is_restricted": True}}
+
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+        assert CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_unlinking_waits_for_replies_still_on_their_way_to_slack(self, mock_slack, _flag, mock_profile, _import):
+        # Unlinking deletes the discussion because the thread keeps a copy. This reply has no copy yet.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        with patch("posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack.delay"):
+            pending = Comment.objects.create(
+                team=self.team, scope="Ticket", item_id=str(self.ticket.id), source_comment_id=root_id, content="hm"
+            )
+
+        refused = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert "haven't reached the Slack thread yet" in str(refused.json())
+        assert not Comment.objects.get(id=pending.id).deleted
+
+        Comment.objects.filter(id=pending.id).update(item_context={"slack_synced_ts": "1767225900.000001"})
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_unlinking_isnt_held_up_by_a_reply_that_will_never_reach_slack(
+        self, mock_slack, _flag, mock_profile, _import
+    ):
+        # Refused after the channel was shared, or out of retries: it isn't on its way, and the person
+        # unlinking may not be able to delete a teammate's reply to clear it.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        with patch("posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack.delay"):
+            stuck = Comment.objects.create(
+                team=self.team, scope="Ticket", item_id=str(self.ticket.id), source_comment_id=root_id, content="hm"
+            )
+        Comment.objects.filter(id=stuck.id).update(created_at=timezone.now() - timedelta(hours=1))
+
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_unlinking_still_works_once_the_slack_integration_is_gone(self, mock_slack, _flag, mock_profile, _import):
+        # Nothing syncs without the integration, so the discussion can still be cleared away.
+        mock_profile.return_value = self.slack_profile
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        Integration.objects.filter(id=self.integration.id).update(kind="github")
+        client.users_lookupByEmail.reset_mock()
+
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        client.users_lookupByEmail.assert_not_called()
 
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     def test_unlinking_refuses_a_discussion_that_was_sent_to_slack(self, _flag):
@@ -1193,13 +1334,15 @@ class TestImportLinkedSlackThread(APIBaseTest):
     def test_a_rate_limit_retries_after_slacks_retry_after(self, mock_slack):
         rate_limited = MagicMock()
         rate_limited.get.side_effect = lambda key, default=None: {"error": "ratelimited"}.get(key, default)
-        rate_limited.headers = {"Retry-After": "7"}
+        # Longer than the 30 seconds the live sync waits at most: capped like that, five retries would
+        # run out inside one cooldown and fail an import Slack would soon have allowed.
+        rate_limited.headers = {"Retry-After": "300"}
         mock_slack.return_value.client.conversations_replies.side_effect = SlackApiError("ratelimited", rate_limited)
 
         with self.assertRaises(Retry) as raised:
             import_linked_slack_thread.apply(args=(str(self.mirror.id),), kwargs={"cursor": "page"})
 
-        assert raised.exception.when == 7
+        assert raised.exception.when == 300
 
     # A root left at "pending" would tell readers the history is still on its way.
     @parameterized.expand([("sync_switched_off",), ("integration_gone",)])
@@ -1215,6 +1358,46 @@ class TestImportLinkedSlackThread(APIBaseTest):
 
         assert self._root_context()["slack_import_state"] == "failed"
         mock_slack.return_value.client.conversations_replies.assert_not_called()
+
+    # The page is saved, but a next page that can't be queued would leave the root at "pending" for good.
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.apply_async")
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_next_page_that_cannot_be_queued_retries_then_says_failed(self, mock_slack, mock_profile, mock_next):
+        mock_profile.return_value = {"name": "Grace", "email": None, "avatar": None, "team_id": "T999"}
+        page = _thread_page({"ts": "1767225700.000001", "user": "U2", "text": "Yup"})
+        mock_slack.return_value.client.conversations_replies.return_value = {
+            **page,
+            "has_more": True,
+            "response_metadata": {"next_cursor": "next-page"},
+        }
+        mock_next.side_effect = ConnectionError("broker down")
+
+        with self.assertRaises(Retry):
+            import_linked_slack_thread.apply(args=(str(self.mirror.id),), kwargs={"cursor": "page"})
+        assert self._root_context()["slack_import_state"] == "pending"
+
+        import_linked_slack_thread.apply(
+            args=(str(self.mirror.id),), kwargs={"cursor": "page"}, retries=import_linked_slack_thread.max_retries
+        )
+        assert self._root_context()["slack_import_state"] == "failed"
+
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_reply_imported_after_the_thread_is_unlinked_is_not_saved(self, mock_slack, mock_profile):
+        # Unlinking deletes the discussion, so a reply saved after it would hang off nothing anyone sees.
+        def unlink_while_reading(*_args, **_kwargs):
+            CommentSlackThread.objects.unscoped().filter(id=self.mirror.id).delete()
+            return {"name": "Grace", "email": None, "avatar": None, "team_id": "T999"}
+
+        mock_profile.side_effect = unlink_while_reading
+        mock_slack.return_value.client.conversations_replies.return_value = _thread_page(
+            ROOT_MESSAGE, {"ts": "1767225700.000001", "user": "U2", "text": "Yup"}
+        )
+
+        import_linked_slack_thread(str(self.mirror.id), cursor="page")
+
+        assert not Comment.objects.filter(source_comment=self.root).exists()
 
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_an_import_that_runs_out_of_retries_says_so_on_the_root(self, mock_slack):
