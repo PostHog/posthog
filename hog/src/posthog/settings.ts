@@ -1,7 +1,7 @@
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 
-import type { StoreChoice } from './credential-store/types'
 import { hostKey, type HostKey } from './host'
 
 // What settings.json keeps about the login to one host: everything except its secrets.
