@@ -406,7 +406,8 @@ def _split_by_path(
     An alert whose destinations the platform keeps sends every transition to them natively. Its
     stock destinations are `AlertDestination` rows, so any HogFunction listening on the alert is one
     a person built, and the source also emits every transition for it. No destination is on both
-    paths, so nothing is sent twice.
+    paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
+    therefore disable the HogFunctions it copies, or each of them hears every transition as well.
     """
     if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
         return announced, ()
