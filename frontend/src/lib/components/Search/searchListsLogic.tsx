@@ -20,9 +20,9 @@ import { IntegrationType, UserType } from '~/types'
 import { SearchItem } from './searchItems'
 import {
     SettingsSectionSummary,
+    actionSearchItems,
     dataManagementSearchItems,
     healthSearchItems,
-    miscSearchItems,
     newSearchItems,
     peopleSearchItems,
     productSearchItems,
@@ -67,10 +67,10 @@ export interface searchListsLogicValues {
     treeGroupItems: FileSystemImport[] // projectTreeDataLogic
     sceneLogViewsByRef: Record<string, string> // recentItemsModel
     user: UserType | null // userLogic
+    actionItems: SearchItem[]
     dataManagementItems: SearchItem[]
     hasOrganizationIntegrations: boolean
     healthItems: SearchItem[]
-    miscItems: SearchItem[]
     newItems: SearchItem[]
     peopleItems: SearchItem[]
     productsItems: SearchItem[]
@@ -112,7 +112,7 @@ export interface searchListsLogicMeta {
         newItems: (featureFlags: FeatureFlagsSet, showUnreleased: boolean, arg: boolean) => SearchItem[]
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
-        miscItems: (sceneLogViewsByRef: Record<string, string>, showTerminal: boolean) => SearchItem[]
+        actionItems: (showTerminal: boolean) => SearchItem[]
         settingsItems: (
             settingsSections: SettingsSectionSummary[],
             featureFlags: FeatureFlagsSet,
@@ -216,13 +216,10 @@ export const searchListsLogic = kea<searchListsLogicType>([
             (s) => [s.sceneLogViewsByRef],
             (sceneLogViewsByRef: Record<string, string>): SearchItem[] => healthSearchItems(sceneLogViewsByRef),
         ],
-        miscItems: [
-            (s) => [s.sceneLogViewsByRef, s.showTerminal],
-            (sceneLogViewsByRef: Record<string, string>, showTerminal: boolean): SearchItem[] =>
-                miscSearchItems(
-                    sceneLogViewsByRef,
-                    showTerminal ? () => terminalDockLogic.actions.toggleTerminal() : null
-                ),
+        actionItems: [
+            (s) => [s.showTerminal],
+            (showTerminal: boolean): SearchItem[] =>
+                actionSearchItems(showTerminal ? () => terminalDockLogic.actions.toggleTerminal() : null),
         ],
         settingsItems: [
             (s) => [s.settingsSections, s.featureFlags, s.hasOrganizationIntegrations, s.billingEntryUrl],
