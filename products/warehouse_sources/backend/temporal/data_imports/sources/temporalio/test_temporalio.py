@@ -1,14 +1,30 @@
+import datetime
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.test import override_settings
 
+from google.protobuf.duration_pb2 import Duration
+from google.protobuf.timestamp_pb2 import Timestamp
+from temporalio.api.activity.v1 import ActivityExecutionListInfo
+from temporalio.api.common.v1 import ActivityType, Payload, SearchAttributes, WorkflowExecution, WorkflowType
+from temporalio.api.enums.v1 import ActivityExecutionStatus, NamespaceState
+from temporalio.api.namespace.v1 import NamespaceConfig, NamespaceInfo
+from temporalio.api.schedule.v1 import ScheduleActionResult, ScheduleListEntry, ScheduleListInfo
+from temporalio.api.workflowservice.v1 import (
+    DescribeNamespaceResponse,
+    ListActivityExecutionsResponse,
+    ListNamespacesResponse,
+    ListSchedulesResponse,
+)
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.codec import EncryptionCodec
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo, resolver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
     TemporalIOSourceConfig,
@@ -19,13 +35,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio
     TemporalIOResumeConfig,
     _async_iter_to_sync,
     _ByteBudget,
+    _encode_page_token,
     _estimate_size_bytes,
     _get_temporal_client,
+    _paged_rows,
     _ResumePoint,
     _with_transient_rpc_retry,
 )
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+_TEMPORALIO_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.temporalio.temporalio"
 
 
 def _rpc_error(message: str, status: RPCStatusCode) -> RPCError:
@@ -257,3 +276,225 @@ class TestAsyncIterToSync:
 
         assert reserved[0] == len(token)
         assert [state.next_page_token for state in saved] == [token]
+
+
+def _timestamp(value: datetime.datetime) -> Timestamp:
+    ts = Timestamp()
+    ts.FromDatetime(value)
+    return ts
+
+
+def _keyword_search_attributes(**values: str) -> SearchAttributes:
+    return SearchAttributes(
+        indexed_fields={
+            key: Payload(metadata={"encoding": b"json/plain", "type": b"Keyword"}, data=f'"{value}"'.encode())
+            for key, value in values.items()
+        }
+    )
+
+
+def _schedules_page(schedule_ids: list[str], next_page_token: bytes = b"") -> ListSchedulesResponse:
+    return ListSchedulesResponse(
+        schedules=[
+            ScheduleListEntry(
+                schedule_id=schedule_id,
+                search_attributes=_keyword_search_attributes(Team="billing"),
+                info=ScheduleListInfo(
+                    workflow_type=WorkflowType(name="NightlyExport"),
+                    paused=True,
+                    recent_actions=[
+                        ScheduleActionResult(
+                            start_workflow_result=WorkflowExecution(workflow_id=f"{schedule_id}-run", run_id="r-1")
+                        )
+                    ],
+                ),
+            )
+            for schedule_id in schedule_ids
+        ],
+        next_page_token=next_page_token,
+    )
+
+
+def _activities_page(activity_ids: list[str], next_page_token: bytes = b"") -> ListActivityExecutionsResponse:
+    return ListActivityExecutionsResponse(
+        executions=[ActivityExecutionListInfo(activity_id=activity_id, run_id="r-1") for activity_id in activity_ids],
+        next_page_token=next_page_token,
+    )
+
+
+def _namespace(name: str) -> DescribeNamespaceResponse:
+    return DescribeNamespaceResponse(
+        namespace_info=NamespaceInfo(name=name, id=f"{name}-id", state=NamespaceState.NAMESPACE_STATE_REGISTERED),
+        config=NamespaceConfig(workflow_execution_retention_ttl=Duration(seconds=259200)),
+    )
+
+
+def _drive(schema_name: str, workflow_service: MagicMock, **run_kwargs):
+    client = MagicMock()
+    client.workflow_service = workflow_service
+    with patch(f"{_TEMPORALIO_MODULE}._get_temporal_client", new=AsyncMock(return_value=client)):
+        return SourceDriver(TemporalIOSource(), _config()).run(schema_name, [], **run_kwargs)
+
+
+def _page_tokens(rpc: AsyncMock) -> list[bytes]:
+    return [rpc_call.args[0].next_page_token for rpc_call in rpc.await_args_list]
+
+
+class TestPagedListTables:
+    @pytest.mark.parametrize(
+        "schema_name,rpc_name,id_field,make_page",
+        [
+            ("schedules", "list_schedules", "id", _schedules_page),
+            ("standalone_activities", "list_activity_executions", "activity_id", _activities_page),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "resume_token,expected_tokens,expected_ids",
+        [
+            (None, [b"", b"page-2"], ["a", "b", "c"]),
+            (b"page-2", [b"page-2"], ["c"]),
+        ],
+    )
+    def test_walks_every_page_and_resumes_from_the_saved_token(
+        self, schema_name, rpc_name, id_field, make_page, resume_token, expected_tokens, expected_ids
+    ):
+        pages = {b"": make_page(["a", "b"], b"page-2"), b"page-2": make_page(["c"])}
+        rpc = AsyncMock(side_effect=lambda request, **kwargs: pages[request.next_page_token])
+        service = MagicMock(**{rpc_name: rpc})
+        resume_state = (
+            TemporalIOResumeConfig(next_page_token=_encode_page_token(resume_token)) if resume_token else None
+        )
+
+        result = _drive(schema_name, service, resume_state=resume_state)
+
+        assert result.raised is None
+        assert [row[id_field] for row in result.rows] == expected_ids
+        assert _page_tokens(rpc) == expected_tokens
+        assert all(rpc_call.args[0].namespace == "namespace" for rpc_call in rpc.await_args_list)
+        assert result.final_state == TemporalIOResumeConfig(next_page_token=_encode_page_token(b"page-2"))
+
+    async def test_stages_the_next_page_token_before_handing_on_the_whole_page(self):
+        pages = {b"": _activities_page(["a", "b"], b"page-2"), b"page-2": _activities_page(["c"])}
+        manager = MagicMock(**{"can_resume.return_value": False})
+
+        items = [
+            item
+            async for item in _paged_rows(
+                AsyncMock(side_effect=lambda token: pages[token]),
+                lambda response: ({"id": info.activity_id} for info in response.executions),
+                manager,
+                MagicMock(),
+            )
+        ]
+
+        # A resume after the first page is written starts at page 2, so a full refresh appends no row twice.
+        assert items == [
+            _ResumePoint(state=TemporalIOResumeConfig(next_page_token=_encode_page_token(b"page-2"))),
+            [{"id": "a"}, {"id": "b"}],
+            [{"id": "c"}],
+        ]
+
+    def test_schedule_rows_carry_the_workflow_type_recent_runs_and_search_attributes(self):
+        service = MagicMock(list_schedules=AsyncMock(return_value=_schedules_page(["nightly"])))
+
+        [row] = _drive("schedules", service).rows
+
+        assert row["id"] == "nightly"
+        assert row["workflow_type"] == "NightlyExport"
+        assert row["paused"] is True
+        assert row["recent_actions"][0]["start_workflow_result"] == {"workflow_id": "nightly-run", "run_id": "r-1"}
+        assert row["search_attributes"] == {"Team": ["billing"]}
+        assert "memo" not in row
+
+    @pytest.mark.parametrize(
+        "closed,expected_close_time,expected_duration",
+        [
+            (True, datetime.datetime(2026, 1, 2, 3, 5, tzinfo=datetime.UTC), "60s"),
+            (False, None, None),
+        ],
+    )
+    def test_activity_rows_use_datetimes_and_status_names(self, closed, expected_close_time, expected_duration):
+        scheduled = datetime.datetime(2026, 1, 2, 3, 4, tzinfo=datetime.UTC)
+        info = ActivityExecutionListInfo(
+            activity_id="charge-card",
+            run_id="r-1",
+            activity_type=ActivityType(name="ChargeCard"),
+            schedule_time=_timestamp(scheduled),
+            status=ActivityExecutionStatus.ACTIVITY_EXECUTION_STATUS_RUNNING,
+            search_attributes=_keyword_search_attributes(Region="eu"),
+        )
+        if closed:
+            info.close_time.CopyFrom(_timestamp(expected_close_time))
+            info.execution_duration.CopyFrom(Duration(seconds=60))
+            info.status = ActivityExecutionStatus.ACTIVITY_EXECUTION_STATUS_COMPLETED
+        service = MagicMock(
+            list_activity_executions=AsyncMock(return_value=ListActivityExecutionsResponse(executions=[info]))
+        )
+
+        [row] = _drive("standalone_activities", service).rows
+
+        assert row["activity_type"] == "ChargeCard"
+        assert row["schedule_time"] == scheduled
+        assert row["close_time"] == expected_close_time
+        assert row.get("execution_duration") == expected_duration
+        assert row["status"] == (
+            "ACTIVITY_EXECUTION_STATUS_COMPLETED" if closed else "ACTIVITY_EXECUTION_STATUS_RUNNING"
+        )
+        assert row["search_attributes"] == {"Region": ["eu"]}
+
+
+class TestNamespaces:
+    def test_lists_every_namespace_with_its_info_at_the_row_root(self):
+        pages = {
+            b"": ListNamespacesResponse(namespaces=[_namespace("orders")], next_page_token=b"page-2"),
+            b"page-2": ListNamespacesResponse(namespaces=[_namespace("billing")]),
+        }
+        list_namespaces = AsyncMock(side_effect=lambda request, **kwargs: pages[request.next_page_token])
+        describe_namespace = AsyncMock()
+        service = MagicMock(list_namespaces=list_namespaces, describe_namespace=describe_namespace)
+
+        result = _drive("namespaces", service)
+
+        assert result.raised is None
+        assert [(row["id"], row["name"], row["state"]) for row in result.rows] == [
+            ("orders-id", "orders", "NAMESPACE_STATE_REGISTERED"),
+            ("billing-id", "billing", "NAMESPACE_STATE_REGISTERED"),
+        ]
+        assert result.rows[0]["config"]["workflow_execution_retention_ttl"] == "259200s"
+        assert _page_tokens(list_namespaces) == [b"", b"page-2"]
+        describe_namespace.assert_not_awaited()
+
+    @pytest.mark.parametrize("status", [RPCStatusCode.PERMISSION_DENIED, RPCStatusCode.UNIMPLEMENTED])
+    def test_a_refused_listing_falls_back_to_the_configured_namespace(self, status):
+        describe_namespace = AsyncMock(return_value=_namespace("namespace"))
+        service = MagicMock(
+            list_namespaces=AsyncMock(side_effect=_rpc_error("Request unauthorized.", status)),
+            describe_namespace=describe_namespace,
+        )
+
+        result = _drive("namespaces", service)
+
+        assert result.raised is None
+        assert [row["name"] for row in result.rows] == ["namespace"]
+        describe_namespace.assert_awaited_once()
+        assert describe_namespace.await_args_list[0].args[0].namespace == "namespace"
+
+    @pytest.mark.parametrize(
+        "side_effect",
+        [
+            # Falling back after rows were yielded would replace a partial listing with one namespace.
+            [
+                ListNamespacesResponse(namespaces=[_namespace("orders")], next_page_token=b"page-2"),
+                _rpc_error("Request unauthorized.", RPCStatusCode.PERMISSION_DENIED),
+            ],
+            [_rpc_error("bad request", RPCStatusCode.INVALID_ARGUMENT)],
+        ],
+    )
+    def test_other_listing_failures_are_raised(self, side_effect):
+        describe_namespace = AsyncMock()
+        service = MagicMock(list_namespaces=AsyncMock(side_effect=side_effect), describe_namespace=describe_namespace)
+
+        result = _drive("namespaces", service)
+
+        assert isinstance(result.raised, RPCError)
+        describe_namespace.assert_not_awaited()
