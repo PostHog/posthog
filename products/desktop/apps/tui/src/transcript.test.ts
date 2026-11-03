@@ -548,11 +548,12 @@ describe("transcriptFrom last turn", () => {
       status: "in_progress",
       entries,
     });
-    expect(readTurn(view(PI_LOG), "pi")).toEqual({
+    expect(readTurn(view(PI_LOG), "pi")).toMatchObject({
       working: false,
       facts: { turnEndedAt: 6000, shells: 0, wake: false },
+      lastUser: { text: "Rename the helper" },
     });
-    expect(readTurn(view(PI_LOG.slice(0, -1)), "pi")).toEqual({
+    expect(readTurn(view(PI_LOG.slice(0, -1)), "pi")).toMatchObject({
       working: true,
       facts: null,
     });
