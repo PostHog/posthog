@@ -60,7 +60,7 @@ Picking a plan that lacks its login runs the sign-in on a sheet. Settings (Ctrl+
 | Ctrl+M / Ctrl+Shift+M | Step a Claude Code chat's mode / back (kitty terminals) |
 | Ctrl+B | Narrow the sidebar |
 | Ctrl+P | Pin or unpin a chat above the workspaces |
-| Ctrl+0 | Inbox: only the chats that need you (a question, a failed run, or a finished turn you have not replied to); `d` on a row dismisses it |
+| Ctrl+0 | Inbox: only the chats that need you (a question, a failed run, or a finished turn you have not replied to), leaving out pinned chats and split workspaces; `d` on a row dismisses it |
 | Ctrl+; | Settings |
 | Ctrl+R / Ctrl+Q | Reload / quit |
 

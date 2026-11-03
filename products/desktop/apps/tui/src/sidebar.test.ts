@@ -88,31 +88,47 @@ describe("sidebarRows", () => {
     expect(rows).toEqual(["# Work", "## All chats", "New chat", "[empty]"]);
   });
 
-  it("lists only the chats that need the user on the Inbox tab, with no paging, and inbox zero when none do", () => {
+  it("lists only the chats that need the user on the Inbox tab, leaving out pinned and split ones, with no paging, and inbox zero when none do", () => {
     const work = page({
       tasks: [task("a"), task("b"), task("c")],
       hasMore: true,
     });
+    // c sits in a split workspace, and d is pinned and open alone in the main view, off the loaded page: both have a
+    // place on screen already.
+    const layout = openTask(
+      splitFocused(openTask(initialLayout(), "c"), "row"),
+      "c2",
+    );
+    const withPinnedOpen = openTask(layout, "d", "Task d");
     const inboxRows = (inbox: Set<string>): string[] =>
       labels(
         sidebarRows({
-          layout: initialLayout(),
+          layout: withPinnedOpen,
           work,
           collapsed: new Set(),
           working: new Set(),
           showToday: false,
           scope: "inbox",
           inbox,
+          pinned: [{ id: "d", title: "Task d" }],
         }),
-      );
-    expect(inboxRows(new Set(["b"]))).toEqual([
+      ).filter((label) => label !== "");
+    const above = [
       "# Work",
+      "## Pinned",
+      "Task d",
+      "v Workspace #1",
+      "  Task c",
+      "  Untitled",
+    ];
+    expect(inboxRows(new Set(["b", "c", "d"]))).toEqual([
+      ...above,
       "## Inbox",
       "New chat",
       "Task b",
     ]);
-    expect(inboxRows(new Set())).toEqual([
-      "# Work",
+    expect(inboxRows(new Set(["c", "d"]))).toEqual([
+      ...above,
       "## Inbox",
       "New chat",
       "[inbox zero]",

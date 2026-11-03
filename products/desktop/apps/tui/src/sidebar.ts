@@ -191,11 +191,24 @@ export function sidebarRows({
     ...known,
     ...(work.tasks ?? []).map((task): [string, Task] => [task.id, task]),
   ]);
+  // A pinned chat or one in a split workspace already has a fixed place on screen, so the inbox leaves it out.
+  const persistent = new Set([
+    ...pinned.map((chat) => chat.id),
+    ...layout.workspaces.flatMap((workspace) =>
+      workspace.root.kind === "pane"
+        ? []
+        : panes(workspace.root).flatMap((pane) =>
+            pane.taskId ? [pane.taskId] : [],
+          ),
+    ),
+  ]);
   const tasks =
     work.tasks === null
       ? []
       : workTasks(work, byId, local).filter(
-          (task) => scope !== "inbox" || inbox.has(task.id),
+          (task) =>
+            scope !== "inbox" ||
+            (inbox.has(task.id) && !persistent.has(task.id)),
         );
   const listed = new Set(tasks.map((task) => task.id));
   const isLocal = (taskId: string): boolean =>
@@ -255,8 +268,13 @@ export function sidebarRows({
         else newChatPaneId = pane.id;
       } else if (listed.has(pane.taskId))
         singlePaneOf.set(pane.taskId, pane.id);
-      // Shown once the list has loaded, so loading never lists tasks by saved name alone.
-      else if (work.tasks !== null) {
+      // Shown once the list has loaded, so loading never lists tasks by saved name alone. The Inbox tab shows it
+      // only when it needs the user, as it would a listed chat.
+      else if (
+        work.tasks !== null &&
+        (scope !== "inbox" ||
+          (inbox.has(pane.taskId) && !persistent.has(pane.taskId)))
+      ) {
         unlisted.push(taskRow(pane.taskId, pane.id, false, pane.title));
       }
       return;
