@@ -45,7 +45,12 @@ export function QuillHighlightPickRow({ item, position, isActive, rank }: QuillH
                     />
                 }
             >
-                <span className={cn('flex w-full min-w-0 items-center gap-3 py-1', observation.viewed && 'opacity-60')}>
+                <span
+                    className={cn(
+                        'flex w-full min-w-0 items-center gap-3 py-1 text-left',
+                        observation.viewed && 'opacity-60'
+                    )}
+                >
                     <span className="relative w-28 shrink-0">
                         <ObservationThumbnail
                             observation={observation}
@@ -53,7 +58,11 @@ export function QuillHighlightPickRow({ item, position, isActive, rank }: QuillH
                             size="small"
                             retryKey={picksLoad?.feedLoadId}
                         />
-                        {rank !== undefined && <HighlightPickRankBadge rank={rank} size="small" />}
+                        {rank !== undefined && (
+                            <span data-not-quill className="contents">
+                                <HighlightPickRankBadge rank={rank} size="small" />
+                            </span>
+                        )}
                         {!observation.viewed && (
                             <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-primary" aria-hidden />
                         )}
