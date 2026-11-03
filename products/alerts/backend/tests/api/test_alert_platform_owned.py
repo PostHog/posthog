@@ -294,13 +294,18 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ai_alert", {"detector_config": {"type": "llm"}}, None),
-            ("real_time_alert_over_the_limit", {"calculation_interval": "real_time"}, "Limit reached."),
+            ("ai_alert", {"detector_config": {"type": "llm"}}, True, None),
+            ("real_time_alert_over_the_limit", {"calculation_interval": "real_time"}, True, "Limit reached."),
+            ("real_time_alert_without_the_plan", {"calculation_interval": "real_time"}, False, None),
         ]
     )
     def test_a_platform_edit_cannot_turn_an_alert_back_on_past_its_admission(
-        self, _name: str, stored: dict[str, Any], real_time_limit_error: str | None
+        self, _name: str, stored: dict[str, Any], has_real_time_plan: bool, real_time_limit_error: str | None
     ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}] if has_real_time_plan else []
+        )
+        self.organization.save()
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
         AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
 

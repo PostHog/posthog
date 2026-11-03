@@ -159,15 +159,19 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
     if edit.enabled and not alert.enabled:
-        # The insight API and the Max tool check the same limit before they turn an alert on.
-        if limit_error := AlertConfiguration.real_time_alert_validation_error(
+        # The insight API and the Max tool check the plan and the active real-time limit before they
+        # turn an alert on. Without the plan check, the next evaluation would switch it off again.
+        organization = alert.team.organization
+        if admission_error := AlertConfiguration.interval_entitlement_error(
+            calculation_interval=alert.calculation_interval, organization=organization
+        ) or AlertConfiguration.real_time_alert_validation_error(
             team_id=alert.team_id,
-            organization=alert.team.organization,
+            organization=organization,
             calculation_interval=alert.calculation_interval,
             enabled=True,
             existing=alert,
         ):
-            raise InvalidPlatformAlertEdit("enabled", limit_error)
+            raise InvalidPlatformAlertEdit("enabled", admission_error)
     condition = edit.source_config[SOURCE_CONDITION_KEY]
     if condition.get("detector") != alert.detector_config:
         # A detector config is checked against its insight and its access rules in the insight API only.
