@@ -12,4 +12,4 @@ SELECT
   _timestamp,
   _offset,
   _partition
-FROM posthog.kafka_email_status
+FROM posthog.kafka_email_status_events

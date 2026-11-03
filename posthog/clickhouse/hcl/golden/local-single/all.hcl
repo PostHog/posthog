@@ -3005,6 +3005,41 @@ database "posthog" {
     column "reason" {
       type = "String"
     }
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+
+  table "kafka_email_status_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
     column "recipient" {
       type = "String"
     }
@@ -3017,7 +3052,7 @@ database "posthog" {
     engine "kafka" {
       collection           = "warpstream_cyclotron"
       topic_list           = "clickhouse_email_status"
-      group_name           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status_events"
       format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 100000
@@ -20705,7 +20740,7 @@ SELECT
   _timestamp,
   _offset,
   _partition
-FROM posthog.kafka_email_status
+FROM posthog.kafka_email_status_events
 SQL
 
     column "team_id" {

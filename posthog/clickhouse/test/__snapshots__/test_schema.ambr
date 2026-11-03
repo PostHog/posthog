@@ -165,12 +165,34 @@
       version UInt64,
       created_at DateTime64(6, 'UTC'),
       status_at DateTime64(6, 'UTC'),
+      reason String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_email_status_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status_events
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
       reason String,
       recipient String,
       function_id String,
       sending_domain LowCardinality(String)
   )
-  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100,
            kafka_num_consumers = 1,
            kafka_thread_per_consumer = 1,
@@ -1689,7 +1711,7 @@
       _timestamp,
       _offset,
       _partition
-  FROM kafka_email_status
+  FROM kafka_email_status_events
   
   '''
 # ---
@@ -1698,7 +1720,8 @@
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS email_status_mv
   TO email_status_data
-  AS SELECT
+  AS 
+  SELECT
       team_id,
       message_id,
       status,
@@ -2776,12 +2799,34 @@
       version UInt64,
       created_at DateTime64(6, 'UTC'),
       status_at DateTime64(6, 'UTC'),
+      reason String
+  )
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100,
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_poll_timeout_ms = 10000,
+           kafka_max_block_size = 100000
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_email_status_events]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_email_status_events
+  (
+      team_id Int64,
+      message_id UUID,
+      status LowCardinality(String),
+      version UInt64,
+      created_at DateTime64(6, 'UTC'),
+      status_at DateTime64(6, 'UTC'),
       reason String,
       recipient String,
       function_id String,
       sending_domain LowCardinality(String)
   )
-  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status', kafka_format = 'JSONEachRow')
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_email_status_test', kafka_group_name = 'clickhouse_email_status_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100,
            kafka_num_consumers = 1,
            kafka_thread_per_consumer = 1,

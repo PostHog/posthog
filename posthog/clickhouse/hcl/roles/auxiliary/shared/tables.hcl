@@ -1180,11 +1180,25 @@ database "posthog" {
     }
   }
   table "kafka_email_status" {
-    extend = "_email_status_events_columns"
+    extend = "_email_status_columns"
     engine "kafka" {
       collection           = "warpstream_cyclotron"
       topic_list           = "clickhouse_email_status"
       group_name           = "clickhouse_email_status"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+  table "kafka_email_status_events" {
+    extend = "_email_status_events_columns"
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status_events"
       format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 100000
