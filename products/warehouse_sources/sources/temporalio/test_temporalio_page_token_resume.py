@@ -118,12 +118,16 @@ def test_temporalio_commits_a_page_token_only_for_rows_the_pipeline_received(shu
             manager: ResumableSourceManager[Any] = ResumableSourceManager(
                 inputs, temporalio_source.TemporalIOResumeConfig
             )
-            received, finished = _run_attempt(
-                manager,
-                lambda manager=manager: temporalio_source._async_iter_to_sync(
+
+            def read_workflows(manager: ResumableSourceManager[Any] = manager) -> Iterable[Any]:
+                return temporalio_source._async_iter_to_sync(
                     temporalio_source._get_workflows(MagicMock(), None, False, manager, MagicMock(), 1),
                     save_resume_state=manager.save_state,
-                ),
+                )
+
+            received, finished = _run_attempt(
+                manager,
+                read_workflows,
                 before_first_commit=wait_for_the_producer,
                 shutdown_at_item=shutdown_at_item,
             )
