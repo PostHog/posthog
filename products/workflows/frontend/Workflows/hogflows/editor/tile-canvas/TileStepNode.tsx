@@ -82,7 +82,7 @@ export function TileStepNode({
                       }
                     : undefined
             }
-            onDragEnd={draggable ? endDraggingStep : undefined}
+            onDragEnd={draggable ? (event) => endDraggingStep(event.dataTransfer.dropEffect) : undefined}
             onContextMenu={
                 interactive && hasStepMenu(action)
                     ? (event) => {
