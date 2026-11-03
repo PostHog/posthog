@@ -168,9 +168,13 @@ def _upload_problem(value: Any) -> str | None:
         if depth > _MAX_UPLOAD_DEPTH:
             return f"it nests deeper than {_MAX_UPLOAD_DEPTH} levels, so it is not a Fivetran response."
         if isinstance(item, Mapping):
+            pending.extend((key, depth) for key in item.keys())
             pending.extend((child, depth + 1) for child in item.values())
         elif isinstance(item, list):
             pending.extend((child, depth + 1) for child in item)
+        # Postgres stores no NUL character in a JSON column.
+        elif isinstance(item, str) and "\x00" in item:
+            return "it holds a NUL character, so it is not a Fivetran response."
     if len(json.dumps(value)) > MAX_UPLOADED_CONNECTION_BYTES:
         return "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
     return None
