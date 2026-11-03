@@ -29,12 +29,12 @@ const providers = {
             name: 'Example CI',
             issuer: ISSUER,
             docs_url: 'https://example.com/docs',
-            claims: {
-                repository: 'repository',
-                repository_id: 'repository_id',
-                ref: 'ref',
-                environment: 'environment',
-            },
+            subject_claim: { name: 'repository_id', label: 'Repository ID', help_text: '' },
+            subject_name_claim: { name: 'repository', label: 'Repository', help_text: 'For example acme/web.' },
+            condition_claims: [
+                { name: 'ref', label: 'Branch or tag', help_text: 'For example refs/heads/main.' },
+                { name: 'environment', label: 'Environment', help_text: '' },
+            ],
         },
     ],
     unsupported: [
@@ -55,6 +55,12 @@ const providers = {
     risky_scopes: {
         'organization_member:write': 'Invites and removes organization members and changes their roles.',
     },
+}
+
+const claimLabels = {
+    subject: 'Repository ID',
+    subject_name: 'Repository',
+    conditions: { ref: 'Branch or tag', environment: 'Environment' },
 }
 
 const createdBy = { id: 1, uuid: 'test-user', first_name: 'Test', email: 'test@example.com', hedgehog_config: null }
@@ -82,10 +88,10 @@ export const WithPolicies: Story = {
                             name: 'Production deploys',
                             issuer: ISSUER,
                             provider: 'example_ci',
-                            repository: 'acme/web',
-                            repository_id: '123456',
-                            ref: 'refs/heads/main',
-                            environment: 'production',
+                            subject_name: 'acme/web',
+                            subject: '123456',
+                            conditions: { environment: 'production', ref: 'refs/heads/main' },
+                            claim_labels: claimLabels,
                             scopes: ['annotation:write', 'error_tracking:write'],
                             enabled: true,
                             created_by: createdBy,
@@ -97,10 +103,10 @@ export const WithPolicies: Story = {
                             name: 'Preview builds',
                             issuer: ISSUER,
                             provider: 'example_ci',
-                            repository: 'acme/web',
-                            repository_id: '123456',
-                            ref: '',
-                            environment: 'preview',
+                            subject_name: 'acme/web',
+                            subject: '123456',
+                            conditions: { environment: 'preview' },
+                            claim_labels: claimLabels,
                             scopes: ['error_tracking:write'],
                             enabled: false,
                             created_by: createdBy,

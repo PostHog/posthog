@@ -60,6 +60,7 @@ def _oidc_token(*, signing_key: str = _PROVIDER_KEY_PEM, **overrides: Any) -> st
         "sha": "abc123",
         **overrides,
     }
+    claims = {name: value for name, value in claims.items() if value is not None}
     return jwt.encode(claims, signing_key, algorithm="RS256", headers={"kid": _PROVIDER_KEY_ID})
 
 
@@ -83,9 +84,9 @@ class TestWorkloadTokenExchange(APIBaseTest):
         fields: dict[str, Any] = {
             "name": "Production deploys",
             "issuer": FAKE_WORKLOAD_ISSUER,
-            "repository": "acme/web",
-            "repository_id": "1234",
-            "ref": "refs/heads/main",
+            "subject_name": "acme/web",
+            "subject": "1234",
+            "conditions": {"ref": "refs/heads/main"},
             "scopes": ["annotation:write"],
             **overrides,
         }
@@ -167,6 +168,11 @@ class TestWorkloadTokenExchange(APIBaseTest):
             ("recreated_repository", {"repository_id": "5678"}, {}, "workload_no_matching_policy"),
             ("renamed_repository", {"repository": "acme/other"}, {}, "workload_no_matching_policy"),
             ("other_ref", {"ref": "refs/heads/feature"}, {}, "workload_no_matching_policy"),
+            ("missing_condition_claim", {"ref": None}, {}, "workload_no_matching_policy"),
+            ("empty_condition_claim", {"ref": ""}, {}, "workload_no_matching_policy"),
+            ("condition_claim_not_a_string", {"ref": ["refs/heads/main"]}, {}, "workload_no_matching_policy"),
+            ("empty_subject", {"repository_id": ""}, {}, "workload_token_invalid"),
+            ("missing_subject_name", {"repository": None}, {}, "workload_token_invalid"),
             (
                 "unknown_project",
                 {},
@@ -231,9 +237,9 @@ class TestWorkloadTokenExchange(APIBaseTest):
             team=self.team,
             name="Production deploys",
             issuer=FAKE_WORKLOAD_ISSUER,
-            repository="acme/web",
-            repository_id="1234",
-            ref="refs/heads/main",
+            subject_name="acme/web",
+            subject="1234",
+            conditions={"ref": "refs/heads/main"},
             scopes=["annotation:write"],
         )
 
@@ -242,12 +248,42 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert body["error_code"] == "workload_policy_request_pending"
         assert body["approval_url"] == f"{_SITE_URL}/project/{self.team.id}/workload-trust-policy-requests/{pending.pk}"
 
-    def test_the_most_specific_matching_policy_wins(self) -> None:
-        self._create_policy(environment="production", scopes=["error_tracking:write"])
+    @parameterized.expand(
+        [
+            (
+                "more_conditions_win",
+                {"environment": "production", "ref": "refs/heads/main"},
+                {},
+                "error_tracking:write",
+            ),
+            (
+                "a_condition_the_token_fails_never_matches",
+                {"environment": "staging", "ref": "refs/heads/main"},
+                {},
+                "annotation:write",
+            ),
+            (
+                "a_condition_whose_claim_the_token_lacks_never_matches",
+                {"environment": "production", "ref": "refs/heads/main"},
+                {"environment": None},
+                "annotation:write",
+            ),
+            (
+                "a_stored_condition_the_provider_does_not_allow_never_matches",
+                {"ref": "refs/heads/main", "sha": "abc123"},
+                {},
+                "annotation:write",
+            ),
+        ]
+    )
+    def test_the_most_specific_matching_policy_wins(
+        self, _name: str, conditions: dict[str, str], claim_overrides: dict[str, Any], expected_scope: str
+    ) -> None:
+        self._create_policy(conditions=conditions, scopes=["error_tracking:write"])
 
-        body = self._exchange().json()
+        body = self._exchange(_oidc_token(**claim_overrides)).json()
 
-        assert body["scope"] == "error_tracking:write"
+        assert body["scope"] == expected_scope, body
 
     def test_token_never_outlives_the_oidc_token(self) -> None:
         body = self._exchange(_oidc_token(exp=int(time.time()) + 90)).json()
@@ -265,7 +301,7 @@ class TestWorkloadTokenExchange(APIBaseTest):
                 self.policy.enabled = False
                 self.policy.save()
             elif case == "policy_narrowed":
-                self.policy.ref = "refs/heads/release"
+                self.policy.conditions = {"ref": "refs/heads/release"}
                 self.policy.save()
             elif case == "policy_deleted":
                 self.policy.delete()
