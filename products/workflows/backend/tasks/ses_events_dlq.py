@@ -36,14 +36,19 @@ def replay_ses_events_dlq_task(
         return
     options = ReplayOptions(dry_run=dry_run, limit=limit, max_per_second=max_per_second)
     if not hold_lock(run_id, queue):
-        finish_run(run_id, queue_name, status="failed", error="Another run took this queue before this one started")
+        finish_run(
+            run_id,
+            queue_name,
+            status="failed",
+            error="This run could not take its queue. Another run held it, or this run waited too long to start.",
+        )
         return
     update_run(run_id, status="running")
 
     def on_progress(report: ReplayReport) -> None:
-        update_run(run_id, status="running", report=report)
         if not hold_lock(run_id, queue):
-            raise QueueLockLost("Another run took this queue")
+            raise QueueLockLost("Another run took this queue, or the page marked this run as stopped")
+        update_run(run_id, status="running", report=report)
 
     try:
         report = replay_queue(queue, options, sqs=sqs_client(queue), triggered_by=triggered_by, on_progress=on_progress)

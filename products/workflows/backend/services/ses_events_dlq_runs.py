@@ -24,8 +24,12 @@ RUN_TTL_SECONDS = 14 * 24 * 3600
 RECENT_RUNS_KEPT = 20
 RECENT_RUNS_KEY = "workflows:ses_events_dlq:runs"
 
-# Takes the lock, or extends it, only for the run that owns it or when nobody holds it.
+# Takes the lock, or extends it, only for the run that owns it or when nobody holds it. A run that the
+# page already reported as abandoned never takes the lock again, so it cannot start after staff saw it fail.
 _HOLD_LOCK = """
+if redis.call('exists', KEYS[2]) == 1 then
+    return 0
+end
 local owner = redis.call('get', KEYS[1])
 if owner == ARGV[1] then
     return redis.call('expire', KEYS[1], ARGV[2])
@@ -35,6 +39,15 @@ if not owner then
     return 1
 end
 return 0
+"""
+# Marks a run as abandoned when it does not own its queue lock, in one step so the run cannot take the
+# lock between the check and the mark.
+_ABANDON_IF_UNLOCKED = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return 0
+end
+redis.call('set', KEYS[2], '1', 'EX', ARGV[2])
+return 1
 """
 _RELEASE_LOCK = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -59,13 +72,19 @@ def _lock_key(queue_name: str) -> str:
     return f"workflows:ses_events_dlq:lock:{queue_name}"
 
 
+def _abandoned_key(run_id: str) -> str:
+    return f"workflows:ses_events_dlq:abandoned:{run_id}"
+
+
 # The task extends the lock after every message, so the lock outlives the run's SQS leases by this margin.
 LOCK_TTL_SECONDS = VISIBILITY_TIMEOUT_SECONDS + 300
 
 
 def hold_lock(run_id: str, queue: DlqQueue) -> bool:
-    """Take or extend the queue lock for this run. False when another run holds it."""
-    return bool(get_client().eval(_HOLD_LOCK, 1, _lock_key(queue.name), run_id, LOCK_TTL_SECONDS))
+    """Take or extend the queue lock for this run. False when another run holds it or the run was abandoned."""
+    return bool(
+        get_client().eval(_HOLD_LOCK, 2, _lock_key(queue.name), _abandoned_key(run_id), run_id, LOCK_TTL_SECONDS)
+    )
 
 
 def start_run(queue: DlqQueue, options: ReplayOptions, triggered_by: str) -> str | None:
@@ -129,24 +148,26 @@ def recent_runs() -> list[dict[str, Any]]:
     return runs
 
 
+ABANDONED_ERROR = "The worker stopped this run or never started it. Start another run."
+
+
 def _read_run(run_id: str) -> dict[str, Any] | None:
     redis = get_client()
     raw = redis.get(_run_key(run_id))
     if raw is None:
         return None
     run = json.loads(raw)
-    if run["status"] not in ACTIVE_STATUSES or _owns_lock(run_id, run["queue"]):
+    if run["status"] not in ACTIVE_STATUSES:
         return run
-    # finish_run writes the run before it frees the lock, so a second read tells a run that just
-    # finished from one whose worker died.
+    abandoned = redis.eval(
+        _ABANDON_IF_UNLOCKED, 2, _lock_key(run["queue"]), _abandoned_key(run_id), run_id, RUN_TTL_SECONDS
+    )
+    if not abandoned:
+        return run
+    # finish_run writes the run before it frees the lock, so a run that finished just now shows its real status.
     raw = redis.get(_run_key(run_id))
     run = json.loads(raw) if raw is not None else run
     if run["status"] in ACTIVE_STATUSES:
         run["status"] = "failed"
-        run["error"] = "The worker stopped before the run finished. Start another run."
+        run["error"] = ABANDONED_ERROR
     return run
-
-
-def _owns_lock(run_id: str, queue_name: str) -> bool:
-    owner = get_client().get(_lock_key(queue_name))
-    return owner is not None and (owner.decode() if isinstance(owner, bytes) else owner) == run_id
