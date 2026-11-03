@@ -189,7 +189,7 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
         createWeeklyReportSucceeded: (report: SubscriptionApi) => ({ report }),
         createWeeklyReportFailed: (message: string) => ({ message }),
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values, cache }) => ({
         reports: [
             [] as SubscriptionApi[],
             {
@@ -198,11 +198,16 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
                     // already the MCP ones rather than every AI report the project has. It also spans
                     // title and insight/dashboard names, so `isMCPRecurringReport` still runs as the
                     // precise test — a report merely *titled* "$mcp_" is not one.
+                    const localWritesAtStart = cache.localReportWrites ?? 0
                     const response = await subscriptionsList(String(getCurrentTeamId()), {
                         resource_type: SubscriptionsListResourceType.AiPrompt,
                         search: MCP_PROPERTY_PREFIX,
                         limit: AI_REPORT_LIST_LIMIT,
                     })
+                    // A create, delete or undo that landed while this request was out is newer than its answer.
+                    if ((cache.localReportWrites ?? 0) !== localWritesAtStart) {
+                        return values.reports
+                    }
                     actions.setReportsTruncated(!!response.next)
                     return response.results.filter(
                         (subscription) => !subscription.deleted && isMCPRecurringReport(subscription)
@@ -334,7 +339,10 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
                 }),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setReports: () => {
+            cache.localReportWrites = (cache.localReportWrites ?? 0) + 1
+        },
         createWeeklyReport: async () => {
             const offer = values.weeklyReportOffer
             // The same union drives the UI, so a double click and every closed gate end here.
