@@ -2224,6 +2224,30 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     excludesConversionGoals: bool | None = None
 
 
+class MarketingAnalyticsRecommendationStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    copyValue: str | None = Field(
+        default=None,
+        description=(
+            "Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax."
+        ),
+    )
+    linkText: str | None = Field(
+        default=None,
+        description="The words in `text` that link to `url`, usually the section name.",
+    )
+    text: str
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Google Ads page for this step. It opens the section for the whole account,"
+            " because links cannot filter to one campaign."
+        ),
+    )
+
+
 class MarketingAnalyticsSearchConversion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6904,6 +6928,10 @@ class MarketingAnalyticsRecommendation(BaseModel):
     level: MarketingAnalyticsRecommendationLevel
     reason: str
     rule: MarketingAnalyticsRecommendationRule
+    steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
+        default=None,
+        description=("How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet."),
+    )
     subject: str = Field(
         ...,
         description="The campaign name or the search term the recommendation is about.",
