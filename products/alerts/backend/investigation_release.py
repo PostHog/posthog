@@ -138,7 +138,8 @@ def finish_investigation(
         platform.reschedule_hold(_hold_of(investigation), release_after=datetime.now(UTC) + TERMINAL_HOLD)
     delivery = release_held(
         _hold_of(investigation),
-        suppress=_should_suppress_notification(verdict, alert.investigation_inconclusive_action),
+        # As the safety net does, so turning the alert back on never sends a firing that old.
+        suppress=not alert.enabled or _should_suppress_notification(verdict, alert.investigation_inconclusive_action),
         released_by=HoldReleasedBy.VERDICT,
     )
     if delivery is None:
