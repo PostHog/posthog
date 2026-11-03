@@ -36,8 +36,8 @@ export function clientForIndex(index: number, totalLabels: number): { clientX: n
  *  render with real dimensions in jsdom. Call in beforeEach, and call the
  *  returned cleanup function in afterEach. */
 export function setupJsdom(): () => void {
-    if (typeof globalThis.ResizeObserver === 'undefined') {
-        globalThis.ResizeObserver = class {
+    if (typeof global.ResizeObserver === 'undefined') {
+        global.ResizeObserver = class {
             observe(): void {}
             unobserve(): void {}
             disconnect(): void {}
@@ -56,11 +56,11 @@ export function setupJsdom(): () => void {
  *  static-layer RAF would normally fire. Call in beforeEach, and call the
  *  returned cleanup function in afterEach. */
 export function setupSyncRaf(): () => void {
-    const original = globalThis.requestAnimationFrame
+    const original = global.requestAnimationFrame
     // A callback that requests its next frame (the hover fade) is queued and run after it returns.
     // A direct call would add one stack level per frame and overflow before the fade ends.
     let queue: FrameRequestCallback[] | null = null
-    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+    global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
         if (queue) {
             queue.push(cb)
             return 0
@@ -74,16 +74,16 @@ export function setupSyncRaf(): () => void {
             queue = null
         }
         return 0
-    }) as typeof globalThis.requestAnimationFrame
+    }) as typeof global.requestAnimationFrame
 
     // Ensure `performance` is available in jsdom — the hover animation hook
     // calls `performance.now()` and older jsdom versions don't expose it.
-    if (typeof globalThis.performance === 'undefined') {
-        globalThis.performance = { now: () => 0 } as unknown as Performance
+    if (typeof global.performance === 'undefined') {
+        global.performance = { now: () => 0 } as unknown as Performance
     }
 
     return () => {
-        globalThis.requestAnimationFrame = original
+        global.requestAnimationFrame = original
     }
 }
 
@@ -105,15 +105,11 @@ export function ensureJsdom(): void {
 
 /** Registers hooks for the jsdom mocks, synchronous animation frames and cleanup. Call once per file or `describe`. */
 export function setupChartTests(): void {
-    const testGlobals = globalThis as typeof globalThis & {
-        beforeEach: (callback: () => void) => void
-        afterEach: (callback: () => void) => void
-    }
     let restore: (() => void)[] = []
-    testGlobals.beforeEach(() => {
+    beforeEach(() => {
         restore = [setupJsdom(), setupSyncRaf()]
     })
-    testGlobals.afterEach(() => {
+    afterEach(() => {
         cleanup()
         // `cleanup` doesn't always reach the tooltip's FloatingPortal.
         document.querySelectorAll(TOOLTIP_SELECTOR).forEach((el) => el.remove())
