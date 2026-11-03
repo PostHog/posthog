@@ -13,17 +13,18 @@ reader parses that text again; the map reads one subcolumn per key instead. The 
 passes it through to its own reader needs no change, and a reader looks a key up in the map where it extracted it from
 the blob before.
 
-The map holds each key's JSON text as `JSONExtractRaw(blob, key)` returned it. On the native table that text is
-`toJSONString` over an untyped read of the key, which the ClickHouse property pass serves from one subcolumn. Neither
-is a property read: a property read gets the property-definition type and, on the legacy table, a materialized column,
-which reads an empty string as NULL and decodes escapes. The reader's own extract stays around the lookup, so a missing
-key still reads as `''` and then NULL.
+The map holds each key's JSON text as `JSONExtractRaw(blob, key)` returned it. On the native table the property
+resolution pass supplies that text from the key's own stored column (`stored_key_json_text`), or declines when no single
+column holds what the rebuilt document shows, and a declined key keeps the blob. Neither is a property read: a property
+read gets the property-definition type and, on the legacy table, a materialized column, which reads an empty string as
+NULL and decodes escapes. The reader's own extract stays around the lookup, so a missing key still reads as `''` and
+then NULL.
 
 A blob stays a blob when any reader reads it whole (`SELECT properties`, `JSONHas(properties, k)`, a DISTINCT, GROUP BY
-or ORDER BY on the column, a bare alias reference), when a native reader asks for `$feature_flags`, which the rebuilt
-document leaves out in favour of its `$feature/<key>` pairs, or when any column that carries the same value cannot be
-narrowed: the columns a blob passes through and the branches of a UNION ALL form one group, decided together. The
-decision runs on the reads `ProjectionPushdownOptimizer` collected, after it pruned.
+or ORDER BY on the column, a bare alias reference), when the resolution pass declines a key a native reader asks for, or
+when any column that carries the same value cannot be narrowed: the columns a blob passes through and the branches of a
+UNION ALL form one group, decided together. The decision runs on the reads `ProjectionPushdownOptimizer` collected,
+after it pruned.
 """
 
 from typing import TYPE_CHECKING
@@ -33,7 +34,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
-from posthog.hogql.transforms.logical_property_lowering import lower_property_access
+from posthog.hogql.transforms.clickhouse_property_resolution import stored_key_json_text
 from posthog.hogql.visitor import clone_expr
 
 if TYPE_CHECKING:
@@ -65,21 +66,17 @@ def _map_type() -> ast.MapType:
     return ast.MapType(key_type=ast.StringType(nullable=False), value_type=ast.StringType(nullable=True))
 
 
-def _key_json_text(source: ast.Field, key: str, context: HogQLContext) -> ast.Expr:
-    """The key's JSON text as `JSONExtractRaw(blob, key)` returns it, read from the events table (module docstring)."""
-    if not context.uses_new_events_schema():
-        return ast.Call(
-            name="JSONExtractRaw",
-            args=[clone_expr(source, clear_types=False), ast.Constant(value=key)],
-            type=ast.StringType(nullable=False),
-        )
-    field_type = source.type
-    assert isinstance(field_type, ast.FieldType)
-    first_key = ast.Field(chain=[*source.chain, key], type=ast.PropertyType(chain=[key], field_type=field_type))
+def _key_json_text(source: ast.Field, key: str, context: HogQLContext) -> ast.Expr | None:
+    """The key's JSON text as `JSONExtractRaw(blob, key)` returns it, read from the events table (module docstring), or
+    None when the native table has no single stored column for it."""
+    if context.uses_new_events_schema():
+        field_type = source.type
+        assert isinstance(field_type, ast.FieldType)
+        return stored_key_json_text(field_type, key, context)
     return ast.Call(
-        name="toJSONString",
-        args=[lower_property_access(first_key, context)],
-        type=ast.StringType(nullable=True),
+        name="JSONExtractRaw",
+        args=[clone_expr(source, clear_types=False), ast.Constant(value=key)],
+        type=ast.StringType(nullable=False),
     )
 
 
@@ -217,10 +214,11 @@ class _ExportedPropertiesNarrower:
             return False
         if self._passthrough(node, name) is not None:
             return True
-        if self._events_source(node, name) is None:
+        source = self._events_source(node, name)
+        if source is None:
             return False
-        # The rebuilt document leaves `$feature_flags` out in favour of its `$feature/<key>` pairs; a stored read differs
-        return not (self.context.uses_new_events_schema() and reads is not None and "$feature_flags" in reads.keys)
+        keys = reads.keys if reads is not None else set()
+        return all(_key_json_text(source, key, self.context) is not None for key in keys)
 
     def _is_events_properties(self, field_type: ast.FieldType) -> bool:
         table_type = field_type.table_type
@@ -280,8 +278,10 @@ class _ExportedPropertiesNarrower:
     def _map_expr(self, source: ast.Field, keys: list[str]) -> ast.Expr:
         args: list[ast.Expr] = []
         for key in keys:
+            text = _key_json_text(source, key, self.context)
+            assert text is not None
             args.append(ast.Constant(value=key))
-            args.append(_key_json_text(source, key, self.context))
+            args.append(text)
         map_call = ast.Call(name="map", args=args, type=_map_type())
         if keys:
             return map_call

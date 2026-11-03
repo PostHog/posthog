@@ -211,16 +211,25 @@ class TestExportedProperties(BaseTest):
         assert "toJSONString(events.properties.utm_source)" in printed, printed
         assert "JSONExtractKeysAndValuesRaw" not in printed, printed
 
-    @parameterized.expand([("legacy", False), ("native", True)])
-    def test_restricted_key_stays_masked(self, _name: str, native: bool) -> None:
+    @parameterized.expand(
+        [
+            ("legacy_key", False, "email", "properties.email", True),
+            ("legacy_nested", False, "obj.secret", "properties.obj.visible", True),
+            ("native_key", True, "email", "properties.email", False),
+            ("native_nested", True, "obj.secret", "properties.obj.visible", False),
+        ]
+    )
+    def test_restricted_path_reads_the_masked_blob(
+        self, _name: str, native: bool, restricted: str, read: str, narrowed: bool
+    ) -> None:
         printed = self._print(
-            f"SELECT properties.email, properties.utm_source FROM {STAR_EVENTS}",
+            f"SELECT {read}, properties.utm_source FROM {STAR_EVENTS}",
             native=native,
-            restricted={RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT)},
+            restricted={RestrictedProperty(name=restricted, property_type=PropertyDefinition.Type.EVENT)},
         )
-        assert "JSONExtractRaw(properties['email'])" in printed, printed
-        assert "JSONExtractRaw(events.properties, 'email')" not in printed, printed
-        assert "events.properties.email" not in printed, printed
+        assert ("map(" in printed) is narrowed, printed
+        assert "JSONDropKeysPool(" in printed, printed
+        assert "JSONExtractRaw(events.properties, " not in printed, printed
 
     def test_string_parser_still_gets_the_text(self) -> None:
         PropertyDefinition.objects.create(
