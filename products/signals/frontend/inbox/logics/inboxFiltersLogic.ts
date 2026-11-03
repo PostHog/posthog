@@ -298,6 +298,13 @@ export function buildSignalReportListOrdering(field: InboxSortField, direction: 
     return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
+const MIN_TRIGRAM_SEARCH_LENGTH = 3
+
+export function appliedInboxSearch(searchQuery: string): string | undefined {
+    const search = searchQuery.trim()
+    return search.length >= MIN_TRIGRAM_SEARCH_LENGTH ? search : undefined
+}
+
 /**
  * The sort params for the list request. Recommended is a server preset that a user flag resolves
  * to a ranker, so it goes out as `sort` with no `ordering`, because `ordering` overrides the preset.
@@ -340,7 +347,15 @@ export interface inboxFiltersLogicValues {
     sortField: InboxSortField
     sourceFilterAvailable: boolean
     sourceProductFilter: string[]
-    stateFilter: ('dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    stateFilter: (
+        | 'closed'
+        | 'dismissed'
+        | 'held-back'
+        | 'monitoring'
+        | 'needs-decision'
+        | 'not-actionable'
+        | 'resolved'
+    )[]
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -442,7 +457,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: 'closed' | 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     }
 }
 
@@ -478,6 +493,7 @@ export interface inboxFiltersLogicMeta {
         activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
         visibleStateFilter: (
             stateFilter: (
+                | 'closed'
                 | 'dismissed'
                 | 'held-back'
                 | 'monitoring'
@@ -789,7 +805,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 priorityFilter: SignalReportPriority[],
                 activeCreatedWindow: InboxCreatedWindow | null
             ): boolean =>
-                searchQuery.trim().length > 0 ||
+                appliedInboxSearch(searchQuery) !== undefined ||
                 sourceProductFilter.length > 0 ||
                 scoutFilter.length > 0 ||
                 priorityFilter.length > 0 ||

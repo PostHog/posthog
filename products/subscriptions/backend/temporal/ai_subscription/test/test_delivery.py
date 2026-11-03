@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -1052,6 +1053,12 @@ class TestFreezePlanPersistence:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return MagicMock(), MagicMock(), window, sub.ai_query_plan
+
+    @pytest.fixture(autouse=True)
+    def _owner_can_run(self) -> Iterator[None]:
+        # The team and user above are mocks, so the owner check would query the database with them.
+        with patch(f"{_DELIVERY}.assert_creator_can_run"):
+            yield
 
     @parameterized.expand(
         [

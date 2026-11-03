@@ -25,6 +25,12 @@ class Command(BaseCommand):
             default=None,
             help="Render limits as JSON, with the clamps of the flag payload, e.g. '{\"max_completion_tokens\": 2000}'.",
         )
+        parser.add_argument(
+            "--mcp-buffer-days",
+            type=int,
+            default=None,
+            help="Read this many days of the MCP intent buffer into the input. Off by default.",
+        )
 
     def handle(self, *args, **options):
         result = update_activity_summary(
@@ -33,6 +39,7 @@ class Command(BaseCommand):
             dry_run=options["dry_run"],
             force=options["force"],
             limits=parse_limits(options["limits"]),
+            mcp_buffer_days=options["mcp_buffer_days"],
         )
         self.stdout.write(f"status: {result.status}")
         if result.rendered_input is not None:

@@ -39,13 +39,11 @@ const webVitalsQuery: WebVitalsQuery = {
 
 const webVitalsRows: WebVitalsItem[] = [
     {
-        action: { custom_name: 'LCP', math: PropertyMathType.P90 },
         order: 0,
         days: ['2026-09-01', '2026-09-02'],
         data: [2400, 2600],
     },
     {
-        action: { custom_name: 'CLS', math: PropertyMathType.P90 },
         order: 1,
         days: ['2026-09-01', '2026-09-02'],
         data: [0.04, 0.05],
