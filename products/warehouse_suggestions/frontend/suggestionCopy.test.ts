@@ -7,6 +7,7 @@ import {
     SummarySavings,
     UNKNOWN_SOURCES_CAVEAT,
     dataAgeLabel,
+    deleteDisabledReason,
     materializeHighlight,
     notNowCondition,
     savingHighlight,
@@ -215,5 +216,12 @@ describe('suggestionCopy', () => {
         ['unmaterialize', 'save a lot more'],
     ])('says what has to grow before a not-now %s suggestion returns', (kind, condition) => {
         expect(notNowCondition(kind)).toContain(condition)
+    })
+
+    it.each<[string, number, boolean]>([
+        ['every day has read data', 30, false],
+        ['a day has no read data', 29, true],
+    ])('deleting is blocked when %s', (_name, daysWithData, blocked) => {
+        expect(deleteDisabledReason({ days_with_data: daysWithData }, 30) !== undefined).toBe(blocked)
     })
 })

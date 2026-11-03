@@ -1905,9 +1905,9 @@ snapshots:
     components-mcp-hint-toast--sql-execute--light:
         hash: v1.k794b7964.074a12be4bb4b4e8d0e96dfb2b204e18690ad62d12a402c5d32baf83aa923d58.Lm28qnogGZySU6YYFH4LxDZhNyMlrk5N3PwlwWa4CB0
     components-mcp-use-case-card--ai-observability-evaluations-create--dark:
-        hash: v1.k794b7964.5a1e361a3242cc8f8672541d005c98a6f1cda72443cb5601cdbcc4880fa1de4a.AYrcEOBeXQOHiHPLfv4Z-0wPzzoga_TWMjdq2oaRvRI
+        hash: v1.k794b7964.937b1bd9fca1facf1588992cf7ad79eb12455c5c30455163f383f02fc3aea5fd.AoZo4BbPEVhhOhr1cGOHYOFg_OcSWMrqH5rcXW8blWY
     components-mcp-use-case-card--ai-observability-evaluations-create--light:
-        hash: v1.k794b7964.41d3d7390ef9fae277a9a563fbfd5083e2537e7b1348b577c0f3fa54c8e73065.pRYc3leMTvb82ob3AI_-YrjV3bS-eF92RsXmtVErpmo
+        hash: v1.k794b7964.7f1fe4358cb1f7a55ae13dee39888d7429ddec56f82fe61db9128e7631ee76f0.kVBmsSuAVFHUdgfuZX8JUuM3l5XHarGa8oYDA3rjv8g
     components-mcp-use-case-card--dashboards-create--dark:
         hash: v1.k794b7964.882b81373f07d8e8ba905e72da374b487bbca22689cc1988da41a710976b8cdc.iILpg7P0SDKzpVtX6XOKCm5jRLBI83TF2NdsFrZBrFI
     components-mcp-use-case-card--dashboards-create--light:
@@ -11439,9 +11439,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.4ddea1c7537af9d50c57b4b9a76d4bcba39f743a23b4715683c0ce59d4c24f57.0ueR8XMLqRby_u6I0EyNIiUwXkbjmWMH3vBdoFNYmII
     scenes-app-experiments--experiment-health-debug-tab--dark:
-        hash: v1.k794b7964.bd266bf7b03a0d96fb3447e669fb154d381d3920a8b7043f6b996f46789edf45.GZi7irxblhuJDTcQ4ILtuf9V9inrGgHKC4ID1shnfF4
+        hash: v1.k794b7964.4110aac4ac713b4ba9b55eb08ea4a122e2b3e63907edc940bf1ee00e3b4466a4.hwxC9eQVxdcbPqkZjFLdNl-HwkZi_cav1yJ0RJfLuAk
     scenes-app-experiments--experiment-health-debug-tab--light:
-        hash: v1.k794b7964.22d2b1422db4cfd1e2b802d020a14727f577c80a0a881eea96c67d9fce3ddbb1.vEPNwvdLLCrf9rSaG29yCHMqAN5UbMBpWLea3BzQqOk
+        hash: v1.k794b7964.f25e235992bc6f65e679bc2288df78d2c2c476681844c81692ddf513143bdfc6.--c7yplu92ohebzYTVp__eRhIzPUpr7bmyY39p4oajo
     scenes-app-experiments--experiment-recordings-dropped-metric--dark:
         hash: v1.k794b7964.9ce950830524de179a4d761af104781fdc05347d59f18de814e72bc40a486158.T1SiGxL_fGBQT61rjwuJe9MPz1NPcjeZBRv6rKiSzrE
     scenes-app-experiments--experiment-recordings-dropped-metric--light:
@@ -17462,14 +17462,18 @@ snapshots:
         hash: v1.k794b7964.b3793a018b9fc7d1019402ec5216189d26ae85000cbb9d91ede5b7ac7f6528c3.V-ICrhJc-LkfYh8MsK8Q2AoJxCcRhqLIDNvGQ0uyFug
     warehouse-suggestions-suggested-certifications--banner--light:
         hash: v1.k794b7964.4398ae40c8e28494481e73b72c49315fd5294380aaa8f4f579c53b120e95d2f3.qj1-k55d9dyizhho1p59SKxeUPeAKHr6ZRnFAkcZgIA
+    warehouse-suggestions-suggested-certifications--delete-dialog--dark:
+        hash: v1.k794b7964.aad2607c019ac52b9556e91abd03d3a233ab8fdd198567fd1e129b934675d251.tSQKOmix1NM8XrB1tQ1mf_ddO7ZcMvpSpt1-mlY4REA
+    warehouse-suggestions-suggested-certifications--delete-dialog--light:
+        hash: v1.k794b7964.a9541f596401a8a9a9fbad1941304b64f5fb2ae8ab2a458e189b3e2cbd0c40ef.jRI2zgnjkgGptnLv2kYbB2DCHQor9oeuXjosAsweeIc
     warehouse-suggestions-suggested-certifications--deprecate-dialog--dark:
-        hash: v1.k794b7964.09b0aec605e49d00a60ef65ad6a4e44157179bfcd307e22500d1f0c95dcca84b.ffeyTu9F9ltSOuDHuRiBk66vNteeBGXBOuZdMSNUEWQ
+        hash: v1.k794b7964.569fbd69081ec9226b2537abd808af36a5af9479f9a916934db6b86400fc3575.iXbK1xwKnUOBSuwq1ysK1z081fchT6WbgT6mAE0H5as
     warehouse-suggestions-suggested-certifications--deprecate-dialog--light:
-        hash: v1.k794b7964.275d7a88a60faa93a269cf2845b2699cbfdf64e3e44915475a0b2bee1cd74d5f.NhxpoIwZXgvWwn3rUmWDa0TNkY2A7ZVGRJmHW1vAuBM
+        hash: v1.k794b7964.52c60a9e5d167d90d4c5606f0032ae4aaa99dad729d6cd3282d8dc3ee9d20889.tUy7qtGeFR3r-LLD3dqj8qxl20pbg4rl0qo9xpERdPk
     warehouse-suggestions-suggested-certifications--review-dialog--dark:
-        hash: v1.k794b7964.6dcbacf41e20c4bea01deeb9dfe4d35f2448360bf979c9b28a79fa2e70c9b093.vkNS26vk41QQyUFkJwTUZ6pxCQkisgogPmtUMRCOLQU
+        hash: v1.k794b7964.79329703679886eb0cc766b817ed635ab872e231b2d0c157aee6bd29caca951f.FGhDdgEznM4SRrNmEYuX88lQwOMw2_ZhdWZMNKQGWMs
     warehouse-suggestions-suggested-certifications--review-dialog--light:
-        hash: v1.k794b7964.10018e84324c52d7139e7329ad735059c12c23b62abd4da8c7b8db9ad04fb0f6.83Sg6I66DFRMw1gR9ZiuxhtiS1iRLdiTl-6B99FYlOw
+        hash: v1.k794b7964.b6bb52e92fb9f9b665b0c37374beaf8b5df6873cc787803bc36f9e0c368153e6.Cxvr8LuJdvGINBPf-TwPCo0DlkEk09S7PNxK6N09hio
     warehouse-suggestions-suggested-certifications--review-dialog-narrow--dark:
         hash: v1.k794b7964.09bce81ef734200f2bf6cb83ab6f721fe5bf3fa49baf8e7d3efc8ba2aef669b5.odxYkoZ6E1lVK5TmS2efjmW-Yc63cmsNvj01Tj1dVAY
     warehouse-suggestions-suggested-certifications--review-dialog-narrow--light:
