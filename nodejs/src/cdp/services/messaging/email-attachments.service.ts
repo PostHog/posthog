@@ -1,8 +1,8 @@
 import { createHash } from 'crypto'
-import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { LazyPool } from '~/cdp/utils/lazy-pool'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
@@ -44,27 +44,16 @@ type AttachmentRow = {
 }
 
 export class EmailAttachmentsService {
-    private pool: Pool | null = null
-    private stopped = false
+    private readonly pool: LazyPool
 
-    constructor(
-        private readonly databaseUrl: string | undefined,
-        private readonly maxConnections?: number
-    ) {}
-
-    private getPool(): Pool | null {
-        if (this.pool || this.stopped || !this.databaseUrl) {
-            return this.pool
-        }
-        this.pool = new Pool({ connectionString: this.databaseUrl, max: this.maxConnections })
-        this.pool.on('error', (err) => {
+    constructor(databaseUrl: string | undefined, maxConnections?: number) {
+        this.pool = new LazyPool(databaseUrl, maxConnections, (err) => {
             logger.error('⚠️', 'Email attachments pool error', { error: err.message })
         })
-        return this.pool
     }
 
     public async store(jobId: string, teamId: number, files: DecodedAttachment[]): Promise<void> {
-        const pool = this.getPool()
+        const pool = this.pool.get()
         if (!pool) {
             throw new Error('Email attachments need CYCLOTRON_NODE_DATABASE_URL')
         }
@@ -95,7 +84,7 @@ export class EmailAttachmentsService {
     }
 
     public async load(jobId: string, expected: readonly EmailAttachmentMetadata[]): Promise<DecodedAttachment[]> {
-        const pool = this.getPool()
+        const pool = this.pool.get()
         const rows = pool
             ? (
                   await pool.query<AttachmentRow>(
@@ -128,7 +117,7 @@ export class EmailAttachmentsService {
 
     public async delete(jobId: string): Promise<void> {
         try {
-            const pool = this.getPool()
+            const pool = this.pool.get()
             if (!pool) {
                 return
             }
@@ -144,9 +133,6 @@ export class EmailAttachmentsService {
     }
 
     public async stop(): Promise<void> {
-        this.stopped = true
-        const pool = this.pool
-        this.pool = null
-        await pool?.end()
+        await this.pool.end()
     }
 }
