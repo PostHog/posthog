@@ -21,7 +21,7 @@ from products.error_tracking.backend.facade import (
 )
 
 BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS = 1000
-UPLOAD_ENVELOPE_BYTES = 1024 * 1024
+MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 
 
 class ErrorTrackingSymbolSetSerializer(DataclassSerializer):
@@ -306,7 +306,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     @extend_schema(exclude=True)  # deprecated; serializer has no settable fields, hidden from typed clients
     def create(self, request: Request, *args, **kwargs) -> Response:
         chunk_id = request.query_params.get("chunk_id", None)
-        multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
 
         posthoganalytics.capture(
@@ -323,11 +322,10 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             declared_size = int(request.META.get("CONTENT_LENGTH") or 0)
         except ValueError:
             declared_size = 0
-        symbol_sets_facade.check_upload_size(declared_size - UPLOAD_ENVELOPE_BYTES)
+        symbol_sets_facade.check_upload_size(declared_size - MULTIPART_OVERHEAD_BYTES)
 
-        # legacy: older versions of the CLI did not use multipart uploads
-        # file added to the request data by the FileUploadParser
-        upload = request.FILES.get("file") if multipart else request.data.get("file")
+        # MultiPartParser and the legacy FileUploadParser both put the upload in request.FILES.
+        upload = request.FILES.get("file")
         if not isinstance(upload, UploadedFile):
             return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
 

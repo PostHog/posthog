@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -1299,6 +1300,31 @@ class TestErrorTracking(APIBaseTest):
         else:
             assert response.json()["detail"] == "file is required"
         assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
+
+    @parameterized.expand([("multipart",), ("raw",)])
+    @patch("posthog.storage.object_storage._client")
+    def test_deprecated_create_stores_valid_upload(self, body: str, patched_s3_client: Mock) -> None:
+        content = b'{"version":3,"sources":["a.js"]}'
+        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}"
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            if body == "multipart":
+                response = self.client.post(
+                    f"{url}&multipart=true",
+                    data={"file": SimpleUploadedFile("a.map", content)},
+                    format="multipart",
+                )
+            else:
+                response = self.client.post(
+                    url,
+                    data=content,
+                    content_type="application/octet-stream",
+                    HTTP_CONTENT_DISPOSITION="attachment; filename=a.map",
+                )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team)
+        assert symbol_set.content_hash == hashlib.sha512(content).hexdigest()
+        assert patched_s3_client.write.call_args.kwargs["content"] == content
 
     @patch("posthog.storage.object_storage._client")
     def test_finish_upload_updates_the_content_hash(self, patched_s3_client):
