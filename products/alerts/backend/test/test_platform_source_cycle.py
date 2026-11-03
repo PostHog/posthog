@@ -767,7 +767,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert retried is not None and over_the_limit is None
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
-        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+        # The kill may not have landed, so the timed-out query stays counted until its thread frees it.
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == {"run:1:1"}
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
