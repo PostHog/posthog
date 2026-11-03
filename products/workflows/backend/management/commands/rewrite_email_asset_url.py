@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 WorkerReload = Callable[[int, str], None]
 RowRewrite = Callable[[Any], int]
-OwnedByTemplate = Callable[[Any, bool], bool]
+OwnedByTemplate = Callable[[Any, int, bool], bool]
 
 # Only executed config has a worker-side cache to invalidate; templates are copied at creation time
 # and never read by a worker, so they need no reload.
@@ -166,13 +166,12 @@ class Command(BaseCommand):
         else:
             owned_by_template: OwnedByTemplate | None = None
             if target == "hog_flows" and rewrites_templates:
-                team_ids: list[int] | None = options.get("team_id")
                 # Same scope as the template pass: a template that pass skipped can't sync this workflow.
                 template_id: str | None = options.get("row_id")
 
-                def owned_by_template(row_id: Any, lock: bool) -> bool:
+                def owned_by_template(row_id: Any, team_id: int, lock: bool) -> bool:
                     return synced_content_contains(
-                        row_id, from_url, team_ids=team_ids, template_id=template_id, lock=lock
+                        row_id, from_url, team_id=team_id, template_id=template_id, lock=lock
                     )
 
             row_ids, rewrite_row = self._model_rows(
@@ -277,8 +276,14 @@ class Command(BaseCommand):
         to_url: str,
         dry_run: bool,
     ) -> int:
+        def owned(lock: bool) -> bool:
+            if owned_by_template is None:
+                return False
+            team_id = base_queryset.values_list("team_id", flat=True).get(pk=row_id)
+            return owned_by_template(row_id, team_id, lock)
+
         if dry_run:
-            if owned_by_template is not None and owned_by_template(row_id, False):
+            if owned(lock=False):
                 field_timestamps = {"draft": field_timestamps["draft"]}
             row = base_queryset.get(pk=row_id)
             return sum(rewrite_blob(getattr(row, field), from_url, to_url)[1] for field in field_timestamps)
@@ -291,7 +296,7 @@ class Command(BaseCommand):
             # Decided per row under the template's lock, not once per pass: a save between the template
             # pass and this row can put from_url back into the template and sync it into a new workflow
             # version. Rewriting that version in place would leave the template and the workflow apart.
-            if owned_by_template is not None and owned_by_template(row_id, True):
+            if owned(lock=True):
                 field_timestamps = {"draft": field_timestamps["draft"]}
             row = base_queryset.select_for_update().get(pk=row_id)
 

@@ -148,16 +148,16 @@ def rewrite_template_content(
     return template_saves.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)
 
 
-def synced_content_contains(
-    hog_flow_id: UUID, text: str, *, team_ids: list[int] | None, template_id: str | None, lock: bool
-) -> bool:
+def synced_content_contains(hog_flow_id: UUID, text: str, *, team_id: int, template_id: str | None, lock: bool) -> bool:
     """Whether the published content of a live template that syncs into this workflow contains `text`.
 
-    `team_ids` and `template_id` narrow the templates as they do for `find_template_ids_containing`.
+    `team_id` is the workflow's team. A template syncs only into a workflow of its own team, and the
+    team filter keeps the lookup on an index. `template_id` narrows the templates as it does for
+    `find_template_ids_containing`.
 
     With `lock`, the call locks those templates until the caller's transaction ends. Make the call
     before you lock the workflow, which is the lock order a template save uses.
     """
     return template_saves.synced_content_contains(
-        hog_flow_id, text, team_ids=team_ids, template_id=template_id, lock=lock
+        hog_flow_id, text, team_id=team_id, template_id=template_id, lock=lock
     )

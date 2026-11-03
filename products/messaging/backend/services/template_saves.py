@@ -88,10 +88,8 @@ def rewrite_content(
     return content_occurrences + draft_occurrences
 
 
-def synced_content_contains(
-    hog_flow_id: UUID, text: str, *, team_ids: list[int] | None, template_id: str | None, lock: bool
-) -> bool:
-    templates = templates_of(team_ids).filter(transactional_hog_flow_id=hog_flow_id, deleted=False)
+def synced_content_contains(hog_flow_id: UUID, text: str, *, team_id: int, template_id: str | None, lock: bool) -> bool:
+    templates = templates_of([team_id]).filter(transactional_hog_flow_id=hog_flow_id, deleted=False)
     if template_id:
         templates = templates.filter(id=template_id)
     if lock:
