@@ -3622,6 +3622,34 @@ describe('dashboardLogic', () => {
                         },
                     })
             })
+
+            it.each([
+                { tiles: 'one stale tile', staleCount: 1 },
+                { tiles: 'only fresh tiles', staleCount: 0 },
+            ])('reports time to see data on initial load with $tiles', async ({ staleCount }) => {
+                const dashboard = dashboards[5]
+                dashboard.tiles
+                    .filter((tile) => !!tile.insight)
+                    .forEach((tile, index) => {
+                        const cacheTargetAge = index < staleCount ? now().subtract(1, 'minute') : now().add(1, 'minute')
+                        tile.insight = { ...tile.insight!, cache_target_age: cacheTargetAge.toISOString() }
+                    })
+                const reportTimeToSeeData = jest.spyOn(eventUsageLogic.actions, 'reportTimeToSeeData').mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                }).toFinishAllListeners()
+
+                expect(reportTimeToSeeData).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        type: 'dashboard_load',
+                        status: 'success',
+                        action: DashboardLoadAction.InitialLoad,
+                        insights_fetched: staleCount,
+                    })
+                )
+                reportTimeToSeeData.mockRestore()
+            })
         })
 
         describe('page visibility', () => {
