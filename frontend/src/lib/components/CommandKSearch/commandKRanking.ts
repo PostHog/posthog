@@ -300,19 +300,27 @@ function hitInWords(token: string, words: string[]): Omit<TokenHit, 'field'> | n
     return position >= 0 ? { typos: 0, position, wordStart: false } : null
 }
 
-function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]): TokenHit | null {
-    const name = hitInWords(token, nameWords)
-    if (name && name.typos === 0 && name.wordStart) {
+const isClean = (hit: Omit<TokenHit, 'field'> | null): boolean => !!hit && hit.typos === 0 && hit.wordStart
+
+function cleanHit(token: string, candidate: RankCandidate, name: Omit<TokenHit, 'field'> | null): TokenHit | null {
+    if (name && isClean(name)) {
         return { ...name, field: 'name' }
     }
     for (const alias of candidate.aliases ?? []) {
         const hit = hitInWords(token, searchWords(alias))
-        if (hit && hit.typos === 0 && hit.wordStart) {
+        if (hit && isClean(hit)) {
             return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias', alias }
         }
     }
-    if ((candidate.identity ?? []).some((value) => value.toLowerCase().includes(token))) {
-        return { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true }
+    const inIdentity = (candidate.identity ?? []).some((value) => value.toLowerCase().includes(token))
+    return inIdentity ? { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true } : null
+}
+
+function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]): TokenHit | null {
+    const name = hitInWords(token, nameWords)
+    const clean = cleanHit(token, candidate, name)
+    if (clean) {
+        return clean
     }
     if (name) {
         return { ...name, field: 'name' }
@@ -326,44 +334,57 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
         : null
 }
 
-function matchTier(query: string, hits: (TokenHit | null)[], candidate: RankCandidate): MatchTier {
+function wholeQueryTier(query: string, candidate: RankCandidate): MatchTier | null {
     const exactQuery = searchWords(query).join(' ')
     const exactName = searchWords(candidate.name).join(' ')
     const singularQuery = singularText(query)
     const singularName = singularText(candidate.name)
-    const identityQuery = isIdentityQuery(query)
     const rawQuery = query.trim().toLowerCase()
-    const identity = (candidate.identity ?? []).map((value) => value.toLowerCase())
-    if (exactName === exactQuery || (identityQuery && identity.includes(rawQuery))) {
-        return MatchTier.Exact
+    const identity = isIdentityQuery(query) ? (candidate.identity ?? []).map((value) => value.toLowerCase()) : []
+    const tiers: [MatchTier, () => boolean][] = [
+        [MatchTier.Exact, () => exactName === exactQuery || identity.includes(rawQuery)],
+        [MatchTier.ExactSingular, () => singularName === singularQuery],
+        [MatchTier.ExactAlias, () => (candidate.aliases ?? []).some((alias) => singularText(alias) === singularQuery)],
+        [
+            MatchTier.Prefix,
+            () => exactName.startsWith(exactQuery) || identity.some((value) => value.startsWith(rawQuery)),
+        ],
+        [MatchTier.PrefixSingular, () => singularName.startsWith(singularQuery)],
+    ]
+    return tiers.find(([, matches]) => matches())?.[0] ?? null
+}
+
+const WORD_TIERS: [MatchTier, (hits: TokenHit[]) => boolean][] = [
+    [MatchTier.NameWords, (hits) => hits.every((hit) => hit.field === 'name' && isClean(hit))],
+    [
+        MatchTier.AliasWords,
+        (hits) => hits.every((hit) => (hit.field === 'name' || hit.field === 'alias') && isClean(hit)),
+    ],
+    [
+        MatchTier.Identity,
+        (hits) => hits.some((hit) => hit.field === 'identity') && hits.every((hit) => hit.field !== 'context'),
+    ],
+    [MatchTier.Partial, (hits) => hits.every((hit) => hit.field === 'name')],
+]
+
+function matchTier(query: string, hits: (TokenHit | null)[], candidate: RankCandidate): MatchTier {
+    const whole = wholeQueryTier(query, candidate)
+    if (whole !== null) {
+        return whole
     }
-    if (singularName === singularQuery) {
-        return MatchTier.ExactSingular
-    }
-    if ((candidate.aliases ?? []).some((alias) => singularText(alias) === singularQuery)) {
-        return MatchTier.ExactAlias
-    }
-    if (exactName.startsWith(exactQuery) || (identityQuery && identity.some((value) => value.startsWith(rawQuery)))) {
-        return MatchTier.Prefix
-    }
-    if (singularName.startsWith(singularQuery)) {
-        return MatchTier.PrefixSingular
-    }
-    if (!hits.every((hit) => hit !== null)) {
+    if (hits.some((hit) => hit === null)) {
         return MatchTier.Weak
     }
-    const found = hits as TokenHit[]
-    const clean = (hit: TokenHit): boolean => hit.wordStart && hit.typos === 0
-    if (found.every((hit) => hit.field === 'name' && clean(hit))) {
-        return MatchTier.NameWords
+    return WORD_TIERS.find(([, matches]) => matches(hits as TokenHit[]))?.[0] ?? MatchTier.Weak
+}
+
+function proximityOf(positions: number[]): number {
+    let proximity = 0
+    for (let i = 1; i < positions.length; i++) {
+        proximity +=
+            Math.max(Math.abs(positions[i] - positions[i - 1]) - 1, 0) + (positions[i] < positions[i - 1] ? 1 : 0)
     }
-    if (found.every((hit) => (hit.field === 'name' || hit.field === 'alias') && clean(hit))) {
-        return MatchTier.AliasWords
-    }
-    if (found.some((hit) => hit.field === 'identity') && found.every((hit) => hit.field !== 'context')) {
-        return MatchTier.Identity
-    }
-    return found.every((hit) => hit.field === 'name') ? MatchTier.Partial : MatchTier.Weak
+    return Math.min(proximity, MAX_POSITION_PENALTY)
 }
 
 const usageTier = (frecency: number): number => (frecency >= 1 ? 0 : frecency > 0 ? 1 : 2)
@@ -381,11 +402,6 @@ export function rankCandidate(query: string, candidate: RankCandidate): Candidat
         return null
     }
     const positions = found.filter((hit) => hit.field === 'name').map((hit) => hit.position)
-    let proximity = 0
-    for (let i = 1; i < positions.length; i++) {
-        proximity +=
-            Math.max(Math.abs(positions[i] - positions[i - 1]) - 1, 0) + (positions[i] < positions[i - 1] ? 1 : 0)
-    }
     const frecency = candidate.frecency ?? 0
     return {
         rank: [
@@ -394,7 +410,7 @@ export function rankCandidate(query: string, candidate: RankCandidate): Candidat
             Number((candidate.picked ?? 0) < PICKED_THRESHOLD),
             Math.max(matchTier(normalizedQuery, hits, candidate) - (candidate.tierBoost ?? 0), 0),
             usageTier(frecency),
-            Math.min(proximity, MAX_POSITION_PENALTY),
+            proximityOf(positions),
             Math.min(...positions, MAX_POSITION_PENALTY),
             candidate.typePrior ?? 1,
             Number(!!candidate.indirect),
