@@ -234,7 +234,7 @@ def _argument_type_rewrite(error_message: str) -> str | None:
     if match is None:
         return None
     types, function = match.group(1), match.group(2)
-    return _type_mismatch_advice(f"`{function}` does not accept {types}.", types)
+    return _type_mismatch_advice(f"`{function}` does not accept {_display(types)}.", types)
 
 
 def _if_condition_rewrite(error_message: str) -> str | None:
@@ -277,7 +277,7 @@ def _no_common_type_rewrite(error_message: str) -> str | None:
         return None
     types = match.group(1)
     return _type_mismatch_advice(
-        f"ClickHouse has no common type for {types}, so it cannot compare or combine them.", types
+        f"ClickHouse has no common type for {_display(types)}, so it cannot compare or combine them.", types
     )
 
 
