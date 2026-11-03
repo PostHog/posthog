@@ -7,10 +7,25 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import type { WorkloadTrustPolicyApi } from '~/generated/core/api.schemas'
+import type { WorkloadProvidersResponseApi, WorkloadTrustPolicyApi } from '~/generated/core/api.schemas'
 
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 import { WorkloadTrustPolicyModal } from './WorkloadTrustPolicyModal'
+
+function getCreateDisabledReason(
+    providers: WorkloadProvidersResponseApi | null,
+    providersLoadFailed: boolean,
+    policiesLoading: boolean
+): string | undefined {
+    if (providers === null) {
+        return providersLoadFailed ? "Couldn't load the supported CI providers" : 'Loading the supported CI providers'
+    }
+    if (providers.supported.length === 0) {
+        return 'No CI provider is supported on this instance'
+    }
+    // A list response that lands after a save would replace the new policy with an older snapshot.
+    return policiesLoading ? 'Loading trusted workloads' : undefined
+}
 
 export function WorkloadTrustPolicies(): JSX.Element {
     const { policies, policiesLoading, policiesLoadFailed, providers, providersLoadFailed, providerNames } =
@@ -18,16 +33,7 @@ export function WorkloadTrustPolicies(): JSX.Element {
     const { setEditingPolicyId, deletePolicy, setPolicyEnabled, loadPolicies, loadProviders } =
         useActions(workloadTrustPoliciesLogic)
 
-    const createDisabledReason =
-        providers === null
-            ? providersLoadFailed
-                ? "Couldn't load the supported CI providers"
-                : 'Loading the supported CI providers'
-            : providers.supported.length === 0
-              ? 'No CI provider is supported on this instance'
-              : policiesLoading
-                ? 'Loading trusted workloads'
-                : undefined
+    const createDisabledReason = getCreateDisabledReason(providers, providersLoadFailed, policiesLoading)
 
     // Policies hand out tokens that act as the organization owner, so the section asks for a recent login.
     return (
