@@ -85,6 +85,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_table_name,
     is_another_schemas_history_table,
     is_history_table_mode,
+    known_source_key,
     masking_key_is_public,
     new_history_naming,
     pin_history_naming,
@@ -99,11 +100,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import (
-    ExternalDataSourceType,
-    IncrementalFieldType,
-    IncrementalSyncBlockedReason,
-)
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType, IncrementalSyncBlockedReason
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
@@ -127,7 +124,7 @@ def source_supports_column_selection(source_type: str) -> bool:
     Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
     fixed canonical schema, so dropping a referenced column breaks the query."""
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -136,7 +133,7 @@ def source_supports_column_selection(source_type: str) -> bool:
 
 def source_supports_row_filters(source_type: str) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -149,7 +146,7 @@ ON_DEMAND_SYNC_ERROR = "This table syncs only when its data changes, so its sync
 
 def source_syncs_on_demand(source_type: str) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -195,7 +192,7 @@ def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid
 
 def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+        source = SourceRegistry.get_source(source_model.source_type)
     except Exception as e:
         capture_exception(e)
         return None
@@ -209,7 +206,7 @@ def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, 
     package, so this layer does not name it.
     """
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return None
@@ -226,7 +223,7 @@ def source_requires_exact_column_metadata(source_type: str) -> bool:
     also includes sources whose columns are projected generically after extraction.
     """
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         # Unknown source types already fail the broader column-selection check. Keep the
@@ -1101,7 +1098,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if user_access_control is not None:
             user_access_level = user_access_control.get_user_access_level(source)
         try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = SourceRegistry.get_source(source.source_type)
             # The version the schema falls back to without an override, and the picker's options.
             source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
             supported_api_versions = list(source_impl.supported_versions)
@@ -1179,7 +1176,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # no create path to validate.
             if "api_version" in attrs and instance is not None and override != instance.api_version:
                 try:
-                    source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                    source_impl = SourceRegistry.get_source(instance.source.source_type)
                 except ValueError:
                     raise ValidationError(
                         {"api_version": "API version overrides are not supported for this source type."}
@@ -1427,7 +1424,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
         # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            if not SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type)).supports_xmin:
+            if not SourceRegistry.get_source(instance.source.source_type).supports_xmin:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
@@ -1514,9 +1511,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Only for a source that reads keys off the table, and only when the schema's columns
             # are known. A source that declares its key in code never needs one here, and without
             # columns there is nothing to say the table has none; the sync-time guard covers both.
-            source_detects_keys = SourceRegistry.get_source(
-                ExternalDataSourceType(instance.source.source_type)
-            ).detects_primary_keys
+            source_detects_keys = SourceRegistry.get_source(instance.source.source_type).detects_primary_keys
             if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
@@ -2081,7 +2076,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return False
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
         except Exception:
             return False
@@ -2109,7 +2104,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return False
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
             config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
@@ -2135,7 +2130,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return unsupported
         try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = SourceRegistry.get_source(source.source_type)
         except Exception:
             return unsupported
         if not isinstance(source_impl, WebhookSource):
@@ -2212,7 +2207,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
         except Exception as e:
             capture_exception(e)
@@ -2901,9 +2896,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not source.source_type:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-        source_type_enum = ExternalDataSourceType(source.source_type)
+        source_type_key = known_source_key(source.source_type)
 
-        new_source = SourceRegistry.get_source(source_type_enum)
+        new_source = SourceRegistry.get_source(source_type_key)
         try:
             config = new_source.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError):
@@ -2984,7 +2979,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
-        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_impl = SourceRegistry.get_source(source.source_type)
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None
