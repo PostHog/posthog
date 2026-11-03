@@ -19,13 +19,26 @@ from products.error_tracking.backend.notifications import _AssignerExcludingReso
 from products.notifications.backend.facade.enums import TargetType
 
 
-class TestDispatchIssueAssignedRealtime(BaseTest):
+class _AssignmentTestBase(BaseTest):
     def setUp(self):
         super().setUp()
         self.assigner = self.user
         self.assignee = User.objects.create_and_join(self.organization, "assignee@test.com", "password")
         self.issue = ErrorTrackingIssue.objects.create(team=self.team, name="Some Error", description="boom")
 
+    def _create_assignment(self, assignee_type: str) -> tuple[ErrorTrackingIssueAssignment, int | UUID]:
+        if assignee_type == "user":
+            assignment = ErrorTrackingIssueAssignment.objects.create(
+                team=self.team, issue=self.issue, user=self.assignee
+            )
+            return assignment, self.assignee.id
+        role_id = create_role(organization_id=self.organization.id, name="Devs")
+        add_role_member(role_id=role_id, user_id=self.assigner.id)
+        add_role_member(role_id=role_id, user_id=self.assignee.id)
+        return ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, role_id=role_id), role_id
+
+
+class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
     @patch("products.error_tracking.backend.notifications.create_notification")
     def test_user_assignment_dispatches_to_assignee(self, mock_create_notification):
         assignment = ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, user=self.assignee)
@@ -71,16 +84,7 @@ class TestDispatchIssueAssignedRealtime(BaseTest):
     @parameterized.expand([("user",), ("role",)])
     @patch("products.error_tracking.backend.notifications.create_notification")
     def test_automatic_assignment_dispatches_without_assigner(self, assignee_type, mock_create_notification):
-        assignee_id: int | UUID
-        if assignee_type == "user":
-            assignee_id = self.assignee.id
-            assignment = ErrorTrackingIssueAssignment.objects.create(
-                team=self.team, issue=self.issue, user=self.assignee
-            )
-        else:
-            role_id = create_role(organization_id=self.organization.id, name="Devs")
-            assignee_id = role_id
-            assignment = ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, role_id=role_id)
+        assignment, assignee_id = self._create_assignment(assignee_type)
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": assignee_type, "id": assignee_id},
@@ -131,91 +135,48 @@ class TestAssignerExcludingResolver(SimpleTestCase):
 
 
 @patch("posthog.tasks.email.EmailMessage")
-class TestSendIssueAssignedEmail(BaseTest):
-    def setUp(self):
-        super().setUp()
+class TestSendIssueAssignedEmail(_AssignmentTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
-        self.user.first_name = "Alice"
-        self.user.save()
-        self.assignee = User.objects.create_and_join(self.organization, "assignee@test.com", "password")
-        self.issue = ErrorTrackingIssue.objects.create(team=self.team, name="Some Error")
 
-    def _create_assignment(self, assignee_type: str) -> ErrorTrackingIssueAssignment:
-        if assignee_type == "user":
-            return ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, user=self.assignee)
-        role_id = create_role(organization_id=self.organization.id, name="Devs")
-        add_role_member(role_id=role_id, user_id=self.user.id)
-        add_role_member(role_id=role_id, user_id=self.assignee.id)
-        return ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, role_id=role_id)
+    def setUp(self):
+        super().setUp()
+        self.assigner.first_name = "Alice"
+        self.assigner.save()
 
     @parameterized.expand(
         [
-            (
-                "manual_user",
-                "user",
-                True,
-                None,
-                ["assignee"],
-                "Alice</b> has assigned you",
-                "error_tracking_issue_assigned_",
-            ),
-            (
-                "automatic_user",
-                "user",
-                False,
-                "An assignment rule",
-                ["assignee"],
-                "An assignment rule assigned you",
-                "error_tracking_issue_assigned_automatic_",
-            ),
-            (
-                "manual_role_excludes_assigner",
-                "role",
-                True,
-                None,
-                ["assignee"],
-                "Alice</b> has assigned you",
-                "error_tracking_issue_assigned_",
-            ),
-            (
-                "automatic_role_excludes_nobody",
-                "role",
-                False,
-                "An assignment rule",
-                ["assignee", "assigner"],
-                "An assignment rule assigned you",
-                "error_tracking_issue_assigned_automatic_",
-            ),
+            ("manual_user", "user", False, ["assignee"]),
+            ("automatic_user", "user", True, ["assignee"]),
+            ("manual_role_excludes_assigner", "role", False, ["assignee"]),
+            ("automatic_role_excludes_nobody", "role", True, ["assignee", "assigner"]),
         ]
     )
-    def test_sends_to_assignee(
-        self,
-        MockEmailMessage: MagicMock,
-        _name,
-        assignee_type,
-        with_assigner,
-        assigned_by,
-        expected_recipients,
-        expected_text,
-        expected_key_prefix,
-    ):
+    def test_sends_to_assignee(self, MockEmailMessage: MagicMock, _name, assignee_type, automatic, expected_recipients):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        assignment = self._create_assignment(assignee_type)
+        assignment, _ = self._create_assignment(assignee_type)
 
-        send_error_tracking_issue_assigned(
-            assignment.id, self.user.id if with_assigner else None, assigned_by=assigned_by
-        )
+        if automatic:
+            send_error_tracking_issue_assigned(assignment.id, None, assigned_by="An assignment rule")
+        else:
+            send_error_tracking_issue_assigned(assignment.id, self.assigner.id)
 
         assert len(mocked_email_messages) == 1
         message = mocked_email_messages[0]
-        emails = {"assignee": self.assignee.email, "assigner": self.user.email}
+        emails = {"assignee": self.assignee.email, "assigner": self.assigner.email}
         assert sorted(to["raw_email"] for to in message.to) == sorted(emails[key] for key in expected_recipients)
-        assert expected_text in message.html_body
-        assert message.campaign_key.startswith(f"{expected_key_prefix}{assignment.id}_")
+        if automatic:
+            assert "An assignment rule assigned you" in message.html_body
+            assert message.campaign_key.startswith(f"error_tracking_issue_assigned_automatic_{assignment.id}_")
+        else:
+            assert "Alice</b> has assigned you" in message.html_body
+            assert message.campaign_key.startswith(f"error_tracking_issue_assigned_{assignment.id}_")
 
     def test_rejects_missing_assigner_and_label(self, MockEmailMessage: MagicMock):
-        assignment = self._create_assignment("user")
+        assignment, _ = self._create_assignment("user")
 
         with pytest.raises(ValueError):
             send_error_tracking_issue_assigned(assignment.id, None)

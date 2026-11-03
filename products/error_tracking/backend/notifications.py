@@ -64,42 +64,31 @@ def dispatch_issue_assigned_realtime(
         if assignee["type"] == "user":
             if assigner is not None and int(assignee["id"]) == assigner.id:
                 return
-            create_notification(
-                NotificationData(
-                    team_id=assignment.team_id,
-                    notification_type=NotificationType.ISSUE_ASSIGNED,
-                    priority=Priority.NORMAL,
-                    title=title,
-                    body=body,
-                    target_type=TargetType.USER,
-                    target_id=str(assignee["id"]),
-                    resource_type="error_tracking",
-                    resource_id=str(issue.id),
-                    source_url=source_url,
-                    source_type=SourceType.ERROR_TRACKING,
-                    source_id=str(issue.id),
-                    metadata=metadata,
-                )
-            )
+            target_type = TargetType.USER
+            resolver = None
         elif assignee["type"] == "role":
-            create_notification(
-                NotificationData(
-                    team_id=assignment.team_id,
-                    notification_type=NotificationType.ISSUE_ASSIGNED,
-                    priority=Priority.NORMAL,
-                    title=title,
-                    body=body,
-                    target_type=TargetType.ROLE,
-                    target_id=str(assignee["id"]),
-                    resource_type="error_tracking",
-                    resource_id=str(issue.id),
-                    source_url=source_url,
-                    source_type=SourceType.ERROR_TRACKING,
-                    source_id=str(issue.id),
-                    metadata=metadata,
-                    resolver=_AssignerExcludingResolver(assigner_id=assigner.id) if assigner is not None else None,
-                )
+            target_type = TargetType.ROLE
+            resolver = _AssignerExcludingResolver(assigner_id=assigner.id) if assigner is not None else None
+        else:
+            return
+        create_notification(
+            NotificationData(
+                team_id=assignment.team_id,
+                notification_type=NotificationType.ISSUE_ASSIGNED,
+                priority=Priority.NORMAL,
+                title=title,
+                body=body,
+                target_type=target_type,
+                target_id=str(assignee["id"]),
+                resource_type="error_tracking",
+                resource_id=str(issue.id),
+                source_url=source_url,
+                source_type=SourceType.ERROR_TRACKING,
+                source_id=str(issue.id),
+                metadata=metadata,
+                resolver=resolver,
             )
+        )
     except Exception as e:
         logger.exception(
             "issue_assigned.realtime_failed",
