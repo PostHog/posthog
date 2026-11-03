@@ -28,7 +28,7 @@ from redis.exceptions import RedisError
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
-from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
+from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS, refresh_cimd_metadata_task
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
@@ -85,6 +85,9 @@ def private_pem_to_public_pem(private_key_pem: str) -> str:
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        # A stale CIMD cache entry queues a metadata refresh, which Celery runs inline in tests and
+        # which fetches the partner URL over the real network. No test here checks that refresh.
+        self.enterContext(patch.object(refresh_cimd_metadata_task, "delay"))
 
         self.confidential_application = OAuthApplication.objects.create(
             name="Test Confidential App",
