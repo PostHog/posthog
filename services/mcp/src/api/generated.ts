@@ -577,6 +577,8 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
       keep_materialized?: boolean;
+      /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
+      delete_view?: boolean;
     }
 
     export interface AccessControlResourceDefault {
@@ -38364,6 +38366,15 @@ export namespace Schemas {
       bucket_start: string;
       /** Deployments whose first success status landed in this bucket, within the environment scope. Zero-filled: 0 means nothing shipped. */
       deployment_count: number;
+    }
+
+    export interface DepotCIRepoUsage {
+      /** Repository the Depot source syncs, as lowercase 'owner/name'. */
+      repo: string;
+      /** Run time of the finished Depot CI job attempts that started in the window, hand-off jobs included. */
+      elapsed_seconds: number;
+      /** elapsed_seconds at the Depot CI list price for a 2-vCPU sandbox. Depot does not report the sandbox size of an attempt. */
+      estimated_cost_usd: number;
     }
 
     export interface DeprovisionWarehouseResponse {
@@ -85130,6 +85141,8 @@ export namespace Schemas {
       refresh_seconds_per_month: number;
       /** Bytes its refreshes read in a month. */
       refresh_bytes_per_month: number;
+      /** Whether the view is materialized. A plain view has no refreshes, so both refresh costs are 0. */
+      materialized?: boolean;
     }
 
     export interface WarehouseSuggestionVisibleSources {
@@ -113785,6 +113798,95 @@ export namespace Schemas {
       readonly previous_secret_valid_until: string | null;
     }
 
+    export interface SlackAppChannelJoinResult {
+      /** Slack channel ID. */
+      channel_id: string;
+      /**
+         * Slack's error code when PostHog could not join, or null when it joined.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface SlackAppChannelOption {
+      /** Slack channel ID. */
+      id: string;
+      /** Channel name, without the leading #. */
+      name: string;
+      /** Whether PostHog is already in the channel. */
+      is_member: boolean;
+    }
+
+    export interface SlackAppChannelOptions {
+      /** Public channels that PostHog can join. Shared channels are left out. */
+      channels: SlackAppChannelOption[];
+    }
+
+    export interface SlackAppDefaultProject {
+      /** ID of the Slack integration of the project that becomes the workspace default. */
+      integration_id: number;
+    }
+
+    export interface SlackAppJoinChannels {
+      /**
+         * IDs of the public channels that PostHog joins.
+         * @minItems 1
+         * @maxItems 20
+         */
+      channel_ids: string[];
+      /** Whether PostHog posts its welcome message in each channel it joins. When false, it joins quietly. */
+      post_welcome?: boolean;
+    }
+
+    export interface SlackAppJoinChannelsResult {
+      /** The result for each channel, in request order. */
+      results: SlackAppChannelJoinResult[];
+    }
+
+    export interface SlackAppProjectOption {
+      /** ID of the Slack integration that connects this project. */
+      integration_id: number;
+      /** Name of the PostHog project. */
+      project_name: string;
+      /** Name of the organization that owns the project. */
+      organization_name: string;
+    }
+
+    /**
+     * * `ai_consent` - AI data processing
+     * * `default_project` - Default project
+     * * `channels` - Channels
+     */
+    export type SlackSetupStepKeyEnum = typeof SlackSetupStepKeyEnum[keyof typeof SlackSetupStepKeyEnum];
+
+
+    export const SlackSetupStepKeyEnum = {
+      AiConsent: 'ai_consent',
+      DefaultProject: 'default_project',
+      Channels: 'channels',
+    } as const;
+
+    export interface SlackAppWorkspaceSetup {
+      /** ID of the Slack integration that this setup is for. */
+      integration_id: number;
+      /**
+         * Name of the Slack workspace, as Slack sent it at install time.
+         * @nullable
+         */
+      slack_workspace_name: string | null;
+      /**
+         * Link that opens the PostHog app's direct message in this Slack workspace. Null when the install has no app ID.
+         * @nullable
+         */
+      open_slack_url: string | null;
+      /** Setup steps that apply to this install and are not done yet, in display order. ai_consent: the organization must allow AI data processing. default_project: the Slack workspace connects to 2 or more projects and has no default. channels: the install can join channels, and the setup started on the Slack page. */
+      steps: SlackSetupStepKeyEnum[];
+      /** Projects connected to this Slack workspace that the person can open. Empty unless default_project is a step. */
+      project_options: SlackAppProjectOption[];
+      /** Whether a channel join from this setup can post the welcome message in the channel. False when channels is not a step, or when the workspace sends the welcome only to the inviter or turns it off. */
+      can_post_channel_welcome: boolean;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -135982,6 +136084,17 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsDepotCiUsageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    };
+
     export type EngineeringAnalyticsDoraParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
@@ -143955,6 +144068,25 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SlackAppWorkspaceSetupRetrieveParams = {
+    /**
+     * Where the Slack install started. slack_page adds the steps for a person who sets up Slack on purpose.
+     *
+     * * `slack_page` - The Slack page in PostHog
+     * * `other` - Another place, such as a channel picker
+     * @minLength 1
+     */
+    entry?: SlackAppWorkspaceSetupRetrieveEntry;
+    };
+
+    export type SlackAppWorkspaceSetupRetrieveEntry = typeof SlackAppWorkspaceSetupRetrieveEntry[keyof typeof SlackAppWorkspaceSetupRetrieveEntry];
+
+
+    export const SlackAppWorkspaceSetupRetrieveEntry = {
+      SlackPage: 'slack_page',
+      Other: 'other',
+    } as const;
 
     export type StamphogDigestRunsListParams = {
     /**

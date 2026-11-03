@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
     TRANSIENT_SOURCE_ERROR_MESSAGE,
+    TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
     TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
     UNEXPECTED_ERROR_MESSAGE,
     UpdateExternalDataJobStatusInputs,
@@ -399,6 +400,23 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
             TRANSIENT_CONNECT_DROPPED_MESSAGE,
+        ),
+        # An SSH-tunneled source connects to the local end of the tunnel, so libpq names loopback.
+        # The tunnel closes the connection when the SSH server cannot reach the database.
+        (
+            "postgres_ssh_tunnel_closed_at_connect",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "127.0.0.1", port 40123 failed: '
+            "server closed the connection unexpectedly",
+            TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE,
+        ),
+        # A loopback host does not claim failures that are not a connect-time drop.
+        (
+            "postgres_ssh_tunnel_connection_limit",
+            ExternalDataSourceType.POSTGRES,
+            'connection failed: connection to server at "127.0.0.1", port 40123 failed: '
+            "FATAL: sorry, too many clients already",
+            _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
         ),
         # The same drop on an established connection, which keeps the idle-connection copy.
         (
