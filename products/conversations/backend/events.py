@@ -672,12 +672,21 @@ def capture_message_sent(
     message_id: str,
     message_content: str,
     author: User | None = None,
+    ai_draft_outcome: str | None = None,
 ) -> None:
-    """Team member sent a public reply on a ticket."""
+    """Team member sent a public reply on a ticket.
+
+    `ai_draft_outcome` ("used" / "edited" / "ignored") says how this reply relates to the
+    latest AI draft on the ticket, when this is the first public human reply after one.
+    Omitted when no AI draft preceded the reply, so its presence also marks drafted tickets.
+    """
     properties = _team_message_properties(ticket, message_id, author)
+    analytics_properties = {**properties, "message_content": (message_content or "")[:1000]}
+    if ai_draft_outcome is not None:
+        analytics_properties["ai_draft_outcome"] = ai_draft_outcome
     _capture_team_message(
         ticket,
-        {**properties, "message_content": (message_content or "")[:1000]},
+        analytics_properties,
         author,
         "$conversation_message_sent",
     )

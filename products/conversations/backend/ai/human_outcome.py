@@ -91,22 +91,29 @@ def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str,
         return True
 
 
-def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str, human_content: str) -> None:
-    """Set `ai_triage.human_outcome` on the first public human reply after the latest AI note."""
+def maybe_record_human_outcome(
+    *, team_id: int, ticket_id: str, comment_id: str, human_content: str
+) -> HumanOutcome | None:
+    """Set `ai_triage.human_outcome` on the first public human reply after the latest AI note.
+
+    Returns this reply's classification when it is that first reply, else None, so the
+    caller can stamp the outcome on the reply's analytics event even when the stored
+    value is not (re)written.
+    """
     if not human_content.strip():
-        return
+        return None
 
     with transaction.atomic():
         ticket = Ticket.objects.select_for_update().filter(id=ticket_id, team_id=team_id).first()
         if ticket is None:
-            return
+            return None
         triage = dict(ticket.ai_triage or {})
         current = triage.get("human_outcome")
 
         comments = _ticket_comments(team_id=team_id, ticket_id=ticket_id)
         this_comment = comments.filter(id=comment_id).first()
         if this_comment is None:
-            return
+            return None
 
         before_this = Q(created_at__lt=this_comment.created_at) | Q(
             created_at=this_comment.created_at, id__lt=this_comment.id
@@ -121,19 +128,20 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
             .first()
         )
         if ai_note is None or not (ai_note.content or "").strip():
-            return
+            return None
 
         after_ai = Q(created_at__gt=ai_note.created_at) | Q(created_at=ai_note.created_at, id__gt=ai_note.id)
         first_after = _public_human_comments(comments).filter(after_ai).order_by("created_at", "id").first()
         if first_after is None or str(first_after.id) != str(comment_id):
-            return
+            return None
 
         classified = classify_human_outcome(_inserted_draft_text(ai_note), human_content)
         if current == classified:
-            return
+            return classified
         if current and current != "used":
-            return
+            return classified
 
         triage["human_outcome"] = classified
         ticket.ai_triage = triage
         ticket.save(update_fields=["ai_triage", "updated_at"])
+        return classified

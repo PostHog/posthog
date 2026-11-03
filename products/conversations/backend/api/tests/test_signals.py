@@ -150,6 +150,24 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_reply_after_ai_draft_stamps_ai_draft_outcome_on_event(self, mock_capture, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        sent = [c for c in mock_capture.call_args_list if c.kwargs.get("event_name") == "$conversation_message_sent"]
+        assert len(sent) == 1
+        assert sent[0].kwargs["properties"]["ai_draft_outcome"] == "used"
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_reply_without_ai_draft_omits_ai_draft_outcome_on_event(self, mock_capture, mock_on_commit):
+        self._create_team_message("Thanks for the report")
+
+        sent = [c for c in mock_capture.call_args_list if c.kwargs.get("event_name") == "$conversation_message_sent"]
+        assert len(sent) == 1
+        assert "ai_draft_outcome" not in sent[0].kwargs["properties"]
+
     def test_automated_update_does_not_replace_draft_for_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
