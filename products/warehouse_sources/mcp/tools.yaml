@@ -713,8 +713,8 @@ tools:
             Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and
             plans from the raw response. Send the account info and every destination first, then the connections in
             batches of about 10 and under 900 KB per call, each with its connection details and its schema config.
-            Returns the planned items for the batch. A 400 names the connections PostHog could not read; the rest of
-            the batch is saved.
+            Returns the planned items for the batch. A 400 names the connections PostHog could not read; the rest of the
+            batch is saved.
         feature_flag: warehouse-migration-import
     warehouse-migrations-list:
         operation: warehouse_migrations_list
