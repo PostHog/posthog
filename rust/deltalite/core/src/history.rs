@@ -1175,6 +1175,9 @@ async fn history_inner(
     source_schema: SchemaRef,
     opts: &HistoryUpsertOptions,
 ) -> Result<(HistoryUpsertStats, Option<DeltaTableState>)> {
+    // Again here: after a relax the snapshot is reloaded, and a concurrent commit may have
+    // enabled a feature that makes a blind rewrite unsafe.
+    ensure_history_table(table, opts)?;
     let snapshot = table.snapshot()?;
     let table_schema: SchemaRef = RecordBatchWriter::for_table(table)?.arrow_schema();
     let cols = Columns::resolve(&table_schema, &source_schema, opts)?;
@@ -1520,6 +1523,41 @@ mod tests {
     use arrow_array::Int64Array;
     use deltalake::kernel::{DataType as KernelType, StructField};
     use deltalake::operations::create::CreateBuilder;
+
+    #[tokio::test]
+    async fn the_write_checks_the_snapshot_it_writes_against() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = CreateBuilder::new()
+            .with_location(dir.path().to_str().unwrap())
+            .with_columns(vec![
+                StructField::new("v", KernelType::LONG, true),
+                StructField::new("p", KernelType::STRING, false),
+            ])
+            .with_partition_columns(vec!["p".to_string()])
+            .with_configuration(vec![("delta.appendOnly", Some("true"))])
+            .await
+            .unwrap();
+        let source = Arc::new(Schema::new(vec![Field::new("v", DataType::Int64, true)]));
+        let opts = HistoryUpsertOptions {
+            key_columns: vec!["v".into()],
+            order_column: "v".into(),
+            valid_from_column: "v".into(),
+            valid_to_column: "v".into(),
+            partition_column: "p".into(),
+            current_partition: "current".into(),
+            tie_break_column: "v".into(),
+            ..Default::default()
+        };
+        let err = history_inner(
+            &table,
+            vec![RecordBatch::new_empty(source.clone())],
+            source,
+            &opts,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, Error::Unsupported(_)), "{err}");
+    }
 
     #[tokio::test]
     async fn closed_rows_hold_at_most_the_month_file_limit_open() {
