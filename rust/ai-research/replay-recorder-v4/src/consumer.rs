@@ -23,8 +23,13 @@ use crate::flush::{write_flush, FlushWork, Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
 use crate::limits::{Restrictions, SessionLimiter};
 use crate::process::{admit, sampled, Admitted, Headers, Skip};
 use crate::teams::TeamCache;
+use crate::watermark::{
+    assignment_grace, watermark_files, FlushDone, KafkaEnds, Progress, WatermarkFiles,
+    WATERMARK_FILE_INTERVAL,
+};
 
 const KAFKA_TIMEOUT: Duration = Duration::from_secs(10);
+const WATERMARK_READS_TIMEOUT: Duration = Duration::from_secs(30);
 const COMMIT_ATTEMPTS: u32 = 3;
 const HEARTBEAT: Duration = Duration::from_secs(5);
 
@@ -40,6 +45,7 @@ const POLL_BATCH: usize = 1000;
 #[derive(Default)]
 struct Assignments {
     epochs: HashMap<Tp, (u64, bool)>,
+    assigned_at: HashMap<Tp, Instant>,
     revoked: Vec<Tp>,
     /// Partitions without a known committed offset, with the first offset read once there is one. It stays here until
     /// it commits or the partition is revoked.
@@ -60,6 +66,20 @@ impl Assignments {
         self.uncommitted
             .iter()
             .filter_map(|(&tp, start)| Some((tp, (*start)?)))
+            .collect()
+    }
+
+    fn owned_since(&self, now: Instant, grace: Duration) -> Vec<(Tp, u64)> {
+        self.epochs
+            .iter()
+            .filter(|(tp, (_, owned))| {
+                *owned
+                    && self
+                        .assigned_at
+                        .get(tp)
+                        .is_some_and(|at| now.saturating_duration_since(*at) >= grace)
+            })
+            .map(|(tp, (epoch, _))| (*tp, *epoch))
             .collect()
     }
 
@@ -168,11 +188,13 @@ impl RebalanceContext {
             if let Some(tp) = self.tp(element.topic(), element.partition()) {
                 if assigned {
                     state.epochs.entry(tp).or_default().1 = true;
+                    state.assigned_at.insert(tp, Instant::now());
                 } else {
                     let entry = state.epochs.entry(tp).or_default();
                     *entry = (entry.0 + 1, false);
                     state.revoked.push(tp);
                     state.uncommitted.remove(&tp);
+                    state.assigned_at.remove(&tp);
                 }
             }
         }
@@ -218,6 +240,7 @@ impl ConsumerContext for RebalanceContext {
     }
 }
 
+#[derive(Clone)]
 pub struct RecorderConsumer {
     consumer: Arc<StreamConsumer<RebalanceContext>>,
     state: Arc<Mutex<Assignments>>,
@@ -370,6 +393,69 @@ impl RecorderConsumer {
         }
     }
 
+    /// Blocks on Kafka, so the round runs it on a blocking thread.
+    fn read_ends(&self, owned: &[Tp], index_topic: &str) -> Result<KafkaEnds, KafkaError> {
+        let deadline = Instant::now() + WATERMARK_READS_TIMEOUT;
+        let remaining = || deadline.saturating_duration_since(Instant::now());
+        let reads_started_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as i64);
+        let mut list = TopicPartitionList::new();
+        for tp in owned {
+            list.add_partition(tp.topic, tp.partition);
+        }
+        let committed_offsets = self
+            .consumer
+            .committed_offsets(list, remaining())?
+            .elements()
+            .iter()
+            .filter_map(|e| match e.offset() {
+                Offset::Offset(offset) => Some((
+                    self.consumer.context().tp(e.topic(), e.partition())?,
+                    offset,
+                )),
+                _ => None,
+            })
+            .collect();
+        let mut input_end_offsets = HashMap::new();
+        for tp in owned {
+            let (_, end) = self
+                .consumer
+                .fetch_watermarks(tp.topic, tp.partition, remaining())?;
+            input_end_offsets.insert(*tp, end);
+        }
+        let mut input_partitions = BTreeMap::new();
+        for &topic in &self.consumer.context().topics {
+            input_partitions.insert(topic, self.partition_count(topic, remaining())?);
+        }
+        let mut index_end_offsets = Vec::new();
+        for partition in 0..self.partition_count(index_topic, remaining())? {
+            let (_, end) =
+                self.consumer
+                    .fetch_watermarks(index_topic, partition as i32, remaining())?;
+            index_end_offsets.push(end);
+        }
+        Ok(KafkaEnds {
+            reads_started_at_ms,
+            committed_offsets,
+            input_end_offsets,
+            input_partitions,
+            index_end_offsets,
+        })
+    }
+
+    fn partition_count(&self, topic: &str, timeout: Duration) -> Result<usize, KafkaError> {
+        let metadata = self.consumer.fetch_metadata(Some(topic), timeout)?;
+        match metadata.topics().first() {
+            Some(found) if found.error().is_none() && !found.partitions().is_empty() => {
+                Ok(found.partitions().len())
+            }
+            _ => Err(KafkaError::MetadataFetch(
+                RDKafkaErrorCode::UnknownTopicOrPartition,
+            )),
+        }
+    }
+
     /// A synchronous commit on a blocking thread, so the caller's deadlines and heartbeats keep running. A commit
     /// that outlives `KAFKA_TIMEOUT` can still land later. Its offsets were already stored or read, so it skips nothing.
     async fn commit_list(&self, list: TopicPartitionList) -> Result<(), String> {
@@ -443,7 +529,24 @@ pub async fn run(
     writer: Option<Writer>,
     handle: Handle,
 ) {
-    consume(&consumer, &settings, &sources, writer.as_ref(), &handle).await;
+    let watermarks = writer.as_ref().map(|writer| {
+        Arc::new(WatermarkFiles {
+            progress: Mutex::new(Progress::default()),
+            store: writer.store.clone(),
+            bucket: writer.rrweb_bucket.clone(),
+            index_topic: writer.index_topic.clone(),
+            grace: assignment_grace(writer.index_delivery_timeout),
+        })
+    });
+    consume(
+        &consumer,
+        &settings,
+        &sources,
+        writer.as_ref(),
+        watermarks.as_ref(),
+        &handle,
+    )
+    .await;
     // The flushes do not wait for their index rows, so the producer can still hold some.
     if let Some(writer) = &writer {
         writer.flush_producers(PRODUCER_FLUSH_ON_SHUTDOWN).await;
@@ -455,6 +558,7 @@ async fn consume(
     settings: &Settings,
     sources: &Sources,
     writer: Option<&Writer>,
+    watermarks: Option<&Arc<WatermarkFiles>>,
     handle: &Handle,
 ) {
     let shutdown = handle.shutdown_signal();
@@ -462,6 +566,8 @@ async fn consume(
     let mut batch = Batch::default();
     let mut inspectors = Inspectors::new(settings.session_state_max_bytes);
     let mut tick = tokio::time::interval(Duration::from_secs(1));
+    let mut next_watermark_round = Instant::now() + WATERMARK_FILE_INTERVAL;
+    let mut watermark_round: Option<tokio::task::JoinHandle<()>> = None;
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
@@ -480,7 +586,8 @@ async fn consume(
                         },
                         || consumer.consumer.recv().now_or_never(),
                     );
-                    handle_messages(&messages, consumer, settings, sources, &mut batch).await;
+                    handle_messages(&messages, consumer, settings, sources, watermarks, &mut batch)
+                        .await;
                     drop(messages);
                     if let Some(error) = failed {
                         if receive_failed(consumer, handle, error) {
@@ -500,6 +607,27 @@ async fn consume(
         if !revoked.is_empty() {
             inspectors.drop_partitions(&revoked);
             batch.retain(|tp, epoch| consumer.current_epoch(tp) == Some(epoch));
+            if let Some(watermarks) = watermarks {
+                watermarks
+                    .progress
+                    .lock()
+                    .unwrap()
+                    .retain(|tp, epoch| consumer.current_epoch(tp) == Some(epoch));
+            }
+        }
+        // Rounds start here, so a consume loop that stops leaves its files to go stale.
+        if let Some(watermarks) = watermarks {
+            if Instant::now() >= next_watermark_round
+                && watermark_round
+                    .as_ref()
+                    .is_none_or(|round| round.is_finished())
+            {
+                next_watermark_round = Instant::now() + WATERMARK_FILE_INTERVAL;
+                watermark_round = Some(tokio::spawn(write_watermarks(
+                    consumer.clone(),
+                    watermarks.clone(),
+                )));
+            }
         }
         if batch.should_flush(settings.flush_interval, settings.flush_max_bytes) {
             let work = flush(
@@ -508,6 +636,7 @@ async fn consume(
                 consumer,
                 settings,
                 writer,
+                watermarks.map(|w| &**w),
                 handle,
                 settings.flush_retries,
             );
@@ -539,6 +668,7 @@ async fn consume(
             consumer,
             settings,
             writer,
+            watermarks.map(|w| &**w),
             handle,
             0,
         ),
@@ -575,6 +705,7 @@ async fn handle_messages(
     consumer: &RecorderConsumer,
     settings: &Settings,
     sources: &Sources,
+    watermarks: Option<&Arc<WatermarkFiles>>,
     batch: &mut Batch,
 ) {
     let mut admitted = Vec::with_capacity(messages.len());
@@ -610,6 +741,7 @@ async fn handle_messages(
     } else {
         sources.limiter.blocked(&sessions).await
     };
+    let mut progress = watermarks.map(|w| w.progress.lock().unwrap());
     for (message, tp, epoch, session) in admitted {
         let session = session.and_then(|session| {
             if blocked.contains(&session) {
@@ -618,6 +750,15 @@ async fn handle_messages(
                 Ok(session)
             }
         });
+        if let Some(progress) = progress.as_mut() {
+            progress.handled(
+                tp,
+                epoch,
+                message.offset(),
+                message.timestamp().to_millis(),
+                session.is_ok(),
+            );
+        }
         match session {
             Ok(session) => {
                 counter!("ai_research_v4_recorder_messages_total", "outcome" => "admitted")
@@ -684,11 +825,12 @@ async fn flush(
     consumer: &RecorderConsumer,
     settings: &Settings,
     writer: Option<&Writer>,
+    watermarks: Option<&WatermarkFiles>,
     handle: &Handle,
     retries: u32,
 ) -> Result<(), String> {
     let work = flush_steps(
-        batch, inspectors, consumer, settings, writer, handle, retries,
+        batch, inspectors, consumer, settings, writer, watermarks, handle, retries,
     );
     tokio::time::timeout(FLUSH_DEADLINE, work)
         .await
@@ -702,10 +844,14 @@ async fn flush_steps(
     consumer: &RecorderConsumer,
     settings: &Settings,
     writer: Option<&Writer>,
+    watermarks: Option<&WatermarkFiles>,
     handle: &Handle,
     retries: u32,
 ) -> Result<(), String> {
     let flush_started = Instant::now();
+    let done = watermarks.map_or_else(FlushDone::default, |w| {
+        w.progress.lock().unwrap().flush_started()
+    });
     let offsets: HashMap<Tp, (u64, i64)> = batch
         .spans
         .iter()
@@ -753,7 +899,7 @@ async fn flush_steps(
                 timeout,
                 with_heartbeat(
                     handle,
-                    write_flush(&blocks, writer, settings.flush_concurrency, &work),
+                    write_flush(&blocks, writer, settings.flush_concurrency, &work, &done),
                 ),
             )
             .await;
@@ -783,6 +929,50 @@ async fn flush_steps(
         .record(flush_started.elapsed().as_secs_f64());
     inspectors.evict_idle(settings.session_idle);
     Ok(())
+}
+
+/// The progress is read before the end offsets, so that every index row it counts as delivered is below the index end
+/// offsets that the files carry.
+async fn write_watermarks(consumer: RecorderConsumer, watermarks: Arc<WatermarkFiles>) {
+    let owned = consumer
+        .state
+        .lock()
+        .unwrap()
+        .owned_since(Instant::now(), watermarks.grace);
+    if owned.is_empty() {
+        return;
+    }
+    let progress: Vec<_> = {
+        let progress = watermarks.progress.lock().unwrap();
+        owned
+            .iter()
+            .map(|&(tp, epoch)| (tp, progress.of(tp, epoch)))
+            .collect()
+    };
+    let partitions: Vec<Tp> = owned.iter().map(|(tp, _)| *tp).collect();
+    let index_topic = watermarks.index_topic.clone();
+    let ends =
+        tokio::task::spawn_blocking(move || consumer.read_ends(&partitions, &index_topic)).await;
+    let ends = match ends
+        .map_err(|error| error.to_string())
+        .and_then(|read| read.map_err(|error| error.to_string()))
+    {
+        Ok(ends) => ends,
+        Err(error) => {
+            tracing::warn!(%error, "reading the offsets for the watermark files failed");
+            counter!("ai_research_v4_recorder_watermark_rounds_total", "outcome" => "kafka_failed")
+                .increment(1);
+            return;
+        }
+    };
+    match watermark_files(&progress, &ends, chrono::Utc::now()) {
+        Ok(files) => {
+            counter!("ai_research_v4_recorder_watermark_rounds_total", "outcome" => "written")
+                .increment(1);
+            watermarks.put(files).await;
+        }
+        Err(error) => tracing::error!(%error, "encoding the watermark files failed"),
+    }
 }
 
 /// The blocks this process may still write: none once the group took its assignment away, and otherwise those of the
@@ -868,6 +1058,21 @@ mod tests {
         assert_eq!(starts, [(tp(0), 10)]);
         state.starts_committed(&starts, true, now);
         assert!(state.uncommitted.is_empty());
+    }
+
+    #[test]
+    fn a_partition_gets_watermark_files_only_once_its_assignment_is_older_than_the_grace() {
+        let mut state = Assignments::default();
+        let assigned = Instant::now();
+        let grace = Duration::from_secs(360);
+        state.epochs.insert(tp(0), (1, true));
+        state.assigned_at.insert(tp(0), assigned);
+        state.epochs.insert(tp(1), (1, true));
+        state
+            .assigned_at
+            .insert(tp(1), assigned + Duration::from_secs(1));
+        state.epochs.insert(tp(2), (2, false));
+        assert_eq!(state.owned_since(assigned + grace, grace), [(tp(0), 1)]);
     }
 
     #[test]

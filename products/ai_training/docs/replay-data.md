@@ -506,6 +506,7 @@ Fetched images are partitioned by the key month of their reference.
 | `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
 | `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete       |
 | `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
+| `rrweb-v4`  | `index/_recorder_watermarks/dt={day}/`        | JSON, one object per input Kafka partition: how far the recorder is complete    |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
@@ -542,6 +543,7 @@ The order holds only within a file. The blocks of a session spread over many fil
 A reader that needs whole sessions selects them by the start time in the session UUIDv7, not by write day:
 
 - Read the write days from the UTC day of `start - 1 day` onward. The recorder admits a session from 1 day before its start until 14 days after it, so no block of a session has an earlier write day.
+- The [recorder watermark files](#recorder-watermark-files) give the last write day to read for every block captured before a cutoff. A recorder that lags writes blocks to write days after their capture day.
 - Use a session only while its start is less than 29 days old. Every block lives at least 30 days after its write, so until then no block has expired.
 - A session can get more blocks until its start is 14 days old. A reader that needs final sessions uses only sessions with a start between 14 and 29 days old.
 
@@ -638,7 +640,7 @@ Each write is a plain PUT that replaces the file.
 A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval. A write that the sink aborts because it lost the partition counts as `outcome="cancelled"`.
 S3 expires a file 30 days after its last write, as it does every object in the bucket.
 
-To learn how far an index is complete, a reader:
+To learn how far the sink has written an index, a reader:
 
 1. Reads every file under that index's `_watermarks/`.
 2. Takes the minimum `complete_up_to_capture_ms` across the partitions.
@@ -649,8 +651,65 @@ Some limits apply:
 - A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
 - When the sink loses a partition, it aborts the partition's watermark writes that are still in flight, retries included. A write that S3 already received can still land. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
 - A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
-- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
+- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete. The [recorder watermark files](#recorder-watermark-files) cover the recorder.
 - A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
+
+#### Recorder watermark files
+
+The recorder sets the write day of a flush from its own clock when the flush starts.
+A recorder that lags therefore puts blocks and index rows in a write day after their capture day.
+The sink's watermark files cannot show this, so the recorder writes its own files to the rrweb bucket:
+
+- `index/_recorder_watermarks/dt={day}/topic={topic}/partition={NNNN}.json`
+
+There is one file per write day, input topic and Kafka partition.
+The input topics are the replay topic and its overflow topic.
+`{NNNN}` is the partition number with four digits.
+Each file holds one object:
+
+| Field                       | Meaning                                                                                                                                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `topic`                     | The input topic.                                                                                                                                                                                                 |
+| `partition`                 | The input partition.                                                                                                                                                                                             |
+| `complete_up_to_capture_ms` | Every record of the partition with an earlier capture time has its blocks and images stored in this write day or an earlier one. Each index row of the record was delivered to `ai_research_v4_index` or failed. |
+| `index_end_offsets`         | The high watermark of each partition of `ai_research_v4_index`, by partition number. The recorder reads them after it takes the value, so each delivered row that the value covers is below them.                |
+| `input_partitions`          | The partition count of each input topic, by topic name. Any one file tells a reader which files a day must have.                                                                                                 |
+| `written_at_ms`             | When the recorder wrote the file.                                                                                                                                                                                |
+
+The capture time of a record is its Kafka timestamp, the same time as the `capture-timestamp-ms` header of its index rows.
+The recorder sets the value this way:
+
+- A record that the recorder has read but not finished holds the value at or below its capture time. A record is finished when its flush has stored the blocks and the producer has delivered or failed every index row of the flush.
+- A record that the recorder has not read yet can have an earlier capture time than one that it has read, by up to the delivery timeout of the record's producer. So the value is at least `CAPTURE_ORDER_SLACK_MS` (`watermark.rs`) before the capture time of the last record read, unless the partition is read to its end.
+- A partition that the recorder has read to its end moves with the clock, also when no records arrive. Its value can rise to `CAPTURE_ORDER_SLACK_MS` before the time that the recorder read the end offset, so a quiet overflow partition does not stop a reader.
+- After an assignment, the recorder writes no file for the partition until the index delivery timeout plus one minute has passed. By then, each index row that the previous owner sent is delivered or failed.
+
+The recorder writes the files every `WATERMARK_FILE_INTERVAL` (`watermark.rs`), from the consume loop, for each partition that it owns.
+Each write goes to the UTC day of the write and is a plain PUT that replaces the file of that day.
+So the files of a day change until the day ends, and the last write of the day stays.
+A file of a running recorder is at most the interval plus one flush old. A file of the current day that is more than about 15 minutes old shows a partition that no consume loop moves forward.
+A failed write does not stop the recorder. It counts the write in `ai_research_v4_recorder_watermark_files_total` and writes the file again in the next round.
+A round that cannot read the Kafka offsets writes no files and counts `outcome="kafka_failed"` in `ai_research_v4_recorder_watermark_rounds_total`.
+S3 expires a file 30 days after its last write, as it does every object in the bucket.
+
+To find the write days that hold every record captured before a cutoff `C`, a reader:
+
+1. Starts at the UTC day of `C` and uses only days that have ended, because the files of the current day still change.
+2. Finds the first day `X` with a file for every partition of every topic in `input_partitions`, each with `complete_up_to_capture_ms` at or after `C`. Each block and index row of a record captured before `C` then has a write day of `X` or earlier. A day with a missing file proves nothing, but a later day can.
+3. Takes the highest value of `index_end_offsets` for each index partition, over the files of day `X`.
+4. Waits until the sink's [watermark file](#watermark-files) of the index that it reads has, for each index partition, a `committed_offset` at or past that value. Every row of that index for those records is then in an index file in S3.
+5. Reads the write days up to and including `X`.
+
+For example, take a cutoff of 2026-10-27 00:00 and a recorder that is 60 hours behind.
+The recorder reaches the cutoff at about 2026-10-29 12:00, so 2026-10-29 is the first day whose files reach the cutoff.
+A reader of the sessions that start from 2026-10-12 then reads the write days from 2026-10-11 to 2026-10-29.
+
+Some limits apply:
+
+- An index row that the producer failed to deliver stays out of the index, as above. The value counts its record as finished.
+- A write of an earlier owner can land after a newer file of the same day. Its value is older, but it is still true.
+- The value assumes that a record reaches its partition no later than `CAPTURE_ORDER_SLACK_MS` after its capture time. A record that arrives later can have a capture time before a value that the recorder already wrote.
+- A reader that lists `index/` must skip `_recorder_watermarks/`.
 
 ### Image index
 

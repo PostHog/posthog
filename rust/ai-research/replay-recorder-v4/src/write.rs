@@ -745,6 +745,14 @@ mod tests {
                 .or_insert(body);
             Ok(())
         }
+
+        async fn put(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<(), StoreError> {
+            self.objects
+                .lock()
+                .unwrap()
+                .insert((bucket.to_owned(), key.to_owned()), body);
+            Ok(())
+        }
     }
 
     fn origin(partition: i32, start_offset: i64, end_offset: i64) -> Origin {

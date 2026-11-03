@@ -27,6 +27,7 @@ use crate::history::{mark_fresh, FetchHistory};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records, FlushImages};
+use crate::watermark::FlushDone;
 use crate::write::{
     block_index_rows, compress_block, new_images, object_key, seal_blocking, seal_compressed,
     session_keyed_frames, write_blocks, write_images, CompressedBlock, FlushAttempt, WriteError,
@@ -54,6 +55,7 @@ pub struct Writer {
     /// The flush does not wait for index rows, so they get their own producer with a delivery timeout of minutes.
     pub index_producer: FutureProducer<KafkaContext>,
     pub index_topic: String,
+    pub index_delivery_timeout: Duration,
     /// Remote image references this process sent to the fetcher, or found fresh in its history, by UTC day. A
     /// reference goes out again each day unless its stored image needs no refresh, so the fetcher refreshes it within
     /// every refresh interval and keeps the image as long as the blocks that reference it.
@@ -156,6 +158,7 @@ pub async fn write_flush(
     writer: &Writer,
     concurrency: usize,
     work: &Arc<FlushWork>,
+    flush_done: &FlushDone,
 ) -> Result<(), FlushError> {
     let now = Utc::now();
     let mut resolved = work.keys.lock().await;
@@ -308,7 +311,13 @@ pub async fn write_flush(
         index.push(IndexMessage::block(&row)?);
     }
     produce_jobs(writer, jobs, &day, now.timestamp_millis()).await;
-    send_index(&writer.index_producer, &writer.index_topic, &day, index);
+    send_index(
+        &writer.index_producer,
+        &writer.index_topic,
+        &day,
+        index,
+        flush_done.clone(),
+    );
     Ok(())
 }
 
@@ -386,14 +395,16 @@ async fn produce_jobs(
     metrics::gauge!("ai_research_v4_recorder_sent_urls").set(writer.sent_urls.entry_count() as f64);
 }
 
-/// Hands the index rows to the producer and returns without waiting for their delivery. A task counts the outcomes.
-/// `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the sink files them with those.
+/// Hands the index rows to the producer and returns without waiting for their delivery. The returned task counts the
+/// outcomes, then finishes `done`. `write_day` is the `dt=` partition of the blocks and packs the rows point at, so the
+/// sink files them with those.
 pub fn send_index(
     producer: &FutureProducer<KafkaContext>,
     topic: &str,
     write_day: &str,
     messages: Vec<IndexMessage>,
-) {
+    done: FlushDone,
+) -> tokio::task::JoinHandle<()> {
     let mut deliveries = Vec::with_capacity(messages.len());
     let mut failed = Failures::default();
     for message in &messages {
@@ -431,7 +442,8 @@ pub fn send_index(
             }
         }
         failed.report();
-    });
+        done.finish();
+    })
 }
 
 /// The index rows of one flush that did not reach the topic. They are logged once per flush, not once per row.
@@ -488,7 +500,8 @@ mod tests {
     async fn sends_one_record_per_row_with_its_index_and_write_day() {
         let (cluster, producer) = create_mock_kafka().await;
         cluster.create_topic(TOPIC, 1, 1).unwrap();
-        send_index(
+        let done = FlushDone::default();
+        let delivered = send_index(
             &producer,
             TOPIC,
             "2026-10-15",
@@ -496,10 +509,15 @@ mod tests {
                 message(Index::Blocks, "session-1", Some(1_000)),
                 message(Index::Images, "image:v4:7:2026-10:abc", None),
             ],
+            done.clone(),
         );
+        // The test runtime has one thread, so the delivery task has not run yet.
+        assert!(!done.is_finished());
         producer
             .flush(Timeout::After(Duration::from_secs(5)))
             .unwrap();
+        delivered.await.unwrap();
+        assert!(done.is_finished());
 
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", cluster.bootstrap_servers())
