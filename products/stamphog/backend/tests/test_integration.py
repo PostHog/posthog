@@ -319,7 +319,7 @@ def _big_api_file(filename: str, additions: int) -> dict:
     return {**_api_file(filename), "additions": additions, "deletions": 0}
 
 
-_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\nTall PRs are normal here.\n"
+_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
 
 
 @pytest.mark.parametrize(
@@ -356,10 +356,16 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
             id="pending-migration",
         ),
         pytest.param(
-            [_big_api_file("lib/big.py", 900)], None, False, False, "final:REFUSED", "too large", id="size-folders-read"
+            [_big_api_file("lib/big.py", 1300)],
+            None,
+            False,
+            False,
+            "final:REFUSED",
+            "too large",
+            id="size-folders-read",
         ),
         pytest.param(
-            [_big_api_file("lib/big.py", 900)],
+            [_big_api_file("lib/big.py", 1300)],
             None,
             False,
             True,
@@ -370,7 +376,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
         # sym/AGENT_APPROVALS.md is a symlink out of the repo, which the sandbox would follow, so the
         # folder files are unknown and the size band stays with the sandbox.
         pytest.param(
-            [_big_api_file("sym/big.py", 900)],
+            [_big_api_file("sym/big.py", 1300)],
             None,
             False,
             False,
@@ -380,7 +386,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
         ),
         # The PR head's src/AGENT_APPROVALS.md lifts the ceiling, so the sandbox review must decide.
         pytest.param(
-            [_big_api_file("src/deep/big.py", 900)],
+            [_big_api_file("src/deep/big.py", 1300)],
             None,
             False,
             False,
