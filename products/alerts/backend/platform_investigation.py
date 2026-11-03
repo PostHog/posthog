@@ -27,6 +27,9 @@ from products.alerts.backend.models.alert import AlertConfiguration, Investigati
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 
 _CLAIM_LOCK_SQL: Final = "SELECT pg_advisory_xact_lock(hashtext(%s))"
+# A verdict-change follow-up is recorded under the key of the firing it follows up plus this suffix,
+# so it gets a delivery of its own.
+_VERDICT_CHANGE_KEY_SUFFIX: Final = "#verdict"
 
 
 @frozen
@@ -34,6 +37,16 @@ class InvestigationClaim:
     investigation_id: UUID
     # False when an investigation in flight or inside the cooldown refused it.
     claimed: bool
+
+
+def verdict_change_evaluation_key(evaluation_key: str) -> str:
+    """The key the verdict-change follow-up of an investigated firing is recorded under."""
+    return f"{evaluation_key}{_VERDICT_CHANGE_KEY_SUFFIX}"
+
+
+def investigated_evaluation_key(verdict_change_key: str) -> str:
+    """The key of the firing a verdict-change follow-up follows up."""
+    return verdict_change_key.removesuffix(_VERDICT_CHANGE_KEY_SUFFIX)
 
 
 def decide_investigation(
