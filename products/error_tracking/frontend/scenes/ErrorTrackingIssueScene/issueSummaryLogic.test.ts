@@ -7,7 +7,7 @@ import type {
     ErrorTrackingStoredIssueSummaryApi,
     ErrorTrackingIssueSummaryResponseApi,
 } from '../../generated/api.schemas'
-import { ISSUE_SUMMARY_POLL_INTERVAL_MS, ISSUE_SUMMARY_POLL_TIMEOUT_MS, issueSummaryLogic } from './issueSummaryLogic'
+import { issueSummaryLogic } from './issueSummaryLogic'
 
 jest.mock('../../generated/api')
 
@@ -22,9 +22,9 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     generated_at: '2026-10-20T12:00:00Z',
     checked_at: '2026-10-20T12:00:00Z',
 }
-const GENERATING: ErrorTrackingIssueSummaryResponseApi = { status: 'generating', summary: null }
-const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY }
-const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null }
+const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY, reason: null }
+const NOT_GENERATED: ErrorTrackingIssueSummaryResponseApi = { status: 'not_generated', summary: null, reason: null }
+const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'disabled' }
 
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)
@@ -46,48 +46,28 @@ describe('issueSummaryLogic', () => {
     }
 
     it.each([
-        ['generation outlasts the deadline', GENERATING, 0, 'generating', 'timed_out'],
-        ['a poll answers after the deadline', GENERATING, 1500, 'generating', 'timed_out'],
-        ['no summary will be written', UNAVAILABLE, 0, 'hidden', 'hidden'],
-    ])('stops polling when %s', async (_name, response, latencyMs, viewOnLoad, viewAtDeadline) => {
-        retrieve.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(response), latencyMs)))
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
-        logic.mount()
-        await advance(latencyMs)
-        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: viewOnLoad })
-
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS + latencyMs)
-        const callsAtDeadline = retrieve.mock.calls.length
-        expect(logic.values.view).toBe(viewAtDeadline)
-
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(retrieve.mock.calls.length).toBe(callsAtDeadline)
-    })
-
-    it('stops polling once the summary is ready', async () => {
-        retrieve.mockResolvedValueOnce(GENERATING).mockResolvedValueOnce(GENERATING).mockResolvedValue(READY)
+        ['a summary is stored', READY, 'ready'],
+        ['no summary is stored', NOT_GENERATED, 'hidden'],
+        ['summaries are unavailable', UNAVAILABLE, 'hidden'],
+    ])('reads once and never polls when %s', async (_name, response, view) => {
+        retrieve.mockResolvedValue(response)
         logic = issueSummaryLogic({ issueId: ISSUE_ID })
         logic.mount()
 
-        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS * 2)
-        expect(logic.values.view).toBe('ready')
-        expect(logic.values.summary).toEqual(SUMMARY)
-
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(retrieve).toHaveBeenCalledTimes(3)
-        expect(logic.values.view).toBe('ready')
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view })
+        await advance(60_000)
+        expect(retrieve).toHaveBeenCalledTimes(1)
     })
 
-    it('stops polling on a failed read and recovers on retry', async () => {
-        retrieve.mockResolvedValueOnce(GENERATING).mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
+    it('shows a failed read and recovers on retry', async () => {
+        retrieve.mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
         jest.spyOn(console, 'error').mockImplementation(() => {})
         logic = issueSummaryLogic({ issueId: ISSUE_ID })
         logic.mount()
 
-        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS)
+        await advance(0)
         expect(logic.values.view).toBe('failed')
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
-        expect(retrieve).toHaveBeenCalledTimes(2)
+        expect(retrieve).toHaveBeenCalledTimes(1)
 
         logic.actions.loadSummary()
         await advance(0)
