@@ -1,6 +1,12 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getMissingScopes } from 'lib/integrations/integrationScopes'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
+import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
@@ -28,6 +34,18 @@ function useSlackStatus(integrations: IntegrationType[]): IntegrationStatus {
     return anyNeedsAttention ? 'needs_attention' : 'ok'
 }
 
+// Only the install that the OAuth callback just created goes to the setup, because the callback
+// adds its id to the URL. A later visit to this page for an install keeps "Go to PostHog".
+function useSlackSetupUrl(integrations: IntegrationType[]): string | null {
+    const enabled = useFeatureFlag('SLACK_APP_WORKSPACE_SETUP')
+    const { searchParams } = useValues(router)
+    const newIntegrationId = Number(searchParams[OAUTH_INTEGRATION_ID_PARAM])
+    if (!enabled || !integrations.some((integration) => integration.id === newIntegrationId)) {
+        return null
+    }
+    return urls.slackAppWorkspaceSetup(newIntegrationId)
+}
+
 export const Slack = defineIntegration(
     {
         slug: 'slack',
@@ -48,6 +66,7 @@ export const Slack = defineIntegration(
         docsUrl: 'https://posthog.com/docs/libraries/slack',
         PostConnect: SlackPostConnect,
         useStatus: useSlackStatus,
+        useSetupUrl: useSlackSetupUrl,
     },
     SlackIntegration
 )
