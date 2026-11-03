@@ -53,16 +53,25 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ):
             create_account_relationship(team_id=self.team.id, account=account, definition=definition, user=user)
         for person in (ANA, BO, CY):
-            create_person(team=self.team, uuid=person, distinct_ids=[person])
+            create_person(team=self.team, uuid=person, distinct_ids=[person], properties={"email": "user@example.com"})
 
-    def _event(self, person: str, event: str, timestamp: str, account: Account) -> None:
+    def _event(
+        self,
+        person: str,
+        event: str,
+        timestamp: str,
+        account: Account,
+        properties: dict[str, Any] | None = None,
+        email: str = "user@example.com",
+    ) -> None:
         _create_event(
             team=self.team,
             event=event,
             distinct_id=person,
             person_id=person,
             timestamp=timestamp,
-            properties={"$group_0": account.external_id},
+            properties={"$group_0": account.external_id, **(properties or {})},
+            person_properties={"email": email},
         )
 
     def _query(self, **kwargs: Any) -> dict[str, Any]:
@@ -96,13 +105,57 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert {(c.row, c.column, c.mask, c.users) for c in results.combinations} == {
             (alpha, "2026-10-25", 1 | 1 << 6, 1),
             (alpha, "2026-10-25", 1, 1),
-            (beta, "2026-10-18", 1 << 3, 1),
+            (beta, "2026-10-18", 1 << 4, 1),
         }
         assert {(cell.row, cell.column, cell.series, cell.users) for cell in results.data} == {
-            (alpha, "2026-10-25", "product_analytics", 2),
-            (alpha, "2026-10-25", "feature_flags", 1),
+            (alpha, "2026-10-25", "pa", 2),
+            (alpha, "2026-10-25", "flags", 1),
             (beta, "2026-10-18", "surveys", 1),
         }
+
+    @parameterized.expand(
+        [
+            (
+                "engaged page time",
+                "$pageview",
+                {"$prev_pageview_pathname": "/project/1/insights/a", "$prev_pageview_duration": 45},
+                "user@example.com",
+                True,
+            ),
+            (
+                "a short visit",
+                "$pageview",
+                {"$prev_pageview_pathname": "/project/1/insights/a", "$prev_pageview_duration": 5},
+                "user@example.com",
+                False,
+            ),
+            (
+                "a tab left open",
+                "$pageleave",
+                {"$prev_pageview_pathname": "/project/1/insights/a", "$prev_pageview_duration": 2000},
+                "user@example.com",
+                False,
+            ),
+            ("a staff member", "insight created", {}, "someone@posthog.com", False),
+        ]
+    )
+    def test_counts_engaged_page_time_and_leaves_staff_out(
+        self, _name: str, event: str, properties: dict[str, Any], email: str, counted: bool
+    ) -> None:
+        self._event(ANA, event, "2026-10-26T10:00:00Z", self.alpha, properties=properties, email=email)
+
+        results = self._run()
+
+        expected = {(str(self.alpha.id), "pa", 1)} if counted else set()
+        assert {(cell.row, cell.series, cell.users) for cell in results.data} == expected
+
+    def test_scopes_to_the_given_accounts_without_a_book(self) -> None:
+        gamma = Account.objects.for_team(self.team.id).get(external_id="org-c")
+
+        results = self._run(relationshipDefinitionId=None, userId=None, accountIds=[str(gamma.id)])
+
+        assert [row.key for row in results.rows] == [str(gamma.id)]
+        assert [grouping.key for grouping in results.groupings] == ["role", "usecase"]
 
     def test_hides_an_account_the_caller_cannot_see_even_after_a_cached_run(self) -> None:
         self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)
@@ -146,9 +199,7 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first_use = self._run(includeFirstUse=True).firstUse
 
         assert first_use is not None
-        assert {(item.row, item.series, item.date) for item in first_use} == {
-            (str(self.alpha.id), "product_analytics", "2025-03-10")
-        }
+        assert {(item.row, item.series, item.date) for item in first_use} == {(str(self.alpha.id), "pa", "2025-03-10")}
 
     @parameterized.expand([("owner", False, status.HTTP_200_OK), ("another member", True, status.HTTP_403_FORBIDDEN)])
     def test_async_results_go_only_to_the_user_who_ran_them(self, _name: str, as_other: bool, expected: int) -> None:

@@ -20517,22 +20517,27 @@ export namespace Schemas {
       EmptyBook: 'empty_book',
     } as const;
 
-    export interface BookActivityMatrixFamily {
-      key: string;
-      label: string;
-    }
-
     export interface BookActivityMatrixFirstUse {
       date: string;
       row: string;
       series: string;
     }
 
-    export interface BookActivityMatrixProduct {
-      family: string;
+    export interface BookActivityMatrixGroup {
+      items: string[];
       key: string;
       label: string;
-      useCase?: string | null;
+    }
+
+    export interface BookActivityMatrixGrouping {
+      groups: BookActivityMatrixGroup[];
+      key: string;
+      label: string;
+    }
+
+    export interface BookActivityMatrixProduct {
+      key: string;
+      label: string;
     }
 
     export interface BookActivityMatrixRow {
@@ -20546,8 +20551,8 @@ export namespace Schemas {
       combinations: BookActivityMatrixCombination[];
       data: BookActivityMatrixCell[];
       emptyReason?: BookActivityMatrixEmptyReason | null;
-      families: BookActivityMatrixFamily[];
       firstUse?: BookActivityMatrixFirstUse[] | null;
+      groupings: BookActivityMatrixGrouping[];
       rows: BookActivityMatrixRow[];
       series: BookActivityMatrixProduct[];
       truncated: boolean;
@@ -20576,13 +20581,14 @@ export namespace Schemas {
     }
 
     export interface BookActivityMatrixQuery {
+      accountIds?: string[] | null;
       dateRange: DateRange;
       includeFirstUse?: boolean | null;
       interval: BookActivityInterval;
       kind?: 'BookActivityMatrixQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      relationshipDefinitionId: string;
+      relationshipDefinitionId?: string | null;
       response?: BookActivityMatrixQueryResponse | null;
       rowLimit?: number | null;
       tags?: QueryLogTags | null;

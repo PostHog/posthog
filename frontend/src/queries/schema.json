@@ -7475,19 +7475,6 @@
             "enum": ["no_group_type", "empty_book"],
             "type": "string"
         },
-        "BookActivityMatrixFamily": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                }
-            },
-            "required": ["key", "label"],
-            "type": "object"
-        },
         "BookActivityMatrixFirstUse": {
             "additionalProperties": false,
             "properties": {
@@ -7504,28 +7491,66 @@
             "required": ["row", "series", "date"],
             "type": "object"
         },
-        "BookActivityMatrixProduct": {
+        "BookActivityMatrixGroup": {
             "additionalProperties": false,
             "properties": {
-                "family": {
-                    "type": "string"
+                "items": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "key": {
                     "type": "string"
                 },
                 "label": {
                     "type": "string"
-                },
-                "useCase": {
-                    "type": ["string", "null"]
                 }
             },
-            "required": ["key", "label", "family"],
+            "required": ["key", "label", "items"],
+            "type": "object"
+        },
+        "BookActivityMatrixGrouping": {
+            "additionalProperties": false,
+            "properties": {
+                "groups": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixGroup"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "label", "groups"],
+            "type": "object"
+        },
+        "BookActivityMatrixProduct": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "label"],
             "type": "object"
         },
         "BookActivityMatrixQuery": {
             "additionalProperties": false,
             "properties": {
+                "accountIds": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -7563,7 +7588,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "interval", "kind", "relationshipDefinitionId"],
+            "required": ["dateRange", "interval", "kind"],
             "type": "object"
         },
         "BookActivityMatrixQueryResponse": {
@@ -7652,15 +7677,15 @@
                 "emptyReason": {
                     "$ref": "#/definitions/BookActivityMatrixEmptyReason"
                 },
-                "families": {
-                    "items": {
-                        "$ref": "#/definitions/BookActivityMatrixFamily"
-                    },
-                    "type": "array"
-                },
                 "firstUse": {
                     "items": {
                         "$ref": "#/definitions/BookActivityMatrixFirstUse"
+                    },
+                    "type": "array"
+                },
+                "groupings": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixGrouping"
                     },
                     "type": "array"
                 },
@@ -7680,7 +7705,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["rows", "columns", "families", "series", "data", "combinations", "truncated"],
+            "required": ["rows", "columns", "groupings", "series", "data", "combinations", "truncated"],
             "type": "object"
         },
         "BookActivityMatrixRow": {

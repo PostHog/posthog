@@ -1196,14 +1196,6 @@ class BinCountValue(RootModel[float | str]):
     root: float | str
 
 
-class BookActivityMatrixFamily(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str
-    label: str
-
-
 class BookActivityMatrixFirstUse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1213,14 +1205,30 @@ class BookActivityMatrixFirstUse(BaseModel):
     series: str
 
 
+class BookActivityMatrixGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    items: list[str]
+    key: str
+    label: str
+
+
+class BookActivityMatrixGrouping(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    groups: list[BookActivityMatrixGroup]
+    key: str
+    label: str
+
+
 class BookActivityMatrixProduct(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    family: str
     key: str
     label: str
-    useCase: str | None = None
 
 
 class BookActivityMatrixRow(BaseModel):
@@ -5418,8 +5426,8 @@ class BookActivityMatrixResult(BaseModel):
     combinations: list[BookActivityMatrixCombination]
     data: list[BookActivityMatrixCell]
     emptyReason: BookActivityMatrixEmptyReason | None = None
-    families: list[BookActivityMatrixFamily]
     firstUse: list[BookActivityMatrixFirstUse] | None = None
+    groupings: list[BookActivityMatrixGrouping]
     rows: list[BookActivityMatrixRow]
     series: list[BookActivityMatrixProduct]
     truncated: bool
@@ -28741,12 +28749,13 @@ class BookActivityMatrixQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    accountIds: list[str] | None = None
     dateRange: DateRange
     includeFirstUse: bool | None = None
     interval: BookActivityInterval
     kind: Literal["BookActivityMatrixQuery"] = "BookActivityMatrixQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    relationshipDefinitionId: str
+    relationshipDefinitionId: str | None = None
     response: BookActivityMatrixQueryResponse | None = None
     rowLimit: int | None = None
     tags: QueryLogTags | None = None

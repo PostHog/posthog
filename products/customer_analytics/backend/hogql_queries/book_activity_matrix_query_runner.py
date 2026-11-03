@@ -3,6 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 from functools import cached_property
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -10,8 +12,9 @@ from posthog.schema import (
     BookActivityMatrixCell,
     BookActivityMatrixCombination,
     BookActivityMatrixEmptyReason,
-    BookActivityMatrixFamily,
     BookActivityMatrixFirstUse,
+    BookActivityMatrixGroup,
+    BookActivityMatrixGrouping,
     BookActivityMatrixProduct,
     BookActivityMatrixQuery,
     BookActivityMatrixQueryResponse,
@@ -33,11 +36,21 @@ from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.customer_analytics.backend.constants import BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX
-from products.customer_analytics.backend.logic.posthog_product_usage import POSTHOG_PRODUCTS, PRODUCT_FAMILIES
+from products.customer_analytics.backend.logic.posthog_product_usage import (
+    ENGAGED_MAX_SECONDS,
+    ENGAGED_SECONDS,
+    PAGE_EVENTS,
+    POSTHOG_PRODUCTS,
+    PRODUCT_GROUPINGS,
+    REPLAY_WATCH_EVENT,
+    REPLAY_WATCH_MS,
+    STAFF_EMAIL_PATTERN,
+)
 from products.customer_analytics.backend.models import Account, AccountRelationship
 
 DEFAULT_ROW_LIMIT = 50
 MAX_ROW_LIMIT = 100
+MAX_ACCOUNT_IDS = 100
 MAX_DAILY_RANGE = timedelta(days=93)
 MAX_COMBINATION_ROWS = 50000
 FIRST_USE_FLOOR = datetime(2020, 1, 1, tzinfo=UTC)
@@ -138,10 +151,19 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
             results=BookActivityMatrixResult(
                 rows=rows,
                 columns=columns,
-                families=[BookActivityMatrixFamily(key=family.key, label=family.label) for family in PRODUCT_FAMILIES],
+                groupings=[
+                    BookActivityMatrixGrouping(
+                        key=grouping.key,
+                        label=grouping.label,
+                        groups=[
+                            BookActivityMatrixGroup(key=group.key, label=group.label, items=list(group.products))
+                            for group in grouping.groups
+                        ],
+                    )
+                    for grouping in PRODUCT_GROUPINGS
+                ],
                 series=[
-                    BookActivityMatrixProduct(key=product.key, label=product.label, family=product.family)
-                    for product in POSTHOG_PRODUCTS
+                    BookActivityMatrixProduct(key=product.key, label=product.label) for product in POSTHOG_PRODUCTS
                 ],
                 data=data,
                 combinations=combinations,
@@ -158,24 +180,28 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
     def _book_accounts(self) -> list[Account]:
         if not isinstance(self.user, User):
             return []
-        try:
-            definition_id = UUID(self.query.relationshipDefinitionId)
-        except ValueError:
+        candidates = self._candidate_accounts()
+        if candidates is None:
             return []
+        visible = UserAccessControl(user=self.user, team=self.team).filter_queryset_by_access_level(
+            candidates.filter(ignored_at__isnull=True, external_id__isnull=False).exclude(external_id=""),
+            resource="account",
+        )
+        return list(visible.order_by("name", "id").only("id", "name", "external_id")[: self._row_limit + 1])
+
+    def _candidate_accounts(self) -> QuerySet[Account] | None:
+        accounts = Account.objects.for_team(self.team.id)
+        if self.query.accountIds is not None:
+            account_ids = [UUID(value) for value in self.query.accountIds[:MAX_ACCOUNT_IDS] if _is_uuid(value)]
+            return accounts.filter(id__in=account_ids)
+        if self.query.relationshipDefinitionId is None or not _is_uuid(self.query.relationshipDefinitionId):
+            return None
         relationships = AccountRelationship.objects.for_team(self.team.id).filter(
-            definition_id=definition_id, ended_at__isnull=True
+            definition_id=UUID(self.query.relationshipDefinitionId), ended_at__isnull=True
         )
         if self.query.userId is not None:
             relationships = relationships.filter(user_id=self.query.userId)
-        candidates = (
-            Account.objects.for_team(self.team.id)
-            .filter(id__in=relationships.values("account_id"), ignored_at__isnull=True, external_id__isnull=False)
-            .exclude(external_id="")
-        )
-        visible = UserAccessControl(user=self.user, team=self.team).filter_queryset_by_access_level(
-            candidates, resource="account"
-        )
-        return list(visible.order_by("name", "id").only("id", "name", "external_id")[: self._row_limit + 1])
+        return accounts.filter(id__in=relationships.values("account_id"))
 
     @cached_property
     def _row_limit(self) -> int:
@@ -206,6 +232,14 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
             return day - timedelta(days=(day.weekday() - first_weekday) % 7)
         return day
 
+    def _next(self, bucket: date) -> date:
+        interval = self.query.interval.value
+        if interval == "month":
+            return (bucket.replace(day=28) + timedelta(days=4)).replace(day=1)
+        if interval == "week":
+            return bucket + timedelta(weeks=1)
+        return bucket + timedelta(days=1)
+
     def _columns(self) -> list[AccountActivityMatrixColumn]:
         date_from = self._date_range.date_from().astimezone(self.team.timezone_info).date()
         date_to = self._date_range.date_to().astimezone(self.team.timezone_info).date()
@@ -216,14 +250,6 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
             keys.append(bucket)
             bucket = self._next(bucket)
         return [AccountActivityMatrixColumn(key=key.isoformat(), partial=key == current) for key in keys]
-
-    def _next(self, bucket: date) -> date:
-        interval = self.query.interval.value
-        if interval == "month":
-            return (bucket.replace(day=28) + timedelta(days=4)).replace(day=1)
-        if interval == "week":
-            return bucket + timedelta(weeks=1)
-        return bucket + timedelta(days=1)
 
     def _period_expr(self) -> ast.Expr:
         timestamp = ast.Field(chain=["timestamp"])
@@ -237,26 +263,25 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
         return ast.Call(name="toStartOfDay", args=[timestamp])
 
     def _events_where(self, group_type_index: int, account_keys: list[str], *, bounded: bool) -> ast.Expr:
+        lower = self._date_range.date_from() if bounded else FIRST_USE_FLOOR
         exprs: list[ast.Expr] = [
+            _in(ast.Field(chain=[f"$group_{group_type_index}"]), account_keys),
+            _in(ast.Field(chain=["event"]), _all_events()),
             ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=[f"$group_{group_type_index}"]),
-                right=ast.Tuple(exprs=[ast.Constant(value=key) for key in account_keys]),
+                op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=lower)
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["event"]),
-                right=ast.Tuple(exprs=[ast.Constant(value=event) for event in _all_events()]),
+            ast.Not(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike,
+                    left=ast.Call(
+                        name="coalesce",
+                        args=[ast.Field(chain=["person", "properties", "email"]), ast.Constant(value="")],
+                    ),
+                    right=ast.Constant(value=STAFF_EMAIL_PATTERN),
+                )
             ),
         ]
         if bounded:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._date_range.date_from()),
-                )
-            )
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Lt,
@@ -264,38 +289,54 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
                     right=ast.Constant(value=self._date_range.date_to()),
                 )
             )
-        else:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=FIRST_USE_FLOOR),
-                )
-            )
         return ast.And(exprs=exprs)
 
-    def _combinations_query(self, group_type_index: int, account_keys: list[str]) -> ast.SelectQuery:
-        mask_terms: list[ast.Expr] = [
-            ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Mult,
-                left=ast.Call(name="max", args=[_uses_product(product.events)]),
-                right=ast.Constant(value=1 << index),
-            )
-            for index, product in enumerate(POSTHOG_PRODUCTS)
-            if product.events
+    def _product_events(self, group_type_index: int, account_keys: list[str], *, bounded: bool) -> ast.SelectQuery:
+        select: list[ast.Expr] = [
+            ast.Alias(alias="account_key", expr=ast.Field(chain=[f"$group_{group_type_index}"])),
+            ast.Field(chain=["person_id"]),
+            ast.Field(chain=["timestamp"]),
+            ast.Alias(alias="product", expr=_product_expr()),
         ]
-        mask: ast.Expr = mask_terms[0]
-        for term in mask_terms[1:]:
-            mask = ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=mask, right=term)
+        if bounded:
+            select.insert(1, ast.Alias(alias="period", expr=self._period_expr()))
+        return ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self._events_where(group_type_index, account_keys, bounded=bounded),
+        )
+
+    def _combinations_query(self, group_type_index: int, account_keys: list[str]) -> ast.SelectQuery:
+        mask: ast.Expr = ast.Constant(value=0)
+        for index, product in enumerate(POSTHOG_PRODUCTS):
+            uses = ast.Call(
+                name="max",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["product"]),
+                        right=ast.Constant(value=product.key),
+                    )
+                ],
+            )
+            mask = ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add,
+                left=mask,
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Mult, left=uses, right=ast.Constant(value=1 << index)
+                ),
+            )
         per_person = ast.SelectQuery(
             select=[
-                ast.Alias(alias="account_key", expr=ast.Field(chain=[f"$group_{group_type_index}"])),
-                ast.Alias(alias="period", expr=self._period_expr()),
+                ast.Field(chain=["account_key"]),
+                ast.Field(chain=["period"]),
                 ast.Field(chain=["person_id"]),
                 ast.Alias(alias="mask", expr=mask),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._events_where(group_type_index, account_keys, bounded=True),
+            select_from=ast.JoinExpr(table=self._product_events(group_type_index, account_keys, bounded=True)),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["product"]), right=ast.Constant(value="")
+            ),
             group_by=[ast.Field(chain=["account_key"]), ast.Field(chain=["period"]), ast.Field(chain=["person_id"])],
         )
         return ast.SelectQuery(
@@ -315,19 +356,18 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
         )
 
     def _first_use(self, group_type_index: int, account_by_key: dict[str, str]) -> list[BookActivityMatrixFirstUse]:
-        products = [product for product in POSTHOG_PRODUCTS if product.events]
         query = ast.SelectQuery(
             select=[
-                ast.Field(chain=[f"$group_{group_type_index}"]),
-                *(
-                    ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), _uses_product(product.events)])
-                    for product in products
-                ),
+                ast.Field(chain=["account_key"]),
+                ast.Field(chain=["product"]),
+                ast.Alias(alias="first_used_at", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._events_where(group_type_index, list(account_by_key), bounded=False),
-            group_by=[ast.Field(chain=[f"$group_{group_type_index}"])],
-            limit=ast.Constant(value=len(account_by_key)),
+            select_from=ast.JoinExpr(table=self._product_events(group_type_index, list(account_by_key), bounded=False)),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["product"]), right=ast.Constant(value="")
+            ),
+            group_by=[ast.Field(chain=["account_key"]), ast.Field(chain=["product"])],
+            limit=ast.Constant(value=len(account_by_key) * len(POSTHOG_PRODUCTS)),
         )
         response = execute_hogql_query(
             query_type="BookActivityMatrixFirstUse",
@@ -339,29 +379,99 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
             limit_context=self.limit_context,
             workload=Workload.ONLINE,
         )
-        first_use: list[BookActivityMatrixFirstUse] = []
-        for account_key, *firsts in response.results or []:
-            row = account_by_key.get(str(account_key))
-            if row is None:
-                continue
-            for product, first in zip(products, firsts):
-                if isinstance(first, datetime) and first >= FIRST_USE_FLOOR:
-                    first_use.append(
-                        BookActivityMatrixFirstUse(row=row, series=product.key, date=_day_key(first.date()))
-                    )
-        return first_use
+        return [
+            BookActivityMatrixFirstUse(row=account_by_key[str(account_key)], series=str(product), date=_day_key(first))
+            for account_key, product, first in response.results or []
+            if str(account_key) in account_by_key
+        ]
+
+
+def _in(left: ast.Expr, values: list[str] | tuple[str, ...]) -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=left,
+        right=ast.Tuple(exprs=[ast.Constant(value=value) for value in values]),
+    )
 
 
 def _all_events() -> list[str]:
-    return sorted({event for product in POSTHOG_PRODUCTS for event in product.events})
+    events = {event for product in POSTHOG_PRODUCTS for event in product.actions}
+    return sorted(events | set(PAGE_EVENTS) | {REPLAY_WATCH_EVENT})
 
 
-def _uses_product(events: tuple[str, ...]) -> ast.Expr:
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.In,
-        left=ast.Field(chain=["event"]),
-        right=ast.Tuple(exprs=[ast.Constant(value=event) for event in events]),
+def _between(value: ast.Expr, low: int, high: int) -> ast.Expr:
+    return ast.And(
+        exprs=[
+            ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=value, right=ast.Constant(value=low)),
+            ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=value, right=ast.Constant(value=high)),
+        ]
     )
+
+
+def _product_expr() -> ast.Expr:
+    section = ast.Call(
+        name="arrayElement",
+        args=[
+            ast.Call(
+                name="splitByChar",
+                args=[
+                    ast.Constant(value="/"),
+                    ast.Call(
+                        name="coalesce",
+                        args=[
+                            ast.Call(
+                                name="toString", args=[ast.Field(chain=["properties", "$prev_pageview_pathname"])]
+                            ),
+                            ast.Constant(value=""),
+                        ],
+                    ),
+                ],
+            ),
+            ast.Constant(value=4),
+        ],
+    )
+    duration = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "$prev_pageview_duration"])])
+    play_time = ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "play_time_ms"])])
+    page_product: list[ast.Expr] = []
+    for product in POSTHOG_PRODUCTS:
+        if product.sections:
+            page_product.extend([_in(section, product.sections), ast.Constant(value=product.key)])
+    page_product.append(ast.Constant(value=""))
+    branches: list[ast.Expr] = [
+        ast.And(
+            exprs=[
+                _in(ast.Field(chain=["event"]), PAGE_EVENTS),
+                _between(duration, ENGAGED_SECONDS, ENGAGED_MAX_SECONDS),
+            ]
+        ),
+        ast.Call(name="multiIf", args=page_product),
+        ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=REPLAY_WATCH_EVENT),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq, left=play_time, right=ast.Constant(value=REPLAY_WATCH_MS)
+                ),
+            ]
+        ),
+        ast.Constant(value="replay"),
+    ]
+    for product in POSTHOG_PRODUCTS:
+        if product.actions:
+            branches.extend([_in(ast.Field(chain=["event"]), product.actions), ast.Constant(value=product.key)])
+    branches.append(ast.Constant(value=""))
+    return ast.Call(name="multiIf", args=branches)
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _day_key(value: object) -> str:

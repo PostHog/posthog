@@ -3541,16 +3541,21 @@ export interface BookActivityMatrixRow {
     externalId: string
 }
 
-export interface BookActivityMatrixFamily {
+export interface BookActivityMatrixGroup {
     key: string
     label: string
+    items: string[]
+}
+
+export interface BookActivityMatrixGrouping {
+    key: string
+    label: string
+    groups: BookActivityMatrixGroup[]
 }
 
 export interface BookActivityMatrixProduct {
     key: string
     label: string
-    family: string
-    useCase?: string | null
 }
 
 export interface BookActivityMatrixCell {
@@ -3576,7 +3581,7 @@ export interface BookActivityMatrixFirstUse {
 export interface BookActivityMatrixResult {
     rows: BookActivityMatrixRow[]
     columns: AccountActivityMatrixColumn[]
-    families: BookActivityMatrixFamily[]
+    groupings: BookActivityMatrixGrouping[]
     series: BookActivityMatrixProduct[]
     data: BookActivityMatrixCell[]
     combinations: BookActivityMatrixCombination[]
@@ -3593,7 +3598,8 @@ export type CachedBookActivityMatrixQueryResponse = CachedQueryResponse<BookActi
 
 export interface BookActivityMatrixQuery extends DataNode<BookActivityMatrixQueryResponse> {
     kind: NodeKind.BookActivityMatrixQuery
-    relationshipDefinitionId: string
+    relationshipDefinitionId?: string
+    accountIds?: string[]
     userId?: integer
     dateRange: DateRange
     interval: BookActivityInterval

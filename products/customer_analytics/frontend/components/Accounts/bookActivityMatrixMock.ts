@@ -1,35 +1,78 @@
 import type {
     BookActivityMatrixCell,
+    BookActivityMatrixGrouping,
     BookActivityMatrixCombination,
     BookActivityMatrixFirstUse,
     BookActivityMatrixResult,
 } from '~/queries/schema/schema-general'
 
-const FAMILIES = [
-    { key: 'product_cs', label: 'Product & CS' },
-    { key: 'engineering', label: 'Engineering' },
-    { key: 'data_ai', label: 'Data & AI' },
+const GROUPINGS: BookActivityMatrixGrouping[] = [
+    {
+        key: 'role',
+        label: 'Roles',
+        groups: [
+            {
+                key: 'product_cs',
+                label: 'Product & CS',
+                items: ['pa', 'web', 'replay', 'surveys', 'customers', 'workflows'],
+            },
+            { key: 'engineering', label: 'Engineering', items: ['flags', 'exp', 'errors', 'logs', 'tracing', 'sd'] },
+            { key: 'data_ai', label: 'Data & AI', items: ['dwh', 'pipelines', 'endpoints', 'llm', 'mcpa', 'ai'] },
+        ],
+    },
+    {
+        key: 'usecase',
+        label: 'Use cases',
+        groups: [
+            {
+                key: 'product_intelligence',
+                label: 'Product Intelligence',
+                items: ['pa', 'replay', 'heatmaps', 'surveys', 'ai'],
+            },
+            { key: 'release_engineering', label: 'Release Engineering', items: ['flags', 'exp', 'sd'] },
+            { key: 'observability', label: 'Observability', items: ['errors', 'logs', 'tracing'] },
+            {
+                key: 'growth_marketing',
+                label: 'Growth & Marketing',
+                items: ['web', 'heatmaps', 'surveys', 'workflows', 'pipelines'],
+            },
+            { key: 'ai_llm_observability', label: 'AI/LLM Observability', items: ['llm', 'mcpa', 'ai', 'sd'] },
+            {
+                key: 'data_infrastructure',
+                label: 'Data Infrastructure',
+                items: ['dwh', 'pipelines', 'endpoints', 'semantic'],
+            },
+            {
+                key: 'customer_experience',
+                label: 'Customer Experience',
+                items: ['support', 'replay', 'errors', 'surveys', 'workflows'],
+            },
+        ],
+    },
 ]
 
-const PRODUCTS: [key: string, label: string, family: string][] = [
-    ['product_analytics', 'Product analytics', 'product_cs'],
-    ['web_analytics', 'Web analytics', 'product_cs'],
-    ['session_replay', 'Session replay', 'product_cs'],
-    ['surveys', 'Surveys', 'product_cs'],
-    ['customer_analytics', 'Customer analytics', 'product_cs'],
-    ['workflows', 'Workflows', 'product_cs'],
-    ['feature_flags', 'Feature flags', 'engineering'],
-    ['experiments', 'Experiments', 'engineering'],
-    ['error_tracking', 'Error tracking', 'engineering'],
-    ['logs', 'Logs', 'engineering'],
-    ['tracing', 'Tracing & metrics', 'engineering'],
-    ['inbox', 'Self-driving inbox', 'engineering'],
-    ['data_warehouse', 'Data warehouse', 'data_ai'],
-    ['data_pipelines', 'Data pipelines', 'data_ai'],
-    ['endpoints', 'Endpoints', 'data_ai'],
-    ['ai_observability', 'AI observability', 'data_ai'],
-    ['mcp_analytics', 'MCP analytics', 'data_ai'],
-    ['posthog_ai', 'PostHog AI', 'data_ai'],
+const PRODUCTS: [key: string, label: string][] = [
+    ['pa', 'Product analytics'],
+    ['web', 'Web analytics'],
+    ['replay', 'Session replay'],
+    ['heatmaps', 'Heatmaps'],
+    ['surveys', 'Surveys'],
+    ['customers', 'Customer analytics'],
+    ['flags', 'Feature flags'],
+    ['exp', 'Experiments'],
+    ['errors', 'Error tracking'],
+    ['logs', 'Logs'],
+    ['tracing', 'Tracing & metrics'],
+    ['workflows', 'Workflows'],
+    ['dwh', 'Data warehouse'],
+    ['endpoints', 'Endpoints'],
+    ['pipelines', 'Data pipelines'],
+    ['llm', 'AI observability'],
+    ['mcpa', 'MCP analytics'],
+    ['ai', 'PostHog AI'],
+    ['support', 'Support'],
+    ['sd', 'Self-driving'],
+    ['semantic', 'Semantic layer'],
 ]
 
 const ACCOUNTS: [key: string, label: string, externalId: string][] = [
@@ -89,8 +132,8 @@ const firstUse: BookActivityMatrixFirstUse[] = ACCOUNTS.flatMap(([row]) =>
 export const BOOK_ACTIVITY_MATRIX_MOCK: BookActivityMatrixResult = {
     rows: ACCOUNTS.map(([key, label, externalId]) => ({ key, label, externalId })),
     columns: WEEKS.map((key, index) => ({ key, partial: index === WEEKS.length - 1 })),
-    families: FAMILIES,
-    series: PRODUCTS.map(([key, label, family]) => ({ key, label, family, useCase: null })),
+    groupings: GROUPINGS,
+    series: PRODUCTS.map(([key, label]) => ({ key, label })),
     data,
     combinations,
     firstUse,
