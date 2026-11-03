@@ -144,6 +144,16 @@ export function IconAnalyticsBars(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconPersonAdd(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M15.75 6.5C15.75 8.57107 14.0711 10.25 12 10.25C9.92893 10.25 8.25 8.57107 8.25 6.5C8.25 4.42893 9.92893 2.75 12 2.75C14.0711 2.75 15.75 4.42893 15.75 6.5Z" />
+            <path d="M15.0011 13.838C14.1017 13.4592 13.0939 13.25 12.0011 13.25C8.60997 13.25 6.03711 15.2643 4.9836 18.1129C4.5748 19.2182 5.51944 20.25 6.69796 20.25H12.2511" />
+            <path d="M18.25 15.25V18.25M18.25 18.25V21.25M18.25 18.25H15.25M18.25 18.25H21.25" />
+        </LemonIconBase>
+    )
+}
+
 // material design clipboard-edit-outline
 export function IconClipboardEdit(props: LemonIconProps): JSX.Element {
     return (

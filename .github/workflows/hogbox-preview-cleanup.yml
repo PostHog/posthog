@@ -27,12 +27,13 @@ permissions:
     id-token: write # OIDC for the tailnet join + hogplane token
 
 env:
-    HOG_HOST: https://hogland.hedgehog-kitefin.ts.net
-    HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
+    HOG_HOST: https://hogland-dev.hedgehog-kitefin.ts.net
+    HOG_OIDC_AUDIENCE: hogland.dev.posthog.dev
 
 jobs:
     cleanup-hogbox-preview:
         name: Reap stale hogbox previews
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         steps:

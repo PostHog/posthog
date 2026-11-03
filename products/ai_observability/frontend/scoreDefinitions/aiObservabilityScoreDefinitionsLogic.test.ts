@@ -36,6 +36,7 @@ const mockAIObservabilityScoreDefinitionsPartialUpdate =
 const mockScoreDefinition: ScoreDefinition = {
     tags: [],
     id: 'score_def_1',
+    short_name: '',
     name: 'Quality',
     description: 'Reusable quality scorer',
     kind: 'categorical',
@@ -57,6 +58,7 @@ const mockScoreDefinition: ScoreDefinition = {
         hedgehog_config: null,
     },
     created_at: '2026-03-11T00:00:00Z',
+    updated_by: null,
     updated_at: '2026-03-11T00:00:00Z',
     team: MOCK_DEFAULT_TEAM.id,
 }
@@ -75,7 +77,12 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         mockAIObservabilityScoreDefinitionsPartialUpdate.mockResolvedValue(mockScoreDefinition)
     })
 
-    it('loads score definitions on mount using the default filters', async () => {
+    it.each([
+        { orderBy: undefined, expectedOrder: '-updated_at' },
+        { orderBy: 'invalid', expectedOrder: '-updated_at' },
+        { orderBy: 'name', expectedOrder: 'name' },
+    ])('loads scorers with sort $expectedOrder for URL sort $orderBy', async ({ orderBy, expectedOrder }) => {
+        router.actions.push(urls.aiObservabilityScorers(), { order_by: orderBy })
         const logic = aiObservabilityScoreDefinitionsLogic()
         logic.mount()
 
@@ -85,10 +92,15 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             search: undefined,
             kind: undefined,
             archived: false,
-            order_by: 'name',
+            order_by: expectedOrder,
             offset: 0,
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
+        expect(logic.values.sorting).toEqual(
+            expectedOrder === 'name' ? { columnKey: 'name', order: 1 } : { columnKey: 'updated_at', order: -1 }
+        )
+        await expectLogic(logic, () => logic.actions.setFilters({ search: 'quality' })).toFinishAllListeners()
+        expect(router.values.searchParams.order_by).toBe(expectedOrder === '-updated_at' ? undefined : expectedOrder)
     })
 
     it.each(['saved', 'url'])('waits for the project before restoring %s tag filters', async (source) => {
@@ -124,7 +136,7 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setFilters({ page: 3 }, false)
-            logic.actions.setFilters({ search: 'quality', kind: 'categorical', archived: 'true' })
+            logic.actions.setFilters({ search: 'quality', kind: 'categorical', archived: 'true', created_by: 42 })
         }).toFinishAllListeners()
 
         expect(logic.values.filters).toEqual({
@@ -132,15 +144,17 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             tag_match: 'any',
             page: 1,
             search: 'quality',
+            created_by: 42,
             kind: 'categorical',
             archived: 'true',
-            order_by: 'name',
+            order_by: '-updated_at',
         })
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             search: 'quality',
+            created_by: 42,
             kind: 'categorical',
             archived: true,
-            order_by: 'name',
+            order_by: '-updated_at',
             offset: 0,
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
@@ -168,33 +182,45 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         expect(logic.values.filters.tags).toEqual(['other'])
     })
 
-    it('does not show the empty count label while loading', async () => {
-        let resolveRequest:
-            | ((value: Awaited<ReturnType<typeof aiObservabilityScoreDefinitionsList>>) => void)
-            | undefined
+    it.each([
+        [{}, true],
+        [{ search: 'missing' }, false],
+        [{ kind: 'boolean' }, false],
+        [{ created_by: 1 }, false],
+        [{ tags: ['quality'] }, false],
+        [{ archived: 'true' }, false],
+        [{ page: 2 }, false],
+    ])('only shows setup after an unfiltered empty response for %p', async (filters, showsSetup) => {
+        const requests: ((value: Awaited<ReturnType<typeof aiObservabilityScoreDefinitionsList>>) => void)[] = []
         mockAIObservabilityScoreDefinitionsList.mockImplementation(
             () =>
                 new Promise((resolve) => {
-                    resolveRequest = resolve
+                    requests.push(resolve)
                 })
         )
 
+        router.actions.push(urls.aiObservabilityScorers(), filters)
         const logic = aiObservabilityScoreDefinitionsLogic()
         logic.mount()
 
         expect(logic.values.scoreDefinitionsLoading).toBe(true)
         expect(logic.values.scoreDefinitionCountLabel).toBe('')
+        expect(logic.values.showEmptyState).toBe(false)
 
-        resolveRequest?.({
-            results: [],
-            count: 0,
-            next: null,
-            previous: null,
-        })
+        for (const resolveRequest of requests) {
+            resolveRequest({ results: [], count: 0, next: null, previous: null })
+        }
 
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.scoreDefinitionCountLabel).toBe('0 scorers')
+        expect(logic.values.showEmptyState).toBe(showsSetup)
+
+        if (showsSetup) {
+            mockAIObservabilityScoreDefinitionsList.mockRejectedValueOnce(new Error('Unavailable'))
+            await expectLogic(logic, () => logic.actions.loadScoreDefinitions(false)).toFinishAllListeners()
+            expect(logic.values.showEmptyState).toBe(false)
+        }
     })
 
     it('archives through logic and reloads the list', async () => {

@@ -14,6 +14,7 @@ const serverFinding = (
 ): ExperimentHealthFindingApi => ({
     code,
     subcode: null,
+    reason: null,
     severity,
     title: code,
     detail: code,
@@ -25,6 +26,7 @@ const serverFinding = (
 const exposureFinding = (code: ExperimentExposureHealthFindingCode): ExperimentExposureHealthFinding => ({
     code,
     subcode: null,
+    reason: null,
     severity: 'warning',
     title: code,
     detail: code,

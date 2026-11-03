@@ -14,7 +14,7 @@ from typing import ParamSpec, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models import Case, Count, F, IntegerField, Min, Value, When, Window
 from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
@@ -46,11 +46,13 @@ from posthog.tasks.alerts.utils import (
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
+    due_insight_alerts_q,
     get_alert_error_notification_recipients,
     next_check_time,
     next_scheduled_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
+    stamp_alert_notified,
 )
 from posthog.temporal.alerts.admission import (
     admit_evaluation_slots,
@@ -159,13 +161,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        due_alerts_query = (
-            AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
-            )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
-            .filter(insight__deleted=False)
-        )
+        due_alerts_query = AlertConfiguration.objects.filter(due_insight_alerts_q(polled_at))
         # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
         in_flight = inflight_alert_ids()
         selectable_query = due_alerts_query.exclude(id__in=in_flight) if in_flight else due_alerts_query
@@ -616,7 +612,21 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
     through here, so the errored-check write stays in one place.
     """
-    return add_alert_check(alert, None, error)
+    alert_check, should_notify = add_alert_check(alert, None, error)
+    return alert_check, _sends_from_insight_stack(alert, alert_check, should_notify)
+
+
+def _sends_from_insight_stack(alert: AlertConfiguration, alert_check: AlertCheck, should_notify: bool) -> bool:
+    """Whether the insight stack sends the check's notification. It sends nothing for a platform-owned alert.
+
+    A held send is still recorded as sent, so `last_notified_at` moves as it would have and the
+    shadow stays comparable with the platform. The stamp on the check also keeps the investigation
+    safety net from sending it later.
+    """
+    if not (should_notify and alert.platform_owned):
+        return should_notify
+    stamp_alert_notified(alert, alert_check, datetime.now(UTC))
+    return False
 
 
 @temporalio.activity.defn
@@ -748,7 +758,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
                 )
                 return EvaluateAlertResult(
-                    alert_check_id=str(alert_check.id), should_notify=True, new_state=AlertState.ERRORED
+                    alert_check_id=str(alert_check.id),
+                    should_notify=_sends_from_insight_stack(alert, alert_check, True),
+                    new_state=AlertState.ERRORED,
                 )
             if error is not None:
                 alert_check, should_notify = _write_errored_alert_check(alert, error)
@@ -760,6 +772,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             if alert_evaluation_result is not None and alert_evaluation_result.skipped_reason is not None:
                 return EvaluateAlertResult(
                     alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState(alert.state)
+                )
+            if alert.platform_owned:
+                # No investigation either: it exists to gate a notification, and each one costs a model call.
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id),
+                    should_notify=_sends_from_insight_stack(alert, alert_check, should_notify),
+                    new_state=AlertState(alert_check.state),
                 )
 
             investigation = decide_investigation(alert, alert_check)
@@ -902,6 +921,8 @@ def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
         "schedule_start_time",
         "schedule_restriction",
         "snoozed_until",
+        "owner",
+        "owner_changed_at",
     )
     values = [
         *(getattr(alert, field) for field in fields),

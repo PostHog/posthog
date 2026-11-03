@@ -8,7 +8,9 @@ from typing import cast
 from uuid import uuid4
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import ANY, AsyncMock, MagicMock, call
+
+from django.core.cache.backends.locmem import LocMemCache
 
 import httpx
 import httpx_sse
@@ -1214,7 +1216,9 @@ class TestRelaySandboxEventsErrorHandling:
         # mode="interactive" keeps the turn-complete thread-update path out of
         # this test, which only cares about permission dispatch.
         task_run = SimpleNamespace(id="run-id", mode="interactive")
-        dispatch_mock = MagicMock()
+        dispatch_mock = MagicMock(wraps=relay_sandbox_events_module._broker_permission_request)
+        notify = MagicMock()
+        permission_cache = LocMemCache(str(uuid4()), {})
 
         class SuccessfulEventSource:
             response = SimpleNamespace(raise_for_status=lambda: None)
@@ -1242,6 +1246,9 @@ class TestRelaySandboxEventsErrorHandling:
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
         monkeypatch.setattr(relay_sandbox_events_module, "_broker_permission_request", dispatch_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "try_auto_respond_permission_request", lambda *_args: False)
+        monkeypatch.setattr("products.tasks.backend.awaiting_input.get_tasks_cache", lambda: permission_cache)
+        monkeypatch.setattr("products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input", notify)
 
         await _relay_loop(
             events_url="https://sandbox.example/events",
@@ -1262,6 +1269,7 @@ class TestRelaySandboxEventsErrorHandling:
                 "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
             },
         )
+        notify.assert_called_once_with(task_run, on_enqueued=ANY)
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 

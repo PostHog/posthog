@@ -9,8 +9,6 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.team import Team
-
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.inline_scan import create_inline_scanner
 from products.replay_vision.backend.models.replay_observation import (
@@ -28,7 +26,6 @@ from products.replay_vision.backend.prompt_questions import (
     MAX_MODEL_CALLS_PER_TEAM_PER_HOUR,
     MAX_QUESTION_CHARS,
     _budget_key,
-    backfill_prompt_questions,
     condense_prompt,
     scanner_question,
 )
@@ -40,8 +37,8 @@ LONG_FIRST_LINE = "Look at " + "the checkout flow and " * 20
 
 
 def _model_says(client: MagicMock, question: str, valence: str = "bad") -> None:
-    client.return_value.models.generate_content.side_effect = None
-    client.return_value.models.generate_content.return_value = MagicMock(
+    client.return_value.generate_content.side_effect = None
+    client.return_value.generate_content.return_value = MagicMock(
         text=json.dumps({"question": question, "valence": valence})
     )
 
@@ -54,7 +51,7 @@ class TestPromptQuestions(APIBaseTest):
         estimate = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         estimate.start()
         self.addCleanup(estimate.stop)
-        client = patch("products.replay_vision.backend.prompt_questions.genai.Client")
+        client = patch("products.replay_vision.backend.prompt_questions.gemini_text_models")
         self.client_mock = client.start()
         self.addCleanup(client.stop)
         _model_says(self.client_mock, "Did the user struggle at checkout?")
@@ -131,7 +128,7 @@ class TestPromptQuestions(APIBaseTest):
         expected_valence: str,
     ) -> None:
         if reply is None:
-            self.client_mock.return_value.models.generate_content.side_effect = RuntimeError("provider down")
+            self.client_mock.return_value.generate_content.side_effect = RuntimeError("provider down")
         elif reply == "setup-fails":
             self.client_mock.side_effect = ValueError("missing API key")
         else:
@@ -145,7 +142,7 @@ class TestPromptQuestions(APIBaseTest):
         assert (question.valence or "") == expected_valence
         assert question.source == prompt_fingerprint(prompt)
         if not consent:
-            self.client_mock.return_value.models.generate_content.assert_not_called()
+            self.client_mock.return_value.generate_content.assert_not_called()
 
     def test_team_over_its_hourly_budget_falls_back_without_a_model_call(self) -> None:
         cache.set(_budget_key(self.team.id), MAX_MODEL_CALLS_PER_TEAM_PER_HOUR, timeout=3600)
@@ -154,7 +151,7 @@ class TestPromptQuestions(APIBaseTest):
         question = condense_prompt(team_id=self.team.id, scanner_type="monitor", scanner_config={"prompt": PROMPT})
 
         assert question.question == "Did the user struggle to complete checkout?"
-        self.client_mock.return_value.models.generate_content.assert_not_called()
+        self.client_mock.return_value.generate_content.assert_not_called()
 
     @parameterized.expand(
         [
@@ -195,10 +192,10 @@ class TestPromptQuestions(APIBaseTest):
         assert scanner.prompt_question == "Did the user struggle at checkout?"
         assert scanner.prompt_question_source == prompt_fingerprint(PROMPT)
 
-        calls = self.client_mock.return_value.models.generate_content.call_count
+        calls = self.client_mock.return_value.generate_content.call_count
         renamed = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
         assert renamed.status_code == 200, renamed.json()
-        assert self.client_mock.return_value.models.generate_content.call_count == calls
+        assert self.client_mock.return_value.generate_content.call_count == calls
 
         _model_says(self.client_mock, "Did the user abandon their cart?")
         edited = self.client.patch(
@@ -261,74 +258,8 @@ class TestPromptQuestions(APIBaseTest):
         assert self.client.get(url).json()["prompt_question"] is None
         assert self.client.get(url).json()["prompt_valence"] is None
 
-    def test_backfill_fills_only_stale_questions_without_touching_the_scanner_version(self) -> None:
-        stale = self._scanner(name="stale")
-        copy = self._scanner(name="copy")
-        ReplayScanner.objects.filter(pk__in=[stale.pk, copy.pk]).update(prompt_question="", prompt_question_source="")
-        fresh = self._scanner(name="fresh")
-        ReplayScanner.objects.filter(pk=fresh.pk).update(
-            prompt_question="Kept as is?", prompt_question_source=prompt_fingerprint(PROMPT), prompt_valence="good"
-        )
-        unjudged = self._scanner(name="unjudged")
-        ReplayScanner.objects.filter(pk=unjudged.pk).update(
-            prompt_question="Judged before valence?", prompt_question_source=prompt_fingerprint(PROMPT)
-        )
-        version = ReplayScanner.objects.get(pk=stale.pk).scanner_version
-
-        dry = backfill_prompt_questions(team_id=self.team.id, dry_run=True)
-        assert (dry.checked, dry.written) == (4, 3)
-        assert ReplayScanner.objects.get(pk=stale.pk).prompt_question == ""
-        self.client_mock.return_value.models.generate_content.reset_mock()
-
-        result = backfill_prompt_questions(team_id=self.team.id)
-
-        assert result.written == 3
-        # The copy shares the stale scanner's call; the unjudged scanner sends its kept question.
-        calls = self.client_mock.return_value.models.generate_content.call_args_list
-        assert ["Judged before valence?" in call.kwargs["contents"] for call in calls] == [False, True]
-        assert ReplayScanner.objects.get(pk=copy.pk).prompt_question == "Did the user struggle at checkout?"
-        stale.refresh_from_db()
-        assert stale.prompt_question == "Did the user struggle at checkout?"
-        assert stale.prompt_question_source == prompt_fingerprint(PROMPT)
-        assert stale.scanner_version == version
-        assert ReplayScanner.objects.get(pk=fresh.pk).prompt_question == "Kept as is?"
-        unjudged.refresh_from_db()
-        assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "bad")
-
-    def test_backfill_never_shares_an_answer_across_teams(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="Other team")
-        scale = {"min": 0, "max": 10, "label": "checkout friction"}
-        ours = self._scanner(scanner_type=ScannerType.SCORER, scanner_config={"prompt": PROMPT, "scale": scale})
-        theirs = self._scanner(
-            team=other_team, scanner_type=ScannerType.SCORER, scanner_config={"prompt": PROMPT, "scale": scale}
-        )
-        ReplayScanner.all_origins.filter(pk__in=[ours.pk, theirs.pk]).update(
-            prompt_question="", prompt_question_source=""
-        )
-
-        backfill_prompt_questions()
-
-        assert self.client_mock.return_value.models.generate_content.call_count == 2
-
-    def test_backfill_retries_the_model_for_each_scanner_after_a_failed_call(self) -> None:
-        unjudged = self._scanner(name="unjudged")
-        retried = self._scanner(name="retried")
-        ReplayScanner.objects.filter(pk__in=[unjudged.pk, retried.pk]).update(
-            prompt_question="Judged before valence?", prompt_question_source=prompt_fingerprint(PROMPT)
-        )
-        reply = MagicMock(text=json.dumps({"question": "Did the user struggle at checkout?", "valence": "bad"}))
-        self.client_mock.return_value.models.generate_content.side_effect = [RuntimeError("provider down"), reply]
-
-        result = backfill_prompt_questions(team_id=self.team.id)
-
-        assert result.written == 1
-        unjudged.refresh_from_db()
-        retried.refresh_from_db()
-        assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "")
-        assert (retried.prompt_question, retried.prompt_valence) == ("Judged before valence?", "bad")
-
     def test_inline_scanners_only_ever_get_a_built_in_question(self) -> None:
-        self.client_mock.return_value.models.generate_content.reset_mock()
+        self.client_mock.return_value.generate_content.reset_mock()
         summarize = create_inline_scanner(
             team=self.team,
             key="summarize-button",
@@ -344,11 +275,4 @@ class TestPromptQuestions(APIBaseTest):
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
         assert (summarize.prompt_question, custom.prompt_question) == (SUMMARY.question, "")
-        ReplayScanner.all_origins.filter(pk=summarize.pk).update(prompt_question="", prompt_question_source="")
-
-        result = backfill_prompt_questions(team_id=self.team.id, include_inline=True)
-
-        assert result.written == 1
-        assert ReplayScanner.all_origins.get(pk=summarize.pk).prompt_question == SUMMARY.question
-        assert ReplayScanner.all_origins.get(pk=custom.pk).prompt_question == ""
-        self.client_mock.return_value.models.generate_content.assert_not_called()
+        self.client_mock.return_value.generate_content.assert_not_called()

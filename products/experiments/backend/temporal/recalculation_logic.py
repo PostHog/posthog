@@ -24,7 +24,7 @@ from posthog.schema import ExperimentQuery
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -33,6 +33,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
 
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
@@ -46,8 +47,10 @@ from products.experiments.backend.metric_resolution import build_metric, get_met
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
-    CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
-    CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
+    CAPACITY_RETRY_BACKOFF_COEFFICIENT,
+    CAPACITY_RETRY_FIRST_DELAY_MAX_SECONDS,
+    CAPACITY_RETRY_FIRST_DELAY_MIN_SECONDS,
+    CAPACITY_RETRY_MAX_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     NON_RETRYABLE_ERROR_TYPES,
@@ -69,7 +72,7 @@ _MAX_ERROR_MESSAGE_LENGTH = 2000
 
 _OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
 
-# Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
+# A query kill on the pool that runs the calculations would wait behind the query it kills.
 _CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
 
 # ---------------------------------------------------------------------------
@@ -395,7 +398,14 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
 
 
 def _record_failure(
-    recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str, retriable: bool
+    recalculation_id: str,
+    metric_uuid: str,
+    step: str,
+    message: str,
+    *,
+    error_type: str,
+    retriable: bool,
+    exposures_path: ExposuresPath | None = None,
 ) -> None:
     """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
 
@@ -414,6 +424,8 @@ def _record_failure(
             "retriable": retriable,
             "timestamp": timezone.now().isoformat(),
         }
+        if exposures_path is not None:
+            metric_errors[metric_uuid]["exposures_path"] = exposures_path.value
         recalc.metric_errors = metric_errors
         recalc.save(update_fields=["metric_errors"])
 
@@ -426,8 +438,13 @@ def _estimated_retry_delay_seconds(attempt: int) -> float:
     )
 
 
-def _concurrency_limit_retry_delay_seconds() -> float:
-    return random.uniform(CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS, CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS)
+def _capacity_retry_delay_seconds(attempt: int) -> float:
+    """Random delay in the band for the attempt that just failed. The band doubles per attempt, up to the cap."""
+    growth = CAPACITY_RETRY_BACKOFF_COEFFICIENT ** (max(attempt, 1) - 1)
+    return random.uniform(
+        min(CAPACITY_RETRY_FIRST_DELAY_MIN_SECONDS * growth, CAPACITY_RETRY_MAX_DELAY_SECONDS),
+        min(CAPACITY_RETRY_FIRST_DELAY_MAX_SECONDS * growth, CAPACITY_RETRY_MAX_DELAY_SECONDS),
+    )
 
 
 _RETRY_SAFE_MESSAGES: dict[str, str] = {
@@ -601,7 +618,6 @@ def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: 
         cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
 
 
-@database_sync_to_async_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
     metric_uuid: str,
@@ -698,6 +714,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
         calc_started_at = time.perf_counter()
         query_from = experiment.start_date
 
+        runner: ExperimentQueryRunner | None = None
+
         def record_terminal_error(message: str, error_type: str, *, retriable: bool) -> None:
             results.record_run_failure(
                 recalculation_id,
@@ -708,7 +726,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query_id=client_query_id,
             )
             _record_failure(
-                recalculation_id, metric_uuid, "calculation", message, error_type=error_type, retriable=retriable
+                recalculation_id,
+                metric_uuid,
+                "calculation",
+                message,
+                error_type=error_type,
+                retriable=retriable,
+                exposures_path=runner.exposures_path if runner is not None else None,
             )
             _capture_experiment_metric_event(
                 experiment,
@@ -729,7 +753,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.ONLINE,
+                workload=Workload.OFFLINE,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,
@@ -742,16 +766,21 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
             )
 
+            # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
+            from products.experiments.backend.recalculation import recalculation_clickhouse_user  # noqa: PLC0415
+
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
-            tag_queries(
+            with tags_context(
                 trigger="warming/experiment_metrics_recalculation",
                 team_id=state.team_id,
                 product=Product.EXPERIMENTS,
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
-            )
-            result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                # Also covers the precompute inserts, which run inside this context.
+                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+            ):
+                result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             with transaction.atomic():
@@ -813,7 +842,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
-            retry_delay_seconds = _concurrency_limit_retry_delay_seconds()
+            retry_delay_seconds = _capacity_retry_delay_seconds(attempt)
             capacity_attempts_exhausted = attempt >= CAPACITY_MAX_METRIC_ATTEMPTS
             is_last_attempt = is_final_attempt or capacity_attempts_exhausted
             if is_last_attempt:

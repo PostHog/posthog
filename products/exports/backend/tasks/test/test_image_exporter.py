@@ -29,6 +29,7 @@ from posthog.settings import (
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -456,12 +457,14 @@ class TestImageExporter(APIBaseTest):
                 {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "with_source_and_dashboard_variables",
                 {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "source_vars_not_overridden_by_dashboard_vars",
@@ -478,12 +481,28 @@ class TestImageExporter(APIBaseTest):
                     "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
                 },
                 True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "without_export_context",
                 None,
                 None,
                 False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "recent_cache_execution_mode",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "async_execution_mode_falls_back",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
         ]
     )
@@ -494,6 +513,7 @@ class TestImageExporter(APIBaseTest):
         export_context: dict | None,
         expected_query_override: dict | None,
         with_dashboard: bool,
+        expected_execution_mode: ExecutionMode,
         mock_calculate: Any,
         *args: Any,
     ) -> None:
@@ -530,6 +550,7 @@ class TestImageExporter(APIBaseTest):
             image_exporter.export_image(exported_asset)
 
         call_kwargs = mock_calculate.call_args[1]
+        assert call_kwargs["execution_mode"] == expected_execution_mode
         if expected_query_override is not None:
             assert call_kwargs["query_override"] == expected_query_override
         else:
@@ -661,7 +682,10 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
             },
         )
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            mock_anti_ssrf_dns_lookup(),
+        ):
             image_exporter.export_image(exported_asset)
 
         url_to_render = mock_screenshot_asset.call_args[0][1]

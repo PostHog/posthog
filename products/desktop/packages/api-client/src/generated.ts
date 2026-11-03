@@ -82,8 +82,12 @@ export namespace Schemas {
     /**
      * * `custom_property` - Custom property
      * * `relationship` - Relationship
+     * * `account_field` - Account field
      */
-    export type AccountPropertyPinKindEnum = "custom_property" | "relationship";
+    export type AccountPropertyPinKindEnum =
+        | "custom_property"
+        | "relationship"
+        | "account_field";
     export type BounceRatePageViewMode =
         | "count_pageviews"
         | "uniq_urls"
@@ -209,6 +213,7 @@ export namespace Schemas {
         inCohortVia: InCohortVia | null;
         inlineCohortCalculation: InlineCohortCalculation | null;
         materializationMode: MaterializationMode | null;
+        materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
@@ -230,7 +235,6 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
-        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -321,6 +325,7 @@ export namespace Schemas {
     export type ResolvedDateRangeResponse = {
         date_from: string;
         date_to: string;
+        read_from?: (string | null) | undefined;
     };
     export type QueryTiming = {
         /**
@@ -342,6 +347,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -367,6 +373,52 @@ export namespace Schemas {
          */
         table_name: string;
         type?: string | undefined;
+    };
+    export type ActorsQueryResponse = {
+        columns: Array<unknown>;
+        error?: (string | null) | undefined;
+        hasMore?: (boolean | null) | undefined;
+        /**
+         * Generated HogQL query.
+         */
+        hogql: string;
+        limit: number;
+        missing_actors_count?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset: number;
+        query_status?: (QueryStatus | null) | undefined;
+        resolved_compare_date_range?:
+            | (ResolvedDateRangeResponse | null)
+            | undefined;
+        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
+        results: Array<Array<unknown>>;
+        timings?: (Array<QueryTiming> | null) | undefined;
+        types?: (Array<string> | null) | undefined;
+        used_data_warehouse_sources?:
+            | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warnings?:
+            | (Array<
+                  DataWarehouseSyncWarning | AccessControlFilterWarning
+              > | null)
+            | undefined;
+    };
+    export type QueryLogTags = Partial<{
+        name: string | null;
+        presetId: string | null;
+        productKey: string | null;
+        scene: string | null;
+    }>;
+    export type AccountUsersQuery = {
+        /**
+         * ID of the account whose users to list.
+         */
+        accountId: string;
+        kind?: string | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        response?: (ActorsQueryResponse | null) | undefined;
+        tags?: (QueryLogTags | null) | undefined;
+        version?: (number | null) | undefined;
     };
     export type AccountsQueryResponse = {
         columns: Array<unknown>;
@@ -398,12 +450,6 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type QueryLogTags = Partial<{
-        name: string | null;
-        presetId: string | null;
-        productKey: string | null;
-        scene: string | null;
-    }>;
     export type AccountsQuery = Partial<{
         allRolesUnassigned: boolean | null;
         assignedOnly: boolean | null;
@@ -500,6 +546,33 @@ export namespace Schemas {
         operator: AccountsTableThresholdOperator;
         value: number;
     };
+    export type AccountsTableCustomPropertyDisplayType =
+        | "text"
+        | "link"
+        | "number"
+        | "currency"
+        | "percent"
+        | "date"
+        | "datetime"
+        | "boolean"
+        | "select";
+    export type AccountsTableCustomPropertyOption = {
+        color: string;
+        id?: (string | null) | undefined;
+        label: string;
+    };
+    export type AccountsTableCustomPropertySource = { id: string };
+    export type AccountsTableCustomPropertyDefinition = {
+        description?: (string | null) | undefined;
+        display_type: AccountsTableCustomPropertyDisplayType;
+        has_workflow_reference: boolean;
+        id: string;
+        is_big_number?: (boolean | null) | undefined;
+        is_canonical: boolean;
+        name: string;
+        options?: (Array<AccountsTableCustomPropertyOption> | null) | undefined;
+        source?: (AccountsTableCustomPropertySource | null) | undefined;
+    };
     export type AccountsTableCustomPropertyOperator =
         | "exact"
         | "is_not"
@@ -570,6 +643,13 @@ export namespace Schemas {
         tagNames: Array<string>;
     };
     export type AccountsTableUnassignedFilter = Partial<{ kind: string }>;
+    export type AccountsTableRelationshipDefinition = {
+        description?: (string | null) | undefined;
+        id: string;
+        is_controlled: boolean;
+        is_single_holder?: (boolean | null) | undefined;
+        name: string;
+    };
     export type AccountsTableRow = {
         /**
          * Requested direct Account fields, keyed by their typed field reference.
@@ -598,6 +678,19 @@ export namespace Schemas {
         tags?: (Array<string> | null) | undefined;
     };
     export type AccountsTableQueryResponse = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -607,6 +700,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -669,6 +765,7 @@ export namespace Schemas {
                   | AccountsTableCustomPropertyFilter
               > | null)
             | undefined;
+        ignoreMissingDefinitions?: (boolean | null) | undefined;
         includeChurned?: (boolean | null) | undefined;
         includeIgnored?: (boolean | null) | undefined;
         kind?: string | undefined;
@@ -685,6 +782,7 @@ export namespace Schemas {
         response?: (AccountsTableQueryResponse | null) | undefined;
         sort?: (AccountsTableSort | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
+        useDefaultColumns?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
     };
     /**
@@ -852,6 +950,8 @@ export namespace Schemas {
             | undefined;
     };
     export type CohortPropertyFilter = {
+        cohort_deleted?: (boolean | null) | undefined;
+        cohort_missing?: (boolean | null) | undefined;
         cohort_name?: (string | null) | undefined;
         key?: string | undefined;
         label?: (string | null) | undefined;
@@ -1729,35 +1829,6 @@ export namespace Schemas {
             | BehavioralPropertyFilter
         >;
     };
-    export type ActorsQueryResponse = {
-        columns: Array<unknown>;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        /**
-         * Generated HogQL query.
-         */
-        hogql: string;
-        limit: number;
-        missing_actors_count?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset: number;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: Array<Array<unknown>>;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<string> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
-    };
     export type Compare = "current" | "previous";
     export type BreakdownType =
         | "cohort"
@@ -1936,6 +2007,7 @@ export namespace Schemas {
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
@@ -1948,6 +2020,7 @@ export namespace Schemas {
         series_label?: (string | null) | undefined;
     };
     export type TrendsQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
@@ -3170,6 +3243,7 @@ export namespace Schemas {
         version: number | null;
     }>;
     export type StickinessQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3276,6 +3350,7 @@ export namespace Schemas {
         toggledLifecycles: Array<LifecycleToggle> | null;
     }>;
     export type LifecycleQueryResponse = {
+        action_names?: (Record<string, string> | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
@@ -3508,6 +3583,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -3591,9 +3667,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -3722,6 +3800,19 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeExposureConfig = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        kind?: string | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type MultipleVariantHandling = "exclude" | "first_seen";
     export type ExperimentMetricGoal = "increase" | "decrease";
     export type ExperimentDataWarehouseNode = {
@@ -3813,6 +3904,23 @@ export namespace Schemas {
         timestamp_field: string;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeMathType = "total" | "sum";
+    export type ExperimentWarehouseNativeNode = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        custom_name?: (string | null) | undefined;
+        kind?: string | undefined;
+        math?: (ExperimentWarehouseNativeMathType | null) | undefined;
+        math_property?: (string | null) | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3829,7 +3937,11 @@ export namespace Schemas {
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
-        source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        source:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
@@ -3869,7 +3981,11 @@ export namespace Schemas {
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
             | undefined;
-        denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        denominator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         denominator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -3879,7 +3995,11 @@ export namespace Schemas {
         kind?: string | undefined;
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
-        numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        numerator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -4010,52 +4130,16 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
-    export type ExperimentSignificanceCode =
-        | "significant"
-        | "not_enough_exposure"
-        | "low_win_probability"
-        | "high_loss"
-        | "high_p_value";
-    export type ExperimentVariantTrendsBaseStats = {
-        absolute_exposure: number;
-        count: number;
-        exposure: number;
-        key: string;
-    };
-    export type ExperimentVariantFunnelsBaseStats = {
-        failure_count: number;
-        key: string;
-        success_count: number;
-    };
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
         clickhouse_sql: string | null;
-        credible_intervals: Record<string, Array<number>> | null;
         hogql: string | null;
-        insight: Array<Record<string, unknown>> | null;
         is_precomputed: boolean | null;
         kind: string;
-        metric:
-            | (
-                  | ExperimentMeanMetric
-                  | ExperimentFunnelMetric
-                  | ExperimentRatioMetric
-                  | ExperimentRetentionMetric
-              )
-            | null;
-        p_value: number | null;
-        probability: Record<string, number> | null;
-        significance_code: ExperimentSignificanceCode | null;
-        significant: boolean | null;
-        stats_version: number | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
-            | null;
-        variants:
-            | Array<ExperimentVariantTrendsBaseStats>
-            | Array<ExperimentVariantFunnelsBaseStats>
             | null;
         warnings: Array<DataWarehouseSyncWarning> | null;
     }>;
@@ -4076,7 +4160,12 @@ export namespace Schemas {
     };
     export type ExperimentActorsQuery = {
         exposureConfig?:
-            | (ExperimentEventExposureConfig | ActionsNode | null)
+            | (
+                  | ExperimentEventExposureConfig
+                  | ActionsNode
+                  | ExperimentWarehouseNativeExposureConfig
+                  | null
+              )
             | undefined;
         featureFlagKey?: (string | null) | undefined;
         funnelStep?: (number | null) | undefined;
@@ -4343,6 +4432,7 @@ export namespace Schemas {
             | ExperimentActorsQuery
             | StickinessActorsQuery
             | PathsV2ActorsQuery
+            | AccountUsersQuery
             | HogQLQuery
             | null;
         tags: QueryLogTags | null;
@@ -4503,12 +4593,21 @@ export namespace Schemas {
         | "minimum"
         | "maximum"
         | "custom";
+    export type BICatalogMetricStatus = "approved" | "proposed";
     export type BICategoryGroup = { name: string; values: Array<string> };
     export type Operator1 = "AND" | "OR";
     export type BIConditionGroup = {
         filters: Array<string>;
         groups: Array<BIConditionGroup>;
         operator: Operator1;
+    };
+    export type CatalogMetricContext = {
+        id: string;
+        isDrifted: boolean;
+        owner?: (string | null) | undefined;
+        status: BICatalogMetricStatus;
+        unit: string;
+        updatedAt?: (string | null) | undefined;
     };
     export type BIDateBucket =
         | "minute"
@@ -4660,12 +4759,15 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
         displayType: DisplayType | null;
+        excludeFromTotal: boolean | null;
         label: string | null;
         trendLine: boolean | null;
+        valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
     }>;
     export type Style = "none" | "number" | "short" | "percent";
@@ -4701,6 +4803,7 @@ export namespace Schemas {
     };
     export type BIConfig = {
         catalogMetric?: (string | null) | undefined;
+        catalogMetricContext?: (CatalogMetricContext | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -6158,9 +6261,36 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = "sections" | "tabs";
+    /**
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum =
+        | "blue"
+        | "purple"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red";
+    export type DashboardTileGroup = Partial<{
+        title: string;
+        collapsed: boolean;
+        color: DashboardTileGroupColorEnum | NullEnum;
+    }>;
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
+        groups: Record<string, DashboardTileGroup>;
         group_titles: Record<string, string>;
     }>;
     /**
@@ -6243,6 +6373,14 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_display?: (TileGroupDisplayEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6338,6 +6476,25 @@ export namespace Schemas {
         > | null;
     }>;
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum =
+        | "second"
+        | "minute"
+        | "hour"
+        | "day"
+        | "week"
+        | "month"
+        | "quarter"
+        | "year";
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -6348,6 +6505,10 @@ export namespace Schemas {
         date_from: string | null;
         date_to: string | null;
         properties: unknown;
+        breakdown_filter: BreakdownFilter | null;
+        interval: IntervalTypeEnum | NullEnum;
+        compareFilter: CompareFilter | null;
+        filterTestAccounts: boolean | null;
     }>;
     export type _DashboardPatchTileLayoutBoxOpenApi = {
         /**
@@ -6380,18 +6541,19 @@ export namespace Schemas {
      */
     export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
     /**
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
      */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum =
+    export type DashboardWidgetTypeEnum =
         | "activity_events_list"
         | "canvas_app"
         | "conversations_recent_tickets"
@@ -6399,6 +6561,7 @@ export namespace Schemas {
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
+        | "metrics_table"
         | "notebook_widget"
         | "session_replay_list"
         | "survey_results";
@@ -6537,6 +6700,49 @@ export namespace Schemas {
         savedViewId: string | null;
     }>;
     export type CanvasAppWidgetConfig = Partial<{ canvasId: string | null }>;
+    export type MetricsTableFilter = {
+        /**
+         * Label key to filter on, e.g. `http.response.status_code`.
+         */
+        key: string;
+        op?: ("eq" | "neq" | "regex" | "not_regex") | undefined;
+        /**
+         * Label value, or a regular expression for `regex` and `not_regex`.
+         */
+        value: string;
+    };
+    export type MetricsTableColumn = {
+        /**
+         * Column header, e.g. `Requests/s`.
+         */
+        label: string;
+        /**
+         * Name of the metric this column reads.
+         */
+        metricName: string;
+        /**
+         * How each time bucket of a row is computed. `rate` and `increase` read counters.
+         */
+        aggregation:
+            | "rate"
+            | "increase"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "histogram_quantile";
+        quantile?: (number | null) | undefined;
+        filters?: Array<MetricsTableFilter> | undefined;
+    };
+    export type MetricsTableWidgetConfig = Partial<{
+        dateRange: WidgetDateRange | null;
+        groupBy: string | null;
+        columns: Array<MetricsTableColumn>;
+        interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
+        orderByColumn: number;
+        orderDirection: "ASC" | "DESC";
+        limit: number;
+    }>;
     export type DashboardWidgetConfig =
         | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
@@ -6547,10 +6753,11 @@ export namespace Schemas {
         | SurveyResultsWidgetConfig
         | LogsListWidgetConfig
         | ConversationsRecentTicketsWidgetConfig
-        | CanvasAppWidgetConfig;
+        | CanvasAppWidgetConfig
+        | MetricsTableWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
-        widget_type: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+        widget_type: DashboardWidgetTypeEnum;
         config: DashboardWidgetConfig;
         name: string | null;
         description: string;
@@ -6564,7 +6771,13 @@ export namespace Schemas {
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
+        /**
+         * ID of the dashboard tile.
+         */
         id: number;
+        /**
+         * ID of the dashboard the tile sits on.
+         */
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
@@ -6699,9 +6912,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6732,6 +6947,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6810,9 +7026,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6845,9 +7063,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6932,6 +7152,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -6958,6 +7179,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -7293,6 +7515,19 @@ export namespace Schemas {
             | undefined;
     };
     export type Response20 = {
+        columns?:
+            | (Array<
+                  | AccountsTableAccountFieldColumn
+                  | AccountsTableTagsColumn
+                  | AccountsTableNoteCountColumn
+                  | AccountsTableRelationshipColumn
+                  | AccountsTableCustomPropertyColumn
+                  | AccountsTableCustomPropertyHistoryColumn
+              > | null)
+            | undefined;
+        customPropertyDefinitions?:
+            | (Array<AccountsTableCustomPropertyDefinition> | null)
+            | undefined;
         error?: (string | null) | undefined;
         hasMore: boolean;
         hogql?: (string | null) | undefined;
@@ -7302,6 +7537,9 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset: number;
         query_status?: (QueryStatus | null) | undefined;
+        relationshipDefinitions?:
+            | (Array<AccountsTableRelationshipDefinition> | null)
+            | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
             | undefined;
@@ -7772,9 +8010,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7876,9 +8116,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -8137,6 +8379,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -8206,6 +8449,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -8728,6 +8972,12 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
+    export type EmailUtmParams = Partial<{
+        utm_source: string;
+        utm_medium: string;
+        utm_campaign: string;
+        utm_content: string;
+    }>;
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -9011,6 +9261,10 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -9048,6 +9302,10 @@ export namespace Schemas {
                    * Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.
                    */
                   true_is_failure: boolean;
+                  /**
+                   * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+                   */
+                  decision_threshold: number | null;
                   /**
                    * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
                    */
@@ -9335,23 +9593,23 @@ export namespace Schemas {
         value: string;
     };
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum =
+    export type SemverOperatorEnum =
+        | "semver_eq"
+        | "semver_neq"
         | "semver_gt"
         | "semver_gte"
         | "semver_lt"
         | "semver_lte"
-        | "semver_eq"
-        | "semver_neq"
         | "semver_tilde"
         | "semver_caret"
         | "semver_wildcard";
@@ -9366,17 +9624,17 @@ export namespace Schemas {
         /**
          * Semantic version comparison operator.
          *
+         * * `semver_eq` - semver_eq
+         * * `semver_neq` - semver_neq
          * * `semver_gt` - semver_gt
          * * `semver_gte` - semver_gte
          * * `semver_lt` - semver_lt
          * * `semver_lte` - semver_lte
-         * * `semver_eq` - semver_eq
-         * * `semver_neq` - semver_neq
          * * `semver_tilde` - semver_tilde
          * * `semver_caret` - semver_caret
          * * `semver_wildcard` - semver_wildcard
          */
-        operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+        operator: SemverOperatorEnum;
         /**
          * Semantic version string.
          */
@@ -9444,6 +9702,8 @@ export namespace Schemas {
          * Cohort comparison value (single or list, depending on usage).
          */
         value: unknown;
+        cohort_deleted?: boolean | undefined;
+        cohort_missing?: boolean | undefined;
     };
     /**
      * * `flag` - flag
@@ -9728,15 +9988,22 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9747,15 +10014,22 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
+        | "exposure_filter_on_dynamic_cohort"
         | "srm"
         | "zero_exposures"
+        | "test_account_filter_removes_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
-        | "new_flag_no_traffic";
+        | "new_flag_no_traffic"
+        | "early_significance"
+        | "metrics_not_matured";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9796,21 +10070,32 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
          */
         subcode: string | null;
+        /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          *
@@ -9851,8 +10136,15 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
@@ -9868,8 +10160,15 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "metric_all_zero"
         | "exposure_criteria_cannot_match"
+        | "exposure_filters"
+        | "early_significance"
+        | "metrics_not_matured"
         | "zero_exposures"
+        | "test_account_filter_removes_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share";
@@ -9898,15 +10197,22 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
+         * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
          * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
-         * What the check looks at, for example 'Feature flag variants'.
+         * The problem the check looks for, for example 'Metrics not set up'.
          */
         name: string;
         /**
@@ -10263,7 +10569,8 @@ export namespace Schemas {
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "test_account_filter_removes_exposures";
     export type ExperimentExposureHealthCheckStatus =
         | "passed"
         | "finding"
@@ -10275,7 +10582,7 @@ export namespace Schemas {
          */
         key: ExperimentExposureHealthCheckKey;
         /**
-         * What the check looks at, as the health panel lists it.
+         * The problem the check looks for, as the health panel lists it.
          */
         name: string;
         /**
@@ -10288,6 +10595,7 @@ export namespace Schemas {
         status: ExperimentExposureHealthCheckStatus;
     };
     export type ExperimentExposureHealthFindingActionKind =
+        | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
         | "use_first_seen_variant";
@@ -10295,7 +10603,8 @@ export namespace Schemas {
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "test_account_filter_removes_exposures";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -10321,6 +10630,10 @@ export namespace Schemas {
          * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
          */
         evidence: Record<string, string | number | null>;
+        /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          */
@@ -10673,6 +10986,10 @@ export namespace Schemas {
         label: string | null;
         table: Record<string, unknown> | null;
         /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         */
+        table_id: string | null;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
@@ -10683,6 +11000,10 @@ export namespace Schemas {
         latest_error: string | null;
         incremental: boolean;
         status: string | null;
+        /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -10776,6 +11097,10 @@ export namespace Schemas {
          */
         source_column_metadata_available: boolean;
         /**
+         * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
+         */
+        history_table_name: string | null;
+        /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
         source: Partial<{
@@ -10788,6 +11113,7 @@ export namespace Schemas {
             user_access_level: string | null;
             api_version: string | null;
             supported_api_versions: Array<string>;
+            file_name: string | null;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -11043,6 +11369,7 @@ export namespace Schemas {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -11760,6 +12087,7 @@ export namespace Schemas {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -12248,6 +12576,16 @@ export namespace Schemas {
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango
+     * * `Fathom` - Fathom
+     * * `Stamped` - Stamped
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12448,6 +12786,7 @@ export namespace Schemas {
         | "IncidentIo"
         | "Pingdom"
         | "Cloudflare"
+        | "CloudflareD1"
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
@@ -13165,6 +13504,7 @@ export namespace Schemas {
         | "AwsCostAndUsageReport"
         | "AwsCostAnomalyDetection"
         | "AwsCostExplorer"
+        | "AwsDocumentDB"
         | "AwsGlueDataCatalog"
         | "AwsGuardduty"
         | "AwsHealth"
@@ -13652,7 +13992,17 @@ export namespace Schemas {
         | "GoogleAdMob"
         | "Klar"
         | "ConectoCRM"
-        | "CloudflareR2";
+        | "CloudflareR2"
+        | "Particle"
+        | "FileUpload"
+        | "Dripify"
+        | "AwsS3Tables"
+        | "Beacons"
+        | "WooPayments"
+        | "Soniox"
+        | "Nango"
+        | "Fathom"
+        | "Stamped";
     /**
      * * `web` - web
      * * `api` - api
@@ -13861,6 +14211,7 @@ export namespace Schemas {
          * * `IncidentIo` - IncidentIo
          * * `Pingdom` - Pingdom
          * * `Cloudflare` - Cloudflare
+         * * `CloudflareD1` - CloudflareD1
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -14578,6 +14929,7 @@ export namespace Schemas {
          * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
          * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
          * * `AwsCostExplorer` - AwsCostExplorer
+         * * `AwsDocumentDB` - AwsDocumentDB
          * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
          * * `AwsGuardduty` - AwsGuardduty
          * * `AwsHealth` - AwsHealth
@@ -15066,6 +15418,16 @@ export namespace Schemas {
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
          * * `CloudflareR2` - CloudflareR2
+         * * `Particle` - Particle
+         * * `FileUpload` - FileUpload
+         * * `Dripify` - Dripify
+         * * `AwsS3Tables` - AwsS3Tables
+         * * `Beacons` - Beacons
+         * * `WooPayments` - WooPayments
+         * * `Soniox` - Soniox
+         * * `Nango` - Nango
+         * * `Fathom` - Fathom
+         * * `Stamped` - Stamped
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15173,6 +15535,10 @@ export namespace Schemas {
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         */
+        file_name: string | null;
         /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          */
@@ -15567,7 +15933,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -15684,6 +16050,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -16149,10 +16519,24 @@ export namespace Schemas {
         query_status: unknown;
         hogql: string | null;
         types: Array<unknown> | null;
+        /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         */
         resolved_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;
+        /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         */
+        resolved_compare_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        /**
+         * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+         */
+        action_names: Record<string, string> | null;
         /**
          * What ClickHouse read for this insight's last slow run, with the findings of its query scan.
          */
@@ -16182,114 +16566,28 @@ export namespace Schemas {
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
     /**
-     * * `anthropic` - Anthropic
-     * * `apple-ads` - Apple Ads
-     * * `apns` - Apple Push
-     * * `aws-redshift` - Aws Redshift
-     * * `aws-s3` - Aws S3
-     * * `azure-blob` - Azure Blob
-     * * `bing-ads` - Bing Ads
-     * * `clickup` - Clickup
-     * * `customerio-app` - Customerio App
-     * * `customerio-track` - Customerio Track
-     * * `customerio-webhook` - Customerio Webhook
-     * * `databricks` - Databricks
-     * * `email` - Email
-     * * `firebase` - Firebase
-     * * `github` - Github
-     * * `gitlab` - Gitlab
-     * * `google-ads` - Google Ads
-     * * `google-analytics` - Google Analytics
-     * * `google-calendar` - Google Calendar
-     * * `google-cloud-service-account` - Google Cloud Service Account
-     * * `google-cloud-storage` - Google Cloud Storage
-     * * `google-pubsub` - Google Pubsub
-     * * `google-search-console` - Google Search Console
-     * * `google-sheets` - Google Sheets
-     * * `helpscout` - Helpscout
-     * * `hubspot` - Hubspot
-     * * `instagram` - Instagram
-     * * `intercom` - Intercom
-     * * `jira` - Jira
-     * * `linear` - Linear
-     * * `linkedin-ads` - Linkedin Ads
-     * * `meta-ads` - Meta Ads
-     * * `pardot` - Pardot
-     * * `pinterest-ads` - Pinterest Ads
-     * * `postgresql` - Postgresql
-     * * `posthog` - Posthog
-     * * `reddit-ads` - Reddit Ads
-     * * `twitter-ads` - Twitter Ads
-     * * `resend` - Resend
-     * * `s3-compatible` - S3 Compatible
-     * * `salesforce` - Salesforce
-     * * `slack` - Slack
-     * * `slack-posthog-code` - Slack Posthog Code
-     * * `snapchat` - Snapchat
-     * * `snowflake` - Snowflake
-     * * `stripe` - Stripe
-     * * `tiktok-ads` - Tiktok Ads
-     * * `twilio` - Twilio
-     * * `vercel` - Vercel
-     * * `youtube-analytics` - Youtube Analytics
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
      */
-    export type IntegrationKindEnum =
-        | "anthropic"
-        | "apple-ads"
-        | "apns"
-        | "aws-redshift"
-        | "aws-s3"
-        | "azure-blob"
-        | "bing-ads"
-        | "clickup"
-        | "customerio-app"
-        | "customerio-track"
-        | "customerio-webhook"
-        | "databricks"
-        | "email"
-        | "firebase"
-        | "github"
-        | "gitlab"
-        | "google-ads"
-        | "google-analytics"
-        | "google-calendar"
-        | "google-cloud-service-account"
-        | "google-cloud-storage"
-        | "google-pubsub"
-        | "google-search-console"
-        | "google-sheets"
-        | "helpscout"
-        | "hubspot"
-        | "instagram"
-        | "intercom"
-        | "jira"
-        | "linear"
-        | "linkedin-ads"
-        | "meta-ads"
-        | "pardot"
-        | "pinterest-ads"
-        | "postgresql"
-        | "posthog"
-        | "reddit-ads"
-        | "twitter-ads"
-        | "resend"
-        | "s3-compatible"
-        | "salesforce"
-        | "slack"
-        | "slack-posthog-code"
-        | "snapchat"
-        | "snowflake"
-        | "stripe"
-        | "tiktok-ads"
-        | "twilio"
-        | "vercel"
-        | "youtube-analytics";
+    export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
     /**
      * Standard Integration serializer.
      */
     export type IntegrationConfig = {
         id: number;
-        kind: IntegrationKindEnum;
+        /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         */
+        kind: string;
+        /**
+         * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `token` - Token
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */
@@ -16953,6 +17251,7 @@ export namespace Schemas {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -17551,6 +17850,7 @@ export namespace Schemas {
         | "America/Coral_Harbour"
         | "America/Cordoba"
         | "America/Costa_Rica"
+        | "America/Coyhaique"
         | "America/Creston"
         | "America/Cuiaba"
         | "America/Curacao"
@@ -18241,6 +18541,7 @@ export namespace Schemas {
         locked_value: boolean;
     };
     export type PaginatedCommentList = {
+        count: number;
         next?: (string | null) | undefined;
         previous?: (string | null) | undefined;
         results: Array<Comment>;
@@ -19069,6 +19370,10 @@ export namespace Schemas {
          * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
+        /**
+         * How many personal API keys the user may hold, from the `personal_api_keys` billing entitlement of the user's organizations. The highest limit across their organizations applies, and 10 when no organization grants a limit. Creating a key beyond it is rejected with a validation error. Read-only.
+         */
+        personal_api_keys_limit: number;
     };
     export type PaginatedUserList = {
         count: number;
@@ -19152,6 +19457,10 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
@@ -19159,6 +19468,7 @@ export namespace Schemas {
         output_config: Partial<{
             allows_na: boolean;
             true_is_failure: boolean;
+            decision_threshold: number | null;
             min: number | null;
             max: number | null;
             step: number | null;
@@ -19264,11 +19574,28 @@ export namespace Schemas {
         user_access_level: string | null;
         supports_webhooks: boolean;
         supports_column_selection: boolean;
+        file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
     }>;
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum =
+        | "errors"
+        | "metrics"
+        | "planned"
+        | "wrong_configuration"
+        | "other";
     export type PatchedFeatureFlagPartialUpdateRequestSchema = Partial<{
+        ask_rollback_reason: boolean;
+        rollback_reason: RollbackReasonEnum | NullEnum;
+        rollback_reason_note: string | null;
         key: string;
         name: string;
         filters: FeatureFlagFiltersSchema;
@@ -19280,6 +19607,7 @@ export namespace Schemas {
         ensure_experience_continuity: boolean | null;
         evaluation_runtime: EvaluationRuntimeEnum | NullEnum;
         bucketing_identifier: BucketingIdentifierEnum | NullEnum;
+        version: number;
     }>;
     export type PatchedHogFlowSchedule = Partial<{
         id: string;
@@ -19366,6 +19694,11 @@ export namespace Schemas {
             date_from: string;
             date_to: string;
         }> | null;
+        resolved_compare_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        action_names: Record<string, string> | null;
         query_scan: unknown;
         warnings: _InsightResultWarnings | null;
         _create_in_folder: string;
@@ -19391,6 +19724,8 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
+        groups: Record<string, DashboardTileGroup> | null;
         group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
@@ -19671,6 +20006,8 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -19698,7 +20035,9 @@ export namespace Schemas {
         | "workflow"
         | "space_setup"
         | "business_knowledge"
-        | "metrics_import";
+        | "metrics_import"
+        | "knowledge_writer"
+        | "context_layer";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -19853,6 +20192,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         requires_credential_review: boolean;
+        personal_api_keys_limit: number;
     }>;
     export type PersonRecord = {
         /**
@@ -19911,14 +20251,15 @@ export namespace Schemas {
     }>;
     export type TeamCustomerAnalyticsPinnedAccountProperty = {
         /**
-         * Definition type for this default pinned account property.
+         * Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
          *
          * * `custom_property` - Custom property
          * * `relationship` - Relationship
+         * * `account_field` - Account field
          */
         kind: AccountPropertyPinKindEnum;
         /**
-         * Project-scoped custom property or relationship definition UUID.
+         * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
          */
         id: string;
     };
@@ -19934,6 +20275,8 @@ export namespace Schemas {
     export type TeamWorkflowsConfig = Partial<{
         capture_workflows_engagement_events: boolean;
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
+        email_utm_tags_enabled: boolean;
+        email_utm_params: EmailUtmParams;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         replay_vision_scan_rate_limit_per_day: number | null;
@@ -19944,6 +20287,8 @@ export namespace Schemas {
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
+        blocked_hosts: Array<string>;
+        blocked_ips: Array<string>;
     }>;
     /**
      * A project and its settings, including the settings that live on its passthrough Team.
@@ -20392,6 +20737,10 @@ export namespace Schemas {
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**
+         * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
+         */
+        api_host: string;
+        /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
          * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
@@ -20588,6 +20937,38 @@ export namespace Schemas {
          */
         states: Record<string, boolean>;
     };
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum =
+        | "add"
+        | "remove"
+        | "replace"
+        | "confirm";
+    /**
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum =
+        | "wrong_area"
+        | "already_covered"
+        | "unavailable"
+        | "other";
+    export type ReviewerState = {
+        /**
+         * Current reviewer artefact ID, or null before the first list.
+         */
+        reviewers_id: string | null;
+        /**
+         * Current corrections artefact ID, or null before corrections are stored.
+         */
+        corrections_id: string | null;
+    };
     export type RowFilterColumn = {
         /**
          * Column name to use as `column` in a row filter.
@@ -20643,6 +21024,30 @@ export namespace Schemas {
          * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
          */
         event_count: number | null;
+    };
+    /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+     * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+     * account is stored by uuid and routes like any other reviewer.
+     */
+    export type SuggestedReviewerEntryWrite = Partial<{
+        github_login: string;
+        user_uuid: string;
+        github_name: string;
+        reason: string | null;
+    }>;
+    export type SignalReportArtefactWrite = {
+        action?: (ReviewerEditActionEnum & unknown) | undefined;
+        expected_reviewers?: ReviewerState | undefined;
+        /**
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
+         */
+        content: Array<SuggestedReviewerEntryWrite>;
+        targets?: Array<SuggestedReviewerEntryWrite> | undefined;
+        removal_reason?: ReviewerRemovalReasonEnum | undefined;
+        removal_note?: string | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -22256,6 +22661,7 @@ export namespace Endpoints {
                 active: "STALE" | "false" | "true";
                 archived: "false" | "true";
                 created_by_id: string;
+                deleted: "false" | "true";
                 eligible_for_experiment: "true";
                 evaluation_runtime: "all" | "client" | "server";
                 excluded_properties: string;
@@ -22375,11 +22781,13 @@ export namespace Endpoints {
                 created_at: string;
                 created_by: string;
                 id: string;
+                latest_send_first: boolean;
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 tags: string;
                 trigger: string;
@@ -22863,7 +23271,9 @@ export namespace Endpoints {
                     | "workflow"
                     | "space_setup"
                     | "business_knowledge"
-                    | "metrics_import";
+                    | "metrics_import"
+                    | "knowledge_writer"
+                    | "context_layer";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -22878,11 +23288,13 @@ export namespace Endpoints {
                 search: string;
                 sources: Array<
                     | "autoresearch"
+                    | "context_layer"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"
                     | "hogdesk"
                     | "image_builder"
+                    | "knowledge_writer"
                     | "loop"
                     | "mcp_analytics"
                     | "onboarding"

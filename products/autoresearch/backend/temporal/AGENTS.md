@@ -55,6 +55,7 @@ Scoring and training kickoff run on a cadence day only, compared by calendar day
 Discovery pauses a pipeline whose creator has lost access to the team, and skips one outside the flag rollout.
 When an inference child ends in an exception, the coordinator fails the runs it left RUNNING, with `failure_kind` `other`, because a lost worker never records an outcome. This is behind `workflow.patched("autoresearch-close-lost-runs-2026-10")`.
 Discovery also fails every inference run still RUNNING after `INFERENCE_WORKFLOW_TIMEOUT` (`fail_stale_inference_runs()` in `../inference/failures.py`). This is the backstop for a run that the coordinator did not close.
+Discovery also closes every training run that its `TaskRun` can no longer close (`fail_stale_training_runs()` in `../training/stale.py`), across all teams. Kickoff calls it for its own pipeline before the live-run check, outside the row lock, so a run whose sandbox died does not block the pipeline's training.
 The catch-up sweep lists only the due pipelines whose latest scheduled run of the day failed with a kind a retry can pass (`scheduled_run_can_retry()`). A pipeline with no run for the day is skipped, because the daily sweep may not have reached it yet, and a second start would score it twice. Its inference children use `ALLOW_DUPLICATE_FAILED_ONLY`, so a catch-up starts only after the daily child of the date failed or timed out. It skips training kickoff and validation, because the daily sweep already ran them.
 A retry of a scheduled scoring attempt fills the RUNNING row of the attempt before it, so one date keeps one row.
 Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does.
@@ -83,7 +84,7 @@ Temporal activity payloads are capped at roughly 2 MiB, and autoresearch moves g
 ## When editing this flow
 
 - **Editing a `@workflow.defn` body breaks in-flight executions.** Adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers fails replay with a non-determinism error on every running execution.
-  Gate new commands behind `workflow.patched("...")`, or on a new field of an existing activity's output dataclass that defaults to the skip value. Activity _implementations_ and activity _input_ dataclasses are safe to edit; command sequences are not.
+  Gate new commands behind `workflow.patched("...")`. A new field on an activity's output dataclass does not replace the patch, because old workflow code can receive that field during a rolling deploy. Activity _implementations_ and activity _input_ dataclasses are safe to edit; command sequences are not.
 - **Never gate a workflow command on something computed inside the workflow body** — a feature flag, a setting, the clock, a database read. That is itself non-deterministic.
 - Keep scoring, validation and training logic out of the activities. It belongs in the package the activity calls, or the management commands will quietly behave differently from production. Only sweep-specific decisions (what is due, who may launch) stay here.
 - New workflows and activities must be added to `WORKFLOWS` / `ACTIVITIES` in `__init__.py` or they are never registered — this fails silently, since nothing errors when a workflow simply never runs.

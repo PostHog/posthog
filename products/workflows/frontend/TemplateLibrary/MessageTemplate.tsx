@@ -15,6 +15,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -29,6 +30,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
@@ -68,6 +70,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         keepMyTemplateVersion,
         setTransactionalTab,
         discardDraft,
+        saveTags,
         setSensitive,
     } = useActions(logic)
     const {
@@ -134,7 +137,16 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     value={template?.content.email}
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
-                    type="native_email_template"
+                    type={
+                        template?.transactional_hog_flow_id
+                            ? 'native_email_transactional_template'
+                            : 'native_email_template'
+                    }
+                    variables={
+                        template?.transactional_hog_flow_id
+                            ? transactionalEditorGlobals(variablesInEmail(template.content.email))
+                            : undefined
+                    }
                     layout="inline"
                 />
             )}
@@ -183,7 +195,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                             <div className="font-semibold">Protect sensitive data</div>
                                             <p className="text-secondary text-sm m-0 mt-1">
                                                 For emails with login codes or reset links. PostHog keeps no copy of
-                                                what each email contained, and clicked links keep only the site address.
+                                                what each email contained, and doesn&apos;t track link clicks.
                                             </p>
                                         </div>
                                     </div>
@@ -231,7 +243,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Transactional
                                 </LemonTag>
                                 {originalTemplate.sensitive && (
-                                    <Tooltip title="PostHog keeps no copy of what each email contained, and clicked links keep only the site address.">
+                                    <Tooltip title="PostHog keeps no copy of what each email contained, and doesn't track link clicks.">
                                         <LemonTag
                                             type="highlight"
                                             icon={<IconLock />}
@@ -402,6 +414,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             </>
                         )
                     }
+                />
+
+                <SceneTags
+                    tags={[...(template.tags ?? [])]}
+                    onSave={saveTags}
+                    loading={isTemplateSubmitting}
+                    dataAttrKey="message-template"
                 />
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />

@@ -1900,7 +1900,11 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
         "confidence": FloatDatabaseField(
             name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
         ),
-        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
+        "reasoning": _string_field(
+            "reasoning",
+            nullable=True,
+            description="AI author's design decisions and trade-offs behind the definition, as review context.",
+        ),
         "source_insight_short_id": _string_field(
             "source_insight_short_id",
             nullable=True,
@@ -2289,9 +2293,3 @@ def disable_data_catalog(info_schema: TableNode) -> None:
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
-
-
-def disable_data_quality(info_schema: TableNode) -> None:
-    info_schema.children.pop("data_quality_checks", None)
-    info_schema.children.pop("data_quality_check_runs", None)
-    info_schema.children.pop("data_quality_health", None)

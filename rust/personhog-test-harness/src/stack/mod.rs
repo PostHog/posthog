@@ -1314,40 +1314,31 @@ impl Stack {
         Ok(saga)
     }
 
-    /// Wait for the writer to drain every old generation on its own, then retire each one.
+    /// Wait for the coordinator to retire every old generation on its own,
+    /// once the writer reports it drained.
     pub async fn retire_drained(&mut self) -> Result<()> {
         let pending = std::mem::take(&mut self.pending_retire);
         for (old_topic, saga_end) in pending {
-            let drained_at = Instant::now();
+            let waited_from = Instant::now();
             loop {
-                let base = kafka::base_config(&self.config.kafka_hosts);
-                let topic = old_topic.clone();
-                let drained = tokio::task::spawn_blocking(move || {
-                    common_kafka::probe::group_drained(
-                        &base,
-                        WRITER_CONSUMER_GROUP,
-                        &topic,
-                        Duration::from_secs(5),
-                    )
-                })
-                .await??;
-                if drained {
+                let draining = self
+                    .store
+                    .get_changelog_config()
+                    .await?
+                    .is_some_and(|c| c.draining.iter().any(|g| g.topic == old_topic));
+                if !draining {
                     break;
                 }
                 ensure!(
-                    drained_at.elapsed() < RETIREMENT_DEADLINE,
-                    "the writer did not drain {old_topic} within {RETIREMENT_DEADLINE:?}"
+                    waited_from.elapsed() < RETIREMENT_DEADLINE,
+                    "the coordinator did not retire {old_topic} within {RETIREMENT_DEADLINE:?}"
                 );
                 tokio::time::sleep(MIGRATION_POLL).await;
             }
             println!(
-                "Migration: {old_topic} drained by the writer; checked {:.1}s after the saga, waited {:.1}s",
+                "Migration: {old_topic} retired by the coordinator; checked {:.1}s after the saga, waited {:.1}s",
                 saga_end.elapsed().as_secs_f64(),
-                drained_at.elapsed().as_secs_f64()
-            );
-            ensure!(
-                self.store.retire_changelog_topic(&old_topic).await?,
-                "{old_topic} was not listed as draining"
+                waited_from.elapsed().as_secs_f64()
             );
         }
         // The writer re-checks the drain every 2s and flushes every second.

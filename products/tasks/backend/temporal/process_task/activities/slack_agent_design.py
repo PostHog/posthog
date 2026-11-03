@@ -41,7 +41,8 @@ class StartSlackAgentDesignStreamInput:
 
 @frozen
 class SlackAgentDesignStream:
-    ts: str
+    # None keeps the turn collecting its answer for an ordinary, untargeted reply.
+    ts: Optional[str]
     # Whether the message has a plan block, so closing it can set the plan title.
     has_plan: bool
     # Who the reply tags, so closing the stream tags the same person.
@@ -51,7 +52,7 @@ class SlackAgentDesignStream:
 @frozen
 class AppendSlackAgentDesignStepsInput:
     slack_thread_context: dict[str, Any]
-    ts: str
+    ts: Optional[str]
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     plan_title: Optional[str] = None
 
@@ -59,7 +60,7 @@ class AppendSlackAgentDesignStepsInput:
 @frozen
 class StopSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
-    ts: str
+    ts: Optional[str]
     complete_task_id: Optional[str] = None
     complete_task_title: Optional[str] = None
     # Streamed as markdown_text chunks below the plan block right before stopStream.
@@ -114,12 +115,16 @@ def _chunk_dicts(task_updates: list[TaskUpdateChunk]) -> list[dict[str, Any]]:
 @activity.defn
 @close_db_connections
 def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> Optional[SlackAgentDesignStream]:
-    """Open the turn's stream and seed it. Returns None when no stream opened."""
+    """Start streaming, or keep the turn for an ordinary reply when its recipient is muted."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context, actor_slack_user_id=_reply_target(input.run_id, input.message_id))
+        handler = SlackThreadHandler.for_run(
+            context, input.run_id, actor_slack_user_id=_reply_target(input.run_id, input.message_id)
+        )
+        if handler.actor_slack_user_id and handler.notification_target(handler.actor_slack_user_id) is None:
+            return SlackAgentDesignStream(ts=None, has_plan=False, actor_slack_user_id=handler.actor_slack_user_id)
         markdown_text = _rewrite_object_tags(input.first_markdown_text, handler.project_url)
         new_ts = handler.start_status_stream(
             task_updates=_chunk_dicts(input.task_updates),
@@ -142,9 +147,14 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
     """Append plan-block step transitions and a new plan title. Returns False once Slack has closed the stream."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
+    if input.ts is None:
+        return True
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler(context)
+        if handler.proactive_notifications_muted():
+            handler.stop_status_stream(ts=input.ts, mention_sent=True)
+            return False
         return handler.append_status_chunks(
             ts=input.ts,
             task_updates=_chunk_dicts(input.task_updates),
@@ -159,6 +169,7 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
     """Mark the last step complete, stream the answer and the turn's attachments, close, attach files."""
+    from products.slack_app.backend.facade.api import SlackFeature, record_slack_feature_used
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.logic.services.living_artifacts import (
         SlackFileDeliveryResult,
@@ -167,10 +178,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import is_explicit_slack_reply, turn_person_message
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
+        task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
         handler = SlackThreadHandler.for_run(
             context,
             input.run_id,
@@ -178,35 +190,52 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             turn_trace_id=input.trace_id,
             turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
         )
-        task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
+        if (
+            task_run is not None
+            and handler.proactive_notifications_muted()
+            and not is_explicit_slack_reply(task_run, input.message_id)
+        ):
+            if input.ts is not None:
+                handler.stop_status_stream(ts=input.ts, final_markdown=None, mention_sent=True)
+            return
         deliveries: list[SlackFileDeliveryResult] = []
 
         def _append_attachments() -> None:
-            if task_run is None:
+            ts = input.ts
+            if task_run is None or ts is None:
                 return
             deliveries.append(
                 stream_pending_slack_attachments(
-                    task_run, append_blocks=lambda blocks: handler.append_status_blocks(input.ts, blocks)
+                    task_run, append_blocks=lambda blocks: handler.append_status_blocks(ts, blocks)
                 )
             )
 
-        handler.stop_status_stream(
+        answer_delivered = handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
-            final_markdown=_rewrite_object_tags(input.final_markdown, handler.project_url),
+            final_markdown=_rewrite_object_tags(
+                (input.answer_markdown or input.final_markdown) if input.ts is None else input.final_markdown,
+                handler.project_url,
+            ),
             plan_title=input.plan_title,
             append_attachments=_append_attachments,
             mention_sent=input.mention_sent,
             reply_suggestions_for=input.answer_markdown,
         )
+        ts = input.ts
         for delivery in deliveries:
-            if task_run is not None:
+            if task_run is not None and ts is not None:
                 attach_streamed_slack_files(
-                    task_run, delivery, attach_files=lambda file_ids: handler.attach_files(input.ts, file_ids)
+                    task_run, delivery, attach_files=lambda file_ids: handler.attach_files(ts, file_ids)
                 )
         if handler.stream_ended and task_run is not None:
             # A closed stream takes no cards, so whatever is still pending posts under the answer as its own message.
-            deliver_pending_slack_file_artifacts(task_run)
+            deliveries.append(deliver_pending_slack_file_artifacts(task_run))
+        if any(delivery.delivered_count for delivery in deliveries):
+            record_slack_feature_used(context.integration_id, handler.actor_slack_user_id, SlackFeature.FILE_OUTPUTS)
+        # Last, so a file this answer delivered already counts as used when the tip is picked.
+        if answer_delivered and input.answer_markdown is not None:
+            handler.offer_feature_tip()
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

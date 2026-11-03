@@ -11,8 +11,9 @@ from enum import StrEnum
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.context import ConditionSetTraffic, ReachableCondition, Split
+from products.experiments.backend.health.context import ConditionSetTraffic, ReachableCondition
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import Split
 
 # A finding is graded by the largest share that pinned users make up of one variant's users, in this window, or
 # since launch or the flag's last save if later. The bias is per variant, so a few pinned users weigh more in a
@@ -30,7 +31,7 @@ _MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR = 0.5
 
 
 class PinnedShareUnknownReason(StrEnum):
-    # pinned: the finding's `evidence.reason`, which the health finding events track.
+    # pinned: the finding's `reason`.
     NOT_MEASURED = "not_measured"
     TOO_FEW_PEOPLE = "too_few_people"
     # Most calls carry no version: local evaluation in a server SDK, a bootstrap, or the customer's own assignment.
@@ -88,6 +89,11 @@ class PinnedShareGrade:
     share: float | None
     unknown_reason: PinnedShareUnknownReason | None
 
+    @property
+    def finding_reason(self) -> str | None:
+        """The finding's `reason` when the share is unknown."""
+        return None if self.unknown_reason is None else self.unknown_reason.value
+
     def evidence(self) -> dict[str, str | int | float | None]:
         evidence: dict[str, str | int | float | None] = {}
         if self.measurement is not None:
@@ -101,8 +107,6 @@ class PinnedShareGrade:
             )
         if self.share is not None:
             evidence["pinned_share"] = round(self.share, 4)
-        if self.unknown_reason is not None:
-            evidence["reason"] = self.unknown_reason.value
         return evidence
 
     def sentence(self, them: str) -> str:

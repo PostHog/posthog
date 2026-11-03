@@ -21,8 +21,10 @@ export function CanvasCommandButtons(): JSX.Element {
                     active={panelMode === command.mode}
                     onClick={() => togglePanel(command.mode)}
                     data-attr={`workflow-tile-command-${command.id}`}
+                    tooltip={command.hint ? `${command.label}: ${command.hint}` : command.label}
                 >
-                    {command.label}
+                    {/* A narrow bar keeps the icons on one row, and the tooltip names each one. */}
+                    <span className="@max-[64rem]/workflow-status:sr-only">{command.label}</span>
                 </LemonButton>
             ))}
             <LemonMenu

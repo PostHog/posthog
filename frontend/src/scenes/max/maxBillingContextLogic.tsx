@@ -1,10 +1,11 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
-import { objectsEqual } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isAddonVisible, isUsageAtOrOverLimit } from 'scenes/billing/billing-utils'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { isAddonVisible } from 'scenes/billing/billing-utils'
 import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
 import { BillingUsageResponse, billingUsageLogic } from 'scenes/billing/billingUsageLogic'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
@@ -85,7 +86,6 @@ export interface MaxBillingContext {
     has_active_subscription: boolean
     subscription_level: MaxBillingContextSubscriptionLevel
     billing_plan: string | null
-    is_deactivated?: boolean
 
     // Products information
     products: MaxProductInfo[]
@@ -213,7 +213,6 @@ export const billingToMaxContext = (
             (billing.subscription_level as MaxBillingContextSubscriptionLevel) ||
             MaxBillingContextSubscriptionLevel.FREE,
         billing_plan: billing.billing_plan || null,
-        is_deactivated: billing.deactivated,
         products: maxProducts,
         total_current_amount_usd: billing.current_total_amount_usd,
         projected_total_amount_usd: billing.projected_total_amount_usd,

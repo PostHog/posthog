@@ -16,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_invalid_version_race,
+    is_missing_scan_file_race,
     is_transient_maintenance_error,
     is_transient_object_store_error,
 )
@@ -140,7 +141,9 @@ async def execute_with_conflict_retry(
 
     See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget. Also
     retries `is_invalid_version_race` — the same race surfacing as a plain `DeltaError` rather than
-    `CommitFailedError` because delta-rs's Python binding doesn't give that variant its own class.
+    `CommitFailedError` because delta-rs's Python binding doesn't give that variant its own class —
+    and `is_missing_scan_file_race`, where a concurrent vacuum deletes a file the operation's stale
+    handle still plans to scan.
 
     An object-store refusal (see is_object_store_permission_denied) is raised as
     `ObjectStorePermissionDeniedError` on the first attempt, so a refused vacuum or compaction can't
@@ -168,7 +171,11 @@ async def execute_with_conflict_retry(
                 raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
             if not isinstance(e, deltalake.exceptions.DeltaError):
                 raise
-            if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
+            if (
+                not isinstance(e, deltalake.exceptions.CommitFailedError)
+                and not is_invalid_version_race(e)
+                and not is_missing_scan_file_race(e)
+            ):
                 raise
             if attempt >= conflict_retries:
                 raise

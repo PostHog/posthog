@@ -17,7 +17,7 @@ import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { uuid } from 'lib/utils/dom'
-import { PrecheckResponseType } from 'scenes/authentication/login/loginLogic'
+import { PrecheckResponseType } from 'scenes/authentication/auth/loginLogic'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { userLogic } from 'scenes/userLogic'
 

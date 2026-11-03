@@ -8,6 +8,7 @@ description: Use when building or changing UI in PostHog Desktop, MCP apps, or w
 ## 0. Before you start
 
 - Web app scope (`frontend/src/`, `products/*/frontend/`): the `today-rail-nav` feature flag gates a Quill redesign of the whole web app UI, built alongside the current UI and kept behind the flag for months before it reaches users. This guide governs all UI on that flag path. The current, flag-off UI stays on LemonUI: never add Quill to it or convert it in place.
+- Read [`platform-ux.md`](./platform-ux.md) first. It decides what the surface shows and when; this file decides how it looks
 - Identify surface: web app | PostHog Desktop (Electron) | MCP app → apply matching section in §7
 - Use Quill (`@posthog/quill`). Never add a parallel component or token layer; the only exceptions are listed in §2.
 - Deeper component reference: `packages/quill/packages/primitives/AGENTS.md`; charts: `packages/quill/packages/charts/AGENTS.md`. This file wins where they disagree.
@@ -184,6 +185,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - In-flight action: `loading`, not a separate spinner
   - Disabled: say why with `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip. `Button`, every menu item, `Checkbox` and `Switch` take it. Never hand-wrap a disabled control in a Tooltip
   - Leading icon: the first child, before the label. Trailing icon: the last child
+  - Indicator dot (unread, pending tasks): the Button `indicator` prop (`"default"`, or `"warning"` / `"destructive"` for a problem), never a hand-placed `span`. It sits on the top-right corner, outside the icon. Off the app background, set `--quill-button-indicator-ring` to the surface behind the button. Say what the dot means in the `aria-label`
   - Split button (main action plus a menu of variants): `ButtonGroup` holding the Button and an icon-only `DropdownMenuTrigger` with `IconChevronDown`
 - Switch vs Checkbox vs Toggle:
   - setting that applies immediately → Switch
@@ -231,6 +233,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Tooltip:
     - Short label for an icon/control; never the only source of essential info (not shown on touch, not the accessible name)
     - On icon-only buttons: `<TooltipTrigger delay={0}>`
+    - Text is left-aligned, never centered. For several lines, pass one `flex flex-col` child; `flex-col` on `TooltipContent` itself centers each line
     - Every surface needs a root `<TooltipProvider>` (Quill setup); it makes adjacent tooltips open instantly once one is visible
     - Add a local `<TooltipProvider>` only to change `delay`/`timeout` for a group (e.g. a toolbar); don't nest one per tooltip
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
@@ -254,6 +257,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Badge: status or count. On a button: button `relative`, Badge `absolute top-0 right-0`; counts need an accessible label
   - Chip: removable/selectable value (with ChipClose)
   - Dot: presence/state beside a text label; `pulse` only for live state
+    - Menu items never carry a Dot; show a status in a menu row with a Badge
 - Disclosure:
   - Collapsible: single section
   - Accordion: set of sections

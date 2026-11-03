@@ -27,7 +27,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
     ReportLink,
+    ReviewerProposal,
+    ReviewerState,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.billing import system_billing_exempt_reason
@@ -62,6 +65,8 @@ _STACKABLE_PR_STATES = (
 
 
 def _layer_summary(*, parent: SignalReport, layer: ReportLayer, index: int, total: int) -> str:
+    # The inbox hides this section behind its plan block by matching the sentence, so keep it in sync
+    # with `isGeneratedPlanSection` in products/signals/frontend/inbox/utils/reportSummary.ts.
     return f"{layer.scope}\n\n## Plan\n\nThis is layer {index + 1} of {total} of the plan '{parent.title}'."
 
 
@@ -125,6 +130,7 @@ def create_layer_reports(
             # and lifecycle monitoring expects that event from every promoted report.
             first_visible_at=now,
             billing_exempt_reason=billing_exempt_reason,
+            tags=list(parent.tags),
         )
         child_id = str(child.id)
         for judgment in judgments:
@@ -134,6 +140,10 @@ def create_layer_reports(
                 content=judgment,
                 attribution=attribution,
                 reevaluate_autostart=False,
+                # The layer is new, so its reviewer state is empty.
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="stack_plan")
+                if isinstance(judgment, SuggestedReviewers)
+                else None,
             )
         SignalReportArtefact.add_log(
             team_id=team_id,

@@ -26,6 +26,10 @@ Two layers, by design:
   governor predicted. The governor aims never to reach it; the backstop guarantees safety when a
   prediction is wrong.
 
+The slices guarantee room for ``max_concurrent`` upserts, but a pod mostly runs far fewer. So an
+upsert whose slice keeps its plan narrow can borrow idle memory, up to a few slices, to run more
+partition workers. ``MemoryGovernor._borrowable_mb`` holds the rule that keeps a borrow fair.
+
 The memory model follows the shape of the files a merge rewrites, not their total size. An upsert
 in deltalite 0.1.10 holds three things at its peak:
 
@@ -183,6 +187,11 @@ _WAIT_POLL_S = 0.5
 _ROOM_TOLERANCE_MB = 1.0
 #: How often the RSS sampler reads the process RSS while an upsert runs.
 _DEFAULT_RSS_SAMPLE_MS = 100.0
+#: Most slices one upsert may borrow when the pod has idle memory. 4 slices let a wide-row merge
+#: run 4 partition workers, and beyond 4 workers the gains vanish.
+_DEFAULT_BORROW_MAX_SLICES = 4.0
+#: deltalite's own default for ``DELTALITE_PROBE_CACHE_BYTES``.
+_DEFAULT_PROBE_CACHE_BYTES = 128 * MB
 
 
 def _rss_retention(environ: Mapping[str, str] = os.environ) -> float:
@@ -830,6 +839,13 @@ class GovernorConfig:
     rss_sample_ms: float = _DEFAULT_RSS_SAMPLE_MS
     #: RSS per byte of predicted in-use memory. Read from the allocator settings by default.
     rss_retention: float = _RSS_RETENTION_GLIBC_DEFAULT
+    #: Rollout gate for borrowing idle pod memory, with the same three values as ``mode``. Advisory
+    #: computes and logs the borrowed plan. Enforce runs it, and only when ``mode`` is enforce too.
+    borrow_mode: Mode = "advisory"
+    #: Most slices one borrowed plan may reserve.
+    borrow_max_slices: float = _DEFAULT_BORROW_MAX_SLICES
+    #: Cap of deltalite's process-wide probe cache. No slice holds it, so a borrow leaves it free.
+    probe_cache_mb: float = _DEFAULT_PROBE_CACHE_BYTES / MB
 
     @staticmethod
     def from_env() -> GovernorConfig:
@@ -847,7 +863,25 @@ class GovernorConfig:
             max_wait_s=max(0.0, _env_float("DELTALITE_GOVERNOR_MAX_WAIT_S", 60.0)),
             rss_sample_ms=max(0.0, _env_float("DELTALITE_GOVERNOR_RSS_SAMPLE_MS", _DEFAULT_RSS_SAMPLE_MS)),
             rss_retention=_rss_retention(),
+            borrow_mode=GovernorConfig._resolve_borrow_mode(),
+            borrow_max_slices=max(1.0, float(settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES)),
+            probe_cache_mb=GovernorConfig._resolve_probe_cache_mb(),
         )
+
+    @staticmethod
+    def _resolve_borrow_mode() -> Mode:
+        mode = str(settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW).strip().lower()
+        if mode not in ("off", "advisory", "enforce"):
+            logger.warning("invalid DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW=%r; defaulting to advisory", mode)
+            return "advisory"
+        return mode  # type: ignore[return-value]
+
+    @staticmethod
+    def _resolve_probe_cache_mb() -> float:
+        """The probe cache cap, read from the variable deltalite reads. 0 when the writer turns the cache off."""
+        if not settings.DATA_WAREHOUSE_DELTALITE_PROBE_CACHE:
+            return 0.0
+        return max(0.0, _env_float("DELTALITE_PROBE_CACHE_BYTES", _DEFAULT_PROBE_CACHE_BYTES)) / MB
 
     @staticmethod
     def _resolve_max_concurrent() -> int:
@@ -924,6 +958,13 @@ class Admission:
     #: Time spent waiting for room before the write, and whether the wait ran out.
     wait_ms: int = 0
     wait_timed_out: bool = False
+    #: The borrowed plan: the slices it reserves and its knobs. None when no borrow was possible:
+    #: borrowing off, the slice-sized plan already the widest, or too little idle pod memory.
+    borrow_slots: float | None = None
+    borrow_mpp: int | None = None
+    borrow_mpf: int | None = None
+    #: True when this upsert runs the borrowed plan and holds its reservation.
+    borrow_applied: bool = False
 
 
 # --- The governor ----------------------------------------------------------------------------
@@ -1049,6 +1090,56 @@ class MemoryGovernor:
                     if ticket in self._waiters:
                         self._waiters.remove(ticket)
 
+    # -- borrowing idle pod memory -------------------------------------------------------------
+
+    def _borrowable_mb(self, usable_mb: float) -> float:
+        """Memory one borrow may reserve now: half of the free pod memory, and none while an upsert waits.
+
+        Free memory is the usable pod (the limit after the safety derate and the reserve) less the
+        reservations in flight and the probe cache cap. The half rule leaves at least as much free as a
+        borrower takes, so the next upsert finds room without a wait, and a series of borrowers fills
+        the pod in shrinking steps instead of at once. A waiter means the pod is already full, so a
+        borrow then would only make the wait longer. Call with ``self._lock`` held.
+        """
+        if self._waiters:
+            return 0.0
+        free_mb = usable_mb - self._reserved_mb - self.config.probe_cache_mb
+        return max(0.0, free_mb) / 2
+
+    def _borrowed_plan(
+        self,
+        slice_plan: UpsertPlan,
+        budget_mb: float,
+        usable_mb: float,
+        source_mb: float,
+        n_partitions: int | None,
+        rewrite: RewriteProfile,
+    ) -> UpsertPlan | None:
+        """A plan wider than ``slice_plan`` sized to the borrowable pod memory, or None when there is none.
+
+        The pod state can change before the caller reserves, so ``_take_borrowed`` checks it again.
+        """
+        if self.config.borrow_mode == "off" or is_widest_plan(slice_plan, rewrite, n_partitions):
+            return None
+        with self._lock:
+            borrow_mb = min(self.config.borrow_max_slices * budget_mb, self._borrowable_mb(usable_mb))
+        if borrow_mb <= budget_mb:
+            return None
+        plan = size_upsert(borrow_mb, source_mb, n_partitions, rewrite, self.config.rss_retention)
+        widens = (plan.max_parallel_partitions, plan.max_parallel_files) > (
+            slice_plan.max_parallel_partitions,
+            slice_plan.max_parallel_files,
+        )
+        return plan if plan.fits and widens else None
+
+    def _take_borrowed(self, reserve_mb: float, usable_mb: float) -> bool:
+        """Reserve a borrowed plan if it still fits the borrow rule. A borrow never waits."""
+        with self._lock:
+            if reserve_mb > self._borrowable_mb(usable_mb) + _ROOM_TOLERANCE_MB:
+                return False
+            self._take(reserve_mb)
+            return True
+
     @contextlib.asynccontextmanager
     async def admit(
         self,
@@ -1064,6 +1155,10 @@ class MemoryGovernor:
         mode an upsert predicted above its slice reserves up to the whole usable pod, and entry
         waits (bounded by ``max_wait_s``) until the reservation fits beside the ones in flight.
         In every mode but off, the process RSS is sampled from the end of any wait until exit.
+
+        When the slice-sized plan is narrower than the widest plan, the upsert can borrow idle pod
+        memory (``_borrowable_mb``) up to ``borrow_max_slices`` slices. Borrow advisory only logs the
+        borrowed plan. Borrow enforce, with enforce mode, runs it and holds its reservation.
         """
         source_mb = source_bytes / MB
 
@@ -1073,6 +1168,7 @@ class MemoryGovernor:
 
         limit_mb = self.pod.limit_mb()
         plan: UpsertPlan | None = None
+        borrowed: UpsertPlan | None = None
         budget_mb: float | None = None
         usable_mb = reserve_mb = 0.0
         # No cgroup limit visible (local dev / unreadable): we can't size a slice, so use deltalite's
@@ -1083,27 +1179,41 @@ class MemoryGovernor:
             plan = size_upsert(budget_mb, source_mb, n_partitions, rewrite, self.config.rss_retention)
             # Capped at the usable pod so an upsert alone always fits and never waits for itself.
             reserve_mb = min(plan.predicted_peak_mb, usable_mb)
+            # An unknown shape is sized by a guess, so it never borrows on top of it.
+            if rewrite is not None:
+                borrowed = self._borrowed_plan(plan, budget_mb, usable_mb, source_mb, n_partitions, rewrite)
 
         # Only enforce reserves against the budget (and may wait for room); advisory is a pure
         # no-op on the accounting.
         admitted = False
+        borrow_applied = False
         waited_s, timed_out = 0.0, False
         if plan is not None and self.config.mode == "enforce":
-            waited_s, timed_out = await self._reserve(reserve_mb, usable_mb)
+            if (
+                borrowed is not None
+                and self.config.borrow_mode == "enforce"
+                and self._take_borrowed(borrowed.predicted_peak_mb, usable_mb)
+            ):
+                borrow_applied = True
+                reserve_mb = borrowed.predicted_peak_mb
+            else:
+                waited_s, timed_out = await self._reserve(reserve_mb, usable_mb)
             admitted = True
+        applied = borrowed if borrow_applied else plan
         with self._lock:
             self._active += 1
             concurrent = self._active
 
         adm = Admission(
-            upsert_kwargs=plan.as_upsert_kwargs() if plan is not None and admitted else {},
+            upsert_kwargs=applied.as_upsert_kwargs() if applied is not None and admitted else {},
             mode=self.config.mode,
-            predicted_peak_mb=plan.predicted_peak_mb if plan is not None else None,
+            predicted_peak_mb=applied.predicted_peak_mb if applied is not None else None,
             budget_mb=round(budget_mb, 1) if budget_mb is not None else None,
-            planned_mpp=plan.max_parallel_partitions if plan is not None else None,
-            planned_mpf=plan.max_parallel_files if plan is not None else None,
+            planned_mpp=applied.max_parallel_partitions if applied is not None else None,
+            planned_mpf=applied.max_parallel_files if applied is not None else None,
+            # Measured against the slice, so the ops signal keeps its meaning when the upsert borrows.
             capacity_exceeded=plan is not None and not plan.fits,
-            estimate=plan.estimate if plan is not None else None,
+            estimate=applied.estimate if applied is not None else None,
             max_row_group_mb=round(rewrite.max_row_group_mb, 1) if rewrite is not None else None,
             row_group_sized_files=rewrite.row_group_sized_files if rewrite is not None else None,
             footers_read=rewrite.footers_read if rewrite is not None else None,
@@ -1114,6 +1224,12 @@ class MemoryGovernor:
             reserved_slots=round(reserve_mb / budget_mb, 2) if budget_mb else None,
             wait_ms=round(waited_s * 1000),
             wait_timed_out=timed_out,
+            borrow_slots=round(borrowed.predicted_peak_mb / budget_mb, 2)
+            if borrowed is not None and budget_mb
+            else None,
+            borrow_mpp=borrowed.max_parallel_partitions if borrowed is not None else None,
+            borrow_mpf=borrowed.max_parallel_files if borrowed is not None else None,
+            borrow_applied=borrow_applied,
         )
         if plan is not None:
             self._emit_decision(adm, source_mb)
@@ -1139,13 +1255,16 @@ class MemoryGovernor:
         if adm.capacity_exceeded:
             logger.warning(
                 "deltalite governor: source %.0f MB with %.0f MB row groups exceeds its %.0f MB "
-                "per-upsert slice (max_concurrent=%d); running deltalite at mpp=1, mpf=1 and "
-                "reserving %.2f slices (waited %d ms, timed out: %s).",
+                "per-upsert slice (max_concurrent=%d); running deltalite at mpp=%s, mpf=%s and "
+                "reserving %.2f slices (borrowed: %s, waited %d ms, timed out: %s).",
                 source_mb,
                 adm.max_row_group_mb or 0.0,
                 adm.budget_mb or 0.0,
                 self.config.max_concurrent,
+                adm.planned_mpp,
+                adm.planned_mpf,
                 adm.reserved_slots or 0.0,
+                adm.borrow_applied,
                 adm.wait_ms,
                 adm.wait_timed_out,
             )

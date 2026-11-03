@@ -41,7 +41,19 @@ export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
+    /**
+     * Model name, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_name: string | null
+    /**
+     * Whether the model is soft-deleted, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_deleted: boolean | null
     readonly status: DataModelingJobStatusEnumApi
+    /** The engine that ran this materialization job. */
+    readonly engine: string
     /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
      *
      * * `full_refresh` - Full refresh
@@ -68,6 +80,31 @@ export interface DataModelingJobApi {
      * @nullable
      */
     readonly rows_expected: number | null
+    /**
+     * Bytes read by this run, or null if it has not been measured yet.
+     * @nullable
+     */
+    readonly read_bytes: number | null
+    /**
+     * Rows read by this run, including probes and retries.
+     * @nullable
+     */
+    readonly read_rows: number | null
+    /**
+     * ClickHouse CPU time in microseconds.
+     * @nullable
+     */
+    readonly cpu_microseconds: number | null
+    /**
+     * Number of ClickHouse queries measured for this run.
+     * @nullable
+     */
+    readonly query_count: number | null
+    /**
+     * When usage was last measured. Null means unmeasured.
+     * @nullable
+     */
+    readonly usage_updated_at: string | null
 }
 
 export interface PaginatedDataModelingJobListApi {
@@ -1834,6 +1871,10 @@ export interface SyncFrequencyOptionApi {
     blocked_by: SyncFrequencyBlockedByEnumApi | null
     /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
+    /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
+    speeds_up: SyncFrequencyBlockerApi[]
+    /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
+    speeds_up_withheld: boolean
 }
 
 export interface SyncFrequencyBoundApi {
@@ -2134,10 +2175,45 @@ export interface SavedQueryMaterializeApi {
     sync_frequency?: MaterializeSyncFrequencyEnumApi
 }
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `trino` - Trino
+ */
+export type MaterializationEngineEnumApi =
+    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
+
+export const MaterializationEngineEnumApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
+/**
+ * Body of the `resume` action.
+ */
+export interface SavedQueryResumeRequestApi {
+    /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
+}
+
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
 }
+
+/**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
 
 /**
  * Body of the `run` action.
@@ -2145,6 +2221,21 @@ export interface SavedQueryResumeApi {
 export interface SavedQueryRunApi {
     /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
     full_refresh?: boolean
+    /** Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction?: MaterializationRunDirectionEnumApi
+    /** Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
+}
+
+export interface SavedQueryRunResponseApi {
+    /** The data model nodes included in the run. */
+    node_ids: string[]
 }
 
 /**
@@ -2551,6 +2642,7 @@ export interface CredentialApi {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -3268,6 +3360,7 @@ export interface CredentialApi {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -3756,6 +3849,16 @@ export interface CredentialApi {
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
  * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
+ * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
+ * * `Soniox` - Soniox
+ * * `Nango` - Nango
+ * * `Fathom` - Fathom
+ * * `Stamped` - Stamped
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3959,6 +4062,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
@@ -4676,6 +4780,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',
@@ -5164,6 +5269,16 @@ export const ExternalDataSourceTypeEnumApi = {
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
     CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
+    FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
+    Soniox: 'Soniox',
+    Nango: 'Nango',
+    Fathom: 'Fathom',
+    Stamped: 'Stamped',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5236,6 +5351,11 @@ export interface TableApi {
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
@@ -5315,6 +5435,11 @@ export interface PatchedTableApi {
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id?: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
@@ -5329,14 +5454,26 @@ export interface PatchedTableApi {
  * * `json` - json
  * * `parquet` - parquet
  */
-export type CreateTableFromUploadFileFormatEnumApi =
-    (typeof CreateTableFromUploadFileFormatEnumApi)[keyof typeof CreateTableFromUploadFileFormatEnumApi]
+export type UploadedFileFormatEnumApi = (typeof UploadedFileFormatEnumApi)[keyof typeof UploadedFileFormatEnumApi]
 
-export const CreateTableFromUploadFileFormatEnumApi = {
+export const UploadedFileFormatEnumApi = {
     Csv: 'csv',
     Json: 'json',
     Parquet: 'parquet',
 } as const
+
+export interface UploadedFileApi {
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+}
 
 export interface CreateTableFromUploadApi {
     /** Id returned by upload_file for the stored file. */
@@ -5348,7 +5485,7 @@ export interface CreateTableFromUploadApi {
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
-    file_format: CreateTableFromUploadFileFormatEnumApi
+    file_format: UploadedFileFormatEnumApi
     /** Name the resulting table is queried by in HogQL. */
     table_name: string
 }
@@ -5527,7 +5664,26 @@ export interface ViewLinkValidationErrorApi {
 
 export type DataModelingJobsListParams = {
     /**
+     * Include jobs finished at or after this time.
+     */
+    after?: string
+    /**
+     * Include jobs from every materialization engine. Defaults to ClickHouse jobs only.
+     */
+    all_engines?: boolean
+    /**
+     * Include jobs finished before this time.
+     */
+    before?: string
+    /**
+     * * `clickhouse` - ClickHouse
+     * * `duckgres` - Duckgres
+     * * `managed_warehouse` - Managed warehouse
+     */
+    engine?: DataModelingJobsListEngine
+    /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -5535,6 +5691,10 @@ export type DataModelingJobsListParams = {
      */
     offset?: number
     saved_query_id?: string
+    /**
+     * Comma-separated materialized view IDs.
+     */
+    saved_query_ids?: string[]
     /**
      * * `Cancelled` - Cancelled
      * * `Completed` - Completed
@@ -5544,6 +5704,14 @@ export type DataModelingJobsListParams = {
      */
     status?: DataModelingJobsListStatus
 }
+
+export type DataModelingJobsListEngine = (typeof DataModelingJobsListEngine)[keyof typeof DataModelingJobsListEngine]
+
+export const DataModelingJobsListEngine = {
+    Clickhouse: 'clickhouse',
+    Duckgres: 'duckgres',
+    ManagedWarehouse: 'managed_warehouse',
+} as const
 
 export type DataModelingJobsListStatus = (typeof DataModelingJobsListStatus)[keyof typeof DataModelingJobsListStatus]
 
@@ -5891,6 +6059,7 @@ export type WarehouseSavedQueriesListParams = {
 export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5901,6 +6070,10 @@ export type WarehouseSavedQueryDraftsListParams = {
 
 export type WarehouseTablesListParams = {
     /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5908,6 +6081,10 @@ export type WarehouseTablesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only return self-managed tables that a managed source will import on its first sync.
+     */
+    pending_source?: boolean
     /**
      * A search term.
      */

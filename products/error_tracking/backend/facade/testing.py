@@ -10,6 +10,10 @@ from uuid import UUID
 
 from posthog.schema import ErrorTrackingIssueStatus
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.models.event.util import format_clickhouse_timestamp
+
 from products.error_tracking.backend.models import (
     ErrorTrackingAssignmentRule,
     ErrorTrackingBypassRule,
@@ -22,6 +26,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSuppressionRule,
     ErrorTrackingSymbolSet,
 )
+from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 
 _EMPTY_FILTERS: dict = {"type": "AND", "values": []}
 
@@ -66,10 +71,39 @@ def create_issue_assignment(*, team_id: int, issue_id: UUID) -> UUID:
     return ErrorTrackingIssueAssignment.objects.create(team_id=team_id, issue_id=issue_id).id
 
 
-def create_issue_fingerprint(*, team_id: int, issue_id: UUID, fingerprint: str) -> UUID:
-    return ErrorTrackingIssueFingerprintV2.objects.create(
-        team_id=team_id, issue_id=issue_id, fingerprint=fingerprint
-    ).id
+def create_issue_fingerprint(
+    *, team_id: int, issue_id: UUID, fingerprint: str, first_seen: datetime | None = None
+) -> UUID:
+    row = ErrorTrackingIssueFingerprintV2.objects.create(team_id=team_id, issue_id=issue_id, fingerprint=fingerprint)
+    if first_seen is not None:
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, id=row.id).update(first_seen=first_seen)
+    return row.id
+
+
+def sync_issue_to_clickhouse(*, team_id: int, issue_id: UUID) -> None:
+    """Seed queryable issue state without Kafka or process-global TEST overrides."""
+    issue = ErrorTrackingIssue.objects.get(team_id=team_id, id=issue_id)
+    for fingerprint in ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue_id):
+        first_seen = fingerprint.first_seen or issue.created_at
+        sync_execute(
+            INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            {
+                "fingerprint": fingerprint.fingerprint,
+                "issue_id": str(issue.id),
+                "team_id": team_id,
+                "issue_name": issue.name,
+                "issue_description": issue.description,
+                "issue_status": issue.status,
+                "issue_severity": issue.severity,
+                "assigned_user_id": None,
+                "assigned_role_id": None,
+                "first_seen": format_clickhouse_timestamp(first_seen) if first_seen else None,
+                "is_deleted": 0,
+                "version": int(fingerprint.created_at.timestamp() * 1000),
+            },
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
 
 
 def create_assignment_rule(*, team_id: int, order_key: int = 0) -> UUID:

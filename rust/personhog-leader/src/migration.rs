@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use assignment_coordination::store::parse_watch_value;
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use personhog_coordination::protocol::migration::{seal_overdue, seal_targets};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::{MigrationPhase, MigrationState, SealAck};
@@ -28,9 +28,23 @@ pub struct SealDuty {
     pub fenced: Arc<FencedChangelogProducers>,
 }
 
+/// Registers the seal metrics at zero. Migrations are rare and short, so a
+/// series born at its first seal would hide that seal from `increase()`.
+fn register_seal_metrics() {
+    for outcome in ["ok", "error"] {
+        counter!("personhog_leader_fence_seal_total", "outcome" => outcome).increment(0);
+    }
+    for path in ["prepared", "cold"] {
+        drop(histogram!("personhog_leader_fence_seal_ms", "path" => path));
+    }
+    counter!("personhog_leader_seal_duty_failures_total").increment(0);
+    counter!("personhog_leader_seal_overdue_passes_total").increment(0);
+}
+
 impl SealDuty {
     /// Wakes when the saga or its phase changes, and on an interval for retries.
     pub async fn run(self, cancel: CancellationToken) {
+        register_seal_metrics();
         let mut sealed: HashSet<(String, u32)> = HashSet::new();
         let mut preconnecting: HashMap<(String, u32), JoinHandle<()>> = HashMap::new();
         let mut acked: Option<(String, BTreeSet<u32>)> = None;

@@ -7,7 +7,7 @@ description: >
   macOS runners, troubleshooting GitHub Actions runner issues, configuring egress filtering,
   using Depot Cache with GitHub Actions, or running Dagger/Dependabot on Depot runners.
   Also use when the user mentions depot-ubuntu, depot-windows, depot-macos runner labels,
-  or asks about faster/cheaper GitHub Actions runners. Not for Depot CI, the separate engine
+  or asks about faster/cheaper GitHub Actions runners, `depot jobs`, job analytics, or CPU and memory metrics. Not for Depot CI, the separate engine
   that reads .depot/workflows/ — that is the depot-ci skill.
 ---
 
@@ -22,7 +22,7 @@ Depot provides managed, ephemeral, single-tenant GitHub Actions runners. Drop-in
 ## Depot runners are not Depot CI
 
 Depot runners keep GitHub Actions as the engine, so the workflow lives in `.github/workflows/` and the checks still come from the `github-actions` app.
-Depot CI is a different product: it reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from the `depot-code-access` app.
+Depot CI is a different product. It reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from one of [three Depot apps](../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check).
 Use the `depot-ci` skill for that one.
 
 Its [references/posthog-check-run-semantics.md](../depot-ci/references/posthog-check-run-semantics.md) compares what each engine reports for a skipped, empty-matrix or `continue-on-error` job, and how GitHub and the Trunk merge queue score those conclusions.
@@ -174,6 +174,8 @@ Setup:
 3. In Depot org settings, open Tailscale settings and connect using the OAuth client ID/secret.
 4. Add ACLs allowing `tag:depot-runner` to access target hosts/subnets.
 
+Optionally grant `Devices > Core` write scope so Depot can remove leftover offline nodes after machines stop abruptly. The scope permits listing and removing devices across the whole tailnet. Depot removes only offline, ephemeral nodes with the Depot tag and no running Depot machine. Without the scope, Tailscale removes ephemeral nodes later. To add the scope, create a new OAuth client with both scopes and reconnect Depot.
+
 ACL examples:
 
 ```json
@@ -210,6 +212,27 @@ Reference docs:
 Enable "Dependabot on self-hosted runners" in GitHub org settings. Jobs auto-run on `depot-ubuntu-latest`.
 
 **Important:** OIDC is not supported for Dependabot. Use `token:` input with a `DEPOT_TOKEN` secret instead.
+
+## Inspect Jobs and Resource Usage
+
+Use `depot jobs` for GitHub Actions jobs on Depot. Depot CI jobs use `depot ci` commands instead.
+
+```bash
+depot jobs --repo owner/repo --conclusion failure --output json
+depot jobs <github-job-id> --repo owner/repo --output json
+depot jobs metrics <github-job-id> --repo owner/repo --output json
+depot jobs analytics --repo owner/repo --job test --output json
+```
+
+All four forms accept `--org`, `--token`, and `--output` with `auto`, `table`, or `json`. Piped output defaults to JSON without prompting for login. Inspecting one job or its metrics requires exactly one `--repo`.
+
+Listings support repeatable `--repo`, `--status`, `--conclusion`, and `--runner-label`, plus `--query`. Status values are `queued`, `waiting`, `running`, and `finished`; conclusions are `success`, `failure`, `cancelled`, `skipped`, and `neutral`. Analytics filters are `--repo`, `--workflow`, `--workflow-path`, `--job`, and `--runner-label`.
+
+Listings and analytics return one page at a time. Use `--page-size` (1–250, default 50) and the returned `nextPageToken` with `--page-token`; keep filters and time ranges unchanged. Both default to the last 30 days. Supply `--start` and `--end` together as RFC 3339 timestamps for a positive range of at most 90 days.
+
+Per-job metrics include CPU and memory samples, statistics, and availability. JSON utilization is a fraction from 0 to 1; tables show percentages. Missing measurements remain absent, not zero. Execution windows are limited to seven days and 5,000 returned samples; statistics use all observed samples before downsampling. Aggregate analytics can lag completed jobs by 15 minutes. Step timings are unavailable.
+
+Job inspection and `depot jobs metrics` also report observed out-of-memory (OOM) kernel kills. No observed events does not rule out OOM; events can arrive after completion. At most 100 events are returned, with truncation indicated in JSON.
 
 ## SSH Debugging
 

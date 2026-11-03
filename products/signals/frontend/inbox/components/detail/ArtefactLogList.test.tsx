@@ -307,7 +307,7 @@ describe('ArtefactLogList', () => {
 
         expect(screen.getByText('Ranking scored')).toBeInTheDocument()
         expect(screen.getByText('Open')).toBeInTheDocument()
-        expect(screen.getByText('Engage')).toBeInTheDocument()
+        expect(screen.getByText('Action')).toBeInTheDocument()
         expect(screen.getByText('Fix')).toBeInTheDocument()
         // The scores keep their display order. The other heads sort highest lift first, and stored lifts win over the metadata threshold.
         expect(screen.getAllByText(/^[\d.]+x$/).map((node) => node.textContent)).toEqual([

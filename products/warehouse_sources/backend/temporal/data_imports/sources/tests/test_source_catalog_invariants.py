@@ -6,7 +6,6 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,

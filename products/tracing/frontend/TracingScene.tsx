@@ -25,7 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
-import { FacetRail } from './components/FacetRail/FacetRail'
+import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { TracingSqlEditor } from './components/TracingSqlEditor/TracingSqlEditor'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
@@ -44,7 +44,7 @@ import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { type TracingSceneTab, tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
-import { tracingViewerLogic } from './tracingViewerLogic'
+import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
@@ -91,7 +91,6 @@ function TracingSceneContents(): JSX.Element {
         spansError,
         isTraceOpen,
         selectedTraceId,
-        selectedSpanId,
         selectedTraceTs,
         sparklineData,
         sparklineLoading,
@@ -101,7 +100,8 @@ function TracingSceneContents(): JSX.Element {
         traceSessionId,
         sessionErrorBadgesEnabled,
         errorBadgeByRow,
-        inspectorTab,
+        inspectorOpen,
+        isFullscreen,
         errorsScope,
         isLoadingFullTrace,
         canLoadMoreTraceSpans,
@@ -124,7 +124,7 @@ function TracingSceneContents(): JSX.Element {
         latencyHeatmapData,
         latencyHeatmapLoading,
         showHeatmap,
-        activeTracingTab,
+        displayMode,
         compareActive,
         sceneTabsEnabled,
         activeSceneTab,
@@ -135,7 +135,6 @@ function TracingSceneContents(): JSX.Element {
     const {
         openTrace,
         closeTrace,
-        selectSpan,
         setDateRange,
         updateComparisonWindows,
         openCompareFlame,
@@ -146,7 +145,8 @@ function TracingSceneContents(): JSX.Element {
         loadTraceSpans,
         loadMoreTraceSpans,
         setVisibleRowRange,
-        selectInspectorTab,
+        toggleInspector,
+        toggleFullscreen,
         setSort,
         setChartType,
         applyHeatmapBrush,
@@ -154,7 +154,6 @@ function TracingSceneContents(): JSX.Element {
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
-    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
     const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
@@ -226,7 +225,7 @@ function TracingSceneContents(): JSX.Element {
             : undefined
 
     return (
-        <SceneContent className="h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
+        <SceneContent className="@container/facet-rail-host h-[calc(var(--scene-layout-rect-height,_100vh)_-_1rem)]">
             <SceneTitleSection
                 name="Tracing"
                 description="Monitor and analyze distributed traces to understand service performance and debug issues."
@@ -308,23 +307,30 @@ function TracingSceneContents(): JSX.Element {
                         compareActive ? 'The heatmap is unavailable while comparing time windows' : null
                     }
                 />
-                <div className="flex flex-row gap-2 flex-1 min-h-0">
-                    {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
+                <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                    {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
-                        {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
+                        {compareActive && displayMode !== 'operations' && displayMode !== 'endpoints' && (
                             <ComparisonBar />
                         )}
-                        {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                        {displayMode === 'operations' || displayMode === 'endpoints' ? (
                             <OperationsTable
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
                                 showImpact={impactStripEnabled}
-                                onRowClick={(row) =>
-                                    router.actions.push(
-                                        urls.tracingOperation(row.service_name, row.name, filters.dateRange)
-                                    )
+                                groupedByEndpoint={displayMode === 'endpoints'}
+                                // No row click on endpoints yet: an endpoint row can merge span
+                                // names, and the operation page opens one span name. Rows stay
+                                // unclickable while loading, because they can still be the other tab's.
+                                onRowClick={
+                                    displayMode === 'operations' && !aggregationLoading
+                                        ? (row) =>
+                                              router.actions.push(
+                                                  urls.tracingOperation(row.service_name, row.name, filters.dateRange)
+                                              )
+                                        : undefined
                                 }
                             />
                         ) : compareActive ? (
@@ -379,6 +385,7 @@ function TracingSceneContents(): JSX.Element {
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             <TraceDrawer
+                viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}
                 ts={selectedTraceTs}
@@ -386,9 +393,11 @@ function TracingSceneContents(): JSX.Element {
                 identity={traceIdentity}
                 sessionId={traceSessionId}
                 showErrorsTab={sessionErrorBadgesEnabled}
-                inspectorTab={inspectorTab}
                 errorsScope={errorsScope}
-                onSelectInspectorTab={selectInspectorTab}
+                inspectorOpen={inspectorOpen}
+                onToggleInspector={toggleInspector}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={toggleFullscreen}
                 loading={isLoadingFullTrace}
                 loadFailed={selectedTraceLoadFailed}
                 filtersActive={traceLoadFiltersActive}
@@ -400,8 +409,6 @@ function TracingSceneContents(): JSX.Element {
                 hasMoreSpans={canLoadMoreTraceSpans}
                 loadingMoreSpans={traceSpansLoadingMore}
                 onLoadMoreSpans={loadMoreTraceSpans}
-                selectedSpanId={selectedSpanId}
-                onSelectSpan={selectSpan}
                 onClose={closeTrace}
             />
             <LemonModal
@@ -415,6 +422,7 @@ function TracingSceneContents(): JSX.Element {
                     previous={spanTree.previous}
                     loading={spanTreeLoading}
                     initialSpanName={compareFlameSpanName}
+                    surface="compare_modal"
                 />
             </LemonModal>
         </SceneContent>

@@ -13,6 +13,8 @@ import type {
   CanvasSource,
   CanvasStateEntry,
   CanvasStateScope,
+  CanvasToolDefinition,
+  CanvasToolResult,
   CanvasVersion,
   CanvasView,
   DashboardRecord,
@@ -113,6 +115,14 @@ export interface IDashboardsService {
     verb: string;
     payload: Record<string, unknown>;
   }): Promise<CanvasActionResult>;
+  // The PostHog MCP tools a canvas may declare.
+  listTools(): Promise<CanvasToolDefinition[]>;
+  // Run one declared PostHog MCP tool as the viewer.
+  invokeTool(input: {
+    id: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+  }): Promise<CanvasToolResult>;
   // Call one declared connector tool with the viewer's own connection.
   callConnector(input: {
     id: string;

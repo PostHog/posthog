@@ -31,9 +31,10 @@ from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
-    EMBEDDING_DOCUMENT_TYPE,
-    EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
+    OBSERVATION_EMBEDDINGS_TABLE,
+    OBSERVATION_SCOPE_PREWHERE,
+    observation_scope_params,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -78,11 +79,6 @@ _QUERY_VECTOR_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="r
 # Warming gets its own pool so a burst of page views never queues a live search behind it.
 _WARM_VECTOR_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="replay-vision-query-vector-warm")
 
-_EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
-_SCOPE_PREWHERE = """team_id = %(team_id)s
-              AND product = %(product)s
-              AND document_type = %(document_type)s
-              AND JSONExtractString(metadata, 'scanner_id') IN %(scanner_ids)s"""
 _CANDIDATE_QUERY_TYPE = "replay_vision_search_candidates"
 _RANK_QUERY_TYPE = "replay_vision_search_rank"
 
@@ -214,7 +210,7 @@ def candidate_cutoff(team: Team, scanner_ids: list[str], filters: ObservationSea
             SELECT minOrNull(timestamp)
             FROM (
                 SELECT timestamp
-                FROM {_EMBEDDINGS_TABLE}
+                FROM {OBSERVATION_EMBEDDINGS_TABLE}
                 PREWHERE {scope}
                 ORDER BY timestamp DESC
                 LIMIT %(candidate_cap)s
@@ -230,17 +226,13 @@ def candidate_cutoff(team: Team, scanner_ids: list[str], filters: ObservationSea
 
 
 def _scope_params(team: Team, scanner_ids: list[str]) -> dict[str, Any]:
-    return {
-        "team_id": team.id,
-        "product": EMBEDDING_PRODUCT,
-        "document_type": EMBEDDING_DOCUMENT_TYPE,
-        "scanner_ids": scanner_ids,
-        "candidate_cap": _MAX_CANDIDATE_ROWS,
-    }
+    return {**observation_scope_params(team.id, scanner_ids), "candidate_cap": _MAX_CANDIDATE_ROWS}
 
 
 def _scope_clause(filters: ObservationSearchFilters, params: dict[str, Any]) -> str:
-    return _SCOPE_PREWHERE + "".join(f"\n              AND {clause}" for clause in filters.where_clauses(params))
+    return OBSERVATION_SCOPE_PREWHERE + "".join(
+        f"\n              AND {clause}" for clause in filters.where_clauses(params)
+    )
 
 
 def rank_observations(
@@ -287,7 +279,7 @@ def rank_observations(
                     document_id,
                     cosineDistance(embedding, %(embedding)s) AS row_distance,
                     substring(content, 1, %(snippet_chars)s) AS snippet
-                FROM {_EMBEDDINGS_TABLE}
+                FROM {OBSERVATION_EMBEDDINGS_TABLE}
                 PREWHERE {scope}
                   AND timestamp >= %(cutoff)s
                 WHERE row_distance <= %(max_distance)s
@@ -332,15 +324,17 @@ def fetch_ranked_observations(
     return [obs for observation_id in ordered_ids if (obs := observations.get(observation_id)) is not None]
 
 
-def parse_date_bound(value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool) -> datetime:
+def parse_date_bound(
+    value: str, timezone_info: ZoneInfo | None, *, end_of_range: bool, now: datetime | None = None
+) -> datetime:
     """Parse a caller-supplied date bound: ISO 8601, `now`, or relative (`-7d`), naive values in the
     project's timezone. A date-only upper bound covers its whole day. Shared by the observation list and
     search. Raises `ValueError` on text that is none of those, rather than treating it as now."""
     timezone_info = timezone_info or ZoneInfo("UTC")
     if value.strip().lower() == "now":
         # `now` already carries a time of day, so it skips the end-of-range widening below.
-        return datetime.now(timezone_info)
-    parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, timezone_info)
+        return now.astimezone(timezone_info) if now else datetime.now(timezone_info)
+    parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(value, timezone_info, now=now)
     # The relative branch hands back an empty mapping when nothing in the text matched a period.
     if delta_mapping == {}:
         raise ValueError(f"Unrecognized date: {value!r}. Use ISO 8601, a relative date like -7d, or 'now'.")

@@ -1,11 +1,12 @@
 import json
 import uuid
+from contextlib import ExitStack
 
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
-from django.db import connection
+from django.db import connection, connections
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
@@ -14,6 +15,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.tagged_item_registry import content_type_for
@@ -46,10 +48,17 @@ from ee.api.test.base import APILicensedTest
 class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
+        self._set_access_control_available(True)
+
+    def _set_access_control_available(self, available: bool) -> None:
+        self.organization.available_product_features = (
+            [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            if available
+            else []
+        )
         self.organization.save()
 
     def _put_project_access_control(self, data=None):
@@ -99,6 +108,28 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         res = self._put_project_access_control()
         res = self._put_project_access_control({"access_level": None})
         assert res.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_rule_changes_are_written_to_the_activity_log(self):
+        self._org_membership(OrganizationMembership.Level.OWNER)
+        subject = {"organization_member": str(self.organization_membership.id)}
+        for level in ("member", "admin", None):
+            self._put_project_access_control({**subject, "access_level": level})
+
+        logs = list(ActivityLog.objects.filter(scope="AccessControl").order_by("created_at"))
+        details = [log.detail or {} for log in logs]
+        assert [(log.activity, detail["changes"][0]["after"]) for log, detail in zip(logs, details)] == [
+            ("created", "member"),
+            ("updated", "admin"),
+            ("deleted", None),
+        ]
+        assert {log.user for log in logs} == {self.user}
+        assert details[0]["context"] == {
+            "resource": "project",
+            "resource_id": str(self.team.id),
+            "access_level": "member",
+            "role_id": None,
+            "organization_member_id": str(self.organization_membership.id),
+        }
 
     def test_project_change_if_in_access_control(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -1234,6 +1265,24 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         # do not depend on which tests ran before in the same worker.
         ContentType.objects.get_for_models(Dashboard, FeatureFlag)
 
+    def _count_queries(self, url: str) -> int:
+        captures = [CaptureQueriesContext(connections[db]) for db in self.databases]
+        with ExitStack() as stack:
+            for capture in captures:
+                stack.enter_context(capture)
+            self.client.get(url)
+        return sum(len(capture.captured_queries) for capture in captures)
+
+    def _assert_access_control_adds_queries(self, url: str, expected_extra_queries: int) -> None:
+        self._set_access_control_available(False)
+        self.client.get(url)
+        queries_without_access_control = self._count_queries(url)
+
+        self._set_access_control_available(True)
+        self.client.get(url)
+        with self.assertNumQueries(queries_without_access_control + expected_extra_queries):
+            self.client.get(url)
+
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="my dashboard")
@@ -1241,41 +1290,34 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, name="other user dashboard"
         )
 
-        # Baseline query (triggers any first time cache things)
-        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 17
-
-        # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 4):
-            self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
+        # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 4):
-            self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
-        baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+        )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+        )
 
-        # The 9th query is domain enforcement resolving the user's current organization — this
-        # endpoint is the only one here that doesn't already load it for other reasons.
-        baseline = 9
-        # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 9):
-            # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
-            self.client.get("/api/projects/@current/is_generating_demo_data")
+        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
+        self._assert_access_control_adds_queries(
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+        )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
-            self.client.get("/api/projects/@current/notebooks/")
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
 
     def test_query_counts_with_preload_optimization(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1284,76 +1326,56 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, name="other user dashboard"
         )
 
-        # Baseline query (triggers any first time cache things)
-        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 16
-
-        # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 5):
-            self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
+        # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 5):
-            self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+        )
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        # Baseline query (triggers any first time cache things)
-        self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 8
-
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+        )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 6):
-            self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
+        self._assert_access_control_adds_queries(
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+        )
 
     def test_query_counts_stable_for_project_access(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
 
-        # The 9th query is domain enforcement resolving the user's current organization — this
-        # endpoint is the only one here that doesn't already load it for other reasons.
-        baseline = 9
-        # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 9):
-            # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
-            self.client.get("/api/projects/@current/is_generating_demo_data")
+        # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
+        # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
+        self._assert_access_control_adds_queries(
+            "/api/projects/@current/is_generating_demo_data", expected_extra_queries=6
+        )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
-            self.client.get("/api/projects/@current/notebooks/")
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        baseline = 9
-
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
-            self.client.get("/api/projects/@current/notebooks/")
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
         content_type_for(FeatureFlag)
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 14  # This is a lot! There is currently an n+1 issue with the legacy access control system
-
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
-        # IDs, the project's replay gates
-        with self.assertNumQueries(baseline + 8):
-            self.client.get("/api/projects/@current/feature_flags/")
+        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=3)
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
-        # IDs, the project's replay gates
-        with self.assertNumQueries(baseline + 8):
-            self.client.get("/api/projects/@current/feature_flags/")
+        # More flags add no access control queries
+        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=3)
 
 
 class TestAccessControlFiltering(BaseAccessControlTest):
@@ -2687,6 +2709,7 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag"]
         assert block["total"] == 1
+        assert block["hidden"] == 1
         assert block["has_more"] is False
 
     def test_used_in_includes_restricted_flags_for_org_admins(self):
@@ -2697,7 +2720,66 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         block = res.json()["feature_flags"]
         assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
         assert block["total"] == 2
+        assert block["hidden"] == 0
         assert block["has_more"] is False
+
+    def _create_reference(self, resource: str, cohort: Cohort, created_by: User, archived: bool = False) -> int:
+        reference = {"type": "cohort", "key": "id", "value": cohort.id}
+        if resource == "insight":
+            return Insight.objects.create(
+                team=self.team,
+                created_by=created_by,
+                query={
+                    "kind": "DataTableNode",
+                    "source": {"kind": "EventsQuery", "select": ["*"], "properties": [reference]},
+                },
+            ).id
+        if resource == "cohort":
+            return Cohort.objects.create(
+                team=self.team,
+                created_by=created_by,
+                name="Outer Cohort",
+                filters={"properties": {"type": "OR", "values": [{"type": "OR", "values": [reference]}]}},
+            ).id
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=created_by,
+            key=f"flag-{uuid.uuid4().hex[:8]}",
+            active=not archived,
+            archived=archived,
+            filters=self._cohort_flag_filters(cohort.id),
+        ).id
+
+    @parameterized.expand(
+        [
+            ("insight_member", "insight", "insights", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("insight_admin", "insight", "insights", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            ("cohort_member", "cohort", "cohorts", OrganizationMembership.Level.MEMBER, False, 1, 1),
+            ("cohort_admin", "cohort", "cohorts", OrganizationMembership.Level.ADMIN, False, 2, 0),
+            # An archived flag never blocks a delete, so it is not a hidden blocker.
+            ("archived_flag_member", "feature_flag", "feature_flags", OrganizationMembership.Level.MEMBER, True, 1, 0),
+        ]
+    )
+    def test_used_in_counts_hidden_references_that_block_a_delete(
+        self,
+        _name: str,
+        resource: str,
+        block_key: str,
+        level: OrganizationMembership.Level,
+        hidden_is_archived: bool,
+        total: int,
+        hidden: int,
+    ):
+        cohort = Cohort.objects.create(team=self.team, name="Target Cohort")
+        self._create_reference(resource, cohort, created_by=self.user)
+        hidden_id = self._create_reference(resource, cohort, created_by=self.other_user, archived=hidden_is_archived)
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id=str(hidden_id), access_level="none")
+        self._org_membership(level)
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()[block_key]
+        assert (len(block["results"]), block["total"], block["hidden"]) == (total, total, hidden)
 
 
 class TestOrganizationMemberProjectAccess(BaseAccessControlTest):

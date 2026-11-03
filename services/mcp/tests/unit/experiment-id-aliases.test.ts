@@ -133,7 +133,9 @@ describe('feature flag id aliases', () => {
         'feature-flag-disable',
         'feature-flag-enable',
         'feature-flag-get-definition',
+        'feature-flag-restore',
         'feature-flag-roll-out-to-everyone',
+        'feature-flag-rules-update',
         'feature-flag-set-release-condition-rollout',
         'feature-flag-unarchive',
         'feature-flags-activity-retrieve',
@@ -148,6 +150,10 @@ describe('feature flag id aliases', () => {
     const REQUIRED_EXTRAS: Record<string, Record<string, unknown>> = {
         'feature-flags-test-evaluation-create': { distinct_id: 'user-1' },
         'feature-flag-roll-out-to-everyone': { version: 3 },
+        'feature-flag-rules-update': {
+            version: 3,
+            filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+        },
         'feature-flag-set-release-condition-rollout': { condition_index: 0, rollout_percentage: 25, version: 3 },
     }
 

@@ -47,7 +47,11 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
-from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
+from products.ai_observability.backend.text_repr.formatters import (
+    EVENT_TEXT_MAX_CHARS,
+    sanitize_surrogates,
+    truncate_by_line_sampling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -127,7 +131,7 @@ def build_tagger_user_prompt(input_data: str, output_data: str) -> str:
     # Budget each side separately, because sampling the joined text can drop a short output at its end.
     output_data = truncate_by_line_sampling(output_data, max(budget // 2, budget - len(input_data)))
     input_data = truncate_by_line_sampling(input_data, budget - len(output_data))
-    return _render_tagger_user_prompt(input_data, output_data)
+    return sanitize_surrogates(_render_tagger_user_prompt(input_data, output_data))
 
 
 def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags: int, max_tags: int | None) -> str:

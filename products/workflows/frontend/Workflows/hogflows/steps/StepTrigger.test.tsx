@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -5,19 +7,34 @@ import { Node } from '@xyflow/react'
 import { BindLogic } from 'kea'
 
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
-import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
+import {
+    mockActionDefinition,
+    mockEventDefinitions,
+    mockGetEventDefinitions,
+    mockGetEventDefinitionsFrom,
+    mockGetPropertyDefinitions,
+} from '~/test/mocks'
 
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { StepTriggerConfiguration } from './StepTrigger'
 
+// react-virtualized renders no rows without real DOM measurements.
+jest.mock('lib/components/AutoSizer', () => ({
+    AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
+        renderProp({ height: 400, width: 400 }),
+}))
+
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+type EventTriggerConfig = Extract<TriggerAction['config'], { type: 'event' }>
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
 
@@ -38,6 +55,8 @@ describe('StepTriggerConfiguration', () => {
                 '/api/environments/:team/query': { results: [] },
             },
         })
+        // Recent picks persist in localStorage. Without this, a pick in one case shows up in the next.
+        localStorage.clear()
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
@@ -78,9 +97,31 @@ describe('StepTriggerConfiguration', () => {
         await waitFor(() => {
             const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as TriggerAction['config']
             expect(trigger.type).toEqual('event')
-            expect((trigger as Extract<TriggerAction['config'], { type: 'event' }>).filters?.properties).toEqual(
-                properties
-            )
+            expect((trigger as EventTriggerConfig).filters?.properties).toEqual(properties)
+        })
+    })
+
+    it('lets a team on flag evaluations mode 2 pick Feature flag called as a trigger event', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': mockGetEventDefinitionsFrom([
+                    { ...mockEventDefinitions[0], id: 'flag-called', name: '$feature_flag_called' },
+                ]),
+            },
+        })
+        renderTrigger([])
+
+        fireEvent.click(screen.getByText('Add trigger event'))
+        fireEvent.click(await screen.findByTestId('trend-element-subject-0'))
+        fireEvent.click(await screen.findByText('Feature flag called'))
+
+        await waitFor(() => {
+            const trigger = workflowLogic(LOGIC_PROPS).values.workflow.trigger as EventTriggerConfig
+            expect(trigger.filters?.events?.map((event) => event.id)).toEqual(['$feature_flag_called'])
         })
     })
 

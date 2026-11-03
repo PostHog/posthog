@@ -9,6 +9,7 @@ import { Chip, ChipClose } from './chip'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
+import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
 
@@ -179,9 +180,15 @@ const ComboboxItem = React.forwardRef<
         disabledReason?: React.ReactNode
         /** An action row, such as "New project". It is never selected, so it leaves out the check mark's gutter. */
         action?: boolean
+        /** A muted second line under the label. The row grows to fit it, and its text lines up past a leading icon. */
+        description?: React.ReactNode
     }
->(function ComboboxItem({ className, children, title, tooltip, disabledReason, disabled, action, ...props }, ref) {
+>(function ComboboxItem(
+    { className, children, title, tooltip, disabledReason, disabled, action, description, ...props },
+    ref
+) {
     const hasReason = hasTooltipContent(disabledReason)
+    const described = hasTooltipContent(description)
     // A disabled item ignores the pointer, so the tooltip listens on a wrapper and opens beside the row.
     return withTooltip(
         <ComboboxPrimitive.Item
@@ -189,7 +196,7 @@ const ComboboxItem = React.forwardRef<
             data-slot="combobox-item"
             data-action={action ? '' : undefined}
             disabled={disabled || hasReason}
-            className={cn('quill-combobox__item', className)}
+            className={cn('quill-combobox__item', described && 'quill-menu-item--described', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
@@ -197,7 +204,9 @@ const ComboboxItem = React.forwardRef<
             render={<Button size="row" left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
-            <span className="quill-combobox__item-content flex items-center min-w-0 truncate">{children}</span>
+            <span className="quill-combobox__item-content flex items-center min-w-0 truncate">
+                {described ? <MenuItemBody description={description}>{children}</MenuItemBody> : children}
+            </span>
             <ComboboxPrimitive.ItemIndicator
                 render={<span className="pointer-events-none absolute start-2 flex items-center justify-center" />}
             >
