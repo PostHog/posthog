@@ -224,9 +224,17 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert response.json()["results"] == []
 
     @parameterized.expand(
-        [([],), (["person"],), (["actor"],), (["(SELECT count() FROM posthog.person_group_membership)"],)]
+        [
+            ([],),
+            (["person"],),
+            (["actor"],),
+            (["persons.id AS `group`", "group"],),
+            (["persons.id AS session", "session"],),
+            (["(SELECT count() FROM posthog.person_group_membership)"],),
+        ]
     )
     def test_widget_rejects_unsupported_columns(self, columns: list[str]) -> None:
+        self._restrict_properties()
         assert self._run_widget_query(select=columns).status_code == 400
 
     @parameterized.expand(

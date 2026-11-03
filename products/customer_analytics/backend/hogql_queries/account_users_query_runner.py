@@ -163,7 +163,9 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return AccountUsersStrategy(team=self.team, query=query, paginator=paginator, user=self.user)
 
     def validate_actors_query(self, query: ActorsQuery) -> None:
-        if not query.select or any(column.strip() in {"person", "actor"} for column in query.select):
+        if not query.select or any(
+            column.strip() in {"person", "group", "actor", "session"} for column in query.select
+        ):
             raise QueryError("Select explicit person columns for account users.")
 
     def get_person_display_name_column(self) -> ast.Expr:
