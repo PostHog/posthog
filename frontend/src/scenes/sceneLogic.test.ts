@@ -10,6 +10,12 @@ describe('sceneLogic', () => {
                 '/data-warehouse/new-source?kind=Vercel&utm_source=wizard',
             ],
             ['prefers an explicit next param', '/project/123/insights?a=1', '/dashboard?b=2', '/dashboard?b=2'],
+            [
+                'ignores an off-site next param',
+                '/project/123/insights?a=1',
+                'https://evil.example.com/dashboard',
+                '/insights?a=1',
+            ],
         ])('%s', (_label, href, nextParam, expected) => {
             const location = new URL(href, 'https://us.posthog.com') as unknown as Location
             expect(getOnboardingRedirectNextPath(nextParam, location)).toBe(expected)
