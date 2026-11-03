@@ -2979,16 +2979,23 @@ class TestSavedQueryRun(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("completed_run_5_minutes_ago", DataModelingJob.Status.COMPLETED, 5, None, 429),
-            ("running_run_5_minutes_ago", DataModelingJob.Status.RUNNING, 5, None, 429),
-            ("completed_run_20_minutes_ago", DataModelingJob.Status.COMPLETED, 20, None, 200),
-            ("failed_run_5_minutes_ago", DataModelingJob.Status.FAILED, 5, None, 200),
-            ("query_edited_after_the_run", DataModelingJob.Status.COMPLETED, 5, 2, 200),
+            ("completed_run_5_minutes_ago", [(DataModelingJob.Status.COMPLETED, 5)], None, 429),
+            ("running_run_5_minutes_ago", [(DataModelingJob.Status.RUNNING, 5)], None, 429),
+            ("completed_run_20_minutes_ago", [(DataModelingJob.Status.COMPLETED, 20)], None, 200),
+            ("failed_run_5_minutes_ago", [(DataModelingJob.Status.FAILED, 5)], None, 200),
+            (
+                "failed_run_after_a_completed_run",
+                [(DataModelingJob.Status.COMPLETED, 10), (DataModelingJob.Status.FAILED, 5)],
+                None,
+                200,
+            ),
+            ("query_edited_after_the_run", [(DataModelingJob.Status.COMPLETED, 5)], 2, 200),
+            ("query_edited_while_the_run_ran", [(DataModelingJob.Status.COMPLETED, 10)], 8, 200),
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_is_refused_soon_after_the_last_run(
-        self, _name, job_status, run_minutes_ago, query_edited_minutes_ago, expected_status, mock_sync_connect
+        self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
     ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -2997,13 +3004,15 @@ class TestSavedQueryRun(APIBaseTest):
         if query_edited_minutes_ago is not None:
             saved_query.query_updated_at = now - timedelta(minutes=query_edited_minutes_ago)
             saved_query.save(update_fields=["query_updated_at"])
-        DataModelingJob.objects.create(
-            team=self.team,
-            saved_query=saved_query,
-            status=job_status,
-            engine=DataModelingJobEngine.CLICKHOUSE,
-            last_run_at=now - timedelta(minutes=run_minutes_ago),
-        )
+        for job_status, started_minutes_ago in runs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=now,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
 
         with time_machine.travel(now, tick=False):
             response = self.client.post(
@@ -3012,7 +3021,7 @@ class TestSavedQueryRun(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status, response.content)
         if expected_status == 429:
-            self.assertEqual(response.headers["Retry-After"], str((15 - run_minutes_ago) * 60))
+            self.assertEqual(response.headers["Retry-After"], str((15 - runs[-1][1]) * 60))
             mock_client.start_workflow.assert_not_called()
         else:
             mock_client.start_workflow.assert_called_once()

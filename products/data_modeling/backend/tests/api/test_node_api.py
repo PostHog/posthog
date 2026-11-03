@@ -515,13 +515,13 @@ class TestNodeViewSet(APIBaseTest):
     def test_materialize_is_refused_soon_after_the_last_run(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
-        DataModelingJob.objects.create(
+        job = DataModelingJob.objects.create(
             team=self.team,
             saved_query=self.view_node.saved_query,
             status=DataModelingJob.Status.COMPLETED,
             engine=DataModelingJobEngine.CLICKHOUSE,
-            last_run_at=timezone.now() - timedelta(minutes=5),
         )
+        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/materialize/",

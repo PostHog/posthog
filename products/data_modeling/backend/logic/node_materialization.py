@@ -100,32 +100,33 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
 
 
 def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
-    """Refuse a manual run of a view that started a ClickHouse run less than MANUAL_RUN_MIN_INTERVAL ago.
+    """Refuse a manual run of a view whose latest ClickHouse run started less than MANUAL_RUN_MIN_INTERVAL ago.
 
-    A failed run does not count, so a person can retry it at once. A query edit after the last run
-    lifts the limit, because the stored rows no longer match the query.
+    A failed or cancelled latest run does not count, so a person can retry it at once. A query edit after
+    the latest run started lifts the limit, because that run did not build the new query.
     """
-    last_run_at = (
+    latest_run = (
         DataModelingJob.objects.filter(
-            team_id=team_id,
-            saved_query_id=saved_query_id,
-            engine=DataModelingJobEngine.CLICKHOUSE,
-            status__in=[DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED],
+            team_id=team_id, saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE
         )
-        .order_by("-last_run_at")
-        .values_list("last_run_at", flat=True)
+        .exclude(status=DataModelingJobStatus.SKIPPED)
+        .order_by("-created_at")
+        .values_list("status", "created_at")
         .first()
     )
-    if last_run_at is None:
+    if latest_run is None:
+        return
+    status, started_at = latest_run
+    if status not in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
         return
     query_updated_at = (
         DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
         .values_list("query_updated_at", flat=True)
         .first()
     )
-    if query_updated_at is not None and query_updated_at > last_run_at:
+    if query_updated_at is not None and query_updated_at > started_at:
         return
-    wait_seconds = (last_run_at + MANUAL_RUN_MIN_INTERVAL - timezone.now()).total_seconds()
+    wait_seconds = (started_at + MANUAL_RUN_MIN_INTERVAL - timezone.now()).total_seconds()
     if wait_seconds > 0:
         raise MaterializationRanRecentlyError(RAN_RECENTLY_REFUSAL, retry_after_seconds=math.ceil(wait_seconds))
 
