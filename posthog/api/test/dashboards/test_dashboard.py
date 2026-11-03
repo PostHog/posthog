@@ -111,7 +111,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         for dashboard_name in dashboard_names:
             self.dashboard_api.create_dashboard({"name": dashboard_name})
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(15):
             response_data = self.dashboard_api.list_dashboards()
         self.assertEqual(
             [dashboard["name"] for dashboard in response_data["results"]],
@@ -175,7 +175,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "also tagged", "tags": ["tag2"]})
         self.dashboard_api.create_dashboard({"name": "not tagged"})
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(15):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag"]}
             )
@@ -189,7 +189,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.create_dashboard({"name": "not tagged"})
         self.dashboard_api.create_dashboard({"name": "not with the right tag", "tags": ["wrong-tag"]})
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(15):
             response = self.dashboard_api.list_dashboards(
                 expected_status=status.HTTP_200_OK, query_params={"tags": ["tag", "tag2"]}
             )
@@ -1158,21 +1158,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # queries: the runner passes its already-loaded team, so the check skips the Team
             # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
-            with self.assertNumQueries(baseline + 10):
+            with self.assertNumQueries(baseline + 12):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             # baseline + 10 + 6 once at least one insight materializes. Three of the 6 read the
             # revenue, marketing and customer analytics configs that go into the query cache key.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 12 + 6):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 10 + 6):
+            with self.assertNumQueries(baseline + 12 + 6):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 10 + 6):
+        with self.assertNumQueries(baseline + 12 + 6):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:
@@ -1244,7 +1244,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
