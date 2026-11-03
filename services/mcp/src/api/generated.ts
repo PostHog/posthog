@@ -49476,7 +49476,7 @@ export namespace Schemas {
          */
       flag_called_during_run: boolean | null;
       /**
-         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only once 3 days have passed since the end. Null before the end, before those 3 days are over without a call, or when the organization's flag calls can't be read.
          * @nullable
          */
       flag_called_after_end: boolean | null;
@@ -59708,8 +59708,56 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `pending` - Loading
+     * * `ready` - Ready
+     * * `empty` - No data
+     * * `error` - Could not load
+     */
+    export type PulseSlotStatusEnum = typeof PulseSlotStatusEnum[keyof typeof PulseSlotStatusEnum];
+
+
+    export const PulseSlotStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Empty: 'empty',
+      Error: 'error',
+    } as const;
+
+    export interface PulseSlot {
+      /** Why this number is selected, when known before its value arrives.
+       *
+       * * `routine` - You open this often
+       * * `dashboard` - On a dashboard you open often
+       * * `key_metric` - Project key metric
+       * * `popular` - Opened often in this project */
+      reason?: HighlightMetricReasonEnum | null;
+      /** Stable key of the selected number. */
+      key: string;
+      /** Title available before the number is computed. */
+      name: string;
+      /** Loading state of this number.
+       *
+       * * `pending` - Loading
+       * * `ready` - Ready
+       * * `empty` - No data
+       * * `error` - Could not load */
+      status: PulseSlotStatusEnum;
+      /**
+         * Path to the source, relative to the project.
+         * @nullable
+         */
+      url: string | null;
+      /** Measurement interval, when known.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: CalendarUnitEnum | null;
+    }
+
     export interface Highlights {
-      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
        *
        * * `computing` - Computing
        * * `ready` - Ready
@@ -59726,6 +59774,11 @@ export namespace Schemas {
       refresh_at: string;
       /** Key metrics of the project from its settings. */
       pulse: HighlightMetric[];
+      /**
+         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+         * @nullable
+         */
+      pulse_slots?: PulseSlot[] | null;
       /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
       items: HighlightItem[];
       /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
@@ -109958,34 +110011,6 @@ export namespace Schemas {
     }
 
     /**
-     * What one scout spent in the window, and what it produced for that spend.
-     */
-    export interface ScoutCost {
-      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
-      skill_name: string;
-      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
-      spend_usd: number;
-      /** Runs the scout started in the window. */
-      run_count: number;
-      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
-      priced_run_count: number;
-      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
-      reports_touched: number;
-    }
-
-    /**
-     * Model spend and output per scout over a window.
-     */
-    export interface ScoutCosts {
-      /** Window the rows describe, in days. */
-      window_days: number;
-      /** One row per scout that started at least one run on this project in the window. */
-      scouts: ScoutCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
-      available: boolean;
-    }
-
-    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -110436,29 +110461,6 @@ export namespace Schemas {
          * @maxItems 200
          */
       run_ids: string[];
-    }
-
-    /**
-     * What one scout run spent on model calls.
-     */
-    export interface ScoutRunTokenCost {
-      /** UUID of the `SignalScoutRun` this cost belongs to. */
-      run_id: string;
-      /**
-         * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
-         * @nullable
-         */
-      token_cost_usd: number | null;
-    }
-
-    /**
-     * Model spend for a batch of scout runs.
-     */
-    export interface ScoutRunTokenCosts {
-      /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
-      costs: ScoutRunTokenCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
-      available: boolean;
     }
 
     /**
@@ -143728,15 +143730,6 @@ export namespace Schemas {
     report_id: string;
     };
 
-    export type SignalsScoutRunsCostsParams = {
-    /**
-     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
-     * @minimum 7
-     * @maximum 7
-     */
-    window_days?: number;
-    };
-
     export type SignalsScoutRunsRecentEmissionsParams = {
     /**
      * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
@@ -144913,6 +144906,13 @@ export namespace Schemas {
      * @pattern ^[A-Z0-9]{4,12}$
      */
     room: string;
+    };
+
+    export type TodayHighlightsRetrieveParams = {
+    /**
+     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     */
+    refresh?: boolean;
     };
 
     export type TodayReportsKeyClausesRetrieveParams = {

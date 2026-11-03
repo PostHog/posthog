@@ -88,6 +88,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.facade.edits import parse_variants
 
 logger = structlog.get_logger(__name__)
 
@@ -297,17 +298,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _evaluate_bias_risk(
         self, total_exposures: dict[str, int], multiple_variant_handling: MultipleVariantHandling
     ) -> BiasRisk | None:
-        # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
-        # uneven-split check on data collected under the original split. The warning also has
-        # no action after the experiment stops, because both of its CTAs only apply while it runs.
+        # After the end the flag often holds the shipped decision, not the split that the data
+        # was collected under. The warning also has no action after the experiment stops,
+        # because both of its CTAs only apply while it runs.
         # Read the end from the query (the cache key), so that the running/stopped decision
         # matches the cached window.
         if self.window_end_date is not None:
             return None
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
-        flag_variants = multivariate_data.get("variants") or []
         return evaluate_bias_risk(
-            rollout_percentages=[variant.get("rollout_percentage", 0) for variant in flag_variants],
+            variants=parse_variants(multivariate_data.get("variants")),
+            excluded_variant_keys=self.excluded_variants,
             multiple_variant_handling=multiple_variant_handling,
             total_exposures=total_exposures,
         )
@@ -609,7 +610,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 4
+        payload["experiment_exposures_response_version"] = 5
         # The sample ratio finding can name a split change from the flag's history, so a reader who can't read the
         # history, a userless run included, must not get a cached answer of one who can.
         if not self._can_read_flag_history():
