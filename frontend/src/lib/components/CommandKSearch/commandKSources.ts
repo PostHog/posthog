@@ -43,6 +43,7 @@ export const REMOTE_SOURCES = [
     'events',
     'properties',
     'workflows',
+    'endpoints',
     'accounts',
     'tickets',
     'persons',
@@ -169,6 +170,7 @@ const UNIFIED_TYPES: Record<string, RemoteSource> = {
     event_definition: 'events',
     property_definition: 'properties',
     hog_flow: 'workflows',
+    endpoint: 'endpoints',
 }
 
 export const REMOTE_REQUESTS: RemoteRequest[] = [
@@ -192,13 +194,17 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
     {
         id: 'unified',
         query: 'text',
-        sources: ['events', 'properties', 'workflows'],
+        sources: ['events', 'properties', 'workflows', 'endpoints'],
         fetch: async (q, signal) => {
             const response = await api.search.list(
-                { q, entities: ['event_definition', 'property_definition', 'hog_flow'], include_counts: false },
+                {
+                    q,
+                    entities: ['event_definition', 'property_definition', 'hog_flow', 'endpoint'],
+                    include_counts: false,
+                },
                 { signal }
             )
-            const results: RemoteResults = { events: [], properties: [], workflows: [] }
+            const results: RemoteResults = { events: [], properties: [], workflows: [], endpoints: [] }
             for (const result of response.results) {
                 const source = UNIFIED_TYPES[result.type]
                 results[source]?.push(unifiedSearchResultToSearchItem(result))
