@@ -1,6 +1,7 @@
 import json
 from contextlib import suppress
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -147,5 +148,13 @@ class TestClassifierGatewayRouting:
         _chat_reply(mock_openai, reply)
         with override_settings(**PYTHON_GATEWAY), suppress(GatewayNotConfiguredError):
             classify()
+
+        mock_openai.assert_not_called()
+
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.OpenAI")
+    def test_project_route_raises_without_the_go_gateway(self, mock_openai, _mock_httpx):
+        with override_settings(**PYTHON_GATEWAY), pytest.raises(GatewayNotConfiguredError):
+            _classify_project_route()
 
         mock_openai.assert_not_called()

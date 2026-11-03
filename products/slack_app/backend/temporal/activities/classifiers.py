@@ -5,6 +5,7 @@ from pathlib import Path
 from django.conf import settings
 
 import structlog
+from openai import OpenAI
 from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
@@ -70,6 +71,15 @@ def _classifier_properties(classifier: str, team_id: int | None) -> dict[str, st
     if team_id is not None:
         properties["team_id"] = str(team_id)
     return properties
+
+
+def _classifier_openai_client(classifier: str, team_id: int | None, trace_id: str | None) -> OpenAI:
+    return build_ai_gateway_openai_client(
+        settings.AI_GATEWAY_API_KEY,
+        ai_product=CLASSIFIER_AI_PRODUCT,
+        trace_id=trace_id,
+        properties=_classifier_properties(classifier, team_id),
+    )
 
 
 def _thread_trace_id(slack_team_id: str | None, thread_ts: str | None) -> str | None:
@@ -365,12 +375,9 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = build_ai_gateway_openai_client(
-            settings.AI_GATEWAY_API_KEY,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("agent_directed", team_id),
-        ).with_options(timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES)
+        client = _classifier_openai_client("agent_directed", team_id, trace_id).with_options(
+            timeout=AGENT_DIRECTED_TIMEOUT_SECONDS, max_retries=AGENT_DIRECTED_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=AGENT_DIRECTED_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -544,12 +551,9 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = build_ai_gateway_openai_client(
-            settings.AI_GATEWAY_API_KEY,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("model_override", team_id),
-        ).with_options(timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES)
+        client = _classifier_openai_client("model_override", team_id, trace_id).with_options(
+            timeout=MODEL_OVERRIDE_TIMEOUT_SECONDS, max_retries=MODEL_OVERRIDE_MAX_RETRIES
+        )
         response = client.chat.completions.create(
             model=MODEL_OVERRIDE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -697,12 +701,9 @@ def classify_slack_app_project_route(
         event_text=event_text,
     )
 
-    client = build_ai_gateway_openai_client(
-        settings.AI_GATEWAY_API_KEY,
-        ai_product=CLASSIFIER_AI_PRODUCT,
-        trace_id=trace_id,
-        properties=_classifier_properties("project_route", team_id),
-    ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
+    client = _classifier_openai_client("project_route", team_id, trace_id).with_options(
+        timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES
+    )
     try:
         response = client.chat.completions.create(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
