@@ -43,9 +43,6 @@ class TestWorkflowScoutRunDispatch(APIBaseTest):
         # does, so enrol this team by default and let the cases below exercise the gates they are
         # actually about. `test_rejects_an_unenrolled_project` overrides it.
         self._enrol({"guaranteed_team_ids": [self.team.id]})
-        access = patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=True)
-        access.start()
-        self.addCleanup(access.stop)
         LLMSkill.objects.create(team=self.team, name=SKILL, is_latest=True, deleted=False)
         self.config = SignalScoutConfig.objects.create(
             team=self.team, skill_name=SKILL, status=SignalScoutConfig.Status.ACTIVE, enabled=True

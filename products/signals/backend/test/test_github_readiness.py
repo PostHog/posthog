@@ -17,7 +17,6 @@ from products.signals.backend.github_readiness import (
 )
 from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
 from products.signals.backend.models import SignalReport, SignalScoutConfig
-from products.signals.backend.scout_harness.run_gates import check_research_access
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
@@ -115,16 +114,13 @@ class TestGitHubReadiness(BaseTest):
                 signal for signal, (_, _, enabled) in zip(signals, cases) if enabled
             ]
 
-    def test_scout_retries_an_unloaded_repository_cache(self) -> None:
+    def test_verified_readiness_retries_an_unloaded_repository_cache(self) -> None:
         Integration.objects.create(team=self.team, kind="github", integration_id="test-installation", config={})
-        with (
-            patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=False),
-            patch(
-                "posthog.models.integration.GitHubIntegration.sync_repository_cache",
-                return_value=[{"full_name": "example/app"}],
-            ),
+        with patch(
+            "posthog.models.integration.GitHubIntegration.sync_repository_cache",
+            return_value=[{"full_name": "example/app"}],
         ):
-            assert check_research_access(self.team.id) is None
+            assert get_team_github_readiness(self.team.id, verify=True).status == "ready"
 
     @parameterized.expand(
         [

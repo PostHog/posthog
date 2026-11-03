@@ -195,12 +195,6 @@ def _create_config(team: Team, skill_name: str, **kwargs: Any) -> SignalScoutCon
 
 
 @pytest.fixture(autouse=True)
-def _allow_project_data_research():
-    with patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=True):
-        yield
-
-
-@pytest.fixture(autouse=True)
 def _flag_on(request):
     """Enroll every team this module created via the `signals-scout` flag payload allowlist.
 

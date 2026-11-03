@@ -21,13 +21,10 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
-from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadinessStatus
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
-from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
-from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.scout_harness.limits import (
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_WORKFLOW,
@@ -45,7 +42,6 @@ from products.signals.backend.scout_harness.team_limits import (
     _team_configs,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 # Metadata key the runner stamps the trigger source under, read here for the workflow cooldown.
 TRIGGERED_BY_METADATA_KEY = "triggered_by"
@@ -112,22 +108,6 @@ def check_fleet_gates(
     return None
 
 
-def check_research_access(team_id: int, *, verify: bool = True) -> ScoutRunRejection | None:
-    if ResearchAccessPolicy.enabled(team_id):
-        return None
-    readiness = get_team_github_readiness(team_id, verify=verify)
-    if readiness.status == GitHubReadinessStatus.READY:
-        return None
-    capture_research_access_event(team_id=team_id, origin="scout", reason=readiness.status, fallback=False)
-    return ScoutRunRejection(
-        kind=ScoutRunRejectionKind.THROTTLED
-        if readiness.status == GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
-        else ScoutRunRejectionKind.CONFLICT,
-        reason=readiness.status,
-        detail=str(GitHubAccessUnavailable(readiness.status).detail),
-    )
-
-
 def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRunRejection | None:
     """Fail fast on the two spend gates `run_signals_scout_activity` re-checks authoritatively, so
     a caller gets a clean throttle instead of a 202 whose run only skips.
@@ -154,7 +134,7 @@ def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRun
             reason="daily_report_limit",
             detail="This project reached its daily report limit. Try again tomorrow.",
         )
-    return check_research_access(team.id)
+    return None
 
 
 def lane_has_live_run(lane_runs: QuerySet[SignalScoutRun]) -> bool:
