@@ -35,6 +35,12 @@ export type IntegrationStatus = 'ok' | 'needs_attention'
 export type IntegrationStatusHook = (integrations: IntegrationType[]) => IntegrationStatus
 
 /**
+ * Optional hook that returns the URL of a setup flow to continue to after connecting, or null when
+ * there is none. Must follow the Rules of Hooks, like {@link IntegrationStatusHook}.
+ */
+export type IntegrationSetupUrlHook = (integrations: IntegrationType[]) => string | null
+
+/**
  * Pure metadata describing an integration. Deliberately holds no components so each
  * integration is easy to reason about — components are bundled onto {@link Integration}.
  */
@@ -68,6 +74,11 @@ export interface IntegrationDefinition {
      * copy for a warning icon and follow-up copy that points at {@link PostConnect}.
      */
     useStatus?: IntegrationStatusHook
+    /**
+     * Optional setup-flow hook. When it returns a URL, the landing page's primary action continues
+     * to that setup flow instead of the app.
+     */
+    useSetupUrl?: IntegrationSetupUrlHook
 }
 
 /** A definition bundled with its renderable components. */
