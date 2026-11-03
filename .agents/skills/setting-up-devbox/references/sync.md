@@ -23,7 +23,8 @@ hogli devbox:sync --terminate       # remove the mirror when done
 - **A stopped box's mirror waits paused.** `devbox:stop` pauses the mirror, and `devbox:start` resumes it once the box is up. A plain `devbox:sync` leaves a paused mirror paused, so resume one that a box started elsewhere with `--resume`.
 - **The mirror never starts a box.** Its SSH connections run with Coder's autostart off, so a mirror to a box Coder stopped fails until the box runs again.
 - **Don't edit mirrored files on the box.** Remote edits fight the local source of truth. `devbox:open --vscode` and `--cursor` warn when a sync is active.
-- **Check before recreating.** Compare the box's branch and SHA and the sync state first. If they match and no source file conflicts, keep the existing mirror. Source-file conflicts block reliable QA until resolved. A conflict in box-local config such as `.env` is acceptable when tracked source is clean.
+- **Check before recreating.** Compare the box's branch and SHA and the sync state first. If they match and no source file conflicts, keep the existing mirror. Source-file conflicts block reliable QA until resolved. A conflict in box-local config is acceptable when tracked source is clean.
+- **`.env` and `.env.local` don't sync.** The box writes its own `.env` at startup, and a worktree copies the main checkout's `.env`, so each side keeps its own. Change the box's copy on the box.
 
 ## Ignore rules
 
