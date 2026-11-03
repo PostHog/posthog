@@ -12,10 +12,10 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { PreflightStatus, TeamPublicType, TeamType } from '~/types'
 

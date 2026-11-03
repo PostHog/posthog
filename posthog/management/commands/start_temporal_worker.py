@@ -308,12 +308,10 @@ from products.security.backend.facade.temporal import (
     ACTIVITIES as SECURITY_ACTIVITIES,
     WORKFLOWS as SECURITY_WORKFLOWS,
 )
-from products.signals.backend.emission.temporal_settings import (
+from products.signals.backend.facade.temporal import (
+    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
     EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-)
-from products.signals.backend.temporal import (
-    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
     SELF_DRIVING_ACTIVITIES,
     SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
@@ -499,6 +497,11 @@ _task_queue_specs = [
     # recalculation ClickHouse queries run at the same time.
     (
         settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
+    (
+        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
         [],
         EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),

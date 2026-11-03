@@ -115,8 +115,9 @@ on:
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
-    # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
+    # pushes never cancel each other (check-migrations always completes). `depot ci run` (event `api`)
+    # gets a per-run group: it has the master ref, and would otherwise queue behind the hourly run.
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.event_name == 'api' && format('api-{0}', github.run_id) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -148,8 +149,9 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
-    # Scheduled runs test master even when Depot does not populate github.ref.
-    IS_MASTER: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/master' }}
+    # Scheduled runs test master even when Depot does not populate github.ref. `depot ci run`
+    # (event `api`) has the master ref but runs an unreviewed local patch, so it is not master.
+    IS_MASTER: ${{ github.event_name == 'schedule' || (github.ref == 'refs/heads/master' && github.event_name != 'api') }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -249,10 +251,11 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
+            # `depot ci run` (event `api`) applies its patch after this step, which fails in a sparse tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: .depot/actions/paths-filter
+                  sparse-checkout: ${{ github.event_name != 'api' && '.depot/actions/paths-filter' || '' }}
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -4472,7 +4475,7 @@ jobs:
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
             github.event_name == 'schedule' ||
-            (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
+            (github.event_name != 'pull_request' && github.event_name != 'push' && github.event_name != 'api' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
             )
@@ -4528,7 +4531,7 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [changes, turbo-tests, django_tests, turbo-discover]
+        needs: [changes, django, turbo-tests, django_tests, turbo-discover]
         runs-on: depot-ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
@@ -4540,7 +4543,7 @@ jobs:
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+            (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -4623,7 +4626,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [changes, django_tests]
+        needs: [changes, django, turbo-tests, django_tests]
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -4635,13 +4638,26 @@ jobs:
         permissions:
             contents: read
         steps:
+            - name: Check whether stale backend coverage can be cleared
+              id: coverage-cleanup
+              if: >-
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.draft == false &&
+                  needs.changes.outputs.backend == 'false' &&
+                  needs.django.result == 'skipped' &&
+                  needs.turbo-tests.result == 'skipped' &&
+                  needs.django_tests.result == 'success'
+              run: echo "needed=true" >> "$GITHUB_OUTPUT"
             # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               id: checkout
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' || steps.coverage-cleanup.outputs.needed == 'true'
               continue-on-error: true
               with:
-                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout: |
+                      .github/scripts/capture_depot_running_time.py
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      .nvmrc
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               id: setup-depot
@@ -4656,3 +4672,27 @@ jobs:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   STATUS_JOB: django_tests
               run: python3 .github/scripts/capture_depot_running_time.py
+            - name: Get app token for coverage cleanup
+              id: coverage-cleanup-token
+              if: steps.coverage-cleanup.outputs.needed == 'true' && steps.checkout.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js for coverage cleanup
+              if: steps.coverage-cleanup-token.outcome == 'success'
+              id: coverage-cleanup-node
+              continue-on-error: true
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.coverage-cleanup-token.outputs.token }}
+            - name: Clear stale backend coverage warning
+              if: steps.coverage-cleanup-node.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ steps.coverage-cleanup-token.outputs.token }}
+              run: |
+                  node --input-type=module -e "import { clearSectionIfPresent } from './frontend/bin/ci-report/update-ci-report.mjs'; await clearSectionIfPresent({ id: 'backend-coverage', summary: 'no backend files changed', body: 'No backend coverage report is needed for this change.' })"

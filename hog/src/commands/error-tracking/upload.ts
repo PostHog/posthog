@@ -31,7 +31,7 @@ export default defineCommand({
     ],
 
     async run({ args, options, ctx }) {
-        const settings = readOptions(options, ctx.runtime.env)
+        const settings = await readOptions(options, ctx)
         const selection = await select(ctx, args.paths ?? [], settings)
         if (selection.artifacts.length === 0) {
             throw new HogError(

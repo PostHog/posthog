@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'

@@ -1,5 +1,7 @@
 import '~/styles'
 
+import '~/taxonomy/registerCoreFilterDefinitions'
+
 import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Preview } from '@storybook/react'
 import { configure as configureTestingLibrary } from '@testing-library/dom'

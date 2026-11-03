@@ -820,6 +820,43 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    it('keeps a paused protected send protected on its retry after protection is turned off', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        ;(action.config as any).sensitive = true
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
+        ;(action.config as any).sensitive = false
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
@@ -1050,6 +1087,24 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
                 expect.stringContaining('Waiting for the task to finish')
+            )
+        })
+
+        it('links the AI task in the wait log, whatever the step stores', async () => {
+            // Serve the per-team template under the real id, because other test files share the template table.
+            const awaitedTemplateId = TASK_TEMPLATE_ID
+            const getTemplate =
+                mockHogFunctionTemplateManager.getHogFunctionTemplate.bind(mockHogFunctionTemplateManager)
+            jest.spyOn(mockHogFunctionTemplateManager, 'getHogFunctionTemplate').mockImplementation((id) =>
+                getTemplate(id === 'template-posthog-create-task' ? awaitedTemplateId : id)
+            )
+            TASK_TEMPLATE_ID = 'template-posthog-create-task'
+            buildTaskFlow()
+
+            const { invocationResult } = await execute()
+
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringMatching(/Waiting for the task to finish \(up to .+\) \[Task:t1\|r1\]$/)
             )
         })
 

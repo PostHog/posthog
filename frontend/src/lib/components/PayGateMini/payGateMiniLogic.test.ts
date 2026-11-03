@@ -1,14 +1,15 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, BillingProvider, BillingType } from '~/types'
+import { AvailableFeature, BillingProductV2Type, BillingProvider, BillingType } from '~/types'
 
 import { payGateMiniLogic } from './payGateMiniLogic'
 
@@ -67,5 +68,33 @@ describe('payGateMiniLogic', () => {
         logic.mount()
 
         expect(logic.values).toMatchObject({ gateVariant: 'add-card', ...expected })
+    })
+
+    it('starts the payment entry flow for the gated product and the current page after the gate closes', async () => {
+        useMocks({
+            get: {
+                '/_preflight': [200, { ...preflightJson, cloud: true }],
+                '/api/billing': [200, { ...billingJson, customer_id: '', subscription_level: 'free' }],
+            },
+        })
+        initKeaTests()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        const logic = payGateMiniLogic({ feature: AvailableFeature.SUBSCRIPTIONS })
+        logic.mount()
+        const product = logic.values.productWithFeature as BillingProductV2Type
+        window.history.pushState({}, '', '/project/1/insights?tab=all')
+
+        await expectLogic(paymentEntryLogic, () => {
+            logic.actions.startPaymentEntryFlow()
+            logic.unmount()
+        }).toDispatchActions([
+            (action) =>
+                paymentEntryLogic.isMounted() &&
+                action.type === paymentEntryLogic.actionTypes.startPaymentEntryFlow &&
+                action.payload.product === product &&
+                action.payload.redirectPath === '/project/1/insights?tab=all',
+        ])
     })
 })

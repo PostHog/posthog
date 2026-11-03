@@ -72,7 +72,7 @@ function readNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-function readChapters(summary: ReplayObservationApi): TimelineChapter[] {
+export function readChapters(summary: ReplayObservationApi): TimelineChapter[] {
     const raw = readModelOutput(summary)?.chapters
     if (!Array.isArray(raw)) {
         return []
