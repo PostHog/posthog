@@ -122,10 +122,19 @@ impl EscapedMatchers {
 
 /// Finds a declined URL in a spelling the rewrite cannot replace, such as with CSS hex escapes, so it fails the block.
 struct DeclinedSpellings {
+    /// Each URL from its host on, so that a copy with another scheme or none also matches.
     urls: AhoCorasick,
     targets: Vec<usize>,
-    /// The two spellings each URL has where `replace_urls` and `replace_escaped_urls` look for it.
-    replaced: Vec<[Vec<u8>; 2]>,
+    /// The two spellings each URL has where `replace_urls` and `replace_escaped_urls` look for it, with the length of
+    /// the part before its host.
+    replaced: Vec<[(Vec<u8>, usize); 2]>,
+}
+
+fn host_start(url: &str) -> usize {
+    url.find("//")
+        .map(|slashes| slashes + 2)
+        .filter(|&start| start < url.len())
+        .unwrap_or(0)
 }
 
 impl DeclinedSpellings {
@@ -139,7 +148,10 @@ impl DeclinedSpellings {
                     .kind(Some(AhoCorasickKind::ContiguousNFA))
                     .ascii_case_insensitive(true)
                     .match_kind(MatchKind::LeftmostLongest)
-                    .build(declined.iter().map(|&index| &targets[index].url))
+                    .build(declined.iter().map(|&index| {
+                        let url = &targets[index].url;
+                        &url[host_start(url)..]
+                    }))
                     .ok()
             })
             .flatten()?;
@@ -147,9 +159,16 @@ impl DeclinedSpellings {
             .iter()
             .map(|&index| {
                 let url = &targets[index].url;
+                let before_host = &url[..host_start(url)];
                 [
-                    json_string_contents(url),
-                    json_string_contents(&escape_in_identifier(url)),
+                    (
+                        json_string_contents(url),
+                        json_string_contents(before_host).len(),
+                    ),
+                    (
+                        json_string_contents(&escape_in_identifier(url)),
+                        json_string_contents(&escape_in_identifier(before_host)).len(),
+                    ),
                 ]
             })
             .collect();
@@ -649,11 +668,16 @@ impl UrlRewrite {
         let Some(spellings) = &self.declined_spellings else {
             return;
         };
-        let mut note = |pattern: usize, (start, end): (usize, usize)| {
-            if !spellings.replaced[pattern]
+        let mut note = |pattern: usize, (start, _): (usize, usize)| {
+            let replaced = spellings.replaced[pattern]
                 .iter()
-                .any(|spelling| bytes[start..end] == spelling[..])
-            {
+                .any(|(spelling, before_host)| {
+                    start
+                        .checked_sub(*before_host)
+                        .and_then(|from| bytes.get(from..from + spelling.len()))
+                        == Some(&spelling[..])
+                });
+            if !replaced {
                 self.declined_respelled.insert(spellings.targets[pattern]);
             }
         };

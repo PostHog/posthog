@@ -122,7 +122,7 @@ fn utf8_char_at(bytes: &[u8], at: usize) -> (u32, usize) {
 }
 
 /// The character at `at` after its JSON escape and a CSS escape inside it. A CSS hex escape takes the one whitespace
-/// after it, as CSS reads it.
+/// after it, or a CRLF, as CSS reads it.
 fn unit(bytes: &[u8], at: usize) -> Unit {
     let (ch, len) = json_unit(bytes, at);
     if len == 1 && is_char(ch, b'"') {
@@ -156,6 +156,12 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
             let (next, next_len) = json_unit(bytes, end);
             if is_space(next) {
                 end += next_len;
+                if is_char(next, b'\r') && end < bytes.len() {
+                    let (after, after_len) = json_unit(bytes, end);
+                    if is_char(after, b'\n') {
+                        end += after_len;
+                    }
+                }
             }
         }
         return Unit {

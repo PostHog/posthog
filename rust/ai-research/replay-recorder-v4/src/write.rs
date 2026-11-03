@@ -932,6 +932,14 @@ mod tests {
                 signed,
                 r#".a::after{content:"HTTPS://BUCKET.S3.AMAZONAWS.COM/avatar.png?X-Amz-Signature=abc123"} .b"#,
             ),
+            (
+                signed,
+                r#".a::after{content:"//bucket.s3.amazonaws.com/avatar.png?X-Amz-Signature=abc123"} .b"#,
+            ),
+            (
+                signed,
+                ".a-\\[https\\3a //bucket\\2e\r\ns3\\.amazonaws\\.com/avatar\\.png\\?X-Amz-Signature\\=abc123\\]",
+            ),
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 8, "id": 3,
                 "replaceSync": format!("{before}{{background:url({url})}}")}}])
