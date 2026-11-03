@@ -128,7 +128,7 @@ fn may_hold_credential(url: &str) -> bool {
 }
 
 /// A URL of a scheme such as `data:` or `mailto:` holds no path to a host. The URL parser drops tabs and line breaks
-/// in a scheme too.
+/// in a scheme too, and reads a scheme only from a letter on, so `1:a.png` is a relative path.
 fn is_hierarchical(raw: &str) -> bool {
     let bytes = raw.as_bytes();
     let ignored = |byte: &u8| matches!(byte, b'\t' | b'\n' | b'\r');
@@ -141,15 +141,18 @@ fn is_hierarchical(raw: &str) -> bool {
         at += 1;
         match byte {
             _ if ignored(&byte) => {}
-            b':' => {
+            b':' if !scheme.is_empty() => {
                 if SPECIAL_SCHEMES.contains(&String::from_utf8_lossy(&scheme).as_ref()) {
                     return true;
                 }
                 let mut rest = bytes[at..].iter().filter(|byte| !ignored(byte));
                 return rest.next() == Some(&b'/') && rest.next() == Some(&b'/');
             }
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'+' | b'-' | b'.' if scheme.len() < 16 => {
+            b'a'..=b'z' | b'A'..=b'Z' if scheme.len() < 16 => {
                 scheme.push(byte.to_ascii_lowercase())
+            }
+            b'0'..=b'9' | b'+' | b'-' | b'.' if !scheme.is_empty() && scheme.len() < 16 => {
+                scheme.push(byte)
             }
             _ => return true,
         }
@@ -441,6 +444,8 @@ mod tests {
                 Some("/p/n/ns/b/bucket/o/a.png"),
             ),
             ("img/a.png?w=1&token=abc", Some("img/a.png?w=1")),
+            ("1:a.png?token=abc", Some("1:a.png")),
+            (":a.png?token=abc", Some(":a.png")),
             (
                 "https://app.example.com/cb#access_token=abc&state=x",
                 Some("https://app.example.com/cb#state=x"),

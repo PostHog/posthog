@@ -159,11 +159,19 @@ fn draw_url(tc: &TestCase, index: usize, refused: bool) -> String {
         return format!("{scheme}{ACCEPTED}-{index}.example.com/{path}");
     }
     let host = HOSTS[draw_index(tc, HOSTS.len())];
-    match draw_index(tc, 7) {
+    match draw_index(tc, 9) {
         0 => format!(
             "/{path}{}{SECRET}",
             REFUSALS[draw_index(tc, REFUSALS.len())]
         ),
+        // A scheme starts with a letter, so the URL parser reads these as relative paths on the page's host.
+        5 => format!(
+            "{}{path}{}{SECRET}",
+            ["1:", "9a:", ":"][draw_index(tc, 3)],
+            REFUSALS[draw_index(tc, REFUSALS.len())]
+        ),
+        // A relative URL's host is the page's, which can be an Oracle bucket.
+        6 => format!("/p/{SECRET}/n/ns/b/bucket/o/{path}"),
         1 => format!("{scheme}u:{SECRET}@{host}/{path}"),
         // The policy finds these tokens by their place in the path, and the Oracle one by its host too.
         2 => format!(
