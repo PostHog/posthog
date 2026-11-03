@@ -475,9 +475,8 @@ def evaluate_insight_check(
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
         try:
-            # Production and other callers run the same query in flights of their own, because the
-            # platform queries as its own ClickHouse user, and write the same cache entry. A platform
-            # follower can then find their entry in place of its leader's.
+            # Other ClickHouse users, production's included, run this query in flights of their own but write
+            # the same cache entry, so a platform follower can find their entry in place of its leader's.
             with skip_query_single_flight():
                 outcome = _decide(
                     checks[0],

@@ -2869,7 +2869,6 @@ class TestQuerySingleFlightRunner(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=limit_context)
         flags = _single_flight_flag if flag_on else (lambda *args, **kwargs: False)
-        # Another leader holds the flight and leaves nothing to serve, so a follower would raise QueryRanConcurrently.
         with mock.patch.object(QuerySingleFlight, "acquire", autospec=True, return_value=False) as mock_acquire:
             with mock.patch("posthoganalytics.feature_enabled", side_effect=flags):
                 with skip_query_single_flight() if skipped else nullcontext():
