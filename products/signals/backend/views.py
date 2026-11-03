@@ -6935,7 +6935,10 @@ class SignalUserAutonomyConfigView(APIView):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "user"
-    required_scopes = ["user:write"]
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str]:
+        # An APIView has no `action`, so APIScopePermission cannot derive read vs write by itself.
+        return ["user:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["user:write"]
 
     def _resolve_user(self, request, user_id):
         if str(user_id) == "@me":

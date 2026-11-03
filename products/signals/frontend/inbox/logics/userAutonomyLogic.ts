@@ -177,7 +177,7 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
         // with multiple workspaces (and nothing saved yet) open the pickers to pick one.
         setSlackPickersExpanded: (expanded: boolean) => ({ expanded }),
     }),
-    loaders({
+    loaders(({ values }) => ({
         autonomyConfig: [
             null as SignalUserAutonomyConfigDraft | null,
             {
@@ -189,12 +189,14 @@ export const userAutonomyLogic = kea<userAutonomyLogicType>([
                         if (error instanceof ApiError && error.status === 404) {
                             return null
                         }
-                        throw error
+                        // The config is optional, so any other failure (often a dropped request with
+                        // no status) keeps what we already have instead of surfacing an error.
+                        return values.autonomyConfig
                     }
                 },
             },
         ],
-    }),
+    })),
     reducers({
         // Optimistically reflect the chosen priority so the select doesn't flicker
         // back to the stale value while the request is in flight.
