@@ -41,7 +41,12 @@ from posthog.event_usage import (
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
-from posthog.ip_restrictions import MAX_IP_RESTRICTIONS, is_ip_allowed, validate_ip_restrictions
+from posthog.ip_restrictions import (
+    MAX_IP_RESTRICTIONS,
+    get_restriction_client_ip,
+    is_ip_allowed,
+    validate_ip_restrictions,
+)
 from posthog.models import Organization, OrganizationIPRestrictions, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
@@ -62,7 +67,7 @@ from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_fla
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
-from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
@@ -594,7 +599,7 @@ class OrganizationSerializer(
         request = getattr(request, "_request", request)
         if is_impersonated_session(request):
             return None
-        ip = get_trusted_client_ip(request)
+        ip = get_restriction_client_ip(request)
         if ip is not None and is_ip_allowed(ip, restrictions):
             return None
         return (

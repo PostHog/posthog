@@ -703,20 +703,46 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_warns_when_restrictions_would_lock_out_current_session(self):
+    @parameterized.expand(
+        [
+            (None, "127.0.0.1", True),
+            (None, "203.0.113.4", False),
+            ("203.0.113.4", "198.51.100.7", False),
+            ("198.51.100.7", "203.0.113.4", True),
+        ]
+    )
+    @override_settings(MCP_CLIENT_IP_SIGNING_KEYS=["ip-restriction-test-key"])
+    def test_warns_when_restrictions_would_lock_out_current_session(
+        self, forwarded_ip: str | None, peer_ip: str, warns: bool
+    ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
         self.organization.save()
 
+        headers = {}
+        if forwarded_ip is not None:
+            timestamp = str(int(timezone.now().timestamp()))
+            headers = {
+                "x-posthog-mcp-client-ip": forwarded_ip,
+                "x-posthog-mcp-client-ip-timestamp": timestamp,
+                "x-posthog-mcp-client-ip-signature": hmac.new(
+                    b"ip-restriction-test-key", f"{forwarded_ip}:{timestamp}".encode(), hashlib.sha256
+                ).hexdigest(),
+            }
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}/",
             {"ip_restrictions": ["203.0.113.4"]},
             format="json",
+            REMOTE_ADDR=peer_ip,
+            headers=headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("127.0.0.1", response.json()["ip_restrictions_warning"])
+        if warns:
+            self.assertIn(forwarded_ip or peer_ip, response.json()["ip_restrictions_warning"])
+        else:
+            self.assertIsNone(response.json()["ip_restrictions_warning"])
 
     def test_can_toggle_ip_restrictions_with_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
