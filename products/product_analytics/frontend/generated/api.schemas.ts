@@ -2103,6 +2103,8 @@ export interface TrendsFilterApi {
     showAlertThresholdLines?: boolean | null
     showAnnotations?: boolean | null
     showConfidenceIntervals?: boolean | null
+    /** Draws horizontal grid lines at the y-axis ticks. */
+    showGridLines?: boolean | null
     showLabelsOnSeries?: boolean | null
     showLegend?: boolean | null
     showMovingAverage?: boolean | null
@@ -3288,6 +3290,8 @@ export interface StickinessFilterApi {
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: StickinessFilterApiResultCustomizations
+    /** Draws horizontal grid lines at the y-axis ticks. */
+    showGridLines?: boolean | null
     showLegend?: boolean | null
     showMultipleYAxes?: boolean | null
     showValuesOnSeries?: boolean | null

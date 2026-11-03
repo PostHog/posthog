@@ -6447,6 +6447,8 @@ export namespace Schemas {
       showAlertThresholdLines?: boolean | null;
       showAnnotations?: boolean | null;
       showConfidenceIntervals?: boolean | null;
+      /** Draws horizontal grid lines at the y-axis ticks. */
+      showGridLines?: boolean | null;
       showLabelsOnSeries?: boolean | null;
       showLegend?: boolean | null;
       showMovingAverage?: boolean | null;
@@ -7291,6 +7293,8 @@ export namespace Schemas {
       resultCustomizationBy?: ResultCustomizationBy | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: StickinessFilterResultCustomizations;
+      /** Draws horizontal grid lines at the y-axis ticks. */
+      showGridLines?: boolean | null;
       showLegend?: boolean | null;
       showMultipleYAxes?: boolean | null;
       showValuesOnSeries?: boolean | null;

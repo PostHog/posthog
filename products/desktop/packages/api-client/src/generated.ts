@@ -2342,6 +2342,7 @@ export namespace Schemas {
         showAlertThresholdLines: boolean | null;
         showAnnotations: boolean | null;
         showConfidenceIntervals: boolean | null;
+        showGridLines: boolean | null;
         showLabelsOnSeries: boolean | null;
         showLegend: boolean | null;
         showMovingAverage: boolean | null;
@@ -3280,6 +3281,7 @@ export namespace Schemas {
             | Record<string, ResultCustomizationByValue>
             | Record<string, ResultCustomizationByPosition>
             | null;
+        showGridLines: boolean | null;
         showLegend: boolean | null;
         showMultipleYAxes: boolean | null;
         showValuesOnSeries: boolean | null;
