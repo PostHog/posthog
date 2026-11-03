@@ -323,7 +323,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
     '/skills/community': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
-    '/slack/setup/:integrationId': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
+    '/integrations/slack/:integrationId/setup': ['SlackAppWorkspaceSetup', 'slackAppWorkspaceSetup'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
     '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
@@ -1966,7 +1966,7 @@ export const productUrls = {
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
     communitySkills: (): string => '/skills/community',
-    slackAppWorkspaceSetup: (integrationId: number | string): string => `/slack/setup/${integrationId}`,
+    slackAppWorkspaceSetup: (integrationId: number | string): string => `/integrations/slack/${integrationId}/setup`,
     stamphog: (): string => '/stamphog',
     stamphogRuns: (): string => '/stamphog/runs',
     stamphogDigests: (): string => '/stamphog/digests',
