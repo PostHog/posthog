@@ -323,9 +323,15 @@ export interface NodePinDelayApi {
 }
 
 export interface NodePinBlockerApi {
-    /** Node id of the downstream view that stops the pin, or null when the caller may not read it. */
+    /**
+     * Node id of the downstream view that stops the pin, or null when the caller may not read it.
+     * @nullable
+     */
     id: string | null
-    /** Name of the downstream view that stops the pin, or null when the caller may not read it. */
+    /**
+     * Name of the downstream view that stops the pin, or null when the caller may not read it.
+     * @nullable
+     */
     name: string | null
 }
 
