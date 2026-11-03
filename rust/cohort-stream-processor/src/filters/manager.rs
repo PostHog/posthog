@@ -425,7 +425,7 @@ impl CatalogRefresher {
             .await
     }
 
-    /// The teams of the read that `polled` reports. A refused read leaves an earlier read in place,
+    /// The teams of the read that `polled` reports. A failed read leaves an earlier read in place,
     /// which can predate the refresh's [`RefreshSeq`], so this returns its error instead. A regressed
     /// read is current, except that the teams it regressed keep their previous rows.
     fn current_teams(
@@ -446,7 +446,7 @@ impl CatalogRefresher {
         Ok(self
             .access
             .processing_teams()
-            .expect("a read that is not refused stores a snapshot"))
+            .expect("a read that does not fail stores a snapshot"))
     }
 
     fn refresh_reason(&self, current: &ProcessingTeams, now: Instant) -> Option<RefreshReason> {
@@ -486,8 +486,8 @@ impl CatalogRefresher {
         }
     }
 
-    /// Polls team access every [`next_poll_delay`] until shutdown. After each poll that is not
-    /// refused, refreshes until a refresh publishes, and after that when team access changes or
+    /// Polls team access every [`next_poll_delay`] until shutdown. After each poll whose read does
+    /// not fail, refreshes until a refresh publishes, and after that when team access changes or
     /// `interval ± jitter` has passed. Shutdown also cancels a poll or a refresh in flight, which
     /// then publishes nothing, so the task stays inside a short graceful window.
     ///
@@ -556,7 +556,7 @@ mod tests {
         CatalogHandle::with_refresher(env, pool, Duration::from_secs(300), Duration::ZERO, false)
     }
 
-    fn access_refused() -> Result<usize, PollError> {
+    fn access_read_failed() -> Result<usize, PollError> {
         Err(PollError::Query(sqlx::Error::PoolClosed))
     }
 
@@ -706,7 +706,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refresh_whose_access_read_is_refused_reads_no_cohort_rows() {
+    async fn a_refresh_reads_no_cohort_rows_only_when_its_access_read_fails() {
         let (catalog, mut refresher) = refresher(TeamAllowlist::Only(HashSet::from([2])));
         let cohorts_read = Cell::new(false);
         let read_cohorts = async |_: &ProcessingTeams| {
@@ -715,7 +715,7 @@ mod tests {
         };
 
         let before_first_read = refresher
-            .refresh_from(async |_| access_refused(), read_cohorts)
+            .refresh_from(async |_| access_read_failed(), read_cohorts)
             .await;
         assert!(matches!(
             before_first_read,
@@ -735,16 +735,27 @@ mod tests {
             .await
             .unwrap();
         let after_publish = refresher
-            .refresh_from(async |_| access_refused(), read_cohorts)
+            .refresh_from(async |_| access_read_failed(), read_cohorts)
             .await;
         assert!(after_publish.is_err());
         assert!(
             !cohorts_read.get(),
             "the rows of an earlier read can lack a grant that a job admitted after it relies on",
         );
+
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([]),
+                async |teams| {
+                    assert_eq!(teams.scope(), &TeamAllowlist::Only(HashSet::from([2, 5])));
+                    Ok(Vec::new())
+                },
+            )
+            .await
+            .expect("a deleted access row must not fail every refresh until a restart");
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_refresh_is_due_until_one_publishes_then_on_an_access_change_or_after_the_period() {
         let (_catalog, mut refresher) = refresher(TeamAllowlist::Only(HashSet::from([2])));
         let now = Instant::now();
@@ -756,17 +767,23 @@ mod tests {
             refresher.refresh_reason(&granted, now),
             Some(RefreshReason::NeverPublished)
         );
-        refresher
+        let hung_boot_load = refresher
             .refresh_from(
                 async |poller| poller.accept_granted([5]),
-                async |_| cohort_load_failed(),
+                async |_| {
+                    tokio::time::sleep(2 * LOAD_TIMEOUT).await;
+                    Ok(Vec::new())
+                },
             )
-            .await
-            .unwrap_err();
+            .await;
+        assert!(matches!(
+            hung_boot_load,
+            Err(CatalogRefreshError::LoadTimedOut(_))
+        ));
         assert_eq!(
             refresher.refresh_reason(&granted, now),
             Some(RefreshReason::NeverPublished),
-            "a failed boot load retries on the next tick",
+            "a boot load that times out retries on the next tick",
         );
 
         refresher
@@ -803,13 +820,13 @@ mod tests {
             Some(RefreshReason::AccessChanged)
         );
         refresher
-            .refresh_from(async |_| access_refused(), async |_| Ok(Vec::new()))
+            .refresh_from(async |_| access_read_failed(), async |_| Ok(Vec::new()))
             .await
             .unwrap_err();
         assert_eq!(
             refresher.refresh_reason(&regranted, now),
             Some(RefreshReason::AccessChanged),
-            "a refresh whose access read was refused retries on the next tick",
+            "a refresh whose access read failed retries on the next tick",
         );
         refresher
             .refresh_from(

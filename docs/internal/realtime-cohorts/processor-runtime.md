@@ -383,6 +383,9 @@ Two variations show the edges.
 - The events consumer does not wait for the catalog.
   If the first catalog load fails, which includes a failed read of team access, events are consumed, skipped for lack of definitions, and committed.
   The pod reads not ready meanwhile.
+- A processor image that does not read team access builds its catalog from its env list alone.
+  A rollback to such an image drops every team that only a team access row grants, and stage 2 GC then deletes the state of those teams without emitting `left`.
+  Before such a rollback, add those teams to the processor's `REALTIME_COHORT_TEAM_ALLOWLIST`.
 - A held offset stays held for the rest of the partition's tenure, which means until the next restart.
   The symptom is growing lag on that topic and partition.
 - A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its partition is assigned.
