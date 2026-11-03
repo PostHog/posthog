@@ -168,17 +168,11 @@ impl<'b> Splicer<'b> {
                 text: reference,
                 decline: None,
             },
-            // The slot keeps none of a URL that the redaction cannot read, that is too long to read, or that the policy
-            // still refuses as a credential once redacted, because the policy and the redaction read it differently.
+            // The policy reads a credential before the host, so what is left of a credential URL must pass the policy on its own.
             (_, Err(decline)) => Named {
                 text: match redaction(url) {
-                    Redaction::Clean
-                        if !matches!(decline, Decline::Credential | Decline::TooLong) =>
-                    {
-                        url.to_owned()
-                    }
                     Redaction::Redacted(kept)
-                        if checked_url(&kept).err() != Some(Decline::Credential) =>
+                        if decline == Decline::Credential && checked_url(&kept).is_ok() =>
                     {
                         kept
                     }
@@ -274,7 +268,10 @@ impl<'b> Splicer<'b> {
             index += 1;
             let written = if is_remote(url) {
                 remote = true;
-                is_shown.then(|| self.named(url, RemoteKind::Image).text)
+                is_shown
+                    .then(|| self.named(url, RemoteKind::Image))
+                    .filter(|named| named.decline.is_none())
+                    .map(|named| named.text)
             } else if is_shown && !url.starts_with(IMAGE_DECLINED_PREFIX) {
                 let written = kept(url);
                 remote |= written != url;

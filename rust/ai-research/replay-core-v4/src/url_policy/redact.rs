@@ -20,12 +20,10 @@ const SPECIAL_SCHEMES: &[&str] = &["http", "https", "ws", "wss", "ftp", "file"];
 static RELATIVE_BASE: LazyLock<Url> =
     LazyLock::new(|| Url::parse("https://relative.invalid/").expect("a valid base"));
 
-/// What the redaction makes of a URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Redaction {
     /// The policy reads no credential in the URL.
     Clean,
-    /// The URL without its credentials.
     Redacted(String),
     /// The URL can hold a credential, but it is longer than [`MAX_URL_LEN`] or the URL parser does not read it, so the
     /// redaction cannot tell what the policy would read in it.

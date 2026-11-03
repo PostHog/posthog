@@ -831,8 +831,8 @@ mod tests {
             )),
             "{lines}"
         );
-        // A refused URL that is too long to fetch, or that the URL parser does not read, keeps none of its text, and
-        // neither does a link that is too long to read with a credential in it.
+        // A URL refused for a reason other than a credential keeps none of its text. Neither does a credential URL whose
+        // rest the policy refuses, nor a link that is too long to read with a credential in it.
         let long = format!("https://cdn.example.com/{}", "a".repeat(16 * 1024 - 24));
         let long_link = format!("{long}?token=abc123");
         for (attributes, marker) in [
@@ -847,6 +847,10 @@ mod tests {
             (
                 json!({"data-src": long_link}),
                 r#""data-src":"imageurl:v4:declined:too_long""#,
+            ),
+            (
+                json!({"src": "https://user:secret@10.0.0.5/a.png"}),
+                r#""src":"imageurl:v4:declined:credential""#,
             ),
         ] {
             let lines = stored_lines(
@@ -1266,7 +1270,7 @@ mod tests {
         for expected in [
             r#""href":"http://10.0.0.5/admin""#.to_owned(),
             r#""href":"https://app.example.com/shop""#.to_owned(),
-            r#"url(\"https://10.0.0.5/a.png\")"#.to_owned(),
+            r#"url(\"imageurl:v4:declined:non_public_host\")"#.to_owned(),
             format!(r#"url(\"{reference}\")"#),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
