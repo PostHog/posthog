@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -559,6 +561,24 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.advancedOptionsHaveErrors).toBe(true)
+    })
+
+    it('opens a starter check with its query and fills in the metric columns once they load', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        ;(dataQualityChecksCheckTypesList as jest.Mock).mockResolvedValue(
+            CHECK_TYPE_CATALOG.filter((type) => type.check_type === 'custom_sql')
+        )
+        await mountLogic()
+
+        logic.actions.openEditorWithStarter({ subjectType: 'metric', subjectId: 'metric-1' }, 'no_sharp_drop')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checkForm.checkType).toEqual('custom_sql')
+        expect(logic.values.checkForm.customSql).toContain('lagInFrame(signups) OVER (ORDER BY day)')
+        expect(capture).toHaveBeenCalledWith(
+            'data quality starter check picked',
+            expect.objectContaining({ template_key: 'no_sharp_drop' })
+        )
     })
 
     it('creates the check once when the form is submitted twice', async () => {

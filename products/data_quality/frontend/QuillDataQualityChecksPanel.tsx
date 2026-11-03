@@ -11,6 +11,7 @@ import {
     EmptyHeader,
     EmptyTitle,
     Heading,
+    Skeleton,
     Text,
 } from '@posthog/quill'
 
@@ -25,6 +26,7 @@ import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQuali
 import { QuillCheckCallout } from './QuillCheckCallout'
 import { QuillCheckEditorDialog } from './QuillCheckEditorDialog'
 import { QuillChecksTable } from './QuillChecksTable'
+import { QuillMetricChecksEmptyState } from './QuillMetricChecksEmptyState'
 import { QuillSuiteRunsHistory } from './QuillSuiteRunsHistory'
 
 export interface QuillDataQualityChecksPanelProps extends DataQualityChecksLogicProps {
@@ -33,25 +35,16 @@ export interface QuillDataQualityChecksPanelProps extends DataQualityChecksLogic
     hideTitle?: boolean
     newCheckDisabledReason?: string
     notice?: ReactNode
+    subjectName?: string
 }
 
-function NoChecksYet({
-    onAddCheck,
-    isMetric,
-    disabledReason,
-}: {
-    onAddCheck: () => void
-    isMetric: boolean
-    disabledReason?: string
-}): JSX.Element {
+function NoChecksYet({ onAddCheck, disabledReason }: { onAddCheck: () => void; disabledReason?: string }): JSX.Element {
     return (
         <Empty>
             <EmptyHeader>
                 <EmptyTitle>No checks yet</EmptyTitle>
                 <EmptyDescription>
-                    {isMetric
-                        ? 'Write a custom SQL check that queries {metric} and returns one row per failure. Checks run daily after you add the first check.'
-                        : 'Checks verify this data automatically after each sync or materialization.'}
+                    Checks verify this data automatically after each sync or materialization.
                 </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
@@ -70,6 +63,7 @@ function NoChecksYet({
 
 export function QuillDataQualityChecksPanel({
     columns,
+    subjectName,
     dataLastSyncedAt,
     hideTitle,
     newCheckDisabledReason,
@@ -99,7 +93,7 @@ export function QuillDataQualityChecksPanel({
         },
         onRunNow: (check) => runCheck(check.id),
     }
-    const { openEditor } = useActions(dataQualityCheckEditorLogic(editorProps))
+    const { openEditor, openEditorWithStarter } = useActions(dataQualityCheckEditorLogic(editorProps))
     const columnNames = columns.map((column) => column.name)
     const outputSchema = columns.map((column) => ({ name: column.name, type: column.type }))
     const addCheck = (): void => openEditor(null, logicProps, columnNames, outputSchema)
@@ -118,6 +112,30 @@ export function QuillDataQualityChecksPanel({
             <QuillCheckCallout tone="destructive" action={{ label: 'Retry', onClick: loadChecks }}>
                 Could not load the checks. Try again.
             </QuillCheckCallout>
+        )
+    }
+
+    if (!checksLoaded) {
+        return <Skeleton className="h-40 w-full" aria-busy="true" />
+    }
+
+    if (!checksLoading && checks.length === 0) {
+        return (
+            <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
+                <div className="flex flex-col gap-3" data-attr="data-quality-checks-panel">
+                    {notice}
+                    {isMetric ? (
+                        <QuillMetricChecksEmptyState
+                            metricName={subjectName}
+                            onStart={(starterKey) => openEditorWithStarter(logicProps, starterKey)}
+                            disabledReason={newCheckDisabledReason}
+                        />
+                    ) : (
+                        <NoChecksYet onAddCheck={addCheck} disabledReason={newCheckDisabledReason} />
+                    )}
+                    <QuillCheckEditorDialog />
+                </div>
+            </BindLogic>
         )
     }
 
@@ -207,11 +225,7 @@ export function QuillDataQualityChecksPanel({
                     </QuillCheckCallout>
                 )}
 
-                {!checksLoading && checks.length === 0 ? (
-                    <NoChecksYet onAddCheck={addCheck} isMetric={isMetric} disabledReason={newCheckDisabledReason} />
-                ) : (
-                    <QuillChecksTable {...logicProps} columns={columnNames} outputSchema={outputSchema} />
-                )}
+                <QuillChecksTable {...logicProps} columns={columnNames} outputSchema={outputSchema} />
 
                 <QuillSuiteRunsHistory {...logicProps} />
 

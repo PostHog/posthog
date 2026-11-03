@@ -7,7 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import type { Mocks } from '~/mocks/utils'
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-import { QuillDataQualityChecksPanel } from './QuillDataQualityChecksPanel'
+import { QuillDataQualityChecksPanel, QuillDataQualityChecksPanelProps } from './QuillDataQualityChecksPanel'
 
 const SUBJECT_ID = 'view-orders'
 
@@ -155,6 +155,12 @@ function mocks({ withChecks = true }: { withChecks?: boolean } = {}): Mocks {
                 : [],
             '/api/projects/:team_id/data_quality_checks/check_types/': checkTypes,
             '/api/projects/:team_id/data_quality_checks/subjects/': [],
+            '/api/projects/:team_id/data_quality_checks/output_schema/': {
+                columns: [
+                    { name: 'day', type: 'Nullable(Date)' },
+                    { name: 'signups', type: 'UInt64' },
+                ],
+            },
             '/api/projects/:team_id/data_quality_checks/:id/runs/': checkRuns,
             '/api/projects/:team_id/data_quality_runs/': withChecks
                 ? { results: suiteRuns, count: suiteRuns.length }
@@ -233,5 +239,32 @@ export const EditCheckDialog: Story = {
             return item
         })
         editItem.click()
+    },
+}
+
+const metricArgs: QuillDataQualityChecksPanelProps = {
+    subjectType: 'metric',
+    subjectId: 'metric-signups',
+    subjectName: 'Daily signups',
+    columns: [],
+}
+
+export const MetricNoChecks: Story = {
+    args: metricArgs,
+    parameters: { msw: { mocks: mocks({ withChecks: false }) } },
+}
+
+export const MetricNoChecksNarrow: Story = {
+    args: metricArgs,
+    decorators: [inMainContent('w-128')],
+    parameters: { msw: { mocks: mocks({ withChecks: false }) } },
+}
+
+export const MetricStarterCheck: Story = {
+    args: metricArgs,
+    parameters: { msw: { mocks: mocks({ withChecks: false }) } },
+    play: async ({ canvasElement }) => {
+        await click(canvasElement, '[data-attr="data-quality-metric-starter-no_sharp_drop"]')
+        await click(canvasElement, '[data-attr="data-quality-metric-add-starter-check"]')
     },
 }

@@ -6,11 +6,13 @@ import { QuillDataQualitySchedule } from './QuillDataQualitySchedule'
 
 export interface QuillMetricChecksPanelProps {
     metricId: string
+    metricName?: string
     newCheckDisabledReason?: string
 }
 
 export function QuillMetricChecksPanel({
     metricId,
+    metricName,
     newCheckDisabledReason,
 }: QuillMetricChecksPanelProps): JSX.Element | null {
     const { checks } = useValues(dataQualityChecksLogic({ subjectType: 'metric', subjectId: metricId }))
@@ -19,6 +21,7 @@ export function QuillMetricChecksPanel({
         <QuillDataQualityChecksPanel
             subjectType="metric"
             subjectId={metricId}
+            subjectName={metricName}
             columns={[]}
             hideTitle
             newCheckDisabledReason={newCheckDisabledReason}
