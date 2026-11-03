@@ -52,6 +52,28 @@ class TestSubscriptionOffboarding(APIBaseTest):
         assert recipient.enabled and recipient.target_value == "DEPARTING@example.com,other@example.com"
         assert only_recipient.enabled and only_recipient.target_value == self.departing.email
 
+    @parameterized.expand([("dashboard",), ("insight",)])
+    def test_preview_excludes_subscriptions_with_deleted_resources(self, kind: str) -> None:
+        subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
+        if kind == "insight":
+            subscription.dashboard = None
+            subscription.insight = Insight.objects.create(team=self.team, created_by=self.departing)
+            subscription.save(update_fields=["dashboard", "insight"])
+        resource = subscription.dashboard if kind == "dashboard" else subscription.insight
+        assert resource is not None
+        assert [item["id"] for item in self.client.get(self.url + "offboarding_preview/").json()] == [
+            f"subscription:{subscription.pk}"
+        ]
+
+        resource.deleted = True
+        resource.save(update_fields=["deleted"])
+
+        response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert response.json() == []
+        subscription.refresh_from_db()
+        assert subscription.enabled
+
     def test_untitled_subscriptions_use_the_resource_name(self) -> None:
         subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
         subscription.title = ""
@@ -111,7 +133,8 @@ class TestSubscriptionOffboarding(APIBaseTest):
     def test_ai_subscriptions_are_included(self) -> None:
         subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
         subscription.prompt = "Summarize weekly product usage"
-        subscription.save(update_fields=["prompt"])
+        subscription.dashboard = None
+        subscription.save(update_fields=["prompt", "dashboard"])
         response = self.client.get(self.url + "offboarding_preview/")
         assert response.status_code == 200
         assert [item["id"] for item in response.json()] == [f"subscription:{subscription.pk}"]

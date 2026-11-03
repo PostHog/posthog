@@ -11,7 +11,11 @@ class SubscriptionOffboarding:
         self.user_id = user_id
 
     def _subscriptions(self) -> QuerySet[Subscription]:
-        return Subscription.objects.filter(team__organization_id=self.organization_id, deleted=False)
+        return (
+            Subscription.objects.filter(team__organization_id=self.organization_id, deleted=False)
+            .exclude(dashboard__deleted=True)
+            .exclude(insight__deleted=True)
+        )
 
     def resources(self) -> list[OffboardingResource]:
         return [
