@@ -2,7 +2,7 @@ import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 
 import { credentialFromStorage, type Credential, type CredentialStorage, type LogoutOutcome } from './credential'
-import { hostKey, openStore, type FileStore, type KeychainStore } from './credential-store'
+import { hostKey, openStore, trimHost, type FileStore, type KeychainStore } from './credential-store'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from './settings'
 
 // settings.json and the credentials file hold every host's login, so each write reads them, changes
@@ -26,7 +26,8 @@ export async function readLogin(
     }
     const store = openStore(runtime, record.store)
     const secret = await store.read(host)
-    const credential = secret && credentialFromStorage(hostKey(host), record, secret)
+    // The record is per origin, but a self-hosted PostHog can sit under a path, which the API needs.
+    const credential = secret && credentialFromStorage(trimHost(host), record, secret)
     return credential ? { credential, store } : undefined
 }
 
