@@ -179,7 +179,6 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         loadIntegrations,
     } = useActions(logic)
 
-    // An alert that can no longer page falls back to Slack, whatever was picked before.
     const selectedType =
         !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
             ? ALERT_NOTIFICATION_TYPE_SLACK
@@ -250,7 +249,6 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                 key: `pagerduty:${label}`,
                 title: 'PagerDuty',
                 detail: label.replace(/^PagerDuty\s*/, ''),
-                // Only the alerts platform opens incidents, so this destination stops paging once the alert moves back.
                 tags: [
                     !pagerDutyAvailable
                         ? { label: 'Not paging', type: 'warning' }

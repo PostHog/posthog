@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from functools import reduce
 from operator import or_
@@ -1470,15 +1471,14 @@ class AlertCreatePagerDutyDestinationSerializer(serializers.Serializer):
         write_only=True,
         help_text="The 32-character integration key of a PagerDuty Events API v2 integration.",
     )
-    # A StrEnum in the platform contract, which ENUM_NAME_OVERRIDES names and logs shares.
+    # These two StrEnums live in the platform contract, which ENUM_NAME_OVERRIDES names and logs shares.
     pagerduty_severity = serializers.ChoiceField(  # nosemgrep: choices-need-a-class
-        choices=PagerDutySeverity,
+        choices=[choice.value for choice in PagerDutySeverity],
         default=DEFAULT_PAGERDUTY_SEVERITY,
         help_text="Severity of the incidents the alert opens.",
     )
-    # A StrEnum in the platform contract, which ENUM_NAME_OVERRIDES names and logs shares.
     pagerduty_region = serializers.ChoiceField(  # nosemgrep: choices-need-a-class
-        choices=PagerDutyRegion,
+        choices=[choice.value for choice in PagerDutyRegion],
         default=DEFAULT_PAGERDUTY_REGION,
         help_text="Region of the PagerDuty account.",
     )
@@ -2019,8 +2019,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request: Request,
         alert: AlertConfiguration,
         data: AlertDestinationData,
-        configs: list[AlertDestinationConfig],
+        configs: Sequence[AlertDestinationConfig],
     ) -> Response:
+        user = cast(User, request.user)
         # A PagerDuty destination is two functions, one per incident event, so it counts once.
         existing = count_active_alert_destinations(
             team_id=self.team_id,
@@ -2034,9 +2035,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             hog_function_ids = create_alert_destination_hog_functions(
-                configs,
+                list(configs),
                 team_id=alert.team_id,
-                created_by_id=request.user.id,
+                created_by_id=user.id,
                 alert_id=str(alert.id),
                 allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
             )
@@ -2044,7 +2045,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise as_drf_validation_error(error)
 
         posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
+            distinct_id=str(user.distinct_id),
             event="insight alert destination created",
             properties={
                 **get_request_analytics_properties(request),

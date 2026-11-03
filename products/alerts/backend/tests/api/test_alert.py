@@ -2983,7 +2983,8 @@ class TestAlertDestinations(APIBaseTest):
             assert not functions.exists()
             return
         assert sorted(
-            (function.filters["events"][0]["id"], function.inputs["event_action"]["value"]) for function in functions
+            ((function.filters or {})["events"][0]["id"], (function.inputs or {})["event_action"]["value"])
+            for function in functions
         ) == [("$insight_alert_incident_closed", "resolve"), ("$insight_alert_incident_opened", "trigger")]
 
     @parameterized.expand(
