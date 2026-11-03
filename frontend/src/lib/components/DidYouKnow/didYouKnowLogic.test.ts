@@ -93,7 +93,9 @@ describe('didYouKnowLogic', () => {
         expect(toastInfoSpy).not.toHaveBeenCalled()
 
         logic = didYouKnowLogic()
-        await expectLogic(logic, () => logic.mount()).toDispatchActions(['tryShowTip', 'recordShown', 'reportTipShown'])
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['tryShowTip', 'recordShown', 'reportTipShown'])
 
         expect(toastInfoSpy).toHaveBeenCalledTimes(1)
     })
