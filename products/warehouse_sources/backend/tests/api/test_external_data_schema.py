@@ -5499,19 +5499,21 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         ]
         assert mock_cancel.call_args_list == ([mock.call("running-workflow-id")] if cancels else [])
 
-    def test_a_source_without_column_metadata_checks_masks_against_the_synced_columns(self) -> None:
+    # Some sources record their columns after normalization, so the metadata holds the alias too.
+    @parameterized.expand([("synced_table",), ("normalized_metadata",)])
+    def test_a_source_checks_masks_against_its_synced_columns(self, columns_from: str) -> None:
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.HUBSPOT)
+        names = ["id", "email", "_email"]
         table = DataWarehouseTable.objects.create(
-            team=self.team,
-            name="hubspot_contacts",
-            columns={
-                "id": {"clickhouse": "String"},
-                "email": {"clickhouse": "Nullable(String)"},
-                "_email": {"clickhouse": "Nullable(String)"},
-            },
+            team=self.team, name="hubspot_contacts", columns={name: {"clickhouse": "String"} for name in names}
+        )
+        config = (
+            {"schema_metadata": {"columns": [{"name": name, "data_type": "text"} for name in names]}}
+            if columns_from == "normalized_metadata"
+            else {}
         )
         schema = ExternalDataSchema.objects.create(
-            name="contacts", team=self.team, source=source, table=table, sync_type_config={}
+            name="contacts", team=self.team, source=source, table=table, sync_type_config=config
         )
         with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
             unknown = self._patch(schema, {"masked_columns": ["phone"]})

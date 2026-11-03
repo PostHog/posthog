@@ -604,11 +604,16 @@ def _validate_masked_columns(
             for column in (metadata_columns if isinstance(metadata_columns, list) else [])
             if isinstance(column, dict) and isinstance(name := column.get("name"), str)
         ]
+        synced_columns = (
+            [column["name"] for column in instance.table.get_user_facing_columns()]
+            if instance.table is not None
+            else []
+        )
         # Non-SQL sources record no column metadata, so their synced columns are the known ones.
-        aliases: list[str] = []
-        if not source_columns and instance.table is not None:
-            source_columns = [column["name"] for column in instance.table.get_user_facing_columns()]
-            aliases = collision_alias_masked_columns(masked_columns, source_columns)
+        if not source_columns:
+            source_columns = synced_columns
+        # Some sources record their columns after normalization, so the metadata can list an alias too.
+        aliases = collision_alias_masked_columns(masked_columns, [*source_columns, *synced_columns])
         if aliases:
             raise ValidationError(
                 f"Can't mask {sorted(aliases)}: the column was renamed because two source columns share its "
