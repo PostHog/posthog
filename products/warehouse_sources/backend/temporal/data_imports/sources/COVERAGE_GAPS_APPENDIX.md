@@ -10412,13 +10412,13 @@ Note: Both official reporting references were fetched with curl and their operat
 
 ## Rollbar — gaps
 
-Today (4): `deploys`, `environments`, `items`, `occurrences`
+Today (6): `activated_item_counts`, `deploys`, `environments`, `items`, `occurrence_counts`, `occurrences`
 
 Diffed against: <https://docs.rollbar.com/reference>
 
 - [ ] `projects (list-all-projects)` — lookup table resolving the project IDs carried on items and deploys we already sync (high)
-- [ ] `item occurrence counts (get-occurrence-counts)` — the per-item error-volume time series, Rollbar's headline metric (high)
-- [ ] `activated item counts (get-activated-item-counts)` — new-error-rate trend over time, the standard regression signal (high)
+- [x] `item occurrence counts (get-occurrence-counts)` — the per-item error-volume time series, Rollbar's headline metric (high)
+- [x] `activated item counts (get-activated-item-counts)` — new-error-rate trend over time, the standard regression signal (high)
 - [ ] `users (list-all-users)` — lookup resolving assignee and resolver IDs on items (medium)
 - [ ] `teams (list-all-teams)` — lookup for ownership attribution of items and projects (medium)
 - [ ] `top active items (get-top-active-items)` — ranked noisiest errors per period without recomputing from occurrences (medium)
