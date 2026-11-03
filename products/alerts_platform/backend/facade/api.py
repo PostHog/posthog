@@ -84,6 +84,12 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's held delivery, so a source can word the message that the release sent.
+    None when the evaluation was never held or is still held."""
+    return delivery_holds.hold_released_by(address)
+
+
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     """The minute a configuration is due for."""
     return platform_lifecycle.slot_of(next_check_at, cutoff)
