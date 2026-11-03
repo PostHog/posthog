@@ -16685,6 +16685,10 @@ export namespace Schemas {
          * GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
          */
         installation_status: InstallationStatusEnum | NullEnum;
+        /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         */
+        needs_webhook_reconnect: boolean | null;
     };
     /**
      * * `burst` - burst
