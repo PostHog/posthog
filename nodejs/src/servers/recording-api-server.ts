@@ -68,6 +68,7 @@ export class RecordingApiServer implements NodeServer {
         // shared-secret middleware (callers send a Bearer token, not X-Internal-Api-Secret).
         this.lifecycle = new ServerLifecycle(this.config, {
             internalApiAuthExcludedPathPrefixes: internalApiAuthExcludedPathPrefixes(this.role),
+            readOnlyPathPrefixes: ['/replay-blocks/'],
         })
     }
 
