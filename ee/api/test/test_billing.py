@@ -1517,6 +1517,49 @@ GATEWAY_SPEND = {
 }
 
 
+AI_CREDIT_SETTINGS_ANSWER = {
+    "monthly_spend_limit_usd": "250.00",
+    "low_balance_threshold_usd": None,
+    "automatic_reload": {
+        "enabled": False,
+        "target_usd": None,
+        "monthly_reload_limit_usd": None,
+        "disabled_reason": None,
+        "disabled_at": None,
+    },
+}
+
+AI_CREDIT_CALLS_THAT_NAME_THE_ORGANIZATION = [
+    (
+        "purchase",
+        "post",
+        "purchase",
+        {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
+        "purchase_ai_credit",
+        ({"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},),
+        {"status": "paid", "total_usd": "54.13"},
+    ),
+    (
+        "automatic_reload",
+        "patch",
+        "settings/automatic_reload",
+        {"low_balance_threshold_usd": "20", "target_usd": "100"},
+        "update_ai_automatic_reload",
+        ({"low_balance_threshold_usd": "20.00", "target_usd": "100.00"},),
+        AI_CREDIT_SETTINGS_ANSWER,
+    ),
+    (
+        "quote",
+        "get",
+        "quote",
+        {"amount_usd": "50"},
+        "ai_credit_quote",
+        ("50.00",),
+        {"amount_usd": "50.00", "tax_usd": "4.13", "total_usd": "54.13"},
+    ),
+]
+
+
 class TestAICreditsBillingAPI(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1534,7 +1577,12 @@ class TestAICreditsBillingAPI(APILicensedTest):
 
         response = self.client.post(
             "/api/billing/ai_credits/purchase",
-            {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
+            {
+                "organization_id": str(self.organization.id),
+                "amount_usd": "50.00",
+                "total_usd": "54.13",
+                "idempotency_key": "purchase-1",
+            },
             content_type="application/json",
         )
 
@@ -1549,8 +1597,8 @@ class TestAICreditsBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("quote_without_a_card", "get", "quote?amount_usd=50", 400, {}, 400, "ai_credits_no_card"),
-            ("tax_unavailable", "get", "quote?amount_usd=50", 503, {}, 503, "ai_credits_tax_unavailable"),
+            ("quote_without_a_card", "get", "quote", 400, {}, 400, "ai_credits_no_card"),
+            ("tax_unavailable", "get", "quote", 503, {}, 503, "ai_credits_tax_unavailable"),
             ("card_declined", "post", "purchase", 402, {"status": "declined"}, 402, "ai_credits_card_declined"),
             ("total_changed", "post", "purchase", 409, {"status": "total_changed"}, 409, "ai_credits_total_changed"),
             ("purchase_ended", "post", "purchase", 409, {"status": "ended"}, 409, "ai_credits_purchase_ended"),
@@ -1574,8 +1622,12 @@ class TestAICreditsBillingAPI(APILicensedTest):
     ) -> None:
         mock_request.return_value = _billing_answer(billing_status, {**billing_body, "detail": "billing's own words"})
         bodies = {
-            "purchase": {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
-            "settings/spend_limit": {"monthly_spend_limit_usd": "250.00"},
+            path: {**data, "organization_id": str(self.organization.id)}
+            for path, data in [
+                ("quote", {"amount_usd": "50"}),
+                ("purchase", {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"}),
+                ("settings/spend_limit", {"monthly_spend_limit_usd": "250.00"}),
+            ]
         }
 
         response = getattr(self.client, method)(
@@ -1589,7 +1641,12 @@ class TestAICreditsBillingAPI(APILicensedTest):
     def test_a_purchase_billing_never_answered_asks_for_a_retry(self, mock_request: MagicMock) -> None:
         response = self.client.post(
             "/api/billing/ai_credits/purchase",
-            {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
+            {
+                "organization_id": str(self.organization.id),
+                "amount_usd": "50.00",
+                "total_usd": "54.13",
+                "idempotency_key": "purchase-1",
+            },
             content_type="application/json",
         )
 
@@ -1610,11 +1667,68 @@ class TestAICreditsBillingAPI(APILicensedTest):
         self, _name: str, body: dict[str, Any], field: str, mock_request: MagicMock
     ) -> None:
         response = self.client.patch(
-            "/api/billing/ai_credits/settings/automatic_reload", body, content_type="application/json"
+            "/api/billing/ai_credits/settings/automatic_reload",
+            {**body, "organization_id": str(self.organization.id)},
+            content_type="application/json",
         )
 
         assert (response.status_code, response.json()["attr"]) == (400, field)
         mock_request.assert_not_called()
+
+    @parameterized.expand(AI_CREDIT_CALLS_THAT_NAME_THE_ORGANIZATION)
+    @patch("ee.billing.grants.posthog_feature_flag_enabled", return_value=False)
+    def test_a_call_reaches_the_organization_it_names_after_the_current_team_changes(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        data: dict[str, str],
+        manager_method: str,
+        forwarded: tuple[Any, ...],
+        answer: dict[str, Any],
+        _flag: MagicMock,
+    ) -> None:
+        other_organization = Organization.objects.create(name="Another organization")
+        other_team = Team.objects.create(organization=other_organization, name="Another project")
+        OrganizationMembership.objects.create(
+            organization=other_organization, user=self.user, level=OrganizationMembership.Level.ADMIN
+        )
+        self.user.current_organization = other_organization
+        self.user.current_team = other_team
+        self.user.save()
+
+        with patch.object(BillingManager, manager_method, return_value=answer) as manager:
+            response = getattr(self.client, method)(
+                f"/api/billing/ai_credits/{path}",
+                {**data, "organization_id": str(self.organization.id)},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert manager.call_args.args == (self.organization, *forwarded)
+
+    @parameterized.expand(AI_CREDIT_CALLS_THAT_NAME_THE_ORGANIZATION)
+    def test_a_call_that_names_an_organization_the_person_is_not_in_is_refused(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        data: dict[str, str],
+        manager_method: str,
+        _forwarded: tuple[Any, ...],
+        _answer: dict[str, Any],
+    ) -> None:
+        foreign_organization = Organization.objects.create(name="Foreign organization")
+
+        with patch.object(BillingManager, manager_method) as manager:
+            response = getattr(self.client, method)(
+                f"/api/billing/ai_credits/{path}",
+                {**data, "organization_id": str(foreign_organization.id)},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        manager.assert_not_called()
 
     @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
     @patch("posthog.llm.gateway_internal_client.httpx.get")

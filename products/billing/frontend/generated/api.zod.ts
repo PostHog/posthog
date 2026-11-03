@@ -30,6 +30,7 @@ export const billingAiCreditsPurchaseCreateBodyTotalUsdRegExp = new RegExp('^-?\
 export const billingAiCreditsPurchaseCreateBodyIdempotencyKeyMax = 100
 
 export const BillingAiCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().describe('Organization selected when this payment flow started.'),
     amount_usd: zod
         .stringFormat('decimal', billingAiCreditsPurchaseCreateBodyAmountUsdRegExp)
         .describe('The AI credit to buy, in USD, such as \"50.00\". At least $20.00 and at most $1,000,000.00.'),
@@ -58,6 +59,7 @@ export const billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyMonthlyRelo
 export const billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyConsentTextMax = 2000
 
 export const BillingAiCreditsSettingsAutomaticReloadPartialUpdateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().optional().describe('Organization selected when this payment flow started.'),
     enabled: zod.boolean().optional().describe('Turn automatic reload on or off.'),
     low_balance_threshold_usd: zod
         .stringFormat('decimal', billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyLowBalanceThresholdUsdRegExp)
@@ -87,6 +89,7 @@ export const billingAiCreditsSettingsSpendLimitPartialUpdateBodyMonthlySpendLimi
 )
 
 export const BillingAiCreditsSettingsSpendLimitPartialUpdateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod.uuid().optional().describe('Organization selected when this payment flow started.'),
     monthly_spend_limit_usd: zod
         .stringFormat('decimal', billingAiCreditsSettingsSpendLimitPartialUpdateBodyMonthlySpendLimitUsdRegExp)
         .nullish()

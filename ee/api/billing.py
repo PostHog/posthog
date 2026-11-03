@@ -761,7 +761,7 @@ class AICreditSettingsResponseSerializer(serializers.Serializer):
     automatic_reload = AIAutomaticReloadSettingsSerializer(help_text="The automatic reload settings.")
 
 
-class AISpendLimitRequestSerializer(serializers.Serializer):
+class AISpendLimitRequestSerializer(BillingPaymentOrganizationSerializer):
     monthly_spend_limit_usd = _usd_field(
         'The most the organization can spend on AI in a billing period, in USD, such as "250.00". '
         "Pass null to remove the limit.",
@@ -771,7 +771,7 @@ class AISpendLimitRequestSerializer(serializers.Serializer):
     )
 
 
-class AIAutomaticReloadRequestSerializer(serializers.Serializer):
+class AIAutomaticReloadRequestSerializer(BillingPaymentOrganizationSerializer):
     enabled = serializers.BooleanField(required=False, help_text="Turn automatic reload on or off.")
     low_balance_threshold_usd = _usd_field(
         'Reload when the AI balance drops below this many USD, such as "20.00".',
@@ -851,7 +851,7 @@ class AICreditCardResponseSerializer(serializers.Serializer):
     card = AICreditCardSerializer(allow_null=True, help_text="The card that pays for AI credits. Null when none.")
 
 
-class AICreditQuoteRequestSerializer(serializers.Serializer):
+class AICreditQuoteRequestSerializer(BillingPaymentOrganizationSerializer):
     amount_usd = _usd_field(
         f'The AI credit to buy, in USD, such as "50.00". '
         f"At least ${MINIMUM_AI_CREDIT_USD} and at most ${MAXIMUM_AI_CREDIT_USD:,}.",
@@ -1001,13 +1001,27 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Billing opts in so generated clients and MCP scaffolding include these read actions.
     force_include_in_api_docs = True
 
-    payment_actions = {"activate", "authorize", "authorize_status"}
+    payment_actions = {
+        "activate",
+        "authorize",
+        "authorize_status",
+        "ai_credit_purchase",
+        "ai_spend_limit",
+        "ai_automatic_reload",
+    }
+    # A GET has no body, so these actions name the organization in the query string.
+    payment_query_actions = {"ai_credit_quote"}
+
+    def _organization_in_query(self, request: Request) -> bool:
+        return self.action in self.payment_query_actions or (
+            self.action == "list" and "organization_id" in request.query_params
+        )
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
-        if self.action in self.payment_actions or scoped_billing_read:
+        organization_in_query = self._organization_in_query(request)
+        if self.action in self.payment_actions or organization_in_query:
             serializer = BillingPaymentOrganizationSerializer(
-                data=request.query_params if scoped_billing_read else request.data
+                data=request.query_params if organization_in_query else request.data
             )
             serializer.is_valid(raise_exception=True)
             # Configure normal organization scope before shared permissions resolve any cached
@@ -1585,6 +1599,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         changes = {
             field: str(value) if isinstance(value, Decimal) else value
             for field, value in request.validated_data.items()
+            if field != "organization_id"
         }
         answer = self._ai_credits(
             lambda manager, organization: manager.update_ai_automatic_reload(organization, changes)
@@ -2001,9 +2016,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
-            if self.action in self.payment_actions or (
-                self.action == "list" and "organization_id" in self.request.query_params
-            ):
+            if self.action in self.payment_actions or self._organization_in_query(self.request):
                 return self.organization
             return self.team.organization
         except Exception:

@@ -206,6 +206,8 @@ export interface AICreditHistoryResponseApi {
 }
 
 export interface AICreditPurchaseRequestApi {
+    /** Organization selected when this payment flow started. */
+    organization_id: string
     /**
      * The AI credit to buy, in USD, such as "50.00". At least $20.00 and at most $1,000,000.00.
      * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
@@ -331,6 +333,8 @@ export interface AICreditSettingsResponseApi {
 }
 
 export interface PatchedAIAutomaticReloadRequestApi {
+    /** Organization selected when this payment flow started. */
+    organization_id?: string
     /** Turn automatic reload on or off. */
     enabled?: boolean
     /**
@@ -359,6 +363,8 @@ export interface PatchedAIAutomaticReloadRequestApi {
 }
 
 export interface PatchedAISpendLimitRequestApi {
+    /** Organization selected when this payment flow started. */
+    organization_id?: string
     /**
      * The most the organization can spend on AI in a billing period, in USD, such as "250.00". Pass null to remove the limit.
      * @nullable
@@ -1618,6 +1624,10 @@ export type BillingAiCreditsQuoteRetrieveParams = {
      * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
      */
     amount_usd: string
+    /**
+     * Organization selected when this payment flow started.
+     */
+    organization_id: string
 }
 
 export type BillingAiCreditsSpendRetrieveParams = {
