@@ -53,9 +53,11 @@ def sns_message(message_id: str, event_type: str = "Bounce", team_id: int = 7) -
 
 
 class FakeSqs:
-    def __init__(self, messages: list[dict[str, Any]]):
+    def __init__(self, messages: list[dict[str, Any]], refuse_release: set[str] | None = None):
         self.messages = {m["MessageId"]: m for m in messages}
         self.hidden: set[str] = set()
+        self.refuse_release = refuse_release or set()
+        self.release_calls = 0
 
     def _by_receipt(self, handle: str) -> str:
         return next(mid for mid, m in self.messages.items() if m["ReceiptHandle"] == handle)
@@ -69,10 +71,17 @@ class FakeSqs:
     def delete_message(self, *, ReceiptHandle: str, **_: Any) -> None:
         del self.messages[self._by_receipt(ReceiptHandle)]
 
-    def change_message_visibility_batch(self, *, Entries: list[dict[str, Any]], **_: Any) -> None:
+    def change_message_visibility_batch(self, *, Entries: list[dict[str, Any]], **_: Any) -> dict[str, Any]:
+        self.release_calls += 1
+        failed = []
         for entry in Entries:
             assert entry["VisibilityTimeout"] == 0
-            self.hidden.discard(self._by_receipt(entry["ReceiptHandle"]))
+            message_id = self._by_receipt(entry["ReceiptHandle"])
+            if message_id in self.refuse_release:
+                failed.append({"Id": entry["Id"], "Code": "ReceiptHandleIsInvalid", "SenderFault": True})
+            else:
+                self.hidden.discard(message_id)
+        return {"Successful": [], "Failed": failed}
 
     @property
     def visible_ids(self) -> set[str]:
@@ -166,6 +175,85 @@ class TestReplaySesEventsDlq(SimpleTestCase):
         assert webhook.posted == []
         assert sqs.visible_ids == {"a"}
         assert report.totals == {"unparseable": 1}
+
+    @parameterized.expand(
+        [
+            ("mail_null", None),
+            ("mail_not_an_object", "oops"),
+            ("headers_not_objects", {"headers": ["x-posthog-tracking-code"], "destination": "a@example.com"}),
+            ("tags_not_lists", {"tags": {"ph_id": "abc"}, "timestamp": 5}),
+        ]
+    )
+    def test_an_unexpected_ses_record_shape_still_replays_and_the_run_continues(self, _name: str, mail: Any) -> None:
+        odd = sns_message("a")
+        envelope = json.loads(odd["Body"])
+        envelope["Message"] = json.dumps({"eventType": "Bounce", "mail": mail})
+        odd["Body"] = json.dumps(envelope)
+        sqs = FakeSqs([odd, sns_message("b")])
+        webhook = StubWebhook()
+
+        report = run(sqs, webhook)
+
+        assert webhook.posted == ["a", "b"]
+        assert sqs.messages == {}
+        assert report.to_dict()["by_team"] == {"unknown": {"replayed": 1}, "7": {"replayed": 1}}
+
+    def test_a_slow_webhook_stops_the_run_before_kept_messages_outlive_their_visibility(self) -> None:
+        sqs = FakeSqs([sns_message(str(i)) for i in range(25)])
+        options = ReplayOptions(dry_run=False, limit=25, max_per_second=1000.0)
+        now = [0.0]
+        posted: list[str] = []
+
+        def slow_post(body: str) -> int:
+            posted.append(json.loads(body)["MessageId"])
+            now[0] += options.visibility_timeout_seconds / 5
+            return 200
+
+        report = replay_queue(
+            QUEUE,
+            options,
+            sqs=sqs,  # type: ignore[arg-type]
+            triggered_by="test",
+            post=slow_post,
+            clock=lambda: now[0],
+            sleep=lambda seconds: None,
+        )
+
+        assert now[0] < options.visibility_timeout_seconds
+        assert report.stopped_at_deadline
+        assert report.totals == {"replayed": len(posted)}
+        assert len(posted) < 25
+        assert sqs.visible_ids == set(sqs.messages)
+        assert len(sqs.messages) == 25 - len(posted)
+
+    def test_an_error_mid_batch_still_releases_every_received_message(self) -> None:
+        sqs = FakeSqs([sns_message(str(i)) for i in range(5)])
+
+        def boom(body: str) -> int:
+            raise RuntimeError("bug")
+
+        with self.assertRaises(RuntimeError):
+            replay_queue(
+                QUEUE,
+                ReplayOptions(dry_run=False, limit=5, max_per_second=1000.0),
+                sqs=sqs,  # type: ignore[arg-type]
+                triggered_by="test",
+                post=boom,
+                clock=lambda: 0.0,
+                sleep=lambda seconds: None,
+            )
+
+        assert sqs.visible_ids == {"0", "1", "2", "3", "4"}
+
+    def test_messages_sqs_refuses_to_release_are_retried_and_reported(self) -> None:
+        sqs = FakeSqs([sns_message("a"), sns_message("b")], refuse_release={"b"})
+
+        report = run(sqs, StubWebhook({"a": 500, "b": 500}))
+
+        assert sqs.visible_ids == {"a"}
+        assert sqs.release_calls == 3
+        assert report.unreleased == 1
+        assert report.to_dict()["unreleased"] == 1
 
     def test_posts_are_spaced_by_the_rate_limit(self) -> None:
         sqs = FakeSqs([sns_message(str(i)) for i in range(3)])

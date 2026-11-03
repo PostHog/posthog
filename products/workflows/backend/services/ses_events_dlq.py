@@ -25,6 +25,7 @@ from django.conf import settings
 import boto3
 import requests
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog.dataclasses import frozen
 
@@ -38,6 +39,10 @@ ReplayOutcome = Literal["replayed", "failed", "unparseable", "would_replay"]
 RECEIVE_BATCH_SIZE = 10
 WEBHOOK_TIMEOUT_SECONDS = 10
 MAX_REPORTED_FAILURES = 50
+RELEASE_ATTEMPTS = 3
+# A run stops taking messages this long before their visibility timeout ends, so the slowest post
+# still finishes and every kept message is released with a receipt handle that is still valid.
+DEADLINE_MARGIN_SECONDS = WEBHOOK_TIMEOUT_SECONDS + 20
 TRACKING_CODE_HEADER = "x-posthog-tracking-code"
 VERSIONED_TRACKING_CODE_MARKER = "v2"
 
@@ -91,16 +96,22 @@ class DlqMessageSummary:
 def summarize_message(message: dict[str, Any]) -> DlqMessageSummary:
     envelope = _parse_envelope(message.get("Body", ""))
     record = _parse_json_object(envelope.get("Message", "")) if envelope else None
-    mail = record.get("mail", {}) if record else {}
+    mail = _as_dict((record or {}).get("mail"))
+    destinations = mail.get("destination")
+    timestamp = mail.get("timestamp")
     return DlqMessageSummary(
-        message_id=message.get("MessageId", ""),
-        event_type=str(record.get("eventType") or "unknown") if record else "unknown",
+        message_id=str(message.get("MessageId", "")),
+        event_type=str((record or {}).get("eventType") or "unknown"),
         team_id=_team_id_from_mail(mail),
-        ses_timestamp=mail.get("timestamp"),
-        masked_recipient=_mask_email(next(iter(mail.get("destination") or []), None)),
+        ses_timestamp=timestamp if isinstance(timestamp, str) else None,
+        masked_recipient=_mask_email(destinations[0] if isinstance(destinations, list) and destinations else None),
         dead_lettered_at=_sent_timestamp(message),
         replayable=envelope is not None,
     )
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _parse_json_object(text: str) -> dict[str, Any] | None:
@@ -121,11 +132,17 @@ def _parse_envelope(body: str) -> dict[str, Any] | None:
 
 
 def _team_id_from_mail(mail: dict[str, Any]) -> int | None:
+    headers = mail.get("headers")
     header = next(
-        (h.get("value") for h in mail.get("headers") or [] if str(h.get("name", "")).lower() == TRACKING_CODE_HEADER),
+        (
+            h.get("value")
+            for h in (headers if isinstance(headers, list) else [])
+            if isinstance(h, dict) and str(h.get("name", "")).lower() == TRACKING_CODE_HEADER
+        ),
         None,
     )
-    tag = next(iter((mail.get("tags") or {}).get("ph_id") or []), None)
+    tags = _as_dict(mail.get("tags")).get("ph_id")
+    tag = tags[0] if isinstance(tags, list) and tags else None
     code = header or tag
     if not isinstance(code, str) or not code:
         return None
@@ -151,7 +168,7 @@ def _mask_email(address: Any) -> str | None:
 
 
 def _sent_timestamp(message: dict[str, Any]) -> datetime | None:
-    raw = message.get("Attributes", {}).get("SentTimestamp")
+    raw = _as_dict(message.get("Attributes")).get("SentTimestamp")
     try:
         return datetime.fromtimestamp(int(raw) / 1000, tz=UTC)
     except (TypeError, ValueError):
@@ -206,8 +223,13 @@ class ReplayOptions:
     @property
     def visibility_timeout_seconds(self) -> int:
         # Hide each received message for the whole run, so the run never receives it twice. SQS caps
-        # the timeout at 12 hours.
-        return min(int(self.limit / self.max_per_second) + 60, 43_200)
+        # the timeout at 12 hours. A slow webhook can make the run longer than this, so the run also
+        # stops at deadline_seconds.
+        return min(int(self.limit / self.max_per_second) + 2 * DEADLINE_MARGIN_SECONDS, 43_200)
+
+    @property
+    def deadline_seconds(self) -> int:
+        return self.visibility_timeout_seconds - DEADLINE_MARGIN_SECONDS
 
 
 @frozen
@@ -224,6 +246,9 @@ class ReplayReport:
     by_event_type: Counter[tuple[str, ReplayOutcome]]
     by_team: Counter[tuple[int | None, ReplayOutcome]]
     failures: list[ReplayFailure]
+    stopped_at_deadline: bool = False
+    # Kept messages that SQS did not make visible again. They return when their visibility timeout ends.
+    unreleased: int = 0
 
     @property
     def totals(self) -> Counter[ReplayOutcome]:
@@ -245,6 +270,8 @@ class ReplayReport:
             "queue": self.queue_name,
             "dry_run": self.dry_run,
             "totals": dict(self.totals),
+            "stopped_at_deadline": self.stopped_at_deadline,
+            "unreleased": self.unreleased,
             "by_event_type": _nest(self.by_event_type),
             "by_team": _nest(self.by_team),
             "failures": [
@@ -314,27 +341,32 @@ def replay_queue(
         queue_name=queue.name, dry_run=options.dry_run, by_event_type=Counter(), by_team=Counter(), failures=[]
     )
     pacer = _Pacer(options.max_per_second, clock, sleep)
-    kept_receipt_handles: list[str] = []
+    deadline = clock() + options.deadline_seconds
+    held: dict[str, str] = {}
     logger.info("ses_events_dlq.replay_started", queue=queue.name, triggered_by=triggered_by, options=options)
     try:
-        for message in _receive_unseen(queue, options, sqs):
+        for message in _receive_unseen(queue, options, sqs, held):
+            if clock() >= deadline:
+                report.stopped_at_deadline = True
+                break
             summary = summarize_message(message)
             outcome, error = _replay_one(message, summary, options, post, pacer)
             report.record(summary, outcome, error)
             if outcome == "replayed":
                 sqs.delete_message(QueueUrl=queue.url, ReceiptHandle=message["ReceiptHandle"])
-            else:
-                kept_receipt_handles.append(message["ReceiptHandle"])
+                del held[str(message["MessageId"])]
             on_progress(report)
     finally:
-        _release(queue, sqs, kept_receipt_handles)
+        report.unreleased = _release(queue, sqs, list(held.values()))
         logger.info(
             "ses_events_dlq.replay_finished", queue=queue.name, triggered_by=triggered_by, report=report.to_dict()
         )
     return report
 
 
-def _receive_unseen(queue: DlqQueue, options: ReplayOptions, sqs: "SQSClient") -> Iterator[dict[str, Any]]:
+def _receive_unseen(
+    queue: DlqQueue, options: ReplayOptions, sqs: "SQSClient", held: dict[str, str]
+) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
     while len(seen) < options.limit:
         messages = sqs.receive_message(
@@ -349,7 +381,8 @@ def _receive_unseen(queue: DlqQueue, options: ReplayOptions, sqs: "SQSClient") -
             return
         for message in unseen:
             seen.add(str(message["MessageId"]))
-            yield message
+            held[str(message["MessageId"])] = str(message["ReceiptHandle"])
+        yield from unseen
 
 
 def _replay_one(
@@ -373,13 +406,29 @@ def _replay_one(
     return "failed", f"webhook answered {status}"
 
 
-def _release(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Sequence[str]) -> None:
+def _release(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Sequence[str]) -> int:
+    """Make kept messages visible again. Returns how many SQS still refused after the retries."""
+    unreleased = 0
     for start in range(0, len(receipt_handles), RECEIVE_BATCH_SIZE):
-        batch = receipt_handles[start : start + RECEIVE_BATCH_SIZE]
-        sqs.change_message_visibility_batch(
-            QueueUrl=queue.url,
-            Entries=[
-                {"Id": str(index), "ReceiptHandle": handle, "VisibilityTimeout": 0}
-                for index, handle in enumerate(batch)
-            ],
-        )
+        pending = dict(enumerate(receipt_handles[start : start + RECEIVE_BATCH_SIZE]))
+        for _ in range(RELEASE_ATTEMPTS):
+            try:
+                response = sqs.change_message_visibility_batch(
+                    QueueUrl=queue.url,
+                    Entries=[
+                        {"Id": str(index), "ReceiptHandle": handle, "VisibilityTimeout": 0}
+                        for index, handle in pending.items()
+                    ],
+                )
+            except (BotoCoreError, ClientError) as error:
+                logger.warning("ses_events_dlq.release_failed", queue=queue.name, error=str(error))
+                continue
+            # SQS answers 200 even when single entries fail, and lists those under Failed.
+            failed = {int(entry["Id"]) for entry in response.get("Failed", [])}
+            pending = {index: handle for index, handle in pending.items() if index in failed}
+            if not pending:
+                break
+        if pending:
+            logger.error("ses_events_dlq.messages_not_released", queue=queue.name, count=len(pending))
+        unreleased += len(pending)
+    return unreleased
