@@ -37,7 +37,7 @@ const EXPERIMENT_CHECKS: Check[] = [
     passed('metric_calculation_failed', 'Failed metric calculations'),
     passed('metric_all_zero', 'Metrics at zero in every variant'),
     passed('exposure_criteria_cannot_match', "Exposure criteria that can't match"),
-    passed('exposure_filters', 'Exposure filters that count unexpected users'),
+    passed('exposure_filters', 'Dynamic cohorts in the exposure criteria'),
     passed('early_significance', 'Significance on a small sample'),
     passed('metrics_not_matured', 'Metric windows not complete yet'),
 ]
