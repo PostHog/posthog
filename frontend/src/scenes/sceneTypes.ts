@@ -369,6 +369,7 @@ export interface SceneConfig {
     iconType?: FileSystemIconType
     /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
     canvasBackground?: boolean
+    pageviewIgnoredSearchParams?: string[]
 }
 
 // Map scenes to their access control resource types

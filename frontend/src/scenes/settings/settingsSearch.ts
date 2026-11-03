@@ -165,6 +165,11 @@ function matchWords(index: GlobalSearchFuse, words: string[]): WordMatch[] {
  * match every word, and fall back to the entries that match any word when none match all,
  * which is what rescues a query with a verb the index does not carry.
  */
+const searchTerms = (term: string): string[] =>
+    [...term.matchAll(/"([^"]*)"|(\S+)/g)]
+        .map(([, phrase, word]) => (phrase ?? word.replace(/"/g, '')).trim())
+        .filter(Boolean)
+
 export function searchSettingsIndex(index: GlobalSearchFuse, term: string): SearchIndexEntry[] {
     // Trim before searching: leading/trailing whitespace changes the pattern length and
     // inflates Fuse's effective edit budget (threshold × length), so an untrimmed term either
@@ -174,9 +179,12 @@ export function searchSettingsIndex(index: GlobalSearchFuse, term: string): Sear
         return []
     }
 
-    const words = trimmed.split(/\s+/)
+    const words = searchTerms(trimmed)
+    if (words.length === 0) {
+        return []
+    }
     if (words.length === 1) {
-        return index.search(trimmed).map((result) => result.item)
+        return index.search(words[0]).map((result) => result.item)
     }
 
     const matches = matchWords(index, words)

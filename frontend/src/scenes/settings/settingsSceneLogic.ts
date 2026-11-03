@@ -249,7 +249,7 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '/settings/:section': ({ section }, searchParams) => {
+        '/settings/:section': ({ section }, searchParams, _, { method }) => {
             if (!section) {
                 return
             }
@@ -257,6 +257,8 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             const urlSearch = searchParams.search == null ? null : String(searchParams.search)
             if (urlSearch !== null && urlSearch !== values.searchTerm) {
                 actions.setSearchTerm(urlSearch)
+            }
+            if (urlSearch && method === 'PUSH') {
                 queueMicrotask(openTodaySettingsSidebar)
             }
 

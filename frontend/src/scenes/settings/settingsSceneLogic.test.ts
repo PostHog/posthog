@@ -70,12 +70,19 @@ describe('settingsSceneLogic', () => {
         expect(router.values.searchParams).not.toHaveProperty('search')
     })
 
-    it('keeps the unpinned today settings sidebar open when a link brings a search', async () => {
+    it.each([
+        ['from another page', '/insights'],
+        ['with the same search from a settings section', '/settings/project-details?search=currency'],
+    ])('keeps the unpinned today settings sidebar open when a link brings a search %s', async (_, startUrl) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
-        router.actions.push('/insights')
+        router.actions.push(startUrl)
+        await expectLogic(logic).delay(0)
         const shell = todayShellLogic()
         shell.mount()
-        shell.actions.toggleSidebarPinned()
+        if (shell.values.sidebarPinned) {
+            shell.actions.toggleSidebarPinned()
+        }
+        shell.actions.setSidebarOpen(true)
 
         router.actions.push('/settings/project', { search: 'currency' })
 

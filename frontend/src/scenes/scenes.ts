@@ -490,7 +490,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
-    [Scene.Settings]: { projectBased: true, name: 'Settings' },
+    [Scene.Settings]: { projectBased: true, name: 'Settings', pageviewIgnoredSearchParams: ['search'] },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
     [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },

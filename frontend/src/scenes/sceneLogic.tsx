@@ -449,6 +449,11 @@ export interface sceneLogicMeta {
 
 export type sceneLogicType = MakeLogicType<sceneLogicValues, sceneLogicActions, sceneLogicProps, sceneLogicMeta>
 
+const pageviewSearchParams = (sceneId: string, searchParams: Record<string, any> = {}): Record<string, any> => {
+    const ignored = sceneConfigurations[sceneId]?.pageviewIgnoredSearchParams ?? []
+    return Object.fromEntries(Object.entries(searchParams).filter(([key]) => !ignored.includes(key)))
+}
+
 export const sceneLogic = kea<sceneLogicType>([
     props(
         {} as {
@@ -850,7 +855,8 @@ export const sceneLogic = kea<sceneLogicType>([
                 lastSceneId !== sceneId ||
                 lastSceneKey !== sceneKey ||
                 !equal(lastParams.params, params.params) ||
-                JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
+                JSON.stringify(pageviewSearchParams(sceneId, lastParams.searchParams)) !==
+                    JSON.stringify(pageviewSearchParams(sceneId, params.searchParams)) // `equal` crashes here
             ) {
                 const productKey = values.activeSceneProductKey
                 posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)

@@ -316,6 +316,26 @@ describe('sceneLogic', () => {
         }
     )
 
+    it.each<[string, () => void, number]>([
+        [
+            'typing in the settings search',
+            () => router.actions.replace(urls.settings('project-details'), { search: 'tim' }),
+            0,
+        ],
+        ['opening another settings section', () => router.actions.push(urls.settings('project-replay')), 1],
+    ])('captures a pageview count for %s', async (_, navigate, pageviews) => {
+        await expectLogic(logic, () => router.actions.push(urls.settings('project-details')))
+            .toDispatchActions(['setScene'])
+            .delay(10)
+        const capture = jest.spyOn(posthog, 'capture')
+        capture.mockClear()
+
+        navigate()
+        await expectLogic(logic).toDispatchActions(['setScene']).delay(10)
+
+        expect(capture.mock.calls.filter(([event]) => event === '$pageview')).toHaveLength(pageviews)
+    })
+
     it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
         router.actions.push('/billing')
         await expectLogic(logic).delay(1)

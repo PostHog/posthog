@@ -93,6 +93,8 @@ describe('settingsSearch', () => {
         ['a synonym on a section that has no settings', 'usage', 'organization-billing'],
         ['a word the index does not carry alongside one it does', 'usage dashboard', 'organization-billing'],
         ['the level and section context', 'project settings', 'replay-retention'],
+        ['a quoted phrase', '"api key"', 'variables'],
+        ['a quoted phrase next to a word', '"api key" project', 'variables'],
     ])('finds a setting by %s', (_description, term, expectedSettingId) => {
         expect(search(term)).toContain(expectedSettingId)
     })
