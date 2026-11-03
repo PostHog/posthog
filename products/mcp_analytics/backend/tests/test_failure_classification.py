@@ -77,7 +77,7 @@ class TestClassifyFingerprints(BaseTest):
     def test_raises_without_ai_processing_consent(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
-        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+        with patch("products.mcp_analytics.backend.failure_classification.build_openai_client") as mock_openai_cls:
             with self.assertRaises(FailureClassificationUnavailable):
                 classify_fingerprints({"a fingerprint": "a raw message"}, self.team)
 
@@ -96,7 +96,7 @@ class TestClassifyFingerprints(BaseTest):
                 ]
             }
         )
-        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+        with patch("products.mcp_analytics.backend.failure_classification.build_openai_client") as mock_openai_cls:
             mock_create = mock_openai_cls.return_value.chat.completions.create
             mock_create.return_value = _openai_response(payload)
             result = classify_fingerprints(items, self.team)
@@ -106,11 +106,12 @@ class TestClassifyFingerprints(BaseTest):
         # the boundary rules pivot on codes like 429/-32601 that normalization removes.
         prompt = mock_create.call_args.kwargs["messages"][1]["content"]
         assert "timed out after 45 seconds" in prompt
+        assert mock_create.call_args.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
 
     def test_batches_at_25_fingerprints(self) -> None:
         items = {f"fingerprint {i}": f"raw message {i}" for i in range(CLASSIFY_BATCH_SIZE + 1)}
         keys = list(items)
-        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+        with patch("products.mcp_analytics.backend.failure_classification.build_openai_client") as mock_openai_cls:
             mock_create = mock_openai_cls.return_value.chat.completions.create
             mock_create.side_effect = [
                 _openai_response(_classification_payload(keys[:CLASSIFY_BATCH_SIZE], "internal_error")),
@@ -137,7 +138,7 @@ class TestClassifyFingerprints(BaseTest):
     ) -> None:
         items = {"some fingerprint": "some raw message"}
         payload = json.dumps({"classifications": classifications})
-        with patch("products.mcp_analytics.backend.failure_classification.OpenAI") as mock_openai_cls:
+        with patch("products.mcp_analytics.backend.failure_classification.build_openai_client") as mock_openai_cls:
             mock_create = mock_openai_cls.return_value.chat.completions.create
             mock_create.side_effect = [_openai_response(payload), _openai_response(payload)]
             result = classify_fingerprints(items, self.team)
