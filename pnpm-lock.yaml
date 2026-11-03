@@ -386,8 +386,8 @@ importers:
         specifier: ^2.16.4
         version: 2.16.4
       re2:
-        specifier: ^1.24.1
-        version: 1.24.1
+        specifier: ^1.26.1
+        version: 1.27.0
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -1820,8 +1820,8 @@ importers:
         specifier: ^1.43.0
         version: 1.45.0(puppeteer-core@24.40.0(supports-color@10.2.2))(supports-color@10.2.2)
       re2:
-        specifier: ^1.24.1
-        version: 1.24.1
+        specifier: ^1.26.1
+        version: 1.27.0
       snappy:
         specifier: ^7.2.2
         version: 7.2.2
@@ -14607,9 +14607,9 @@ packages:
     resolution: {integrity: sha512-j2afSsaIENvHZN2B8GOpF566vZ5WVk5opAiMTvWgaQT8DkbOqsTfvNAvHoRGU2zzP8cPoqys+xHTRDWW8L+/BA==}
     deprecated: Use your platform's native atob() and btoa() methods instead
 
-  abbrev@4.0.0:
-    resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
-    engines: {node: ^20.17.0 || >=22.9.0}
+  abbrev@5.0.0:
+    resolution: {integrity: sha512-/XrFJgzQQQHpti1raDJC6m4ws6aNktmjBlhk8Fdlk7LwCEuDoieEJJY9OFHjfiFJFFRM2tK+Ky/IsfbbmlMu1w==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -17780,8 +17780,8 @@ packages:
   inline-style-parser@0.2.7:
     resolution: {integrity: sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA==}
 
-  install-artifact-from-github@1.6.0:
-    resolution: {integrity: sha512-wKsuzN8fy8QK7iEUqyWTQmvZ1QFGPn1xyl3/1iIIDthDjS7Hn9HoPwHlNakZirWbCsbad0lZMkr6Xfbpe1pUzw==}
+  install-artifact-from-github@1.8.1:
+    resolution: {integrity: sha512-lV8dRlR/3i6Tk4X9agaqhMRY6ScVU3YOuKse0VRnP9+rUWfImeCjo1TeAefXEauNVF3a8QgOb6jW3CZJetVopw==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -18099,6 +18099,10 @@ packages:
   isexe@3.1.1:
     resolution: {integrity: sha512-LpB/54B+/2J5hqQ7imZHfdU31OlgQqx7ZicVlkm9kzg9/w8GKLEcFfJl/t7DCEDueOyBAD6zCCwTO6Fzs0NoEQ==}
     engines: {node: '>=16'}
+
+  isexe@4.0.0:
+    resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
+    engines: {node: '>=20'}
 
   ismobilejs@1.1.1:
     resolution: {integrity: sha512-VaFW53yt8QO61k2WJui0dHf4SlL8lxBofUuUmwBo0ljPk0Drz2TiuDW4jo3wDcv41qy/SxrJ+VAzJ/qYqsmzRw==}
@@ -19755,6 +19759,9 @@ packages:
   nan@2.27.0:
     resolution: {integrity: sha512-hC+0LidcL3XE4rp1C4H54KujgXKzbfyTngZTwBByQxsOxCEKZT0MPQ4hOKUH2jU1OYstqdDH4onyHPDzcV0XdQ==}
 
+  nan@2.30.0:
+    resolution: {integrity: sha512-P5mokDkSvCGBz6mZDD/2l+w9QoICRXdCyZ9ONGmTePr40oihJg3Kpn0YU3twKd6PJnwSlLBWNQeOT6yWEV2c4A==}
+
   nanoid@3.3.12:
     resolution: {integrity: sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -19875,9 +19882,9 @@ packages:
     resolution: {integrity: sha512-zLcTg6P4AbcHPq465ZMFNXx7XpKKJh+7kkN699NiQWisR2uWYOWNWqRHAmbnmKiL4e9aLSlmy5U7rEMUXV59+A==}
     hasBin: true
 
-  node-gyp@12.3.0:
-    resolution: {integrity: sha512-QNcUWM+HgJplcPzBvFBZ9VXacyGZ4+VTOb80PwWR+TlVzoHbRKULNEzpRsnaoxG3Wzr7Qh7BYxGDU3CbKib2Yg==}
-    engines: {node: ^20.17.0 || >=22.9.0}
+  node-gyp@13.1.0:
+    resolution: {integrity: sha512-FpNzOLFACKG0oRBYbZ5WOeWD1EqRTIWX90MaRIWTO18lVYPx8fqIjrdS3pihjnCkSmgop6zVGkSqg1vXZLksuw==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     hasBin: true
 
   node-int64@0.4.0:
@@ -19908,9 +19915,9 @@ packages:
     resolution: {integrity: sha512-p+XsnzXGdtIHXUu2ugxdfG+eX2nehsGhMjW9h0CWj1BhE30hrFz0kh0yIM0/VjUgVsRrDj+80ZO+I1nSkGE4tA==}
     engines: {node: '>=6.0.0'}
 
-  nopt@9.0.0:
-    resolution: {integrity: sha512-Zhq3a+yFKrYwSBluL4H9XP3m3y5uvQkB/09CwDruCiRmR/UJYnn9W4R48ry0uGC70aeTPKLynBtscP9efFFcPw==}
-    engines: {node: ^20.17.0 || >=22.9.0}
+  nopt@10.0.1:
+    resolution: {integrity: sha512-df3sBr/6ax9hSGuC3CspvLlbnX8cP5L5nZwXF8cGN8l0zSWR6BvzmQ6jPUKjvo6+/xdpkNvEcucBNUdBeeV13g==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     hasBin: true
 
   normalize-package-data@2.5.0:
@@ -20924,9 +20931,9 @@ packages:
     resolution: {integrity: sha512-gjVS5hOP+M3wMm5nmNOucbIrqudzs9v/57bWRHQWLYklXqoXKrVfYW2W9+glfGsqtPgpiz5WwyEEB+ksXIx3gQ==}
     engines: {node: '>=18'}
 
-  proc-log@6.1.0:
-    resolution: {integrity: sha512-iG+GYldRf2BQ0UDUAd6JQ/RwzaQy6mXmsk/IzlYyal4A4SNFw54MeH4/tLkF4I5WoWG9SQwuqWzS99jaFQHBuQ==}
-    engines: {node: ^20.17.0 || >=22.9.0}
+  proc-log@7.0.0:
+    resolution: {integrity: sha512-FYgfaA69XZ93zaXLoMNQ+ViDXGGBgR8aLh03txzcFhV+9xOXx7+8DLCULrKKpR9+GsH9ZfHm82aSUPpozX0Ztg==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
@@ -21401,9 +21408,9 @@ packages:
     resolution: {integrity: sha512-y3bGgqKj3QBdxLbLkomlohkvsA8gdAiUQlSBJnBhfn+BPxg4bc62d8TcBW15wavDfgexCgccckhcZvywyQYPOw==}
     hasBin: true
 
-  re2@1.24.1:
-    resolution: {integrity: sha512-uRl9cLDKuobJQp+6lVz7E3AyVszubUJ0fqAMWout4ocUWTIFvdHgpqLwwMh/vuNGGGJGh2p2mJZJIQr9am9M/A==}
-    engines: {node: '>=22'}
+  re2@1.27.0:
+    resolution: {integrity: sha512-z5Vascmj7lQbU3YdfYJUDkBGGTnoAObcVW/CSbpI3WbVb1vZQsSzSWcGkfKU0JKrrGfPZwPr8EVHwYXKQKLVXw==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   re2js@0.4.1:
     resolution: {integrity: sha512-Kxb+OKXrEPowP4bXAF07NDXtgYX07S8HeVGgadx5/D/R41LzWg1kgTD2szIv2iHJM3vrAPnDKaBzfUE/7QWX9w==}
@@ -23944,9 +23951,9 @@ packages:
     engines: {node: ^18.17.0 || >=20.5.0}
     hasBin: true
 
-  which@6.0.0:
-    resolution: {integrity: sha512-f+gEpIKMR9faW/JgAgPK1D7mekkFoqbmiwvNzuhsHetni20QSgzg9Vhn0g2JSJkkfehQnqdUAx7/e15qS1lPxg==}
-    engines: {node: ^20.17.0 || >=22.9.0}
+  which@7.0.0:
+    resolution: {integrity: sha512-RancgH2dmbLdHl6LRhEqvklWMgl/Hdnun0Y90KhBOLkMefg8Qa7/Zel8Sm+8HEcP6DEjzsWzpkuBQEZok58isA==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
     hasBin: true
 
   why-is-node-running@2.3.0:
@@ -34605,7 +34612,7 @@ snapshots:
 
   abab@2.0.6: {}
 
-  abbrev@4.0.0: {}
+  abbrev@5.0.0: {}
 
   abort-controller@3.0.0:
     dependencies:
@@ -38516,7 +38523,7 @@ snapshots:
 
   inline-style-parser@0.2.7: {}
 
-  install-artifact-from-github@1.6.0: {}
+  install-artifact-from-github@1.8.1: {}
 
   int53@1.0.0: {}
 
@@ -38799,6 +38806,8 @@ snapshots:
   isexe@2.0.0: {}
 
   isexe@3.1.1: {}
+
+  isexe@4.0.0: {}
 
   ismobilejs@1.1.1: {}
 
@@ -41796,6 +41805,8 @@ snapshots:
 
   nan@2.27.0: {}
 
+  nan@2.30.0: {}
+
   nanoid@3.3.12: {}
 
   napi-build-utils@2.0.0: {}
@@ -41883,18 +41894,18 @@ snapshots:
 
   node-gyp-build@3.9.0: {}
 
-  node-gyp@12.3.0:
+  node-gyp@13.1.0:
     dependencies:
       env-paths: 2.2.1
       exponential-backoff: 3.1.1
       graceful-fs: 4.2.11
-      nopt: 9.0.0
-      proc-log: 6.1.0
+      nopt: 10.0.1
+      proc-log: 7.0.0
       semver: 7.8.0
       tar: 7.5.15
       tinyglobby: 0.2.17
-      undici: 6.25.0
-      which: 6.0.0
+      undici: 8.12.2
+      which: 7.0.0
 
   node-int64@0.4.0: {}
 
@@ -41924,9 +41935,9 @@ snapshots:
 
   nodemailer@8.0.8: {}
 
-  nopt@9.0.0:
+  nopt@10.0.1:
     dependencies:
-      abbrev: 4.0.0
+      abbrev: 5.0.0
 
   normalize-package-data@2.5.0:
     dependencies:
@@ -43330,7 +43341,7 @@ snapshots:
     dependencies:
       parse-ms: 4.0.0
 
-  proc-log@6.1.0: {}
+  proc-log@7.0.0: {}
 
   process-nextick-args@2.0.1: {}
 
@@ -44002,11 +44013,11 @@ snapshots:
       minimist: 1.2.8
       strip-json-comments: 2.0.1
 
-  re2@1.24.1:
+  re2@1.27.0:
     dependencies:
-      install-artifact-from-github: 1.6.0
-      nan: 2.27.0
-      node-gyp: 12.3.0
+      install-artifact-from-github: 1.8.1
+      nan: 2.30.0
+      node-gyp: 13.1.0
 
   re2js@0.4.1: {}
 
@@ -47097,9 +47108,9 @@ snapshots:
     dependencies:
       isexe: 3.1.1
 
-  which@6.0.0:
+  which@7.0.0:
     dependencies:
-      isexe: 3.1.1
+      isexe: 4.0.0
 
   why-is-node-running@2.3.0:
     dependencies:
