@@ -1,3 +1,4 @@
+import time
 from collections.abc import Sequence
 from enum import StrEnum
 
@@ -34,13 +35,14 @@ class ProcessorOutcome:
     status: ProcessorStatus
     candidate: Candidate | None = None
     threshold: float | None = None
+    # Time spent in propose(), which includes loading the evidence it needs. None when it did not run.
+    duration_ms: float | None = None
 
 
 @frozen
 class PipelineRun:
     decision: Decision | None
     outcomes: tuple[ProcessorOutcome, ...]
-    similar_issue_lookup_ms: float | None
 
 
 def run(
@@ -55,7 +57,6 @@ def run(
             outcomes=tuple(
                 ProcessorOutcome(processor=p.name, status=ProcessorStatus.SKIPPED_GATE_OFF) for p in processors
             ),
-            similar_issue_lookup_ms=None,
         )
     config = config or load_auto_assignment_config(evidence.team.id)
 
@@ -63,38 +64,50 @@ def run(
     outcomes: list[ProcessorOutcome] = []
     for processor in processors:
         if decision is not None:
-            outcomes.append(ProcessorOutcome(processor=processor.name, status=ProcessorStatus.SKIPPED_ALREADY_DECIDED))
-            continue
-        if processor.sends_data_to_model and not evidence.ai_processing_approved:
-            outcomes.append(ProcessorOutcome(processor=processor.name, status=ProcessorStatus.SKIPPED_AI_NOT_APPROVED))
-            continue
-        threshold = processor.threshold(config)
-        try:
-            candidate = processor.propose(evidence, config)
-        except Exception as error:
-            capture_exception(error, additional_properties={"team_id": evidence.team.id, "processor": processor.name})
-            logger.warning(
-                "error_tracking_auto_assignment_processor_failed",
-                team_id=evidence.team.id,
-                issue_id=evidence.issue_id,
-                processor=processor.name,
-                exc_info=True,
-            )
-            outcomes.append(ProcessorOutcome(processor=processor.name, status=ProcessorStatus.FAILED))
-            continue
-        if candidate is None:
-            status = ProcessorStatus.NO_CANDIDATE
-        elif candidate.confidence >= threshold:
-            status = ProcessorStatus.ACCEPTED
-            decision = Decision(candidate=candidate, threshold=threshold)
+            outcome = ProcessorOutcome(processor=processor.name, status=ProcessorStatus.SKIPPED_ALREADY_DECIDED)
         else:
-            status = ProcessorStatus.BELOW_THRESHOLD
-        outcomes.append(
-            ProcessorOutcome(processor=processor.name, status=status, candidate=candidate, threshold=threshold)
-        )
+            outcome = _evaluate(processor, evidence, config)
+            if (
+                outcome.status == ProcessorStatus.ACCEPTED
+                and outcome.candidate is not None
+                and outcome.threshold is not None
+            ):
+                decision = Decision(candidate=outcome.candidate, threshold=outcome.threshold)
+        outcomes.append(outcome)
+    return PipelineRun(decision=decision, outcomes=tuple(outcomes))
 
-    return PipelineRun(
-        decision=decision,
-        outcomes=tuple(outcomes),
-        similar_issue_lookup_ms=evidence.similar_issue_lookup_ms,
+
+def _evaluate(processor: Processor, evidence: IssueEvidence, config: AutoAssignmentConfig) -> ProcessorOutcome:
+    if processor.sends_data_to_model and not evidence.ai_processing_approved:
+        return ProcessorOutcome(processor=processor.name, status=ProcessorStatus.SKIPPED_AI_NOT_APPROVED)
+    threshold = processor.threshold(config)
+    start = time.monotonic()
+    try:
+        candidate = processor.propose(evidence, config)
+    except Exception as error:
+        capture_exception(error, additional_properties={"team_id": evidence.team.id, "processor": processor.name})
+        logger.warning(
+            "error_tracking_auto_assignment_processor_failed",
+            team_id=evidence.team.id,
+            issue_id=evidence.issue_id,
+            processor=processor.name,
+            exc_info=True,
+        )
+        return ProcessorOutcome(processor=processor.name, status=ProcessorStatus.FAILED, duration_ms=_elapsed_ms(start))
+    if candidate is None:
+        status = ProcessorStatus.NO_CANDIDATE
+    elif candidate.confidence >= threshold:
+        status = ProcessorStatus.ACCEPTED
+    else:
+        status = ProcessorStatus.BELOW_THRESHOLD
+    return ProcessorOutcome(
+        processor=processor.name,
+        status=status,
+        candidate=candidate,
+        threshold=threshold,
+        duration_ms=_elapsed_ms(start),
     )
+
+
+def _elapsed_ms(start: float) -> float:
+    return (time.monotonic() - start) * 1000

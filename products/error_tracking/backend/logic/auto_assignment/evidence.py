@@ -1,4 +1,3 @@
-import time
 from datetime import datetime, timedelta
 from functools import cached_property
 
@@ -12,7 +11,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.error_tracking.backend.logic.auto_assignment.base import Assignee
+from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
 # The embedding tables keep three months of rows. Older fingerprints have nothing to compare against.
@@ -31,7 +30,6 @@ NEAREST_ASSIGNED_FINGERPRINTS_QUERY = """
     AND rendering = {rendering}
     AND team_id = {team_id}
     AND timestamp >= {min_timestamp}
-    AND timestamp < {max_timestamp}
     AND document_id IN {fingerprints}
     ORDER BY distance ASC
     LIMIT {limit}
@@ -48,15 +46,13 @@ class IssueEmbedding:
 @frozen
 class SimilarAssignedIssue:
     issue_id: str
-    assignee: Assignee
+    assignee: AssigneeRef
     distance: float
 
 
 @frozen
 class SimilarIssueLookup:
     issues: tuple[SimilarAssignedIssue, ...]
-    searched_fingerprints: int
-    duration_ms: float
 
 
 class IssueEvidence:
@@ -76,7 +72,6 @@ class IssueEvidence:
     def similar_assigned_issues(self) -> SimilarIssueLookup | None:
         if self.embedding is None:
             return None
-        start = time.monotonic()
         assignees = self._assigned_fingerprints()
         nearest = self._nearest_fingerprints(self.embedding, list(assignees)) if assignees else []
         issues: dict[str, SimilarAssignedIssue] = {}
@@ -86,17 +81,9 @@ class IssueEvidence:
                 issues[issue_id] = SimilarAssignedIssue(issue_id=issue_id, assignee=assignee, distance=distance)
         return SimilarIssueLookup(
             issues=tuple(issues.values())[:MAX_SIMILAR_ISSUES],
-            searched_fingerprints=len(assignees),
-            duration_ms=(time.monotonic() - start) * 1000,
         )
 
-    @property
-    def similar_issue_lookup_ms(self) -> float | None:
-        # Read the cache, not the property, so that asking for the timing never runs the lookup.
-        lookup = self.__dict__.get("similar_assigned_issues")
-        return lookup.duration_ms if lookup is not None else None
-
-    def _assigned_fingerprints(self) -> dict[str, tuple[str, Assignee]]:
+    def _assigned_fingerprints(self) -> dict[str, tuple[str, AssigneeRef]]:
         # The fingerprint, its issue and the assignment must all predate this issue, so a backtest over past issues
         # sees only what was known at the time.
         rows = (
@@ -111,13 +98,13 @@ class IssueEvidence:
             .order_by("-first_seen")
             .values_list("fingerprint", "issue_id", "issue__assignment__user_id", "issue__assignment__role_id")
         )[:MAX_ASSIGNED_FINGERPRINTS]
-        fingerprints: dict[str, tuple[str, Assignee]] = {}
+        fingerprints: dict[str, tuple[str, AssigneeRef]] = {}
         for fingerprint, issue_id, user_id, role_id in rows:
             # Deleting a user or a role deletes its assignments, so one of the two is always set.
             assignee = (
-                Assignee(type="user", id=str(user_id))
+                AssigneeRef(type="user", id=str(user_id))
                 if user_id is not None
-                else Assignee(type="role", id=str(role_id))
+                else AssigneeRef(type="role", id=str(role_id))
             )
             fingerprints[fingerprint] = (str(issue_id), assignee)
         return fingerprints
@@ -134,7 +121,6 @@ class IssueEvidence:
                 "rendering": ast.Constant(value=embedding.rendering),
                 "team_id": ast.Constant(value=self.team.id),
                 "min_timestamp": ast.Constant(value=self.created_at - EMBEDDING_RETENTION),
-                "max_timestamp": ast.Constant(value=self.created_at),
                 "fingerprints": ast.Constant(value=fingerprints),
                 "limit": ast.Constant(value=MAX_NEAREST_FINGERPRINTS),
             },

@@ -1,18 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
 from products.error_tracking.backend.logic.auto_assignment.gate import AutoAssignmentConfig
+from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 
 if TYPE_CHECKING:
     from products.error_tracking.backend.logic.auto_assignment.evidence import IssueEvidence
-
-
-@frozen
-class Assignee:
-    type: Literal["user", "role"]
-    id: str
 
 
 @frozen
@@ -26,7 +21,7 @@ type CandidateEvidence = HistoryEvidence
 
 @frozen
 class Candidate:
-    assignee: Assignee
+    assignee: AssigneeRef
     confidence: float
     source: str
     reason: str

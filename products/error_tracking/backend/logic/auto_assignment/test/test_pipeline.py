@@ -4,12 +4,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.error_tracking.backend.logic.auto_assignment.base import Assignee, Candidate, HistoryEvidence, Processor
+from products.error_tracking.backend.logic.auto_assignment.base import Candidate, HistoryEvidence, Processor
 from products.error_tracking.backend.logic.auto_assignment.gate import (
     AutoAssignmentConfig,
     parse_auto_assignment_config,
 )
 from products.error_tracking.backend.logic.auto_assignment.pipeline import ProcessorStatus, run
+from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 
 CONFIG = AutoAssignmentConfig()
 
@@ -40,7 +41,7 @@ class FakeProcessor(Processor):
         if self._confidence is None:
             return None
         return Candidate(
-            assignee=Assignee(type="user", id=self.name),
+            assignee=AssigneeRef(type="user", id=self.name),
             confidence=self._confidence,
             source=self.name,
             reason="fake",

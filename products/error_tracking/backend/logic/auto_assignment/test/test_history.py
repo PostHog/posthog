@@ -1,5 +1,6 @@
 import math
 from datetime import timedelta
+from typing import Literal
 from uuid import UUID
 
 import pytest
@@ -14,7 +15,6 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 
 from products.access_control.backend.facade.testing import create_role
-from products.error_tracking.backend.logic.auto_assignment.base import Assignee
 from products.error_tracking.backend.logic.auto_assignment.evidence import (
     IssueEmbedding,
     IssueEvidence,
@@ -23,27 +23,26 @@ from products.error_tracking.backend.logic.auto_assignment.evidence import (
 )
 from products.error_tracking.backend.logic.auto_assignment.gate import AutoAssignmentConfig, HistoryConfig
 from products.error_tracking.backend.logic.auto_assignment.history import HistoryVote
+from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
 
-ALICE = Assignee(type="user", id="1")
-BOB = Assignee(type="user", id="2")
+ALICE = AssigneeRef(type="user", id="1")
+BOB = AssigneeRef(type="user", id="2")
 CONFIG = AutoAssignmentConfig(history=HistoryConfig(top_k=3, max_distance=0.2, min_confidence=0.66))
 MODEL = "text-embedding-3-small-1536"
 
 
-def _evidence(*matches: tuple[Assignee, float]) -> MagicMock:
+def _evidence(*matches: tuple[AssigneeRef, float]) -> MagicMock:
     evidence = MagicMock()
     evidence.similar_assigned_issues = SimilarIssueLookup(
         issues=tuple(
             SimilarAssignedIssue(issue_id=f"issue-{i}", assignee=assignee, distance=distance)
             for i, (assignee, distance) in enumerate(matches)
         ),
-        searched_fingerprints=len(matches),
-        duration_ms=1.0,
     )
     return evidence
 
@@ -54,7 +53,7 @@ class TestHistoryVote(SimpleTestCase):
             ("agree", [(ALICE, 0.05), (ALICE, 0.1), (BOB, 0.12)], ALICE, 2 / 3, ("issue-0", "issue-1")),
             (
                 "disagree_nearest_wins_tie",
-                [(BOB, 0.05), (ALICE, 0.1), (Assignee(type="role", id="r"), 0.12)],
+                [(BOB, 0.05), (ALICE, 0.1), (AssigneeRef(type="role", id="r"), 0.12)],
                 BOB,
                 1 / 3,
                 ("issue-0",),
@@ -72,8 +71,8 @@ class TestHistoryVote(SimpleTestCase):
     def test_vote(
         self,
         _name: str,
-        matches: list[tuple[Assignee, float]],
-        assignee: Assignee,
+        matches: list[tuple[AssigneeRef, float]],
+        assignee: AssigneeRef,
         confidence: float,
         similar_issue_ids: tuple[str, ...],
     ) -> None:
@@ -90,7 +89,7 @@ class TestHistoryVote(SimpleTestCase):
             ("all_below_similarity_threshold", ((ALICE, 0.3), (ALICE, 0.4))),
         ]
     )
-    def test_no_candidate(self, _name: str, matches: tuple[tuple[Assignee, float], ...]) -> None:
+    def test_no_candidate(self, _name: str, matches: tuple[tuple[AssigneeRef, float], ...]) -> None:
         assert HistoryVote().propose(_evidence(*matches), CONFIG) is None
 
     def test_no_embedding_means_no_candidate(self) -> None:
@@ -105,14 +104,14 @@ def _vector(*values: float) -> list[float]:
 
 class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
     def _issue(
-        self, fingerprint: str, vector: list[float], *, assigned: bool = True, role_id: UUID | None = None
+        self, fingerprint: str, vector: list[float], *, assignee: Literal["user"] | UUID | None = "user"
     ) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name=fingerprint)
         self._fingerprint(issue, fingerprint, vector)
-        if role_id is not None:
-            ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=role_id)
-        elif assigned:
+        if assignee == "user":
             ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+        elif assignee is not None:
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=assignee)
         return issue
 
     def _fingerprint(self, issue: ErrorTrackingIssue, fingerprint: str, vector: list[float]) -> None:
@@ -135,8 +134,8 @@ class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
         self._fingerprint(near, "near-2", _vector(1.0, 0.05))
         far = self._issue("far", _vector(1.0, 1.0))
         role_id = create_role(organization_id=self.organization.id, name="Backend")
-        by_role = self._issue("by-role", _vector(1.0, 2.0), role_id=role_id)
-        self._issue("unassigned", _vector(1.0), assigned=False)
+        by_role = self._issue("by-role", _vector(1.0, 2.0), assignee=role_id)
+        self._issue("unassigned", _vector(1.0), assignee=None)
         late = self._issue("assigned-later", _vector(1.0))
         seen_later = self._issue("seen-later", _vector(1.0))
         target = self._issue("target", _vector(1.0))
@@ -157,6 +156,5 @@ class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
         assert lookup is not None
         assert [issue.issue_id for issue in lookup.issues] == [str(near.id), str(far.id), str(by_role.id)]
         assert lookup.issues[0].distance == pytest.approx(1 - 1 / math.sqrt(1 + 0.05**2), abs=1e-5)
-        assert lookup.issues[0].assignee == Assignee(type="user", id=str(self.user.id))
-        assert lookup.issues[2].assignee == Assignee(type="role", id=str(role_id))
-        assert evidence.similar_issue_lookup_ms == lookup.duration_ms
+        assert lookup.issues[0].assignee == AssigneeRef(type="user", id=str(self.user.id))
+        assert lookup.issues[2].assignee == AssigneeRef(type="role", id=str(role_id))
