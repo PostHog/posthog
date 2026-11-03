@@ -9,6 +9,8 @@ interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
     host: string | null
     revokeUrl: string | null
+    // Why hog couldn't remove the keychain item a file login left behind. Null when there was none.
+    keychainLeftover: string | null
     // Every host `--all` logged out of. Null without `--all`.
     hosts: LoggedOutHost[] | null
     // Variables that still give hog a key after logout.
@@ -31,7 +33,7 @@ export default defineCommand({
             const hosts = await logoutAll(runtime)
             await clearPendingLogin(runtime)
             const status = hosts.length > 0 ? 'logged_out' : 'not_logged_in'
-            return { status, host: null, revokeUrl: null, hosts, stillSet }
+            return { status, host: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
         }
         const settings = await readSettings(runtime)
         // The same host order commands use, so logout removes the login they would send. A broken
@@ -44,6 +46,7 @@ export default defineCommand({
             status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
             revokeUrl: outcome?.revokeUrl ?? null,
+            keychainLeftover: outcome?.keychainLeftover ?? null,
             hosts: null,
             stillSet,
         }
@@ -54,8 +57,16 @@ export default defineCommand({
         if (loggedOut.length === 0) {
             out.line('hog had no stored key to remove.')
         }
-        for (const { host, revokeUrl } of loggedOut) {
+        for (const { host, revokeUrl, keychainLeftover } of loggedOut) {
             out.line(`${out.style('Logged out', 'green', 'bold')} of ${escapeControls(host ?? '')}.`)
+            if (keychainLeftover) {
+                out.line(
+                    out.style(
+                        `hog couldn't remove an older copy of the key from the keychain: ${keychainLeftover} Remove the hog item for ${escapeControls(host ?? '')} from the keychain yourself.`,
+                        'yellow'
+                    )
+                )
+            }
             if (revokeUrl) {
                 out.line(out.style(`The key still works until you delete it at ${revokeUrl}`, 'dim'))
             }

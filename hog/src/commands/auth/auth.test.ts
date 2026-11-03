@@ -393,6 +393,54 @@ describe('hog auth login', () => {
         }
     )
 
+    test('a file login that replaced a keychain login takes the old keychain item with it on logout', async () => {
+        const oldItem = JSON.stringify({ apiKey: 'phx_old' })
+        const items = new Map([['https://eu.posthog.com', oldItem]])
+        const keychainWorks = { now: false }
+        const secrets: Secrets = {
+            get: async (name) => items.get(name) ?? null,
+            set: async (name, value) => {
+                if (!keychainWorks.now) {
+                    throw Object.assign(new Error('denied'), { code: 'ERR_SECRETS_USER_CANCELED' })
+                }
+                items.set(name, value)
+            },
+            delete: async (name) => {
+                if (!keychainWorks.now) {
+                    throw Object.assign(new Error('denied'), { code: 'ERR_SECRETS_USER_CANCELED' })
+                }
+                return items.delete(name)
+            },
+        }
+        const login = await runHog(['auth', 'login', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: { ...KEYCHAIN_LOGIN.files, [PENDING_FILE]: PENDING },
+            respond: deviceFlow(0),
+            secrets: () => secrets,
+        })
+        expect(login.json()).toMatchObject({ store: 'file' })
+
+        const denied = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files: login.files,
+            secrets: () => secrets,
+        })
+        expect(denied.json()).toMatchObject({
+            status: 'logged_out',
+            keychainLeftover: expect.stringContaining('keychain'),
+        })
+        expect(items.get('https://eu.posthog.com')).toBe(oldItem)
+
+        keychainWorks.now = true
+        const removed = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files: login.files,
+            secrets: () => secrets,
+        })
+        expect(removed.json()).toMatchObject({ status: 'logged_out', keychainLeftover: null })
+        expect(items.size).toBe(0)
+    })
+
     test('logout --all removes every login, and the leftovers settings.json no longer names', async () => {
         const record = (host: string, store: string): Record<string, string> => ({
             store,
@@ -406,7 +454,10 @@ describe('hog auth login', () => {
                 [SETTINGS_FILE]: JSON.stringify({
                     logins: {
                         'https://eu.posthog.com': record('https://eu.posthog.com', 'keychain'),
-                        'https://us.posthog.com': record('https://us.posthog.com', 'file'),
+                        'https://us.posthog.com': {
+                            ...record('https://us.posthog.com', 'file'),
+                            keychainLeftover: true,
+                        },
                     },
                     host: 'https://us.posthog.com',
                 }),
