@@ -215,10 +215,15 @@ class TestRewriteEmailAssetUrl(BaseTest):
         assert (recovered.version, NEW in json.dumps(recovered.actions)) == (2, True)
 
     @parameterized.expand(
-        [("default_run", False, False), ("workflow_id", True, False), ("template_draft", False, True)]
+        [
+            ("default_run", False, False, NEW),
+            ("workflow_id", True, False, NEW),
+            ("template_draft", False, True, NEW),
+            ("workflow_id_skips_a_template_with_the_url", True, False, OLD),
+        ]
     )
-    def test_rewrites_a_transactional_workflow_whose_template_content_lacks_the_url(
-        self, _name: str, by_id: bool, old_draft: bool
+    def test_rewrites_a_transactional_workflow_in_place_when_its_template_sync_does_not(
+        self, _name: str, by_id: bool, old_draft: bool, template_url: str
     ) -> None:
         sender = Integration.objects.create(
             team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
@@ -227,7 +232,7 @@ class TestRewriteEmailAssetUrl(BaseTest):
         template = create_message_template_for_test(
             team_id=self.team.id,
             name="Welcome",
-            content={"email": {"subject": "Welcome", "html": f'<img src="{NEW}?w=960px" />'}},
+            content={"email": {"subject": "Welcome", "html": f'<img src="{template_url}?w=960px" />'}},
             draft_content={"email": {"html": f'<img src="{OLD}?w=960px" />'}} if old_draft else None,
         )
         workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)

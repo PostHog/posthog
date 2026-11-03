@@ -167,9 +167,13 @@ class Command(BaseCommand):
             owned_by_template: OwnedByTemplate | None = None
             if target == "hog_flows" and rewrites_templates:
                 team_ids: list[int] | None = options.get("team_id")
+                # Same scope as the template pass: a template that pass skipped can't sync this workflow.
+                template_id: str | None = options.get("row_id")
 
                 def owned_by_template(row_id: Any, lock: bool) -> bool:
-                    return synced_content_contains(row_id, from_url, team_ids=team_ids, lock=lock)
+                    return synced_content_contains(
+                        row_id, from_url, team_ids=team_ids, template_id=template_id, lock=lock
+                    )
 
             row_ids, rewrite_row = self._model_rows(
                 target, from_url, to_url, options, owned_by_template=owned_by_template
