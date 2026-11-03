@@ -44,7 +44,7 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { MAX_OPEN_STORE_CALLS, SandboxEmailSender } from './services/messaging/sandbox-email-sender'
+import { SandboxEmailSender, sandboxBlockedEventRedisConfig } from './services/messaging/sandbox-email-sender'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
@@ -405,11 +405,9 @@ export function createCdpCoreServices(
     })
     // A stalled blocked-event call keeps its connection until Redis answers, so these calls get their own
     // connections: on the shared pool they took the ones hog watcher and the duplicate observer wait for.
-    const sandboxBlockedEventRedis = createRedisV2PoolFromConfig({
-        connection: cdpRedisConnection(`${redisName}-sandbox-blocked-event`),
-        poolMinSize: 0,
-        poolMaxSize: MAX_OPEN_STORE_CALLS,
-    })
+    const sandboxBlockedEventRedis = createRedisV2PoolFromConfig(
+        sandboxBlockedEventRedisConfig(cdpRedisConnection(`${redisName}-sandbox-blocked-event`))
+    )
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
