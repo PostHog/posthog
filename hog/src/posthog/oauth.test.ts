@@ -99,6 +99,23 @@ describe('OAuth credentials', () => {
         expect(runtime.requests.filter((request) => request.url.includes('/api/'))).toHaveLength(3)
     })
 
+    test('a login that replaced this one mid-command stops it instead of sending to its project', async () => {
+        const runtime = fakeRuntime({
+            ...stored('pha_old', 3_600_000),
+            respond: () => ({ status: 401, body: { detail: 'Invalid token' } }),
+        })
+        const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
+        const replaced = JSON.parse(settings(3_600_000))
+        replaced.logins[EU] = { ...replaced.logins[EU], projectId: '99', loginId: 'login-2' }
+        runtime.files[SETTINGS_FILE] = JSON.stringify(replaced)
+        runtime.keychain[EU] = secret('pha_other')
+
+        const outcome = await api.get('').catch((error: unknown) => error)
+
+        expect(outcome).toMatchObject({ code: 'login_changed' })
+        expect(tokenRequests(runtime)).toEqual([])
+    })
+
     test('a stored personal API key that PostHog rejects is sent only once', async () => {
         const record = { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU }
         const runtime = fakeRuntime({
