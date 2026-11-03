@@ -155,14 +155,14 @@ tools:
             file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a
             domain the project verified; sender_not_verified means nothing was sent. Leave from out to send from the
             project's default sender; sender_required means the project has several senders and no default, so ask the
-            user which address to send from. Sending takes two calls: prepare
-            checks only the arguments and returns a message for the user, and execute sends it only after the user
-            replies with the literal word 'confirm'. PostHog checks the sender and the content when execute runs, so
-            settle from before prepare, and tell the user which address the email goes out from (the address you pass,
-            or the project's default sender). Each execute call sends an email, so never repeat one that succeeded. A 503, a
-            timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do not
-            try again on your own, tell the user. A 404 with code not_found means sending email from code is not enabled
-            for this project, or the project does not exist: stop and tell the user.
+            user which address to send from. Sending takes two calls: prepare checks only the arguments and returns a
+            message for the user, and execute sends it only after the user replies with the literal word 'confirm'.
+            PostHog checks the sender and the content when execute runs, so settle from before prepare, and tell the
+            user which address the email goes out from (the address you pass, or the project's default sender). Each
+            execute call sends an email, so never repeat one that succeeded. A 503, a timeout or a connection error
+            means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell
+            the user. A 404 with code not_found means sending email from code is not enabled for this project, or the
+            project does not exist: stop and tell the user.
         exclude_params:
             - template_id
             - message_data
