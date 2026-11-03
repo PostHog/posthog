@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 
@@ -60,3 +61,26 @@ class TestBackfillInsightsQueryMetadata(BaseTest):
 
         insight.refresh_from_db()
         assert insight.query_metadata == legacy_metadata
+
+    @pytest.mark.timeout(60)
+    def test_dry_run_finishes_and_changes_nothing(self):
+        insights = [self._create_insight_with_legacy_metadata() for _ in range(3)]
+
+        call_command(
+            "backfill_insights_query_metadata", team_id=self.team.pk, sleep_interval=0, batch_size=1, dry_run=True
+        )
+
+        for insight in insights:
+            insight.refresh_from_db()
+            assert insight.query_metadata == {"events": ["$pageview"], "updated_at": "2025-01-01T00:00:00Z"}
+
+    def test_failed_extraction_keeps_existing_events(self):
+        insight = self._create_insight_with_legacy_metadata()
+
+        with patch("posthog.hogql_queries.query_metadata.extract_query_metadata", side_effect=ValueError("boom")):
+            call_command("backfill_insights_query_metadata", team_id=self.team.pk, sleep_interval=0)
+
+        insight.refresh_from_db()
+        assert insight.query_metadata is not None
+        assert insight.query_metadata["events"] == ["$pageview"]
+        assert insight.query_metadata["properties"] == []
