@@ -574,7 +574,7 @@ class NodeViewSet(
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
             try:
-                raise_if_ran_recently(node.saved_query)
+                raise_if_ran_recently(self.team_id, node.saved_query.id)
             except MaterializationRanRecentlyError as error:
                 raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 

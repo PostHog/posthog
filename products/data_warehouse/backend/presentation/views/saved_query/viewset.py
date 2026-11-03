@@ -348,7 +348,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if not direction and not on_trino:
             # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
             try:
-                raise_if_ran_recently(saved_query)
+                raise_if_ran_recently(self.team_id, saved_query.id)
             except MaterializationRanRecentlyError as error:
                 raise exceptions.Throttled(wait=error.retry_after_seconds, detail=str(error))
 

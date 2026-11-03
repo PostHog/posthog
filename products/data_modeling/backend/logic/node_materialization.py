@@ -99,7 +99,7 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
     )
 
 
-def raise_if_ran_recently(saved_query: DataWarehouseSavedQuery) -> None:
+def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
     """Refuse a manual run of a view that started a ClickHouse run less than MANUAL_RUN_MIN_INTERVAL ago.
 
     A failed run does not count, so a person can retry it at once. A query edit after the last run
@@ -107,8 +107,8 @@ def raise_if_ran_recently(saved_query: DataWarehouseSavedQuery) -> None:
     """
     last_run_at = (
         DataModelingJob.objects.filter(
-            team_id=saved_query.team_id,
-            saved_query_id=saved_query.id,
+            team_id=team_id,
+            saved_query_id=saved_query_id,
             engine=DataModelingJobEngine.CLICKHOUSE,
             status__in=[DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED],
         )
@@ -118,7 +118,12 @@ def raise_if_ran_recently(saved_query: DataWarehouseSavedQuery) -> None:
     )
     if last_run_at is None:
         return
-    if saved_query.query_updated_at is not None and saved_query.query_updated_at > last_run_at:
+    query_updated_at = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .values_list("query_updated_at", flat=True)
+        .first()
+    )
+    if query_updated_at is not None and query_updated_at > last_run_at:
         return
     wait_seconds = (last_run_at + MANUAL_RUN_MIN_INTERVAL - timezone.now()).total_seconds()
     if wait_seconds > 0:
