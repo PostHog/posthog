@@ -2426,6 +2426,10 @@ describe('CDP API', () => {
                 { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
+            [
+                'a code send with copies to addresses that use atext symbols',
+                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+            ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
