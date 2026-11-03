@@ -1,7 +1,8 @@
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-import { hostKey, type StoreChoice } from './credential-store'
+import type { StoreChoice } from './credential-store/types'
+import { hostKey, type HostKey } from './host'
 
 // What settings.json keeps about the login to one host: everything except its secrets.
 export interface LoginRecord {
@@ -15,8 +16,7 @@ export interface LoginRecord {
 
 // What `hog auth login` decided, kept so later runs don't decide again. Nothing in it is secret.
 export interface HogSettings {
-    // Keyed by origin.
-    logins?: Record<string, LoginRecord>
+    logins?: Partial<Record<HostKey, LoginRecord>>
     // The host of the last login, which commands use when neither --host nor posthog.json names one.
     host?: string
 }
@@ -59,12 +59,12 @@ export async function readSettings(runtime: Runtime): Promise<HogSettings> {
         return {}
     }
     const raw = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<string, unknown>
-    const logins: Record<string, LoginRecord> = {}
+    const logins: Partial<Record<HostKey, LoginRecord>> = {}
     if (typeof raw.logins === 'object' && raw.logins !== null) {
         for (const [host, value] of Object.entries(raw.logins)) {
             const record = parseLoginRecord(value)
             if (record) {
-                logins[host] = record
+                logins[hostKey(host)] = record
             }
         }
     }

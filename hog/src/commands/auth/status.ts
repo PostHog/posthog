@@ -1,7 +1,7 @@
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
-import type { StoreChoice } from '@/posthog/credential-store'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { CredentialSource } from '@/posthog/credentials'
 
 function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: string | null): string {
