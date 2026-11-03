@@ -156,6 +156,11 @@ export class OAuthLogin implements AccessKey {
         })
     }
 
+    // PostHog issued this login moments ago, so there is nothing to check.
+    async verify(): Promise<OAuthLogin> {
+        return this
+    }
+
     private async refresh(runtime: Runtime): Promise<OAuthLogin> {
         const response = await oauthPost(runtime, this.host, 'oauth/token/', {
             grant_type: 'refresh_token',

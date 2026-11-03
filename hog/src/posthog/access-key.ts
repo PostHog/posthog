@@ -1,4 +1,5 @@
-import type { Runtime, RuntimeFetch } from '@/core/runtime'
+import { HogError } from '@/core/errors'
+import type { Runtime } from '@/core/runtime'
 
 import { ApiError, PostHogApi } from './api'
 import type { StoreChoice, StoredSecret } from './credential-store/types'
@@ -9,7 +10,7 @@ import type { LoginRecord } from './settings'
 // What `hog auth status` shows about a key.
 export interface AccessKeyStatus {
     kind: 'personal_api_key' | 'oauth'
-    // Null for a personal API key, whose scopes only PostHog knows.
+    // Null for a personal API key hog hasn't asked PostHog about.
     scopes: string[] | null
     // Epoch milliseconds. Null for a key that doesn't expire.
     expiresAt: number | null
@@ -40,6 +41,8 @@ export interface AccessKey {
     readonly loginKey: string
     // A key that works for the rest of the command, renewed if it is about to expire.
     fresh(runtime: Runtime, storage: AccessKeyStorage): Promise<AccessKey>
+    // The key as PostHog sees it, before hog stores it. Throws when PostHog rejects it.
+    verify(runtime: Runtime): Promise<AccessKey>
     status(): AccessKeyStatus
     logout(runtime: Runtime): Promise<LogoutOutcome>
     // The credential store keeps the secret, and settings.json keeps the record.
@@ -51,11 +54,14 @@ export class PersonalAPIKey implements AccessKey {
     readonly host: string
     readonly projectId: string
     readonly apiKey: string
+    // Null until `verify` asks PostHog, because only PostHog knows a key's scopes.
+    readonly scopes: string[] | null
 
-    constructor(fields: { host: string; projectId: string; apiKey: string }) {
+    constructor(fields: { host: string; projectId: string; apiKey: string; scopes?: string[] }) {
         this.host = fields.host
         this.projectId = fields.projectId
         this.apiKey = fields.apiKey
+        this.scopes = fields.scopes ?? null
     }
 
     get token(): string {
@@ -71,23 +77,27 @@ export class PersonalAPIKey implements AccessKey {
     }
 
     status(): AccessKeyStatus {
-        return { kind: 'personal_api_key', scopes: null, expiresAt: null }
+        return { kind: 'personal_api_key', scopes: this.scopes, expiresAt: null }
     }
 
-    // What PostHog knows about the key. Undefined when PostHog rejects it, such as after someone
-    // deleted it.
-    async lookup(fetchFn: RuntimeFetch): Promise<{ scopes: string[] } | undefined> {
+    // A key someone deleted, or one pasted only in part, would otherwise fail only at the first
+    // command that uses it.
+    async verify(runtime: Runtime): Promise<PersonalAPIKey> {
+        let found: { scopes?: string[] }
         try {
-            const found = await new PostHogApi(this, fetchFn).get<{ scopes?: string[] }>(
-                '/api/personal_api_keys/@current/'
-            )
-            return { scopes: found.scopes ?? [] }
+            found = await new PostHogApi(this, runtime.fetch).get('/api/personal_api_keys/@current/')
         } catch (error) {
             if (error instanceof ApiError && error.status === 401) {
-                return undefined
+                throw new HogError(
+                    'key_rejected',
+                    'PostHog rejected the personal API key. Someone may have deleted it, or part of it is missing.',
+                    'Create a personal API key in PostHog under Settings > Personal API keys, then run `hog auth login`.'
+                )
             }
             throw error
         }
+        const { host, projectId, apiKey } = this
+        return new PersonalAPIKey({ host, projectId, apiKey, scopes: found.scopes ?? [] })
     }
 
     // A personal API key can't be revoked from hog, so logout says where to delete it.
