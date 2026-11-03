@@ -957,6 +957,10 @@ mod tests {
                 decoded_font_copy("bucket.s3.amazonaws.com"),
             ),
             (
+                json!([{"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": "background-image:url('\\2f \\2f cdn.example.com/a.png?X-Amz-Signature=abc123')"}, "childNodes": [], "id": 9}}]),
+                json!({"alt": "//cdn.example.com/a.png?X-Amz-Signature=abc123"}),
+            ),
+            (
                 json!([
                     {"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "https://a.example/?X-Amz-Signature=x&next=https://b.example/"}, "childNodes": [], "id": 7}},
                     {"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": {"src": "https://b.example/?X-Amz-Signature=abc123"}, "childNodes": [], "id": 8}},
@@ -1067,9 +1071,12 @@ mod tests {
         );
         // cssparser reads a NUL in a string as U+FFFD, so the decoded URL is not in its token, only in the comment.
         let nul_url = "url(\"https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{0}\"/*https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{FFFD}*/)";
+        // A set keeps its candidate as the page wrote it, so it cannot keep an escaped one.
         for style in [
             format!("background-image:{nul_url}"),
             format!("background-image:image-set({nul_url} 1x)"),
+            "background-image:image-set(url('\\2f \\2f cdn.example.com/a.png?token=secret') 1x)"
+                .to_owned(),
         ] {
             let node = json!({"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 2});
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
@@ -1102,7 +1109,7 @@ mod tests {
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
             {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
             {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
-            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}@font-face{font-family:Escaped;src:url(https://fonts.example.com/escaped\\2e woff2)}"}},
+            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}@font-face{font-family:Escaped;src:url(https://fonts.example.com/escaped\\2e woff2)} .e{background:url(https://cdn.example.com/escaped\\2e png)}"}},
         ]);
         let lines = stored_lines(&events.to_string());
         let reference = |url: &str| {
@@ -1139,6 +1146,10 @@ mod tests {
                 .1
             ),
             r#"src:url(\"fonturl:v4:bundled:roboto\")"#.to_owned(),
+            format!(
+                r#".e{{background:url(\"{}\")}}"#,
+                reference("https://cdn.example.com/escaped.png")
+            ),
             format!(
                 r#"src:url(\"{}\")"#,
                 crate::urls::url_reference(

@@ -157,40 +157,35 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
     for declaration in &declarations {
         let value = &css[declaration.start..declaration.end];
         match declaration.kind {
-            DeclarationKind::Image => value_urls(value, resolver, EscapedSources::Skipped, found),
+            DeclarationKind::Image => value_urls(value, resolver, found),
             DeclarationKind::FontSrc(face) => {
                 let family = families.get(face).copied().flatten();
                 let resolved_kind = match family.and_then(bundled_font) {
                     Some(slug) => RemoteKind::BundledFont(slug),
                     None => RemoteKind::Font,
                 };
-                value_urls(
-                    value,
-                    resolver,
-                    EscapedSources::Decoded,
-                    &mut |url| match url {
-                        CssUrl::Image(url) => found(CssUrl::Font { url, family }),
-                        CssUrl::Resolved(url) if resolved_kind == RemoteKind::Font => {
-                            found(CssUrl::ResolvedFont(url))
+                value_urls(value, resolver, &mut |url| match url {
+                    CssUrl::Image(url) => found(CssUrl::Font { url, family }),
+                    CssUrl::Resolved(url) if resolved_kind == RemoteKind::Font => {
+                        found(CssUrl::ResolvedFont(url))
+                    }
+                    CssUrl::Rewrite {
+                        mut rewrite,
+                        function,
+                    } => {
+                        if let Some(resolved) = &mut rewrite.resolved {
+                            resolved.kind = resolved_kind;
                         }
-                        CssUrl::Rewrite {
-                            mut rewrite,
-                            function,
-                        } => {
-                            if let Some(resolved) = &mut rewrite.resolved {
-                                resolved.kind = resolved_kind;
-                            }
-                            found(CssUrl::Rewrite { rewrite, function });
-                        }
-                        CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
-                        CssUrl::NestedTooDeep => found(CssUrl::NestedTooDeep),
-                        CssUrl::Unplaced => found(CssUrl::Unplaced),
-                        CssUrl::Resolved(_)
-                        | CssUrl::Unshown(_)
-                        | CssUrl::Font { .. }
-                        | CssUrl::ResolvedFont(_) => {}
-                    },
-                );
+                        found(CssUrl::Rewrite { rewrite, function });
+                    }
+                    CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
+                    CssUrl::NestedTooDeep => found(CssUrl::NestedTooDeep),
+                    CssUrl::Unplaced => found(CssUrl::Unplaced),
+                    CssUrl::Resolved(_)
+                    | CssUrl::Unshown(_)
+                    | CssUrl::Font { .. }
+                    | CssUrl::ResolvedFont(_) => {}
+                });
             }
             DeclarationKind::FontFamily(_) => {}
         }
@@ -204,7 +199,7 @@ pub fn declaration_image_urls(
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
     if can_hold_image(property.trim()) {
-        value_urls(value, resolver, EscapedSources::Skipped, found);
+        value_urls(value, resolver, found);
     }
 }
 
@@ -425,13 +420,6 @@ fn is_image_property(property: &str) -> bool {
     }
 }
 
-/// An image source that holds a CSS escape is skipped, as v3 skips it. A font has no v3 to match, and its URL must not stay.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum EscapedSources {
-    Skipped,
-    Decoded,
-}
-
 enum Opened<'i> {
     UnquotedUrl(CowRcStr<'i>),
     UrlFunction,
@@ -483,12 +471,7 @@ fn is_image_set(name: &str) -> bool {
     name.eq_ignore_ascii_case("image-set") || name.eq_ignore_ascii_case("-webkit-image-set")
 }
 
-fn value_urls(
-    value: &str,
-    resolver: &mut Resolver<'_>,
-    escaped: EscapedSources,
-    found: &mut impl FnMut(CssUrl<'_>),
-) {
+fn value_urls(value: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
     let mut input = Parser::new(value);
     input.set_nested_block_limit(NESTED_BLOCK_LIMIT);
     let whole = each_function(&mut input, 0, &mut |input, start, opened| {
@@ -504,7 +487,8 @@ fn value_urls(
                 Some(url) => url_function_urls(function, url, resolver, found),
                 None => found(CssUrl::Unplaced),
             },
-            None if source.escaped && escaped == EscapedSources::Decoded => {
+            // A browser loads the URL its escapes decode to, so the block must not keep it as the page wrote it.
+            None if source.escaped => {
                 escaped_url_function_urls(function, source.written, &source.url, resolver, found)
             }
             None => {}
@@ -837,6 +821,10 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     };
     let source_end = input.position();
     let written = source.as_ref().and_then(collectable);
+    // A set keeps a candidate as the page wrote it, so an escaped remote URL, which the block does not hold as a browser reads it, has no place.
+    let escaped_remote = source
+        .as_ref()
+        .is_some_and(|source| source.escaped && is_remote(source.url.trim()));
     let source = source
         .as_ref()
         .zip(written)
@@ -845,7 +833,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     Some(ImageSetCandidate {
         text: input.slice_from(start).trim_end(),
         source,
-        unplaced: written.is_some() && source.is_none(),
+        unplaced: escaped_remote || (written.is_some() && source.is_none()),
         descriptors: input.slice(source_end..input.position()),
         resolution_dppx,
     })
