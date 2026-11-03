@@ -92,7 +92,8 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 #
 # Runtime stage: Minimal image with only nodejs runtime dependencies
 #
-FROM node:26.13.0-bookworm-slim
+# Trixie, not bookworm: the uWebSockets.js binary for Node 26 needs glibc 2.38, and bookworm ships 2.36.
+FROM node:26.13.0-trixie-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -106,14 +107,16 @@ RUN apt-get update && \
     && \
     mkdir -p /etc/apt/keyrings && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    # The bookworm repo, because Confluent publishes no 2.12.0 build for trixie. The runtime
+    # librdkafka must match the 2.12.0 headers that the build stage compiles node-rdkafka against.
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.12.0-1.cflt~deb12" \
     "librdkafka++1=2.12.0-1.cflt~deb12" \
-    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # libssl pinned to the 3.5 series (ABI-stable), not an exact version: Debian rotates
     # point releases out of the security archive, which breaks exact pins on uncached builds.
-    "libssl3=3.0.*" \
+    "libssl3t64=3.5.*" \
     "curl" \
     "gettext-base" \
     "libjemalloc2" \
