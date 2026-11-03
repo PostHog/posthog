@@ -358,7 +358,7 @@ jobs:
             group: hogbox-preview-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
             cancel-in-progress: true
         runs-on: ubuntu-24.04
-        timeout-minutes: 40
+        timeout-minutes: 60
         permissions:
             contents: read
             id-token: write # mint OIDC for the tailnet join AND the hogplane token
