@@ -3254,6 +3254,27 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             return self._redact_check_result(obj, parsed)
 
         if (
+            obj.type == SignalReportArtefact.ArtefactType.NOTE
+            and isinstance(parsed, dict)
+            and "analytics_query_context" in parsed
+        ):
+            queries = parsed.pop("analytics_query_context")
+            acting_user_id = parsed.pop("restricted_to_user_id", None)
+            request = self.context.get("request")
+            viewer_id = getattr(getattr(request, "user", None), "id", None)
+            policy = report_metric_access_policy(self.context)
+            if (
+                viewer_id is None
+                or acting_user_id != viewer_id
+                or not isinstance(queries, list)
+                or not all(
+                    isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
+                )
+            ):
+                parsed["note"] = "You don't have access to this assessment's evidence."
+            return parsed
+
+        if (
             obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE
             and isinstance(parsed, dict)
             and self.context.get("signals_compact_ranking_scores")
