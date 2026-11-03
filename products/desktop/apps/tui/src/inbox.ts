@@ -1,3 +1,5 @@
+import type { TaskActivity } from "@posthog/shared/domain-types";
+
 // Inbox zero: which chats need the user, and why. A chat leaves the inbox when the user replies to it, or dismisses it
 // from the row, never because they looked at it; a glance is not an action.
 
@@ -37,4 +39,27 @@ export function inboxReason(chat: InboxChat): InboxReason | null {
   if (chat.readBefore !== null && chat.readBefore >= chat.turnEndedAt)
     return null;
   return "reply";
+}
+
+// A cloud chat's inbox facts from the server's activity feed, which flips to a completed turn or a question the
+// moment the server knows, so a chat is in the inbox before its log has been read here. The row's own read mark
+// stands in for a dismissal, since a reply or a dismissal here marks it read on the server.
+export function feedChat(
+  row: TaskActivity,
+  working: boolean,
+  prompted: boolean,
+  failed: boolean,
+): Pick<InboxChat, "working" | "prompted" | "failed" | "turnEndedAt"> | null {
+  if (
+    row.activity_kind !== "completed" &&
+    row.activity_kind !== "awaiting_input"
+  )
+    return null;
+  const at = Date.parse(row.activity_at);
+  return {
+    working,
+    prompted: prompted || row.activity_kind === "awaiting_input",
+    failed,
+    turnEndedAt: row.is_unread && !Number.isNaN(at) ? at : null,
+  };
 }

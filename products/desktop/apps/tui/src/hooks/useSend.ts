@@ -71,6 +71,7 @@ export function useSend({
   openSearch,
   openInbox,
   clearInbox,
+  markRead,
   openSettings,
   openHelp,
   onChatStarted,
@@ -114,6 +115,8 @@ export function useSend({
   openSearch: () => void;
   openInbox: () => void;
   clearInbox: () => void;
+  // A reply answers whatever the chat was waiting on, so the server's feed counts it read.
+  markRead: (taskIds: string[]) => void;
   openSettings: () => void;
   openHelp: () => void;
   repos: Pick<RepoPicker, "open" | "reposFor">;
@@ -429,6 +432,7 @@ export function useSend({
     // React runs these updaters later, so each one captures the key it works on, never the variable.
     const paneKey = pendingKey;
     setPending((messages) => new Map(messages).set(paneKey, text));
+    if (pane?.taskId) markRead([pane.taskId]);
     const clearPending = (): void => {
       const key = pendingKey;
       setPending((messages) => {

@@ -1,5 +1,9 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { Task } from "@posthog/shared";
+import type {
+  TaskActivity,
+  TaskActivityReadMarker,
+} from "@posthog/shared/domain-types";
 import type { ChatScope } from "./prefs";
 
 export interface RecentWork {
@@ -45,6 +49,16 @@ export class WorkList {
     });
     this.inFlight = { limit, scope, request };
     return request;
+  }
+
+  // The server's per-user activity feed: one row per task with the latest thing that happened and whether it was
+  // read. A completed turn or a question lands there the instant the server pushes a notification for it.
+  activity(): Promise<TaskActivity[]> {
+    return this.api.getTaskActivity().then((page) => page.results);
+  }
+
+  markRead(markers: TaskActivityReadMarker[]): Promise<void> {
+    return this.api.markTaskActivityRead(markers).then(() => undefined);
   }
 
   search(query: string): Promise<Task[]> {

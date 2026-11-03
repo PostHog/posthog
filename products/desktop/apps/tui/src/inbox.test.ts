@@ -1,5 +1,6 @@
+import type { TaskActivity } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { type InboxChat, inboxReason } from "./inbox";
+import { feedChat, type InboxChat, inboxReason } from "./inbox";
 
 const idle: InboxChat = {
   working: false,
@@ -57,5 +58,44 @@ describe("inboxReason", () => {
     ],
   ])("%s", (_name, chat, reason) => {
     expect(inboxReason({ ...idle, ...chat })).toBe(reason);
+  });
+});
+
+describe("feedChat", () => {
+  const row = (overrides: Partial<TaskActivity>): TaskActivity => ({
+    id: "r",
+    task_id: "t",
+    task_title: "t",
+    activity_at: "2026-11-03T01:00:00.000Z",
+    activity_kind: "completed",
+    snippet: "",
+    is_unread: true,
+    ...overrides,
+  });
+
+  it.each<[string, Partial<TaskActivity>, ReturnType<typeof inboxReason>]>([
+    ["an unread finished turn needs a reply", {}, "reply"],
+    ["a read one does not", { is_unread: false }, null],
+    [
+      "an unread question needs an answer",
+      { activity_kind: "awaiting_input" },
+      "prompt",
+    ],
+    [
+      "a thread message is not a finished turn",
+      { activity_kind: "message" },
+      null,
+    ],
+  ])("%s", (_name, overrides, reason) => {
+    const fed = feedChat(row(overrides), false, false, false);
+    expect(
+      fed &&
+        inboxReason({
+          ...idle,
+          ...fed,
+          repliedAt: null,
+          turnEndedAt: fed.turnEndedAt,
+        }),
+    ).toBe(fed ? reason : null);
   });
 });

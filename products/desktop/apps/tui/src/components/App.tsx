@@ -12,6 +12,7 @@ import { dividerGlyphs } from "../dividers";
 import { useAccount } from "../hooks/useAccount";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useHistory } from "../hooks/useHistory";
+import { useInboxFeed } from "../hooks/useInboxFeed";
 import { useKeys } from "../hooks/useKeys";
 import { useLocalChats } from "../hooks/useLocalChats";
 import { useMcpSheet } from "../hooks/useMcpSheet";
@@ -31,7 +32,7 @@ import { useTerminalInput } from "../hooks/useTerminalInput";
 import { useToday } from "../hooks/useToday";
 import { useTurns } from "../hooks/useTurns";
 import { useWorkList } from "../hooks/useWorkList";
-import { inboxReason } from "../inbox";
+import { feedChat, inboxReason } from "../inbox";
 import {
   activeWorkspace,
   adoptSharedLayout,
@@ -161,12 +162,14 @@ export function App({
   const [inboxReadBefore, setInboxReadBefore] = useState(
     () => loadPrefs().inboxReadBefore,
   );
-  // Marks everything in the inbox read: a turn that ends from now on still shows.
+  const feed = useInboxFeed(work);
+  // Marks everything in the inbox read, here and on the server: a turn that ends from now on still shows.
   const clearInbox = (): void => {
     track("inbox cleared");
     const now = Date.now();
     setInboxReadBefore(now);
     savePrefs({ inboxReadBefore: now });
+    feed.markRead([...feed.rows.keys()]);
   };
   const [scope, setScope] = useState(() => loadPrefs().chatScope);
   const switchScope = (next: ChatScope): void => {
@@ -399,6 +402,7 @@ export function App({
     openSearch: () => latestSearch.current?.toggle(),
     openInbox: () => switchScope("inbox"),
     clearInbox,
+    markRead: feed.markRead,
     openHelp: () => setHelpOpen(true),
     openSettings: settings.toggle,
     repos: repoPicker,
@@ -450,24 +454,36 @@ export function App({
     const next = { ...inboxDismissed, [taskId]: Date.now() };
     setInboxDismissed(next);
     savePrefs({ inboxDismissed: next });
+    feed.markRead([taskId]);
   };
   // The chats that need the user: a prompt, a failed run, or a finished turn with no reply since.
+  // A cloud chat's word comes from the server's activity feed, the same event that pushes a notification; a local
+  // chat's from its agent here, or its session file. Both end with a reply, a dismissal, or /inbox clear.
   const inbox = useMemo(() => {
-    const ids = new Set([...turns.facts.keys(), ...allPrompts.keys()]);
+    const ids = new Set([
+      ...turns.facts.keys(),
+      ...allPrompts.keys(),
+      ...feed.rows.keys(),
+    ]);
     for (const task of page.tasks ?? []) ids.add(task.id);
     const result = new Set<string>();
     for (const taskId of ids) {
       const facts = turns.facts.get(taskId);
       const run = taskOf(taskId)?.latest_run;
-      // Until a chat's log has been read, the list's own word on its run stands in, so the inbox fills in one go.
-      const completedAt = run?.completed_at
-        ? Date.parse(run.completed_at)
-        : null;
+      const prompted = (allPrompts.get(taskId)?.length ?? 0) > 0;
+      const failed = run?.status === "failed";
+      const row = feed.rows.get(taskId);
+      const fromFeed =
+        row && !isLocal(taskId)
+          ? feedChat(row, working.has(taskId), prompted, failed)
+          : null;
       const reason = inboxReason({
-        working: working.has(taskId),
-        prompted: (allPrompts.get(taskId)?.length ?? 0) > 0,
-        failed: run?.status === "failed",
-        turnEndedAt: facts?.turnEndedAt ?? completedAt,
+        ...(fromFeed ?? {
+          working: working.has(taskId),
+          prompted,
+          failed,
+          turnEndedAt: facts?.turnEndedAt ?? null,
+        }),
         shells: facts?.shells ?? 0,
         wake: facts?.wake ?? false,
         repliedAt: turns.repliedAt.get(taskId) ?? null,
@@ -481,9 +497,11 @@ export function App({
     turns.facts,
     turns.repliedAt,
     allPrompts,
+    feed.rows,
     page.tasks,
     working,
     taskOf,
+    isLocal,
     inboxDismissed,
     inboxReadBefore,
   ]);
