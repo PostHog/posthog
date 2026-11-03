@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -28,7 +29,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -88,7 +89,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_querie
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
-from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -109,7 +109,6 @@ from posthog.models.file_system.file_system import delete_files
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDT
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_authenticator_scoped_team_ids,
@@ -123,11 +122,8 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
-    InsightExplainBurstThrottle,
-    InsightExplainDailyThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
-from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scopes import scopes_not_covered
@@ -144,7 +140,10 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -162,7 +161,7 @@ from products.dashboards.backend.facade.api import (
     DashboardNotFound,
     DashboardTileBasicSerializer,
     InsightTilePlacement,
-    active_tile_count,
+    check_insight_tile_limit,
     dashboard_refs,
     hide_tiles_for_insights,
     insight_has_listed_tile,
@@ -200,7 +199,6 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataChecksStatus,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
-from products.product_analytics.backend.presentation.insight_explain import ChartCause, ExplainFacts, explain_chart
 from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -237,7 +235,7 @@ def log_and_report_insight_activity(
     insight: Insight,
     insight_id: int,
     insight_short_id: str,
-    organization_id: UUIDT,
+    organization_id: UUID,
     team_id: int,
     user: User,
     was_impersonated: bool,
@@ -276,6 +274,22 @@ def log_and_report_insight_activity(
                 organization=organization,
                 request=request,
             )
+
+
+def viewable_insight_or_404(*, team_id: int, insight_id: int, user_access_control: UserAccessControl) -> Insight:
+    """The live insight of this team with this ID, for an endpoint of another product that acts on it.
+
+    Raises NotFound when the team has no such insight, and PermissionDenied when access rules hide it.
+    """
+    insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
+    if insight is None:
+        raise NotFound()
+    # The request's access control answers only for the team in the URL, and the insight can belong to a
+    # sibling environment of the project, whose own rules decide.
+    insight_access = user_access_control.for_team_ids([insight.team_id])[insight.team_id]
+    if not insight_access.check_access_level_for_object(insight, "viewer"):
+        raise PermissionDenied("You don't have permission to view this insight.")
+    return insight
 
 
 class QuerySchemaParser(JSONParser):
@@ -756,15 +770,11 @@ class InsightSerializer(InsightBasicSerializer):
             for dashboard_id in new_dashboard_ids:
                 if dashboard_id in existing_dashboard_ids:
                     continue
-                check_count_limit(
+                check_insight_tile_limit(
                     team=team,
-                    key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
-                    current_count=active_tile_count(dashboard_id),
+                    dashboard_id=dashboard_id,
+                    dashboard_name=dashboard_names.get(dashboard_id),
                     user=self.context["request"].user,
-                    resource_properties={
-                        "dashboard_id": dashboard_id,
-                        "dashboard_name": dashboard_names.get(dashboard_id) or "",
-                    },
                 )
 
         return super().validate(attrs)
@@ -1653,84 +1663,6 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
-INSIGHT_EXPLAIN_MAX_CHAPTERS = 8
-INSIGHT_EXPLAIN_MAX_FINDINGS = 6
-
-
-class InsightExplainChapterFactsSerializer(serializers.Serializer):
-    id = serializers.CharField(
-        max_length=64, help_text="Identifier of the chapter. The response returns the chapter under the same one."
-    )
-    title = serializers.CharField(
-        max_length=200, help_text="What the chapter is about, for example 'A peak on October 2'."
-    )
-    summary = serializers.CharField(
-        max_length=600,
-        help_text="The computed facts of the chapter in one or two sentences, with their numbers and dates.",
-    )
-    evidence = serializers.ListField(
-        child=serializers.CharField(max_length=600),
-        required=False,
-        default=list,
-        max_length=INSIGHT_EXPLAIN_MAX_FINDINGS,
-        help_text=(
-            "Findings about the cause of the chapter, one sentence each. "
-            f"Empty when nothing was found. At most {INSIGHT_EXPLAIN_MAX_FINDINGS}."
-        ),
-    )
-
-
-class InsightExplainRequestSerializer(serializers.Serializer):
-    series_label = serializers.CharField(max_length=200, help_text="Name of the series that the explanation follows.")
-    insight_name = serializers.CharField(
-        max_length=400,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="Name of the insight. Blank for an insight that has no name yet.",
-    )
-    overview = serializers.CharField(
-        max_length=600,
-        required=False,
-        allow_blank=True,
-        default="",
-        help_text="The computed facts of the whole chart, such as its typical level, its range and how it ends.",
-    )
-    chapters = serializers.ListField(
-        child=InsightExplainChapterFactsSerializer(),
-        max_length=INSIGHT_EXPLAIN_MAX_CHAPTERS,
-        help_text=(
-            f"The chapters of the explanation in reading order. At most {INSIGHT_EXPLAIN_MAX_CHAPTERS}. "
-            "Empty when nothing stands out on the chart."
-        ),
-    )
-
-
-class InsightExplainChapterSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Identifier of the chapter, as it was sent.")
-    cause = serializers.ChoiceField(
-        choices=ChartCause.choices,
-        help_text=(
-            "What most likely caused the chapter: outside traffic, a real change in usage, one person or a test "
-            "account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts."
-        ),
-    )
-    confidence = serializers.FloatField(help_text="How sure the model is of the cause, from 0 to 1.")
-
-
-class InsightExplainUnavailable(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "The decision model is not available right now. Try again in a moment."
-    default_code = "insight_explain_unavailable"
-
-
-class InsightExplainSerializer(serializers.Serializer):
-    chapters = InsightExplainChapterSerializer(
-        many=True,
-        help_text="The likely cause of each chapter the model answered, in the order they were sent.",
-    )
-
-
 INSIGHT_BULK_DELETE_MAX_IDS = 1000
 
 
@@ -2197,15 +2129,13 @@ class InsightViewSet(
         return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def get_throttles(self):
-        """Apply LLM-specific throttles to the endpoints that call a model."""
+        """Apply LLM-specific throttles to the AI metadata endpoint."""
         if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
                 AIObservabilitySummarizationDailyThrottle(),
             ]
-        if self.action == "explain":
-            return [InsightExplainBurstThrottle(), InsightExplainDailyThrottle()]
         return super().get_throttles()
 
     def _validate_ai_feature_access(self) -> None:
@@ -2717,36 +2647,6 @@ When set, the specified dashboard's filters and date range override will be appl
             raise APIException("Failed to generate insight metadata. Please try again.")
 
         return Response({"name": metadata.name, "description": metadata.description})
-
-    @validated_request(
-        request_serializer=InsightExplainRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=InsightExplainSerializer, description="The explanation of the chart."),
-            503: OpenApiResponse(description="The decision model failed or timed out."),
-        },
-        description=(
-            "Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it "
-            "computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a "
-            "confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. "
-            "Without a decision model on the instance, the list is empty. "
-            "The organization must approve AI data processing."
-        ),
-    )
-    @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
-    def explain(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        self._validate_ai_feature_access()
-
-        try:
-            causes = explain_chart(ExplainFacts.model_validate(request.validated_data), team_id=self.team.pk)
-        except SystemOneNotConfigured:
-            causes = []
-        except SystemOneRequestFailed as error:
-            # The page shows its own text without the causes, so a slow or failed model is a "not now", not an error.
-            logger.warning("insight_explain_unavailable", team_id=self.team.pk, reason=type(error).__name__)
-            raise InsightExplainUnavailable() from error
-
-        chapters = [{"id": c.id, "cause": c.cause.value, "confidence": c.confidence} for c in causes]
-        return Response(InsightExplainSerializer({"chapters": chapters}).data)
 
     # ******************************************
     # /projects/:id/insights/viewed
