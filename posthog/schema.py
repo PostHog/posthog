@@ -6985,6 +6985,13 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
         default=None,
         description="Google Ads search term table for Performance Max campaigns.",
     )
+    queryPageTable: str | None = Field(
+        default=None,
+        description=(
+            "Google Search Console table with one row per query and page, used to find"
+            " the page that ranks for a search."
+        ),
+    )
     queryTable: str | None = Field(
         default=None,
         description=("Google Search Console table with one row per query, or per query and page."),
