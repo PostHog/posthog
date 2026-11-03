@@ -21,6 +21,8 @@ export const AeoPromptsListParams = () => zod.object({
 })
 
 export const aeoPromptsListQueryIncludeArchivedDefault = false
+export const aeoPromptsListQueryLimitMax = 1000
+
 export const aeoPromptsListQueryTopicMax = 200
 
 export const AeoPromptsListQueryParams = () => zod.object({
@@ -29,7 +31,7 @@ export const AeoPromptsListQueryParams = () => zod.object({
         .boolean()
         .default(aeoPromptsListQueryIncludeArchivedDefault)
         .describe('Also list archived prompts. Archived prompts are left out by default.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(aeoPromptsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     topic: zod
         .string()
@@ -135,6 +137,7 @@ export const AeoPromptsChecksParams = () => zod.object({
 export const aeoPromptsChecksQueryEngineMax = 64
 
 export const aeoPromptsChecksQueryIncludeAnswerTextDefault = true
+export const aeoPromptsChecksQueryLimitMax = 100
 
 export const AeoPromptsChecksQueryParams = () => zod.object({
     engine: zod
@@ -149,7 +152,7 @@ export const AeoPromptsChecksQueryParams = () => zod.object({
         .describe(
             "Set to false to return answer_text as null on every check. Use it to page through history without the engines' answers."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(aeoPromptsChecksQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     since: zod.iso
         .datetime({ offset: true })

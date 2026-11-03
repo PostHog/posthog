@@ -9,10 +9,10 @@ const meta: Meta = {
         docs: {
             description: {
                 component:
-                    'The PostHog logo, rendered from `@posthog/brand` via the theme- and holiday-aware `lib/brand` wrapper. ' +
+                    'The PostHog logo, rendered from `@posthog/brand` via the theme-aware `lib/brand` wrapper. ' +
                     'Pick the look with `variant` (gradient | print | mono), `layout` (landscape | stacked | logomark | wordmark), ' +
                     'and `color` (for mono). Size with the `size` token (`sm` | `md` | `lg`) — it sets the height, width follows. ' +
-                    'The logomark can `jumpOnClick` and dress up for a `holiday`.',
+                    'The logomark can `jumpOnClick`.',
             },
         },
     },
@@ -78,19 +78,6 @@ export const Layouts: StoryObj = {
             </Row>
             <Row label='layout="stacked" (portrait)'>
                 <Logo variant="gradient" layout="stacked" size="md" />
-            </Row>
-        </div>
-    ),
-}
-
-export const Holidays: StoryObj = {
-    render: () => (
-        <div className="flex flex-col gap-8 p-4">
-            <Row label='holiday="christmas"'>
-                <Logomark variant="gradient" holiday="christmas" size="md" />
-            </Row>
-            <Row label='holiday="halloween"'>
-                <Logomark variant="gradient" holiday="halloween" size="md" />
             </Row>
         </div>
     ),

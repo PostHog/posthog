@@ -18,21 +18,23 @@ import {
 import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
-import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { HogQLQueryString } from 'lib/utils/hogql'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AggregatedSpanRow,
     AnyResponseType,
@@ -69,7 +71,6 @@ import {
     SpanTreeNode,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -229,7 +230,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import {
+import type {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -344,6 +345,13 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -365,9 +373,9 @@ export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
-export async function getJSONOrNull(response: Response): Promise<any> {
+export async function getJSONOrNull(response: Response, timing?: ApiRequestTimingRecorder): Promise<any> {
     try {
-        return await response.json()
+        return timing ? timing.parseJSON(await timing.readBody(response)) : await response.json()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -3660,16 +3668,6 @@ const api = {
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
-        async resetPersonDistinctId(distinctId: string): Promise<void> {
-            return await new ApiRequest()
-                .persons()
-                .withAction('reset_person_distinct_id')
-                .create({
-                    data: {
-                        distinct_id: distinctId,
-                    },
-                })
-        },
         async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
             const response = await new ApiRequest()
                 .persons()
@@ -4392,7 +4390,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4408,10 +4410,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -5064,7 +5063,7 @@ const api = {
             ): Promise<Record<string, any>[]> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs')
+                    .withAction('log_entries')
                     .getResponse({ signal: options.signal })
                 return parseLogEntries(await response.text())
             },
@@ -5098,7 +5097,7 @@ const api = {
             }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs')
+                    .withAction('log_entries')
                     .withQueryString({
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),
@@ -7252,7 +7251,7 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
     }
 }
 
-async function withRequestTiming<T>(
+export async function withRequestTiming<T>(
     options: ApiMethodOptions | undefined,
     request: (timing?: ApiRequestTimingRecorder) => Promise<T>
 ): Promise<T> {

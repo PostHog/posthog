@@ -30,6 +30,10 @@ INACTIVE_FEATURE_FLAG_VALUES: tuple[str, ...] = ("", "false")
 
 FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
 
+# posthog/models/flag_evaluations/sql.py defines the same value as FLAG_EVALUATIONS_SOURCE_EVENT. That module imports
+# django.conf, which HogQL keeps off its import path, so the value is spelled out here.
+FLAG_CALLED_EVENT = "$feature_flag_called"
+
 
 def is_virtual_feature_flag_key(key: str) -> bool:
     """Whether an events_json property is rebuilt from the `$feature_flags` map instead of read under its own name."""

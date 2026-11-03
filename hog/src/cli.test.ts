@@ -37,17 +37,17 @@ describe('hog', () => {
     )
 
     test.each([
-        ['help for an unported command', ['help', 'dsym', 'upload'], 'posthog-cli dsym upload --help'],
+        ['help for an unported command', ['help', 'logs', 'import'], 'posthog-cli exp logs import --help'],
         ['an unported subcommand of a ported group', ['query', 'editor'], 'posthog-cli exp query editor'],
         [
             'hog globals that posthog-cli takes before the subcommand',
-            ['-o', 'json', '--host', 'https://eu.example.com', 'dsym', 'upload', '--dotenv-file=p.env', '--dir', 'x'],
-            'posthog-cli --host https://eu.example.com --dotenv-file p.env dsym upload --dir x',
+            ['-o', 'json', '--host', 'https://eu.example.com', 'logs', 'import', '--dotenv-file=p.env', '--dir', 'x'],
+            'posthog-cli --host https://eu.example.com --dotenv-file p.env exp logs import --dir x',
         ],
         [
             'an --output that the legacy command owns',
-            ['endpoints', 'pull', 'example', '--output', './queries'],
-            'posthog-cli exp endpoints pull example --output ./queries',
+            ['logs', 'import', '--output', './logs'],
+            'posthog-cli exp logs import --output ./logs',
         ],
     ])('%s points to posthog-cli', async (_name, argv, invocation) => {
         const result = await runHog(argv)
@@ -65,10 +65,14 @@ describe('hog', () => {
         expect(result.error()).toMatchObject({ code })
     })
 
-    test('a command that moved into a group points to its full name', async () => {
-        const result = await runHog(['login'])
+    test.each([
+        ['login', 'Did you mean `hog auth login`?'],
+        ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', '`exp` is `hog query|endpoints|schema` in hog.'],
+    ])('a command that moved, like %s, points to its new name', async (name, message) => {
+        const result = await runHog([name, 'upload'])
         expect(result.exitCode).toBe(2)
-        expect(result.error().message).toContain('Did you mean `hog auth login`?')
+        expect(result.error().message).toContain(message)
     })
 
     test('a person sees errors as text', async () => {
@@ -82,7 +86,7 @@ describe('hog', () => {
         const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(0)
         const manifest = result.json()
-        expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code' })
+        expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code', aliases: { et: 'error-tracking' } })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
@@ -96,6 +100,33 @@ describe('hog', () => {
             'query run',
             'query check',
             'query editor',
+            'api groups',
+            'api tools',
+            'api search',
+            'api info',
+            'api schema',
+            'api call',
+            'api access',
+            'api skill',
+            'api agents-md',
+            'error-tracking inject',
+            'error-tracking clone',
+            'error-tracking upload',
+            'error-tracking process',
+            'error-tracking release',
+            'error-tracking download',
+            'error-tracking extract',
+            'endpoints list',
+            'endpoints get',
+            'endpoints open',
+            'endpoints run',
+            'endpoints push',
+            'endpoints pull',
+            'endpoints diff',
+            'schema pull',
+            'schema status',
+            'config check',
+            'config schema',
             'commands',
             ...Object.keys(LEGACY_COMMANDS),
         ])

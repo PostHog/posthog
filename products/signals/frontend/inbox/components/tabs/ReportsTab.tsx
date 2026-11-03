@@ -3,7 +3,7 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { urls } from 'scenes/urls'
 
 import { isRankingSortField } from '../../filterOptions'
@@ -44,7 +44,7 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed', 'held-back'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'closed', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -57,6 +57,7 @@ interface SectionListState {
     pageLoadFailed: boolean
     reportsResponseLoading: boolean
     hasMore: boolean
+    loadedRankingPill: boolean
 }
 
 /**
@@ -74,6 +75,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
@@ -84,11 +86,12 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
     }
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -97,6 +100,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
+        closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
         'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
@@ -108,7 +112,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
+    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
         useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
@@ -142,7 +146,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
-            sourceProductFilter,
+            sourceProductFilter: activeSourceProductFilter,
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
@@ -152,7 +156,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         settled,
         sections,
         hasActiveFilters,
-        sourceProductFilter,
+        activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
         scope,
@@ -168,12 +172,14 @@ const ReportRow = memo(function ReportRow({
     report,
     sectionKey,
     rankingSortField,
+    rankingPill,
     timestampField,
     hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
+    rankingPill: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
 }): JSX.Element {
@@ -183,6 +189,7 @@ const ReportRow = memo(function ReportRow({
                 report={report}
                 selectable
                 rankingSortField={rankingSortField}
+                rankingPill={rankingPill}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
@@ -253,6 +260,9 @@ export function ReportsTab(): JSX.Element {
         SignalReport[]
     >
     const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
+    const rankingPill =
+        activeSortField === 'recommended' && selectedSections.some((key) => sections[key].loadedRankingPill)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
@@ -411,6 +421,7 @@ export function ReportsTab(): JSX.Element {
                                 report={report}
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
+                                rankingPill={rankingPill}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
