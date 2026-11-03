@@ -5,7 +5,7 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonLabel } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 
 import { senderAddressError, senderFrom, senderIntegrationFor } from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
