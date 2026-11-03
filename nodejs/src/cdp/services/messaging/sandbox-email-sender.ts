@@ -104,7 +104,7 @@ function protectFooterAncestors(
 ): void {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)!
     const visibleLayout =
-        'display:block!important;position:static!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;zoom:1!important'
+        'display:block!important;position:static!important;margin:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;zoom:1!important'
     for (const ancestor of [root, body]) {
         const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
         if (style) {

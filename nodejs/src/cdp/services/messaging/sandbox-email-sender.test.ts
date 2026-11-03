@@ -133,14 +133,15 @@ describe('sandbox email content', () => {
     it.each([
         '<html style="overflow:hidden"><body style="margin:0;height:20px;overflow:hidden"><p>Visible message</p></body></html>',
         '<html style="height:20px;clip-path:inset(0)"><body style="height:20px;clip-path:inset(0)"><p>Visible message</p></body></html>',
+        '<html style="margin-top:-100000px"><body style="margin-left:-100000px"><p style="margin-left:100000px">Visible message</p></body></html>',
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
         const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
         const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
         const body = root.childNodes.filter(defaultTreeAdapter.isElementNode).find((node) => node.tagName === 'body')!
         for (const ancestor of [root, body]) {
-            expect(ancestor.attrs.find((attribute) => attribute.name === 'style')?.value).toContain(
-                'height:auto!important'
-            )
+            const value = ancestor.attrs.find((attribute) => attribute.name === 'style')?.value
+            expect(value).toContain('height:auto!important')
+            expect(value).toContain('margin:0!important')
         }
         expect(result.html).toContain('Visible message')
         expect(body.childNodes.at(-1)).toMatchObject({ childNodes: [{ nodeName: '#text', value: footer }] })
