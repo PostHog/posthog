@@ -9,7 +9,7 @@ use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{escape_in_identifier, write_css_edit, CssEdit};
-use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind, RemoteUrl};
+use replay_core_v4::inspect::dom::{for_each_srcset_candidate, DeclinedUrl, RemoteKind};
 use replay_core_v4::inspect::edits::{Edit, EditSource, EventEdits, Slot};
 use replay_core_v4::inspect::srcset::{shown_candidate, SrcsetSlot};
 use replay_core_v4::refs::{declined_url_ref, UrlAsset};
@@ -104,14 +104,11 @@ struct Overwrite {
 }
 
 impl DeclinedCopies {
-    pub fn new(declined: &[RemoteUrl]) -> Option<Self> {
+    pub fn new(declined: &[DeclinedUrl]) -> Option<Self> {
         let mut patterns = Vec::new();
         let mut markers = Vec::new();
-        for RemoteUrl { url, kind } in declined {
-            let Err(decline) = replay_core_v4::url_policy::checked_url(url) else {
-                continue;
-            };
-            let marker = declined_url_ref(asset_of(*kind), decline);
+        for DeclinedUrl { url, kind, decline } in declined {
+            let marker = declined_url_ref(asset_of(*kind), *decline);
             // A selector copy takes an escaped marker, so that its colons do not start pseudo-classes.
             for (form, replacement) in [
                 (url.clone(), marker.clone()),

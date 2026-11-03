@@ -60,8 +60,8 @@ pub struct CssRewrite {
     pub resolved: Option<RemoteUrl>,
     /// Where `replacement` holds its one URL, so that the edit finds the URL without a search.
     pub url_at: Option<Range<usize>>,
-    /// The URL as the page's escapes decode it, where `resolved` normalizes it, so that a copy of either spelling is found.
-    pub decoded: Option<String>,
+    /// The URL as the page wrote it and as its escapes decode, where `resolved` spells it otherwise, to find their copies.
+    pub spellings: Vec<String>,
 }
 
 /// The origin that a root-relative URL on `page_url` resolves against, as `https` because the fetcher loads nothing else.
@@ -500,12 +500,12 @@ fn value_urls(
         let Some(source) = source else { return };
         let function = input.slice_from(start);
         match collectable(&source) {
-            Some(url) => match located(source.token, url) {
+            Some(url) => match located(source.written, url) {
                 Some(url) => url_function_urls(function, url, resolver, found),
                 None => found(CssUrl::Unplaced),
             },
             None if source.escaped && escaped == EscapedSources::Decoded => {
-                escaped_url_function_urls(function, &source.url, resolver, found)
+                escaped_url_function_urls(function, source.written, &source.url, resolver, found)
             }
             None => {}
         }
@@ -517,9 +517,8 @@ fn value_urls(
 
 struct UrlSource<'i> {
     url: CowRcStr<'i>,
-    /// The token as the page wrote it. The URL is looked for only here, because a comment in the function can hold a
-    /// copy of its decoded spelling, which a URL with a NUL in it does not have.
-    token: &'i str,
+    /// The URL as the page wrote it, between its quotes or parentheses. A comment in the function can hold a copy of its decoded spelling, so the URL is looked for only here.
+    written: &'i str,
     escaped: bool,
 }
 
@@ -530,7 +529,7 @@ fn unquoted_url_source<'i>(url: CowRcStr<'i>, token: &'i str) -> UrlSource<'i> {
         .map_or(token, |(_, contents)| contents);
     UrlSource {
         escaped: contents.contains('\\'),
-        token: contents,
+        written: contents.strip_suffix(')').unwrap_or(contents).trim(),
         url,
     }
 }
@@ -544,11 +543,23 @@ fn quoted_url_source<'i>(input: &mut Parser<'i>) -> Option<UrlSource<'i>> {
             let token = input.slice_from(start);
             Ok::<_, ParseError<()>>(UrlSource {
                 escaped: token.contains('\\'),
-                token,
+                written: between_quotes(token),
                 url,
             })
         })
         .ok()
+}
+
+/// The contents of a string token, whose closing quote is missing when the text ends inside the string.
+fn between_quotes(token: &str) -> &str {
+    let mut chars = token.chars();
+    match chars.next() {
+        Some(quote @ ('"' | '\'')) => {
+            let rest = chars.as_str();
+            rest.strip_suffix(quote).unwrap_or(rest)
+        }
+        _ => token,
+    }
 }
 
 /// v3 collects neither a fragment nor a source with an escape in it.
@@ -577,7 +588,7 @@ fn url_function_urls(
                         kind: RemoteKind::Image,
                     }),
                     url_at: Some(url_at),
-                    decoded: None,
+                    spellings: Vec::new(),
                 },
                 function,
             });
@@ -590,6 +601,7 @@ fn url_function_urls(
 /// The block does not hold the URL a browser reads from an escaped source, so the rewrite replaces the whole `url()`.
 fn escaped_url_function_urls(
     function: &str,
+    escaped: &str,
     decoded: &str,
     resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
@@ -613,7 +625,12 @@ fn escaped_url_function_urls(
     };
     found(CssUrl::Resolved(&absolute));
     let (replacement, url_at) = url_function(&absolute);
-    let decoded = (written != absolute).then(|| written.to_owned());
+    let mut spellings: Vec<String> = Vec::new();
+    for spelling in [escaped, written] {
+        if spelling != absolute && !spellings.iter().any(|kept| kept == spelling) {
+            spellings.push(spelling.to_owned());
+        }
+    }
     found(CssUrl::Rewrite {
         rewrite: CssRewrite {
             text: function.to_owned(),
@@ -624,7 +641,7 @@ fn escaped_url_function_urls(
                 kind: RemoteKind::Image,
             }),
             url_at: Some(url_at),
-            decoded,
+            spellings,
         },
         function,
     });
@@ -728,7 +745,7 @@ fn image_set_urls(
                     kind: RemoteKind::Image,
                 }),
                 url_at: url_in_candidate.map(|at| at.start + opening..at.end + opening),
-                decoded: None,
+                spellings: Vec::new(),
             },
             function,
         });
@@ -812,7 +829,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
         CandidateStart::Url(url) => Some(unquoted_url_source(url, input.slice_from(start))),
         CandidateStart::String(url) => Some(UrlSource {
             escaped: input.slice_from(start).contains('\\'),
-            token: input.slice_from(start),
+            written: between_quotes(input.slice_from(start)),
             url,
         }),
         CandidateStart::UrlFunction => quoted_url_source(input),
@@ -823,7 +840,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     let source = source
         .as_ref()
         .zip(written)
-        .and_then(|(source, url)| located(source.token, url));
+        .and_then(|(source, url)| located(source.written, url));
     let resolution_dppx = parse_descriptors(input);
     Some(ImageSetCandidate {
         text: input.slice_from(start).trim_end(),

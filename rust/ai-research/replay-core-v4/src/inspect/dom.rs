@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::bytescan::{self as scan, Span};
 use crate::fonts::{bundled_font, is_fetched_font_url};
-use crate::url_policy::{checked_url, is_fetched_image_type, is_remote, MAX_URL_LEN};
+use crate::url_policy::{checked_url, is_fetched_image_type, is_remote, Decline, MAX_URL_LEN};
 
 use super::css::{self, CssEditBuilder, CssUrl, Resolver};
 use super::edits::{Buffers, Edit, Slot};
@@ -227,6 +227,14 @@ pub struct RemoteUrl {
     pub kind: RemoteKind,
 }
 
+/// A spelling of a refused URL, with the reason for the URL as the policy reads it, which an escaped spelling hides.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclinedUrl {
+    pub url: String,
+    pub kind: RemoteKind,
+    pub decline: Decline,
+}
+
 /// Distinct remote image URLs, at most [`MAX_IMAGE_URLS`] per message.
 #[derive(Default)]
 struct Urls {
@@ -241,7 +249,7 @@ struct Urls {
     /// A slot the writer could not find again, so that the block must not be stored.
     unplaced: bool,
     /// Named URLs that the policy refuses, by the largest kind each was named as. The writer overwrites every copy of each one, outside its slot too.
-    declined: HashMap<String, RemoteKind>,
+    declined: HashMap<String, (RemoteKind, Decline)>,
     declined_bytes: usize,
 }
 
@@ -280,22 +288,24 @@ impl Urls {
         }
     }
 
-    fn note_declined(&mut self, url: &str, kind: RemoteKind) {
-        if let Some(noted) = self.declined.get_mut(url) {
+    fn note_declined(&mut self, url: &str, kind: RemoteKind) -> Option<Decline> {
+        if let Some((noted, decline)) = self.declined.get_mut(url) {
             *noted = (*noted).max(kind);
-        } else if checked_url(url).is_err() {
-            self.add_declined(url.to_owned(), kind);
+            return Some(*decline);
         }
+        let decline = checked_url(url).err()?;
+        self.add_declined(url.to_owned(), kind, decline);
+        Some(decline)
     }
 
-    fn add_declined(&mut self, url: String, kind: RemoteKind) {
-        if let Some(noted) = self.declined.get_mut(&url) {
+    fn add_declined(&mut self, url: String, kind: RemoteKind, decline: Decline) {
+        if let Some((noted, _)) = self.declined.get_mut(&url) {
             *noted = (*noted).max(kind);
         } else if self.declined_bytes + url.len() > MAX_BLOCK_DECLINED_URL_BYTES {
             self.limit = self.limit.or(Some(UrlLimit::DeclinedUrls));
         } else {
             self.declined_bytes += url.len();
-            self.declined.insert(url, kind);
+            self.declined.insert(url, (kind, decline));
         }
     }
 
@@ -335,10 +345,12 @@ impl Urls {
             }
             // A bundled font's URL comes only in its rewrite, as no fetch takes it.
             CssUrl::Rewrite { rewrite, .. } => {
-                if let Some(resolved) = &rewrite.resolved {
-                    self.note_declined(&resolved.url, resolved.kind);
-                    if let Some(decoded) = &rewrite.decoded {
-                        self.note_declined(decoded, resolved.kind);
+                let Some(resolved) = &rewrite.resolved else {
+                    return;
+                };
+                if let Some(decline) = self.note_declined(&resolved.url, resolved.kind) {
+                    for spelling in &rewrite.spellings {
+                        self.add_declined(spelling.clone(), resolved.kind, decline);
                     }
                 }
             }
@@ -438,8 +450,8 @@ impl Urls {
         self.edits.extend(walk.edits);
         self.edit_bytes_taken += walk.edit_bytes_taken;
         self.unplaced |= walk.unplaced;
-        for (url, kind) in walk.declined {
-            self.add_declined(url, kind);
+        for (url, (kind, decline)) in walk.declined {
+            self.add_declined(url, kind, decline);
         }
     }
 }
@@ -1495,11 +1507,11 @@ impl DomInspector {
         )
     }
 
-    pub fn take_declined(&mut self) -> Vec<RemoteUrl> {
+    pub fn take_declined(&mut self) -> Vec<DeclinedUrl> {
         self.urls.declined_bytes = 0;
         std::mem::take(&mut self.urls.declined)
             .into_iter()
-            .map(|(url, kind)| RemoteUrl { url, kind })
+            .map(|(url, (kind, decline))| DeclinedUrl { url, kind, decline })
             .collect()
     }
 

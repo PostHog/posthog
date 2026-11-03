@@ -943,6 +943,11 @@ mod tests {
                 json!([escaped_font("Brand", "CDN.example.com")]),
                 decoded_font_copy("CDN.example.com"),
             ),
+            // A text copy of the rule keeps its CSS escapes.
+            (
+                json!([escaped_font("Brand", "bucket.s3.amazonaws.com")]),
+                json!({"alt": "url(https://bucket.s3.amazonaws.com/f\\2e woff2?X-Amz-Signature=abc123)"}),
+            ),
             (
                 json!([]),
                 json!({"src": with_inline_image, "alt": with_inline_image}),
