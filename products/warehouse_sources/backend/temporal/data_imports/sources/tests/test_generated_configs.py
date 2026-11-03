@@ -32,9 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     SnowflakeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.supabase import (
-    SupabaseSourceConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.temporalio import (
     TemporalIOSourceConfig,
 )
@@ -50,6 +47,7 @@ from products.warehouse_sources.sources.doit._config import DoItSourceConfig
 from products.warehouse_sources.sources.gitlab._config import GitLabSourceConfig
 from products.warehouse_sources.sources.gorgias._config import GorgiasSourceConfig
 from products.warehouse_sources.sources.shopify._config import ShopifySourceConfig
+from products.warehouse_sources.sources.supabase._config import SupabaseSourceConfig
 
 
 # The form submits "temporary-dataset", but dataclasses.asdict() persists "temporary_dataset",
