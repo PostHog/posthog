@@ -2731,9 +2731,59 @@ describe('PersonhogPersonsStore', () => {
                 expect(entries.get('1:9').segments).toHaveLength(1)
                 expect(entries.get('1:7')).toMatchObject({ inFlight: true })
 
-                settleFirstWrite()
+                // The next pass queues behind the write still in flight instead of opening a second pool.
+                const nextFlush = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
                 await jest.advanceTimersByTimeAsync(0)
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+
+                settleFirstWrite()
+                await jest.advanceTimersByTimeAsync(1_000)
+                expect(await nextFlush).toBe('acked')
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
                 expect(entries.get('1:7')?.inFlight ?? false).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('the deadline cuts a deferred-lane round wait short', async () => {
+            jest.useFakeTimers()
+            try {
+                const deadlineStore = new PersonhogPersonsStore(repository, { flushDeadlineMs: 20 })
+                const bound = deadlineStore.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const entry = (deadlineStore as any).entries.get('1:7')
+                entry.inFlight = true
+                entry.directWriteSettled = new Promise<void>(() => {})
+
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                await jest.advanceTimersByTimeAsync(20)
+                expect(await settled).toMatch(/deadline with 0 lanes unwritten and 1 writes in flight/)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('the deadline covers a held-lane resolve that does not answer', async () => {
+            jest.useFakeTimers()
+            try {
+                const deadlineStore = new PersonhogPersonsStore(repository, { flushDeadlineMs: 20 })
+                const bound = deadlineStore.forBatch(0)
+                deadlineStore.holdEventOps(1, 'd-held', ops({ $set: { a: '1' } }), 0)
+                repository.resolvePersonsByDistinctIds.mockImplementationOnce(() => new Promise(() => {}))
+
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                await jest.advanceTimersByTimeAsync(20)
+                expect(await settled).toMatch(/exceeded its 20ms deadline/)
             } finally {
                 jest.useRealTimers()
             }
