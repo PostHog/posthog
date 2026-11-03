@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -142,7 +143,7 @@ export const webmcpLogic = kea<webmcpLogicType>([
 
             const register = async (signal: AbortSignal): Promise<void> => {
                 // A separate chunk keeps the long description out of the main bundle.
-                const generated = await import('../execTool.generated')
+                const generated = await retryImport(() => import('../execTool.generated'))
                 const tool = fillPlaceholders(generated.WEBMCP_EXEC_TOOL, {
                     [generated.APP_ORIGIN_PLACEHOLDER]: window.location.origin,
                     [generated.PROJECT_ID_PLACEHOLDER]: String(teamId),
