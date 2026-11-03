@@ -171,29 +171,12 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         Team.objects.aget(id=inputs.team_id),
         AlertConfiguration.objects.select_related("insight").aget(id=inputs.alert_id),
     )
-    subject: AlertCheck | InsightAlertInvestigation
-    if inputs.investigation_id is not None:
-        subject = await sync_to_async(_load_investigation, thread_sensitive=False)(
-            inputs.team_id, inputs.investigation_id
-        )
-        if subject.status == InvestigationStatus.DONE:
-            # A retry after the verdict was recorded repeats only its release, not the agent.
-            return list((await _finish_platform_investigation(alert, subject)).deliveries)
-        evaluated = EvaluatedCheck.of_investigation(subject)
-    elif inputs.alert_check_id is not None:
-        subject = await AlertCheck.objects.aget(id=inputs.alert_check_id)
-        evaluated = EvaluatedCheck.of_alert_check(subject)
-    else:
-        raise ValueError("An investigation needs an alert check or an investigation id")
+    subject, evaluated = await _load_subject(inputs)
+    if isinstance(subject, InsightAlertInvestigation) and subject.status == InvestigationStatus.DONE:
+        # A retry after the verdict was recorded repeats only its release, not the agent.
+        return list((await _finish_platform_investigation(alert, subject)).deliveries)
 
-    user: User | None = None
-    if inputs.user_id is not None:
-        try:
-            user = await User.objects.aget(id=inputs.user_id)
-        except User.DoesNotExist:
-            user = None
-    if user is None:
-        user = await _pick_investigation_user(alert)
+    user = await _investigation_user(inputs, alert)
 
     if user is None:
         await _mark_failed(subject, "No user available to run the investigation agent.")
@@ -398,8 +381,32 @@ async def _finish_platform_investigation(
     )
 
 
+async def _load_subject(
+    inputs: AnomalyInvestigationWorkflowInputs,
+) -> tuple[AlertCheck | InsightAlertInvestigation, EvaluatedCheck]:
+    """The record the investigation writes to, and what its check measured."""
+    if inputs.investigation_id is not None:
+        investigation = await sync_to_async(_load_investigation, thread_sensitive=False)(
+            inputs.team_id, inputs.investigation_id
+        )
+        return investigation, EvaluatedCheck.of_investigation(investigation)
+    if inputs.alert_check_id is not None:
+        alert_check = await AlertCheck.objects.aget(id=inputs.alert_check_id)
+        return alert_check, EvaluatedCheck.of_alert_check(alert_check)
+    raise ValueError("An investigation needs an alert check or an investigation id")
+
+
 def _load_investigation(team_id: int, investigation_id: UUID) -> InsightAlertInvestigation:
     return InsightAlertInvestigation.objects.for_team(team_id).get(id=investigation_id)
+
+
+async def _investigation_user(inputs: AnomalyInvestigationWorkflowInputs, alert: AlertConfiguration) -> User | None:
+    if inputs.user_id is not None:
+        try:
+            return await User.objects.aget(id=inputs.user_id)
+        except User.DoesNotExist:
+            pass
+    return await _pick_investigation_user(alert)
 
 
 def _episode_source_id(investigation: InsightAlertInvestigation) -> str:
