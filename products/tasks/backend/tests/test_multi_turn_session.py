@@ -2108,11 +2108,13 @@ class TestMultiTurnSessionStartFallback:
         return session
 
     @pytest.mark.asyncio
-    async def test_salvages_unparseable_text_with_fallback(self):
+    @pytest.mark.parametrize("retry_reply", [None, "Updated conclusion from the second turn."])
+    async def test_salvages_unparseable_text_with_fallback(self, retry_reply: str | None):
         # _Resp requires a JSON object with `value`; prose can't validate, so the fallback
         # builds the model from the raw close-out text instead of failing the run.
         session = self._fake_session()
         prose = "No anomalies this run. Scanned 12 commits, remembered the scan marker."
+        session.send_followup_raw = AsyncMock(return_value=retry_reply)  # type: ignore[method-assign]
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))):
             returned_session, parsed = await MultiTurnSession.start(
@@ -2120,10 +2122,11 @@ class TestMultiTurnSessionStartFallback:
                 context=MagicMock(),
                 model=_Resp,
                 fallback_from_text=lambda text: _Resp(value=text),
+                json_retry_prompt="Return JSON" if retry_reply is not None else None,
             )
 
         assert returned_session is session
-        assert parsed == _Resp(value=prose)
+        assert parsed == _Resp(value=retry_reply if retry_reply is not None else prose)
         # A salvaged run is NOT ended as failed — the caller persists the result and ends normally.
         session.end.assert_not_awaited()  # type: ignore[attr-defined]
 
