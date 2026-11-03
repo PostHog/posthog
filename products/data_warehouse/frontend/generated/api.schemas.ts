@@ -1871,6 +1871,10 @@ export interface SyncFrequencyOptionApi {
     blocked_by: SyncFrequencyBlockedByEnumApi | null
     /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
+    /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
+    speeds_up: SyncFrequencyBlockerApi[]
+    /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
+    speeds_up_withheld: boolean
 }
 
 export interface SyncFrequencyBoundApi {
@@ -2171,6 +2175,29 @@ export interface SavedQueryMaterializeApi {
     sync_frequency?: MaterializeSyncFrequencyEnumApi
 }
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `trino` - Trino
+ */
+export type MaterializationEngineEnumApi =
+    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
+
+export const MaterializationEngineEnumApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
+/**
+ * Body of the `resume` action.
+ */
+export interface SavedQueryResumeRequestApi {
+    /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
+}
+
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
@@ -2186,18 +2213,6 @@ export type MaterializationRunDirectionEnumApi =
 export const MaterializationRunDirectionEnumApi = {
     Upstream: 'upstream',
     Downstream: 'downstream',
-} as const
-
-/**
- * * `clickhouse` - ClickHouse
- * * `trino` - Trino
- */
-export type MaterializationEngineEnumApi =
-    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
-
-export const MaterializationEngineEnumApi = {
-    Clickhouse: 'clickhouse',
-    Trino: 'trino',
 } as const
 
 /**
@@ -3842,6 +3857,8 @@ export interface CredentialApi {
  * * `WooPayments` - WooPayments
  * * `Soniox` - Soniox
  * * `Nango` - Nango
+ * * `Fathom` - Fathom
+ * * `Stamped` - Stamped
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5260,6 +5277,8 @@ export const ExternalDataSourceTypeEnumApi = {
     WooPayments: 'WooPayments',
     Soniox: 'Soniox',
     Nango: 'Nango',
+    Fathom: 'Fathom',
+    Stamped: 'Stamped',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5332,6 +5351,11 @@ export interface TableApi {
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
@@ -5411,6 +5435,11 @@ export interface PatchedTableApi {
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id?: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
@@ -5654,6 +5683,7 @@ export type DataModelingJobsListParams = {
     engine?: DataModelingJobsListEngine
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -6029,6 +6059,7 @@ export type WarehouseSavedQueriesListParams = {
 export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -6050,6 +6081,10 @@ export type WarehouseTablesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only return self-managed tables that a managed source will import on its first sync.
+     */
+    pending_source?: boolean
     /**
      * A search term.
      */

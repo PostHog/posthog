@@ -124,6 +124,7 @@ APIScopeObject = Literal[
     "signal_scout_monitoring",
     "signal_scout_report",
     "signal_scratchpad_internal",
+    "signal_usage",
     "slack_run",
     "stamphog",
     "streamlit_app",
@@ -398,6 +399,24 @@ def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
         seen.add(token)
         result.append(token)
     return result
+
+
+def filter_self_registered_ceiling(scopes: Iterable[object]) -> list[str]:
+    """The scope ceiling a self-registering client (DCR or CIMD) gets from the scopes it declares.
+
+    Resource scopes go through `filter_to_unprivileged_scopes`. The OIDC identity scopes are
+    granted on top of every ceiling, so a list that also names resource scopes drops them. A list
+    of only identity scopes is a sign-in-only client and keeps them as its ceiling: a non-empty
+    ceiling is an exhaustive allow-list, so the client can't get any resource scope. Dropping them
+    would leave the ceiling empty, which callers reject or widen to the `UNPRIVILEGED_SCOPES` default.
+
+    Returns `[]` only when nothing in `scopes` is grantable.
+    """
+    declared = list(scopes)
+    resource_scopes = filter_to_unprivileged_scopes(declared)
+    if resource_scopes:
+        return resource_scopes
+    return list(dict.fromkeys(token for token in declared if isinstance(token, str) and token in OIDC_SCOPES))
 
 
 # Sentinel element in `OAuthApplication.scopes` meaning "the `UNPRIVILEGED_SCOPES`

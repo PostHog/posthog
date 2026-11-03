@@ -723,8 +723,9 @@ export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Add a notification destination to a warehouse alert. One HogFunction is created per alert event kind (firing, resolved). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a warehouse alert.
  */
+
 export const warehouseAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
 export const warehouseAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
 
@@ -736,6 +737,13 @@ export const WarehouseAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object(
         )
         .describe(
             'Notification destination type.\n\n\* `slack` - slack\n\* `webhook` - webhook\n\* `teams` - teams\n\* `discord` - discord\n\* `pagerduty` - pagerduty'
+        ),
+    event_kinds: zod
+        .array(zod.enum(['firing', 'resolved']).describe('\* `firing` - firing\n\* `resolved` - resolved'))
+        .min(1)
+        .default([`firing`, `resolved`])
+        .describe(
+            'Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.'
         ),
     slack_workspace_id: zod
         .number()
@@ -763,14 +771,14 @@ export const WarehouseAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Delete one notification destination of a warehouse alert, all its HogFunctions together.
+ * Delete notification destinations of a warehouse alert.
  */
-export const warehouseAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+export const warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 5
 
 export const WarehouseAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
-    hog_function_ids: zod
+    destination_ids: zod
         .array(zod.uuid())
         .min(1)
-        .max(warehouseAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
-        .describe('HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.'),
+        .max(warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .describe("IDs of the alert's destinations to delete, as the list endpoint returns them."),
 })

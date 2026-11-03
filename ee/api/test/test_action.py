@@ -82,7 +82,7 @@ class TestActionApi(APIBaseTest):
 
         # base request queries + the single bulk access-control preload (one query covering all
         # actions, replacing the previous per-action access-control lookups)
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

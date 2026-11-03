@@ -6,7 +6,7 @@ import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mc
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { isEmptyToolResult } from '@/lib/discovery-hints'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
@@ -287,7 +287,6 @@ export interface ExecToolOptions {
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
-    beforeValidatedCall?: (toolName: string, input: Record<string, unknown>) => Promise<void>
     /** Receives the raw result of a successful `call` before exec serializes it into text for the agent. */
     afterValidatedCall?: (toolName: string, input: Record<string, unknown>, result: unknown) => void
 }
@@ -2204,7 +2203,6 @@ export function createExecTool(
                     }
                     const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
-                    await options.beforeValidatedCall?.(tool.name, input)
 
                     const startedAt = Date.now()
                     let result: unknown
