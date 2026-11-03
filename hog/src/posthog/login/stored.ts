@@ -1,12 +1,14 @@
 import type { Runtime } from '@/core/runtime'
-
-import { credentialFromStorage, type Credential, type CredentialStorage, type LogoutOutcome } from './credential'
-import { hostKey, openStore, trimHost, type FileStore, type KeychainStore } from './credential-store'
-import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from './settings'
+import { accessKeyFromStorage, type AccessKey, type AccessKeyStorage, type LogoutOutcome } from '@/posthog/access-key'
+import type { FileStore } from '@/posthog/credential-store/file'
+import type { KeychainStore } from '@/posthog/credential-store/keychain'
+import { openStore } from '@/posthog/credential-store/open'
+import { hostKey, trimHost } from '@/posthog/host'
+import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from '@/posthog/settings'
 
 // A login hog stored, and the store that holds its secrets.
 export interface StoredLogin {
-    credential: Credential
+    key: AccessKey
     store: KeychainStore | FileStore
 }
 
@@ -22,16 +24,16 @@ export async function readLogin(
     const store = openStore(runtime, record.store)
     const secret = await store.read(host)
     // The record is per origin, but a self-hosted PostHog can sit under a path, which the API needs.
-    const credential = secret && credentialFromStorage(trimHost(host), record, secret)
-    return credential ? { credential, store } : undefined
+    const key = secret && accessKeyFromStorage(trimHost(host), record, secret)
+    return key ? { key, store } : undefined
 }
 
-// How a login's credential reads and saves its stored copy when it renews itself.
-export function loginStorage(runtime: Runtime, login: StoredLogin): CredentialStorage {
-    const { host } = login.credential
+// How a login's key reads and saves its stored copy when it renews itself.
+export function loginStorage(runtime: Runtime, login: StoredLogin): AccessKeyStorage {
+    const { host } = login.key
     return {
-        reread: async () => (await readLogin(runtime, await readSettings(runtime), host))?.credential,
-        save: (credential) => writeLogin(runtime, login.store, credential),
+        reread: async () => (await readLogin(runtime, await readSettings(runtime), host))?.key,
+        save: (key) => writeLogin(runtime, login.store, key),
     }
 }
 
@@ -41,17 +43,17 @@ export function loginStorage(runtime: Runtime, login: StoredLogin): CredentialSt
 export async function writeLogin(
     runtime: Runtime,
     store: KeychainStore | FileStore,
-    credential: Credential,
+    key: AccessKey,
     options: { lastLogin?: boolean } = {}
 ): Promise<void> {
-    await store.write(credential.host, credential.secret())
-    const settings = withLogin(await readSettings(runtime), credential.host, credential.record(store.kind))
-    await writeSettings(runtime, options.lastLogin ? { ...settings, host: credential.host } : settings)
+    await store.write(key.host, key.secret())
+    const settings = withLogin(await readSettings(runtime), key.host, key.record(store.kind))
+    await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
 }
 
 // Removes the login's secrets and its record. Resolves to false when hog had no login for the host.
 export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise<boolean> {
-    const { host } = login.credential
+    const { host } = login.key
     const removed = await login.store.remove(host)
     const settings = withLogin(await readSettings(runtime), host, undefined)
     const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
@@ -59,13 +61,13 @@ export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise
     return removed
 }
 
-// Logs this machine out of `host`: the credential revokes itself where it can, and hog removes its
+// Logs this machine out of `host`: the key revokes itself where it can, and hog removes its
 // stored copy. Resolves to undefined when hog had no login to remove.
 export async function logout(runtime: Runtime, host: string): Promise<LogoutOutcome | undefined> {
     const login = await readLogin(runtime, await readSettings(runtime), host)
     if (!login) {
         return undefined
     }
-    const [outcome, removed] = await Promise.all([login.credential.logout(runtime), removeLogin(runtime, login)])
+    const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, login)])
     return removed ? outcome : undefined
 }

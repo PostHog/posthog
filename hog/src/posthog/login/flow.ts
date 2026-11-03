@@ -1,12 +1,15 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
+import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
+import { FileStore } from '@/posthog/credential-store/file'
+import { probeKeychain } from '@/posthog/credential-store/keychain'
+import { openStore } from '@/posthog/credential-store/open'
+import type { StoreChoice } from '@/posthog/credential-store/types'
+import { posthogFile } from '@/posthog/credentials'
+import { startDeviceLogin, waitForApproval, type PendingLogin } from '@/posthog/device-auth'
+import { loginFor, readSettings } from '@/posthog/settings'
 
-import { PersonalApiKey, type Credential } from './credential'
-import { FileStore, openStore, probeKeychain, type StoreChoice } from './credential-store'
-import { posthogFile } from './credentials'
-import { startDeviceLogin, waitForApproval, type PendingLogin } from './device-auth'
-import { writeLogin } from './logins'
-import { loginFor, readSettings } from './settings'
+import { writeLogin } from './stored'
 
 const PENDING_LOGIN_FILE = 'login-pending.json'
 
@@ -59,20 +62,21 @@ export async function completeLogin(runtime: Runtime, pending: PendingLogin): Pr
         }
         throw error
     }
-    const loggedIn = await saveLogin(runtime, new PersonalApiKey(pending.host, approval.projectId, approval.apiKey))
+    const key = new PersonalAPIKey({ host: pending.host, projectId: approval.projectId, apiKey: approval.apiKey })
+    const loggedIn = await saveLogin(runtime, key)
     return { ...loggedIn, scopes: approval.scopes }
 }
 
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
 // login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
 // credentials with an older approval.
-export async function saveLogin(runtime: Runtime, credential: Credential): Promise<LoggedIn> {
+export async function saveLogin(runtime: Runtime, key: AccessKey): Promise<LoggedIn> {
     const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     let keychainProblem = probe.usable ? null : probe.reason
-    const { host, projectId } = credential
+    const { host, projectId } = key
     try {
-        await writeLogin(runtime, store, credential, { lastLogin: true })
+        await writeLogin(runtime, store, key, { lastLogin: true })
     } catch (error) {
         // The probe writes an item of its own, so the keychain can still refuse this host's item,
         // such as one an older hog build saved.
@@ -81,7 +85,7 @@ export async function saveLogin(runtime: Runtime, credential: Credential): Promi
         }
         keychainProblem = error.message
         store = new FileStore(runtime)
-        await writeLogin(runtime, store, credential, { lastLogin: true })
+        await writeLogin(runtime, store, key, { lastLogin: true })
     }
     // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
     if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
