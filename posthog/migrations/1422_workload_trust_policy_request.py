@@ -11,7 +11,7 @@ import posthog.models.workload_trust_policy
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1419_workload_trust_policy"),
+        ("posthog", "1421_workload_trust_policy"),
     ]
 
     operations = [
