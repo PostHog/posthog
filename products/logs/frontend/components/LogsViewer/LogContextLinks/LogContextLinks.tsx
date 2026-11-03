@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconDecisionTree } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import type { TraceDialogEntryPoint } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
@@ -9,6 +10,7 @@ import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -25,6 +27,9 @@ import { MissingLinkInvestigate } from './MissingLinkInvestigate'
 import { MissingLink } from './missingLinkPrompt'
 
 export type LogContextLinksSurface = 'drawer' | 'row'
+
+// Must match SERVICE_NAMES in nodejs/src/logs/internal-logs-producer.ts, which sets log_source_id to the workflow ID.
+const INTERNAL_WORKFLOWS_SERVICE = 'posthog-internal-workflows'
 
 // Frozen data-attr values: autocapture dashboards match on them, so the two surfaces keep different trace attrs.
 const TRACE_DATA_ATTR: Record<LogContextLinksSurface, string> = {
@@ -59,6 +64,11 @@ export function LogContextLinks({
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
+    const workflowId =
+        log.resource_attributes?.['service.name'] === INTERNAL_WORKFLOWS_SERVICE
+            ? log.attributes.log_source_id
+            : undefined
+
     const { featureFlags } = useValues(featureFlagLogic)
 
     const canViewErrors = userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
@@ -69,12 +79,23 @@ export function LogContextLinks({
           )
         : []
 
-    if (!investigateEnabled && !traceId && !sessionId && !distinctId) {
+    if (!investigateEnabled && !traceId && !sessionId && !distinctId && !workflowId) {
         return null
     }
 
     return (
         <div className="flex items-center gap-1 flex-wrap min-w-0">
+            {workflowId && (
+                <LemonButton
+                    to={urls.workflow(workflowId, 'invocations')}
+                    icon={<IconDecisionTree />}
+                    size="xsmall"
+                    type="secondary"
+                    data-attr={`logs-${surface}-context-workflow`}
+                >
+                    View workflow
+                </LemonButton>
+            )}
             {traceId && (
                 <ViewTraceButton
                     traceId={traceId}
