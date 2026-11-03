@@ -25,7 +25,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 
-from products.marketing_analytics.backend.facade.queries import ResolvedMarketingCostTrend
+from products.marketing_analytics.backend.facade.contracts import ResolvedMarketingCostTrend
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
 
