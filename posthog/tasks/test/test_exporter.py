@@ -1,5 +1,6 @@
 import base64
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import OrganizationMembership, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.query_creator_access import CreatorLeftOrganizationError
 from posthog.tasks import exporter
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -178,7 +180,9 @@ class TestExporterTask(APIBaseTest):
             team=self.team, dashboard=self.exported_asset.dashboard, export_format="image/png", created_by=None
         )
 
-        exporter.export_asset_direct(asset, source=EventSource.SUBSCRIPTION)
+        # The direct call re-raises after recording, so the delivery workflow sees the failure.
+        with pytest.raises(CreatorLeftOrganizationError):
+            exporter.export_asset_direct(asset, source=EventSource.SUBSCRIPTION)
 
         mock_export.assert_not_called()
         asset.refresh_from_db()
