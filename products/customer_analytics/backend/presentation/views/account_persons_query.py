@@ -11,9 +11,13 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.schema import AccountUsersQuery, ActorsQuery, ActorsQueryResponse, QueryRequest, RefreshType
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import QueryViewSet, add_query_response_identity_headers
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.errors import ExposedCHQueryError
 from posthog.models import User
 
 from products.customer_analytics.backend.facade.persons import (
@@ -86,6 +90,10 @@ class AccountPersonsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
                 user_access_control=self.user_access_control,
                 options=AccountPersonsOptions(**query.validated_data),
             )
+        except (ExposedHogQLError, ExposedCHQueryError) as error:
+            raise ValidationError(str(error), getattr(error, "code_name", None)) from error
+        except ConcurrencyLimitExceeded as error:
+            QueryViewSet._raise_concurrency_throttled(cast(QueryViewSet, self), error)
         except AccountPersonsPropertyAccessError:
             raise PermissionDenied("You cannot filter or sort by this property.")
         if page is None:
@@ -103,4 +111,5 @@ class AccountPersonsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
         data = self.get_model(request.data, AccountPersonsQueryRequest)
         if data.query.source.accountId != self.kwargs["id"]:
             raise ValidationError("The query account must match the account in the URL.")
+        request.data.update(data.model_dump(mode="json", by_alias=True, exclude_none=True))
         return QueryViewSet.create(cast(QueryViewSet, self), request, *args, **kwargs)

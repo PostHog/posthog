@@ -10,9 +10,9 @@ from posthog.hogql.database.schema.person_group_membership import PersonGroupMem
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tags_context
 from posthog.hogql_queries.actor_strategies import person_email_property_keys
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import Team, User
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.schema_enums import PersonsArgMaxVersion
@@ -238,7 +238,9 @@ class AccountPersonsReader:
     def list_persons(self, options: AccountPersonsOptions, restricted_properties: frozenset[str]) -> AccountPersonsPage:
         query = self.get_query(options, restricted_properties)
         with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS):
-            response = cast(ActorsQueryResponse, get_query_runner(query, team=self.team, user=self.user).calculate())
+            runner = get_query_runner(query, team=self.team, user=self.user)
+            runner.is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            response = cast(ActorsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user))
         columns = [key for key in options.properties if key not in restricted_properties]
         results = [
             AccountPerson(

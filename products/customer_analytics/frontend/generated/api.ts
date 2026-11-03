@@ -843,8 +843,8 @@ export const accountsPersonsRetrieve = async (
     id: string,
     params?: AccountsPersonsRetrieveParams,
     options?: RequestInit
-): Promise<AccountPersonsPageApi[]> => {
-    return apiMutator<AccountPersonsPageApi[]>(getAccountsPersonsRetrieveUrl(projectId, id, params), {
+): Promise<AccountPersonsPageApi> => {
+    return apiMutator<AccountPersonsPageApi>(getAccountsPersonsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

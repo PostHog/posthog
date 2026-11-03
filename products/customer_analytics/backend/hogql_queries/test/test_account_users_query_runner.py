@@ -18,6 +18,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import get_api_team_rate_limiter, get_app_org_rate_limiter
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
@@ -566,6 +567,52 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
 
     def test_bad_parameter_returns_400(self) -> None:
         assert self.client.get(self.endpoint, {"limit": -1}).status_code == 400
+
+    def test_invalid_regex_returns_400(self) -> None:
+        response = self.client.get(
+            self.endpoint,
+            {"filters": json.dumps([{"key": "email", "operator": "regex", "value": "["}])},
+        )
+        assert response.status_code == 400, response.content
+
+    @parameterized.expand([(False,), (True,)])
+    def test_get_requests_obey_concurrency_limits(self, api_key: bool) -> None:
+        if api_key:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="account persons",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scopes=["account:read", "person:read"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        limiter = get_api_team_rate_limiter() if api_key else get_app_org_rate_limiter()
+        with (
+            patch("posthog.clickhouse.client.limit.TEST", False),
+            patch.object(limiter, "max_concurrency", 1),
+            patch.object(limiter, "retry_timeout", 0),
+            patch.object(limiter, "allow_team_bypass", False),
+            self.settings(API_QUERIES_PER_TEAM={self.team.pk: 1}),
+        ):
+            with limiter.run(
+                team_id=self.team.pk, org_id=self.organization.pk, is_api=api_key, task_id="occupied", limit=1
+            ):
+                response = self.client.get(self.endpoint)
+            assert response.status_code == 429, response.content
+            assert "Retry-After" in response
+            assert self.client.get(self.endpoint).status_code == 200
+
+    @parameterized.expand([("query",), ("source",), ("both",)])
+    def test_widget_accepts_default_query_kinds(self, omitted: str) -> None:
+        query = self._get_widget_query()
+        if omitted in {"query", "both"}:
+            del query["kind"]
+        if omitted in {"source", "both"}:
+            del query["source"]["kind"]
+        response = self.client.post(self.endpoint, {"query": query}, format="json")
+        assert response.status_code == 200, response.content
+        assert len(response.json()["results"]) == 2
 
     @parameterized.expand([("GET",), ("POST",)])
     def test_session_requests_are_throttled(self, method: str) -> None:

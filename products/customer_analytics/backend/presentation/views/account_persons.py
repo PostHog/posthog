@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 
@@ -110,6 +110,7 @@ class AccountPersonSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_serializer(many=False)
 class AccountPersonsPageSerializer(serializers.Serializer):
     results = AccountPersonSerializer(many=True, help_text="Matching current persons for this account.")
     columns = serializers.ListField(
