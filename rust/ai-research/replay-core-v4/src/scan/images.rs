@@ -376,21 +376,26 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
     Some(percent_encoding::percent_decode(text.as_bytes()).collect())
 }
 
-/// Reads the header through CSS escapes and JSON escapes, and skips the tabs and line breaks that a browser removes from a URL, however they are written. A browser keeps every other character, so only the end of the JSON string gives `None`, and in CSS also an escaped quote, which ends the URL there.
+/// Reads the header through CSS escapes and JSON escapes, and skips the tabs and line breaks that a browser removes from a URL, however they are written.
 fn header_char(bytes: &[u8], at: usize, in_css: bool) -> Option<(char, usize)> {
     let mut removed = 0;
     loop {
-        let (ch, len) = match bytes.get(at + removed..)? {
-            [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
-            [b'\\', b'"', ..] if in_css => None,
-            [b'\\', escaped @ ..] => json_escape(escaped).map(|(ch, len)| (ch, 1 + len)),
-            [b'"', ..] | [] => None,
-            [byte, ..] => Some((char::from(*byte), 1)),
-        }?;
+        let (ch, len) = url_char(bytes, at + removed, in_css)?;
         if !matches!(ch, '\t' | '\n' | '\r') {
             return Some((ch, removed + len));
         }
         removed += len;
+    }
+}
+
+/// A browser keeps every character but the end of the JSON string, and in CSS an escaped quote, which ends the URL there.
+fn url_char(bytes: &[u8], at: usize, in_css: bool) -> Option<(char, usize)> {
+    match bytes.get(at..)? {
+        [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
+        [b'\\', b'"', ..] if in_css => None,
+        [b'\\', escaped @ ..] => json_escape(escaped).map(|(ch, len)| (ch, 1 + len)),
+        [b'"', ..] | [] => None,
+        [byte, ..] => Some((char::from(*byte), 1)),
     }
 }
 
@@ -446,7 +451,7 @@ fn css_escape(escaped: &[u8]) -> Option<(char, usize)> {
 fn after_data_scheme(bytes: &[u8], start: usize) -> Option<usize> {
     let mut at = start;
     for expected in "data:".chars() {
-        let (ch, len) = header_char(bytes, at, true)?;
+        let (ch, len) = url_char(bytes, at, true)?;
         if ch.to_ascii_lowercase() != expected {
             return None;
         }
@@ -1166,6 +1171,12 @@ mod tests {
         let mut images = sink(ImageLimits::default());
         assert!(matches!(
             extract_images(unbroken.as_bytes(), &mut images),
+            Cow::Borrowed(_)
+        ));
+        let escaped_tabs = format!("{}x\"", r"\\9 ".repeat(200_000));
+        let mut images = sink(ImageLimits::default());
+        assert!(matches!(
+            extract_images(escaped_tabs.as_bytes(), &mut images),
             Cow::Borrowed(_)
         ));
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
