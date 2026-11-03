@@ -125,7 +125,6 @@ def summarize_intents(intents: list[str], team: Team) -> str:
                 {"role": "user", "content": _build_user_prompt(intents)},
             ],
             user=distinct_id,
-            extra_headers={"X-PostHog-Privacy-Mode": "true"},
         )
     except openai.OpenAIError as e:
         raise IntentGenerationUnavailable("LLM request failed") from e
@@ -242,7 +241,6 @@ def summarize_project_intents(intents: list[tuple[str, str]], team: Team) -> Int
         ai_product="mcp_analytics",
         properties={"ai_feature": "activity-intent-digest"},
         distinct_id=f"team/{team.id}/mcp-analytics-intent-digest",
-        privacy_mode=True,
         timeout_ms=DIGEST_TIMEOUT_MS,
     )
     _ensure_llm_available(team, configured=client is not None)

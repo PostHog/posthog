@@ -109,7 +109,6 @@ class TestClassifyFingerprints(BaseTest):
         # the boundary rules pivot on codes like 429/-32601 that normalization removes.
         prompt = mock_create.call_args.kwargs["messages"][1]["content"]
         assert "timed out after 45 seconds" in prompt
-        assert mock_create.call_args.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
 
     def test_batches_at_25_fingerprints(self) -> None:
         items = {f"fingerprint {i}": f"raw message {i}" for i in range(CLASSIFY_BATCH_SIZE + 1)}

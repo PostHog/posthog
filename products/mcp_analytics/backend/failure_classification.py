@@ -165,7 +165,6 @@ def _call_llm(client: OpenAI, messages: list[str], team: Team) -> Classification
         ],
         response_format={"type": "json_object"},
         user=f"team/{team.id}/mcp-analytics-failure-classifier",
-        extra_headers={"X-PostHog-Privacy-Mode": "true"},
     )
     content = response.choices[0].message.content if response.choices else None
     if not content:
