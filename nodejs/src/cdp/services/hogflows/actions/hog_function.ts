@@ -632,15 +632,9 @@ type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolea
 
 // Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
 const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000
-// How late a held send may wake and still check the cap. Covers normal scheduling lag, not a worker backlog.
-const FREQUENCY_CAP_HOLD_GRACE_MS = 5 * 60_000
-
 function frequencyCapHoldExpired(invocation: CyclotronJobInvocationHogFlow): boolean {
     const deadlineAt = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
-    return (
-        !!deadlineAt &&
-        DateTime.now() > DateTime.fromISO(deadlineAt).plus({ milliseconds: FREQUENCY_CAP_HOLD_GRACE_MS })
-    )
+    return !!deadlineAt && DateTime.now() >= DateTime.fromISO(deadlineAt)
 }
 
 /** When the team holds capped messages and the hold has not ended, returns when to check the cap again. */
@@ -655,10 +649,15 @@ function frequencyCapHold(
     const now = DateTime.now()
     const startedDeadline = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
     const deadline = startedDeadline ? DateTime.fromISO(startedDeadline) : now.plus({ hours: cap.holdHours })
-    if (now >= deadline) {
+    // No slot frees before the hold ends, so waiting cannot help.
+    if (cap.nextSlotAt >= deadline.toMillis()) {
         return null
     }
-    const nextSlot = DateTime.fromMillis(cap.nextSlotAt + Math.floor(Math.random() * FREQUENCY_CAP_HOLD_JITTER_MS))
-    const until = DateTime.max(now, DateTime.min(nextSlot, deadline))
+    // Wake after the slot frees but before the deadline, which the next wake enforces strictly.
+    const jitterMs = Math.min(
+        Math.floor(Math.random() * FREQUENCY_CAP_HOLD_JITTER_MS),
+        Math.floor((deadline.toMillis() - cap.nextSlotAt) / 2)
+    )
+    const until = DateTime.max(now, DateTime.fromMillis(cap.nextSlotAt + jitterMs))
     return { until, deadlineAt: deadline.toISO()!, firstHold: !startedDeadline }
 }
