@@ -492,6 +492,18 @@ The reporting integration uses the existing ledger schema without an additional 
 Temporal computes the offline ledger's exclusive day end inside the aggregation activity.
 The shared workflow window and already serialized reports are unchanged.
 
+## Dataset retention
+
+Datasets expire after inactivity: 90 days for active datasets and their current revision, and 30 days for archived datasets and historical revisions. Creating a dataset starts its first retention period. Archiving or restoring a dataset restarts its period, and replacing the current revision starts a new 30-day period for that historical revision. Existing data gets a full period from the retention migration, rather than being judged by its creation date.
+
+Opening a dataset, reading its items through the UI or API, editing it, exporting it, and using it in an offline evaluation count as use. Reading a particular snapshot refreshes that revision and its dataset; it does not refresh unrelated historical revisions. Reading item version history preserves the returned item versions. Dataset lists, revision lists, and export status polling do not refresh usage.
+
+Usage is recorded in Postgres at most once per 12 hours per resource on read paths. Requests with a recent timestamp do not issue a usage write. Expiry includes an extra 12 hours so coalescing cannot shorten the promised inactivity period. Usage writes and cleanup lock the same dataset row; cleanup rechecks eligibility under that lock. Uploading experiments protect their referenced snapshots until they close, when usage is refreshed again.
+
+The hourly cleanup marks expired datasets and snapshots unavailable before deleting item versions in bounded batches. A version is removable only when no retained snapshot needs it, it is not the item's current version, and it has not been read recently. Archive markers follow the same rule so pruning cannot make an archived item reappear. Expiring a whole dataset eventually removes all its item versions, items, and revisions. Completed experiments, evaluation items, scores, scorer versions, and usage ledger rows remain; optional dataset foreign keys become null while their provenance identifiers remain intact. Completed evaluation reads do not keep source datasets alive.
+
+Dataset and revision responses expose `expires_at` and `expiring_soon`. The UI shows **Expiring soon** in the final seven days, without an extension button. Normal use refreshes retention. The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion. Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
+
 ## Resource tags
 
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.

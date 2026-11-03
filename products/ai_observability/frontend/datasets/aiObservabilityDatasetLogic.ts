@@ -986,7 +986,10 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                     { value: 'latest', label: 'Latest' },
                     ...revisionNumbers
                         .sort((a, b) => b - a)
-                        .map((revision) => ({ value: String(revision), label: `Revision ${revision}` })),
+                        .map((revision) => ({
+                            value: String(revision),
+                            label: `Revision ${revision}${revisions.results.find((entry) => entry.revision === revision)?.expiring_soon ? ' · Expiring soon' : ''}`,
+                        })),
                 ]
             },
         ],

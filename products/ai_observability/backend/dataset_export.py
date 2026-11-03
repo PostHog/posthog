@@ -14,6 +14,7 @@ from posthog.permissions import posthog_feature_flag_value
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.dataset_limits import MAX_DATASET_EXPORT_BYTES, MAX_DATASET_EXPORT_MEGABYTES
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
+from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.exports.backend.facade.api import (
     ExportedAsset,
@@ -86,7 +87,9 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
     if not asset.is_dataset_export or revision < 1 or asset.created_by is None:
         raise DatasetExportError("The dataset export configuration is invalid.", reportable=True)
 
-    dataset = Dataset.objects.for_team(asset.team_id, canonical=True).filter(id=dataset_id).first()
+    dataset = (
+        Dataset.objects.for_team(asset.team_id, canonical=True).filter(id=dataset_id, expired_at__isnull=True).first()
+    )
     if dataset is None:
         raise DatasetExportError("The dataset is no longer available.")
     if not UserAccessControl(user=asset.created_by, team=asset.team).check_access_level_for_object(dataset, "viewer"):
@@ -101,14 +104,10 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
         raise RetryableExportError("Couldn't verify whether dataset exports are available. Try again.")
     if not feature_flag_value:
         raise DatasetExportError("Dataset exports are not available for this project.")
-    selected_revision = (
-        DatasetRevision.objects.for_team(asset.team_id, canonical=True)
-        .filter(
-            dataset_id=dataset.id,
-            revision=revision,
-        )
-        .first()
-    )
+    try:
+        selected_revision = DatasetUsage.read_revision(dataset, revision)
+    except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+        raise DatasetExportError("The selected dataset revision is no longer available.") from error
     if selected_revision is None:
         raise DatasetExportError("The selected dataset revision is no longer available.")
 

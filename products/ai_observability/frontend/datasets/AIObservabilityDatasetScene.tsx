@@ -278,6 +278,11 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     Archived
                                 </LemonTag>
                             )}
+                            {isDataset(dataset) && dataset.expiring_soon && (
+                                <LemonTag type="warning" size="small">
+                                    Expiring soon
+                                </LemonTag>
+                            )}
                         </nav>
                         <div className="flex flex-wrap items-center gap-2">
                             {!displayEditForm && isDataset(dataset) ? (
