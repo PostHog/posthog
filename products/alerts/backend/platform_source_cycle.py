@@ -335,15 +335,17 @@ class ClickHouseQuerySlot:
     check, so a retry never takes over the slot of the attempt before it.
     """
 
-    def __init__(self, holder: str) -> None:
+    def __init__(self, holder: str, *, wait_seconds: float | None = None) -> None:
         self.holder = holder
         self.waited_ms = 0
+        # A caller with a budget of its own waits no longer than it, on the same shared cap.
+        self._limit = _QUERY_LIMIT if wait_seconds is None else replace(_QUERY_LIMIT, retry_timeout=wait_seconds)
 
     @contextmanager
     def __call__(self) -> Iterator[None]:
         waiting_since = time.monotonic()
         try:
-            slot = _QUERY_LIMIT.use(self.holder, limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS)
+            slot = self._limit.use(self.holder, limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS)
         except ConcurrencyLimitExceeded as error:
             raise ClickHouseBudgetFull() from error
         except Exception as error:
@@ -357,7 +359,7 @@ class ClickHouseQuerySlot:
         finally:
             if slot is not None:
                 try:
-                    _QUERY_LIMIT.release(slot)
+                    self._limit.release(slot)
                 except Exception:
                     # Best effort, so a Redis failure never replaces the query's result. The lease frees the slot.
                     logger.exception("Could not release a ClickHouse slot", holder=self.holder)
