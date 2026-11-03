@@ -14,7 +14,10 @@ import { SlackAppWorkspaceSetupStep } from './SlackAppWorkspaceSetupStep'
 export const scene: SceneExport<SlackAppWorkspaceSetupLogicProps> = {
     component: SlackAppWorkspaceSetupScene,
     logic: slackAppWorkspaceSetupLogic,
-    paramsToProps: ({ params: { integrationId } }) => ({ integrationId: Number(integrationId) }),
+    paramsToProps: ({ params: { integrationId }, searchParams: { entry } }) => ({
+        integrationId: Number(integrationId),
+        entry: entry === 'slack_page' ? 'slack_page' : 'other',
+    }),
 }
 
 export function SlackAppWorkspaceSetupScene(): JSX.Element {

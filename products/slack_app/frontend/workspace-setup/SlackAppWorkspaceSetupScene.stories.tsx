@@ -24,6 +24,14 @@ function setupDecorator(response: Record<string, unknown>): ReturnType<typeof ms
     return mswDecorator({
         get: {
             '/api/projects/:team_id/slack_app_workspace_setup/:id/': response,
+            '/api/projects/:team_id/slack_app_workspace_setup/:id/channels/': {
+                channels: [
+                    { id: 'C1', name: 'product', is_member: false },
+                    { id: 'C2', name: 'engineering', is_member: false },
+                    { id: 'C3', name: 'growth', is_member: false },
+                    { id: 'C4', name: 'general', is_member: true },
+                ],
+            },
             '/api/organizations/@current/': { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
         },
     })
@@ -49,6 +57,10 @@ export const AIConsent: Story = {
 
 export const DefaultProject: Story = {
     decorators: [setupDecorator({ ...SETUP, steps: ['default_project'], project_options: PROJECT_OPTIONS })],
+}
+
+export const Channels: Story = {
+    decorators: [setupDecorator({ ...SETUP, steps: ['channels'] })],
 }
 
 export const Done: Story = {
