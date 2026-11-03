@@ -24,6 +24,7 @@ import type {
     CurrentBranchHealthApi,
     DeliveryComparisonApi,
     DeliverySummaryApi,
+    DepotCIRepoUsageApi,
     DoraOverviewApi,
     EngineeringAnalyticsAttentionPullRequestsParams,
     EngineeringAnalyticsAuthorFrictionDetailParams,
@@ -38,6 +39,7 @@ import type {
     EngineeringAnalyticsCurrentBranchHealthParams,
     EngineeringAnalyticsDeliveryComparisonParams,
     EngineeringAnalyticsDeliverySummaryParams,
+    EngineeringAnalyticsDepotCiUsageParams,
     EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
@@ -551,6 +553,39 @@ export const engineeringAnalyticsDeliverySummary = async (
     options?: RequestInit
 ): Promise<DeliverySummaryApi> => {
     return apiMutator<DeliverySummaryApi>(getEngineeringAnalyticsDeliverySummaryUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsDepotCiUsageUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsDepotCiUsageParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/depot_ci_usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/depot_ci_usage/`
+}
+
+/**
+ * Depot CI run time and estimated cost over a window (default -7d), one entry per synced Depot source. Unlike the workflow and cost reads, it counts hand-off jobs, because Depot bills them. Empty when no Depot source is synced.
+ */
+export const engineeringAnalyticsDepotCiUsage = async (
+    projectId: string,
+    params?: EngineeringAnalyticsDepotCiUsageParams,
+    options?: RequestInit
+): Promise<DepotCIRepoUsageApi[]> => {
+    return apiMutator<DepotCIRepoUsageApi[]>(getEngineeringAnalyticsDepotCiUsageUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
