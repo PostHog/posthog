@@ -390,7 +390,11 @@ def _first_legacy_filter_entity(filter_data: dict) -> dict[str, Any] | None:
             raw = json.loads(raw)
         entities.extend({**entity, "type": entity_type} for entity in raw or [])
     # An entry with order 0 or no order sorts first, the same as legacy insight filter parsing.
-    return min(entities, key=lambda entity: int(entity["order"]) if entity.get("order") else -1, default=None)
+    return min(
+        entities,
+        key=lambda entity: (int(entity["order"]) if entity.get("order") is not None else 0) or -1,
+        default=None,
+    )
 
 
 def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
