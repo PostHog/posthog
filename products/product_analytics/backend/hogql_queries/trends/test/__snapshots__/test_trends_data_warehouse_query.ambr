@@ -275,7 +275,7 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_data_warehouse_all_time
   '''
-  SELECT min(toDateTime(toTimeZone(posthog_test_test_table_1.created, 'UTC'), 'UTC')) AS `min(toDateTime(toTimeZone(created, 'UTC')))`
+  SELECT min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,
@@ -326,7 +326,7 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_events_and_data_warehouse_all_time
   '''
-  SELECT min(toDateTime(toTimeZone(posthog_test_test_table_1.created, 'UTC'), 'UTC')) AS `min(toDateTime(toTimeZone(created, 'UTC')))`
+  SELECT min(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS `min(toTimeZone(created, 'UTC'))`
   FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
   LIMIT 100 SETTINGS format_csv_allow_double_quotes=1,
                      readonly=2,

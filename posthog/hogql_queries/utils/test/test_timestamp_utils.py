@@ -466,18 +466,31 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # Must be timezone-aware so it can be compared against the tz-aware date_to.
         self.assertIsNotNone(result.tzinfo)
 
-    def test_data_warehouse_all_time_orders_string_timestamps_as_dates(self):
-        for timestamp in ("2023-12-30T09:00:00Z", "2026-01-15T09:00:00Z"):
+    @parameterized.expand(
+        [
+            (
+                "string_column_parses_as_dates",
+                "formatDateTime(timestamp, '%m/%d/%Y')",
+                {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                datetime.datetime(2023, 12, 30, tzinfo=datetime.UTC),
+            ),
+            (
+                "datetime64_column_keeps_subseconds",
+                "timestamp",
+                {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')", "valid": True},
+                datetime.datetime(2023, 12, 30, 0, 0, 0, 500000, tzinfo=datetime.UTC),
+            ),
+        ]
+    )
+    def test_data_warehouse_all_time_reads_earliest_by_column_type(self, _name, created_at_expr, column, expected):
+        for timestamp in ("2023-12-30T00:00:00.500Z", "2026-01-15T09:00:00Z"):
             _create_event(team=self.team, event="order_placed", distinct_id="person1", timestamp=timestamp)
         flush_persons_and_events()
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="orders_view",
-            query={
-                "kind": "HogQLQuery",
-                "query": "SELECT formatDateTime(timestamp, '%m/%d/%Y') AS created_at FROM events",
-            },
-            columns={"created_at": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            query={"kind": "HogQLQuery", "query": f"SELECT {created_at_expr} AS created_at FROM events"},
+            columns={"created_at": column},
         )
         node = DataWarehouseNode(
             id="orders_view",
@@ -489,7 +502,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, [node])
 
-        self.assertEqual(earliest_timestamp, datetime.datetime(2023, 12, 30, tzinfo=datetime.UTC))
+        self.assertEqual(earliest_timestamp, expected)
 
     @parameterized.expand(
         [
@@ -501,6 +514,12 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_data_warehouse_all_time_resolves_string_timestamp(self, _name, raw_value, expected):
         # Data warehouse tables can return a non-datetime min(timestamp); it must be
         # coerced before reaching QueryDateRange, which calls .strftime() and compares with <.
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="dw_table",
+            query={"kind": "HogQLQuery", "query": "SELECT '' AS ts"},
+            columns={"ts": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
         node = DataWarehouseNode(
             id="dw_table",
             table_name="dw_table",
