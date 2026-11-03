@@ -1255,71 +1255,58 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "file_too_large"
 
-    @parameterized.expand(
-        [
-            ("oversized_multipart", "multipart", "file_too_large"),
-            ("oversized_raw_body", "raw", "file_too_large"),
-            ("oversized_declared_length", "declared_length", "file_too_large"),
-            ("missing_file", "missing", None),
-        ]
-    )
-    def test_deprecated_create_rejects_invalid_upload(self, _name: str, body: str, expected_code: str | None) -> None:
+    def _post_deprecated_upload(self, body: str, content: bytes, **extra: Any) -> Any:
         url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}"
-        handler = f"{__name__}.{OversizedReportingUploadHandler.__name__}"
-        raw_file = {
-            "content_type": "application/octet-stream",
-            "HTTP_CONTENT_DISPOSITION": "attachment; filename=a.map",
-        }
-        with self.settings(FILE_UPLOAD_HANDLERS=[handler]):
-            if body == "multipart":
-                response = self.client.post(
-                    f"{url}&multipart=true",
-                    data={"file": SimpleUploadedFile("a.map", b"{}")},
-                    format="multipart",
-                )
-            elif body == "raw":
-                response = self.client.post(url, data=b"{}", **raw_file)
-            elif body == "declared_length":
-                # A header-authenticated request reaches the view with the body unparsed, so the
-                # declared length is checked before anything reads the stream.
-                self.client.logout()
-                api_key = self.create_personal_api_key_with_scopes(["error_tracking:write"])
-                response = self.client.post(
-                    url,
-                    data=b"{}",
-                    HTTP_AUTHORIZATION=f"Bearer {api_key}",
-                    CONTENT_LENGTH=str(symbol_sets_logic.ONE_HUNDRED_MEGABYTES * 2),
-                    **raw_file,
-                )
-            else:
-                response = self.client.post(f"{url}&multipart=true", data={}, format="multipart")
+        if body == "multipart":
+            return self.client.post(
+                f"{url}&multipart=true", data={"file": SimpleUploadedFile("a.map", content)}, format="multipart"
+            )
+        return self.client.post(
+            url,
+            data=content,
+            content_type="application/octet-stream",
+            HTTP_CONTENT_DISPOSITION="attachment; filename=a.map",
+            **extra,
+        )
+
+    @parameterized.expand([("multipart",), ("raw",)])
+    def test_deprecated_create_rejects_oversized_file(self, body: str) -> None:
+        with self.settings(FILE_UPLOAD_HANDLERS=[f"{__name__}.{OversizedReportingUploadHandler.__name__}"]):
+            response = self._post_deprecated_upload(body, b"{}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        if expected_code is not None:
-            assert response.json()["code"] == expected_code
-        else:
-            assert response.json()["detail"] == "file is required"
+        assert response.json()["code"] == "file_too_large"
         assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
+
+    def test_deprecated_create_rejects_oversized_declared_length(self) -> None:
+        # A header-authenticated request reaches the view with the body unparsed, so the
+        # declared length is checked before anything reads the stream.
+        self.client.logout()
+        api_key = self.create_personal_api_key_with_scopes(["error_tracking:write"])
+        response = self._post_deprecated_upload(
+            "raw",
+            b"{}",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+            CONTENT_LENGTH=str(symbol_sets_logic.ONE_HUNDRED_MEGABYTES * 2),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "file_too_large"
+        assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
+
+    def test_deprecated_create_requires_file(self) -> None:
+        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}&multipart=true"
+        response = self.client.post(url, data={}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "file is required"
 
     @parameterized.expand([("multipart",), ("raw",)])
     @patch("posthog.storage.object_storage._client")
     def test_deprecated_create_stores_valid_upload(self, body: str, patched_s3_client: Mock) -> None:
         content = b'{"version":3,"sources":["a.js"]}'
-        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}"
         with self.settings(OBJECT_STORAGE_ENABLED=True):
-            if body == "multipart":
-                response = self.client.post(
-                    f"{url}&multipart=true",
-                    data={"file": SimpleUploadedFile("a.map", content)},
-                    format="multipart",
-                )
-            else:
-                response = self.client.post(
-                    url,
-                    data=content,
-                    content_type="application/octet-stream",
-                    HTTP_CONTENT_DISPOSITION="attachment; filename=a.map",
-                )
+            response = self._post_deprecated_upload(body, content)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team)

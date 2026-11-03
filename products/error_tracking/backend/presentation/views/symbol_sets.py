@@ -1,5 +1,3 @@
-from django.core.files.uploadedfile import UploadedFile
-
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -317,7 +315,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Reject on the declared length before request.FILES parses the body and spools it to disk.
+        # A header-authenticated request reaches here unparsed, so reject on the declared length before request.FILES parses it.
         try:
             declared_size = int(request.META.get("CONTENT_LENGTH") or 0)
         except ValueError:
@@ -326,7 +324,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
 
         # MultiPartParser and the legacy FileUploadParser both put the upload in request.FILES.
         upload = request.FILES.get("file")
-        if not isinstance(upload, UploadedFile):
+        if upload is None:
             return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         # The upload handler has already counted the bytes, so check the size before reading them into memory.
