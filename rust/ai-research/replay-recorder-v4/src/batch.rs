@@ -15,7 +15,7 @@ use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::scan::cv::{Expansion, MESSAGE_DECODE_BUDGET};
 use replay_core_v4::scan::message::{Event, Message};
 
-use crate::process::{check_read, read_within};
+use crate::process::{check_read, read_within, Skip};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SessionKey {
@@ -354,7 +354,7 @@ impl Inspectors {
             let ((session, inspector, partitions, session_blocks), last_seen) = match result {
                 Ok(inspected) => inspected,
                 Err(error) => {
-                    tracing::error!(%error, team_id = key.team_id, "inspecting a session panicked: its block is dropped");
+                    tracing::error!(%error, team_id = key.team_id, session_id = %key.session_id, "inspecting a session panicked: its block is dropped");
                     counter!("ai_research_v4_recorder_messages_total", "outcome" => "panicked")
                         .increment(messages as u64);
                     continue;
@@ -442,6 +442,7 @@ fn inspect_session(
 ) -> (SessionKey, SessionInspector, Vec<Tp>, Vec<Block>) {
     let mut decoded = Vec::with_capacity(parts.len());
     let mut session_spent = 0;
+    let mut skipped: BTreeMap<&'static str, u64> = BTreeMap::new();
     for (origin, raws) in parts {
         let captured_at_ms = raws.iter().filter_map(|raw| raw.captured_at_ms).min();
         let mut messages = Vec::with_capacity(raws.len());
@@ -458,6 +459,7 @@ fn inspect_session(
                     ) {
                         counter!("ai_research_v4_recorder_messages_total", "outcome" => "over_budget")
                             .increment(1);
+                        *skipped.entry(Skip::OverBudget.as_str()).or_default() += 1;
                         continue;
                     }
                     // Decoded once here, for the inspector and the block writer both.
@@ -484,6 +486,9 @@ fn inspect_session(
                 Err(skip) => {
                     counter!("ai_research_v4_recorder_messages_total", "outcome" => skip.as_str())
                         .increment(1);
+                    if !matches!(skip, Skip::NotWeb) {
+                        *skipped.entry(skip.as_str()).or_default() += 1;
+                    }
                 }
             }
         }
@@ -496,6 +501,9 @@ fn inspect_session(
         counter!("ai_research_v4_recorder_messages_total", "outcome" => "recorded")
             .increment(messages.len() as u64);
         decoded.push((origin, messages, captured_at_ms));
+    }
+    if !skipped.is_empty() {
+        tracing::warn!(team_id = session.team_id, session_id = %session.session_id, ?skipped, "messages of a session were skipped");
     }
     // A session can have messages on the main and the overflow topic in one flush. The inspector takes them in replay
     // order, so that a mutation never comes before the nodes it changes. Each still counts toward its partition's block.

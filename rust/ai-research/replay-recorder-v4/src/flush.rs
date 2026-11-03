@@ -199,12 +199,13 @@ pub async fn write_flush(
                 month.to_owned(),
                 work.clone(),
             );
-            Some(seal_blocking(&writer.seal_permits, move || {
+            let seal = seal_blocking(&writer.seal_permits, move || {
                 let compressed = work.compressed(Arc::as_ptr(&block) as usize, || {
                     compress_block(&block, &key, &team_key, &month)
                 })?;
-                seal_compressed(&compressed, &object_key).map(|sealed| (index, sealed))
-            }))
+                seal_compressed(&compressed, &object_key)
+            });
+            Some(async move { (index, seal.await) })
         })
         .collect();
     let mut done = Vec::with_capacity(seals.len());
@@ -214,12 +215,13 @@ pub async fn write_flush(
             .collect::<Vec<_>>(),
         mark_fresh_images(writer, &images, &day),
     );
-    for result in results {
+    for (index, result) in results {
         match result {
-            Ok(sealed) => done.push(sealed),
+            Ok(sealed) => done.push((index, sealed)),
             // A panic in one block loses that block only. Its messages are committed with the rest of the flush.
             Err(WriteError::Panicked(error)) => {
-                tracing::error!(%error, "sealing a block panicked: the block is dropped");
+                let session = &blocks[index].session;
+                tracing::error!(%error, team_id = session.team_id, session_id = %session.session_id, "sealing a block panicked: the block is dropped");
                 counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => "panicked")
                     .increment(1);
             }
@@ -227,10 +229,12 @@ pub async fn write_flush(
         }
     }
     // Fail closed: a block that still holds a declined URL, a credential or a private host, is not stored.
-    done.retain(|(_, block)| {
+    done.retain(|(index, block)| {
         let Some(outcome) = block.counts.dropped else {
             return true;
         };
+        let session = &blocks[*index].session;
+        tracing::warn!(team_id = session.team_id, session_id = %session.session_id, outcome, "a block is not stored");
         counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => outcome).increment(1);
         false
     });
