@@ -26,9 +26,7 @@ EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 # Billing entitlement key the sync job reconciles Team.event_retention_months against.
 EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
 
-# Billing sets this on the plans whose default window is the standard one, and leaves it off the grandfathered plans.
 STANDARD_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION
-# The default window of plans with the standard data retention feature. Older plans default to their whole window.
 STANDARD_DEFAULT_WINDOW_MONTHS = 24
 
 
@@ -107,26 +105,19 @@ def team_plan(team: Team) -> TeamPlan:
 
 
 def default_window(plan_months: int, standard: bool, min_months: int | None) -> int:
-    """The window a team keeps events for while none is set in settings.
-
-    It never goes below the organization's minimum, because staff set that minimum as a floor for every window.
-    """
     default = min(plan_months, STANDARD_DEFAULT_WINDOW_MONTHS) if standard else plan_months
     return min(plan_months, max(default, min_months)) if min_months is not None else default
 
 
 def retention_window(plan_months: int, default_months: int, setting_months: int | None) -> int:
-    """The window a team keeps events for: the one set in settings, never past the plan's, else the default."""
     return min(plan_months, setting_months) if setting_months is not None else default_months
 
 
 def events_retention_windows(teams: Sequence[Team]) -> dict[int, int]:
-    """The window each team keeps events for, by team id."""
     return retention_windows([team_plan(team) for team in teams])
 
 
 def retention_windows(plans: Sequence[TeamPlan]) -> dict[int, int]:
-    """The window each team keeps events for, by team id."""
     setting_months = {
         item.team_id: item.months for item in effective_events_retention(team_ids=[p.team_id for p in plans])
     }
@@ -138,7 +129,6 @@ def retention_windows(plans: Sequence[TeamPlan]) -> dict[int, int]:
 
 
 def default_windows(teams: Sequence[TeamPlan]) -> dict[int, int]:
-    """The window each team keeps events for while none is set in settings, by team id."""
     shortened = {team.organization_id for team in teams if STANDARD_DEFAULT_WINDOW_MONTHS < team.plan_months}
     standard = _standard_retention_organization_ids(shortened) if shortened else set()
     min_months = _minimum_months(standard) if standard else {}
@@ -159,7 +149,6 @@ def _minimum_months(organization_ids: Collection[UUID]) -> dict[UUID, int]:
 
 
 def _standard_retention_organization_ids(organization_ids: Collection[UUID]) -> set[UUID]:
-    # Filter in Postgres, because each organization's feature list is large and only its keys matter here.
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
