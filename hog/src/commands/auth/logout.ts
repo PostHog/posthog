@@ -3,8 +3,7 @@ import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { LOGIN_COMMAND } from '@/posthog/login'
-import { readLogin, removeLogin } from '@/posthog/logins'
-import { withLoginLock } from '@/posthog/oauth'
+import { logout } from '@/posthog/logins'
 import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {
@@ -34,24 +33,13 @@ export default defineCommand({
         // posthog.json must not stop a logout.
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
-        // Under the renewal lock, so a renewal in another hog process can neither restore the login
-        // after this removes it, nor rotate the refresh token this revokes.
-        const { outcome, removed } = host
-            ? await withLoginLock(runtime, host, async () => {
-                  const login = await readLogin(runtime, await readSettings(runtime), host)
-                  const [logoutOutcome, removeResult] = await Promise.all([
-                      login?.credential.logout(runtime),
-                      login ? removeLogin(runtime, login) : false,
-                  ])
-                  return { outcome: logoutOutcome, removed: removeResult }
-              })
-            : { outcome: undefined, removed: false }
+        const outcome = host ? await logout(runtime, host) : undefined
         await clearPending(runtime, LOGIN_COMMAND)
         return {
-            status: removed ? 'logged_out' : 'not_logged_in',
+            status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
             revoked: outcome?.revoked ?? null,
-            revokeUrl: removed ? (outcome?.revokeUrl ?? null) : null,
+            revokeUrl: outcome?.revokeUrl ?? null,
             stillSet: runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : [],
         }
     },

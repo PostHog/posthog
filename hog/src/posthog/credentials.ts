@@ -4,7 +4,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
 import { PersonalApiKey, type Credential } from './credential'
-import { FileStore, type StoreChoice } from './credential-store'
+import type { StoreChoice } from './credential-store'
 import { loginStorage, readLogin } from './logins'
 import { readSettings } from './settings'
 
@@ -21,8 +21,8 @@ export interface Credentials {
 // `store` is what `hog auth login` or `hog auth migrate` saved.
 export type CredentialSource = 'env' | 'dotenv-file' | 'store'
 
-export type ResolvedCredentials = Credentials & {
-    // The credential itself, which knows how to renew and log out.
+export interface ResolvedCredentials {
+    // Knows how to authenticate, renew and log out.
     credential: Credential
     source: CredentialSource
     // Set when the source is the store.
@@ -129,7 +129,7 @@ export function checkHost(host: string): string | undefined {
     return URL.canParse(host) ? undefined : `The host must be a valid URL, but it is "${host}".`
 }
 
-function validate(raw: RawCredentials, host: string): Credentials {
+function validate(raw: RawCredentials, host: string): PersonalApiKey {
     const keyError = checkApiKey(raw.token)
     if (keyError) {
         throw new HogError(
@@ -150,11 +150,7 @@ function validate(raw: RawCredentials, host: string): Credentials {
     if (hostError) {
         throw new HogError('invalid_credentials', hostError)
     }
-    return { token: raw.token, projectId: raw.projectId, host }
-}
-
-export function legacyCredentialsPath(runtime: Runtime): string {
-    return posthogFile(runtime, 'credentials.json')
+    return new PersonalApiKey(host, raw.projectId, raw.token)
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
@@ -181,14 +177,6 @@ export async function resolveCredentials(
             )
         }
     }
-    const resolved = (
-        credential: Credential,
-        source: CredentialSource,
-        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
-    ): ResolvedCredentials => {
-        const { host, projectId, token } = credential
-        return { token, projectId, host, credential, source, ...extra }
-    }
     const withHost = (
         raw: RawCredentials,
         source: CredentialSource,
@@ -196,8 +184,7 @@ export async function resolveCredentials(
     ): ResolvedCredentials => {
         const host = options.host ?? raw.host ?? DEFAULT_HOST
         checkConfigHost(host)
-        const { token, projectId } = validate(raw, host)
-        return resolved(new PersonalApiKey(host, projectId, token), source, extra)
+        return { credential: validate(raw, host), source, ...extra }
     }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
@@ -234,10 +221,7 @@ export async function resolveCredentials(
             checkConfigHost(login.credential.host)
             const credential = await login.credential.fresh(runtime, loginStorage(runtime, login))
             const { store } = login
-            return resolved(credential, 'store', {
-                store: store.kind,
-                path: store instanceof FileStore ? store.path : undefined,
-            })
+            return { credential, source: 'store', store: store.kind, path: store.path ?? undefined }
         }
     }
 

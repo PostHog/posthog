@@ -4,11 +4,10 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
-import { PersonalApiKey } from '@/posthog/credential'
-import type { StoreChoice } from '@/posthog/credential-store'
+import { PersonalApiKey, type Credential } from '@/posthog/credential'
+import { trimHost, type StoreChoice } from '@/posthog/credential-store'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
 import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login'
-import type { OAuthLogin } from '@/posthog/oauth'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
@@ -36,7 +35,8 @@ type LoginResult =
           store: StoreChoice
           credentialsPath: string | null
           keychainProblem: string | null
-          scopes: string[]
+          // Null for a personal API key, whose scopes only PostHog knows.
+          scopes: string[] | null
           // ISO 8601, for an OAuth login. hog renews the token before then.
           expiresAt: string | null
           next: string
@@ -46,13 +46,14 @@ function isTruthy(value: string | undefined): boolean {
     return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
 }
 
-function nextCommand(scopes: readonly string[]): string {
-    const canQuery = scopes.some((scope) => scope === '*' || scope.startsWith('query:'))
+function nextCommand(scopes: readonly string[] | null): string {
+    const canQuery = scopes?.some((scope) => scope === '*' || scope.startsWith('query:')) ?? false
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, store, credentialsPath, keychainProblem, scopes, expiresAt } = loggedIn
+    const { host, projectId, store, credentialsPath, keychainProblem, status } = loggedIn
+    const { scopes, expiresAt } = status
     return {
         status: 'logged_in',
         host,
@@ -66,7 +67,7 @@ function loggedInResult(loggedIn: LoggedIn): LoginResult {
     }
 }
 
-async function finish(ctx: Context, credential: OAuthLogin): Promise<LoginResult> {
+async function finish(ctx: Context, credential: Credential): Promise<LoginResult> {
     return loggedInResult(await saveLogin(ctx.runtime, credential))
 }
 
@@ -74,7 +75,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', { initialValue: REGIONS.us, validate: checkHost })
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
-    return loggedInResult(await saveLogin(ctx.runtime, new PersonalApiKey(host.replace(/\/+$/, ''), projectId, apiKey)))
+    return loggedInResult(await saveLogin(ctx.runtime, new PersonalApiKey(trimHost(host), projectId, apiKey)))
 }
 
 export default defineCommand({

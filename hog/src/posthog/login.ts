@@ -1,7 +1,7 @@
 import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
 import type { Runtime } from '@/core/runtime'
 
-import type { Credential } from './credential'
+import type { Credential, CredentialStatus } from './credential'
 import { FileStore, openStore, probeKeychain, type StoreChoice } from './credential-store'
 import { LOGIN_SCOPES, pollDeviceLogin, startDeviceLogin, type PendingLogin } from './device-auth'
 import { writeLogin } from './logins'
@@ -18,9 +18,7 @@ export interface LoggedIn {
     credentialsPath: string | null
     // Why hog couldn't use the keychain, when it stored the credentials in a file.
     keychainProblem: string | null
-    scopes: string[]
-    // Epoch milliseconds, for an OAuth login.
-    expiresAt: number | null
+    status: CredentialStatus
 }
 
 // What `hog auth login --wait` needs to finish the login a previous run started.
@@ -46,9 +44,8 @@ export function loginFlow(runtime: Runtime, host: string): ApprovalFlow<PendingL
 // login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
 // credentials with an older approval.
 export async function saveLogin(runtime: Runtime, credential: Credential): Promise<LoggedIn> {
-    const probe = await probeKeychain(runtime)
+    const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
     const store = openStore(runtime, probe.usable ? 'keychain' : 'file')
-    const previous = await readSettings(runtime)
     const { host, projectId } = credential
     await writeLogin(runtime, store, credential, { lastLogin: true })
     // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
@@ -56,14 +53,12 @@ export async function saveLogin(runtime: Runtime, credential: Credential): Promi
         await new FileStore(runtime).remove(host)
     }
     await clearPending(runtime, LOGIN_COMMAND)
-    const status = credential.status()
     return {
         host,
         projectId,
         store: store.kind,
-        credentialsPath: store instanceof FileStore ? store.path : null,
+        credentialsPath: store.path,
         keychainProblem: probe.usable ? null : probe.reason,
-        scopes: status.scopes ?? [],
-        expiresAt: status.expiresAt,
+        status: credential.status(),
     }
 }

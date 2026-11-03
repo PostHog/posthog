@@ -1,6 +1,8 @@
+import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
+
 import type { Runtime } from '@/core/runtime'
 
-import type { StoreChoice, StoredSecret } from './credential-store'
+import { hostUrl, type StoreChoice, type StoredSecret } from './credential-store'
 import { OAuthLogin } from './oauth'
 import type { LoginRecord } from './settings'
 
@@ -11,6 +13,8 @@ export interface CredentialStatus {
     scopes: string[] | null
     // Epoch milliseconds. Null for a credential that doesn't expire.
     expiresAt: number | null
+    // What hog says when PostHog rejects the credential.
+    rejected: string
 }
 
 // What logging out did in PostHog.
@@ -40,6 +44,8 @@ export interface Credential {
     // A credential that works for the rest of the command, renewed if it is about to expire.
     fresh(runtime: Runtime, storage: CredentialStorage): Promise<Credential>
     status(): CredentialStatus
+    // What the credential can reach, when hog knows. Null when only PostHog can say.
+    access(): ApiKeyAccess | null
     logout(runtime: Runtime): Promise<LogoutOutcome>
     // The credential store keeps the secret, and settings.json keeps the record.
     secret(): StoredSecret
@@ -50,15 +56,11 @@ export class PersonalApiKey implements Credential {
     constructor(
         readonly host: string,
         readonly projectId: string,
-        readonly apiKey: string
+        readonly token: string
     ) {}
 
-    get token(): string {
-        return this.apiKey
-    }
-
     get loginKey(): string {
-        return this.apiKey
+        return this.token
     }
 
     async fresh(): Promise<Credential> {
@@ -66,19 +68,28 @@ export class PersonalApiKey implements Credential {
     }
 
     status(): CredentialStatus {
-        return { kind: 'personal_api_key', scopes: null, expiresAt: null }
+        return {
+            kind: 'personal_api_key',
+            scopes: null,
+            expiresAt: null,
+            rejected: 'PostHog rejected the key. Someone may have deleted it.',
+        }
+    }
+
+    access(): null {
+        return null
     }
 
     // A personal API key can't be revoked from hog, so logout says where to delete it.
     async logout(): Promise<LogoutOutcome> {
         return {
             revoked: null,
-            revokeUrl: new URL('settings/user-api-keys', `${this.host.replace(/\/+$/, '')}/`).toString(),
+            revokeUrl: hostUrl(this.host, 'settings/user-api-keys').toString(),
         }
     }
 
     secret(): StoredSecret {
-        return { apiKey: this.apiKey }
+        return { apiKey: this.token }
     }
 
     record(store: StoreChoice): LoginRecord {

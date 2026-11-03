@@ -108,12 +108,12 @@ export async function apiConnection(
             throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
         }
     }
-    const credentials = await ctx.credentials()
+    const { credential } = await ctx.credentials()
     // The saved project can belong to another organization, so an organization override drops it.
-    const projectId = scope.projectId ?? (scope.organizationId ? undefined : credentials.projectId)
+    const projectId = scope.projectId ?? (scope.organizationId ? undefined : credential.projectId)
     return {
-        apiKey: credentials.token,
-        host: credentials.host,
+        apiKey: credential.token,
+        host: credential.host,
         ...(projectId ? { projectId } : {}),
         ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
         clientName: 'hog',
@@ -176,21 +176,16 @@ export function unwrap<T>(result: ApiToolResult<T>, tool?: string): T {
 
 const SCOPE_LOOKUP_MS = 10_000
 
-// What the credentials can reach. PostHog's key lookup only answers for a personal API key, so an
-// OAuth login answers from the scopes and the project it was approved for.
+// What the credentials can reach. PostHog's key lookup only answers for a personal API key, so a
+// credential that knows its own access answers first.
 export async function credentialAccess(
     ctx: Context,
     library: ApiToolLibrary,
     connection: ApiConnection,
     options?: { signal?: AbortSignal }
 ): Promise<ApiToolResult<ApiKeyAccess>> {
-    const { credential } = await ctx.credentials()
-    // A credential that knows its scopes is an OAuth login, which works in its one project.
-    const { scopes } = credential.status()
-    if (scopes !== null) {
-        return { ok: true, value: { scopes, scopedTeams: [Number(credential.projectId)], scopedOrganizations: [] } }
-    }
-    return library.keyAccess(connection, options)
+    const access = (await ctx.credentials()).credential.access()
+    return access ? { ok: true, value: access } : library.keyAccess(connection, options)
 }
 
 // Undefined when the scopes are unknown, so browsing still works on a failed or stalled lookup.

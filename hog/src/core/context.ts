@@ -40,7 +40,7 @@ export class Context {
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
     async posthog(): Promise<PostHogApi> {
-        this.api ??= new PostHogApi(await this.credentials(), this.runtime.fetch)
+        this.api ??= new PostHogApi((await this.credentials()).credential, this.runtime.fetch)
         return this.api
     }
 

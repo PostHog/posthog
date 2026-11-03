@@ -45,8 +45,9 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         }
         throw error
     }
-    const { host, projectId, source, store, path, credential } = credentials
-    const { kind, scopes, expiresAt } = credential.status()
+    const { credential, source, store, path } = credentials
+    const { host, projectId } = credential
+    const { kind, scopes, expiresAt, rejected } = credential.status()
     const api = await ctx.posthog()
     const [user, project] = await Promise.allSettled([
         api.get<{ email: string; first_name?: string }>('/api/users/@me/'),
@@ -59,10 +60,7 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
             host,
             projectId,
             source,
-            error:
-                kind === 'oauth'
-                    ? 'PostHog rejected the token. Someone may have revoked it.'
-                    : 'PostHog rejected the key. Someone may have deleted it.',
+            error: rejected,
             next: 'hog auth login',
         }
     }
