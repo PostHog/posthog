@@ -9,20 +9,21 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import User
 
-from products.slack_app.backend.logic.workspace_setup import (
-    MAX_CHANNELS_TO_JOIN,
-    SlackSetupEntry,
-    SlackSetupStepKey,
-    WorkspaceSettingsError,
-    get_workspace_setup,
-    join_channels as join_slack_channels,
-    set_default_project,
+from products.slack_app.backend.facade.api import (
+    get_slack_workspace_setup,
+    join_slack_setup_channels,
+    list_slack_setup_channels,
+    set_slack_workspace_default_project,
 )
-from products.slack_app.backend.services.public_channel_catalog import ChannelCatalogBusy, public_channel_options
-from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
+from products.slack_app.backend.facade.enums import SlackSetupEntry, SlackSetupStepKey
+from products.slack_app.backend.facade.types import (
+    MAX_CHANNELS_TO_JOIN,
+    ChannelCatalogBusy,
+    SlackSetupNotFound,
+    WorkspaceSettingsError,
+)
 
 
 class SlackAppProjectOptionSerializer(serializers.Serializer):
@@ -121,10 +122,10 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_read_actions = ["retrieve", "channels"]
     scope_object_write_actions = ["default_project", "join_channels"]
 
-    def _integration(self, pk: str | None) -> WorkspaceIntegration:
+    def _integration_id(self, pk: str | None) -> int:
         try:
-            return with_teams([IntegrationManager.slack.oauth.get(self.team_id, int(pk or ""))])[0]
-        except (IntegrationNotFound, ValueError):
+            return int(pk or "")
+        except ValueError:
             raise NotFound()
 
     @validated_request(
@@ -134,7 +135,10 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         entry = SlackSetupEntry(request.validated_query_data["entry"])
-        setup = get_workspace_setup(self._integration(pk), cast(User, request.user), entry)
+        try:
+            setup = get_slack_workspace_setup(self.team_id, self._integration_id(pk), cast(User, request.user), entry)
+        except SlackSetupNotFound as error:
+            raise NotFound() from error
         return Response(SlackAppWorkspaceSetupSerializer(setup).data)
 
     @validated_request(
@@ -144,13 +148,17 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["post"], url_path="default_project")
     def default_project(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
-        integration = self._integration(pk)
-        user = cast(User, request.user)
         try:
-            set_default_project(integration, user, request.validated_data["integration_id"])
+            setup = set_slack_workspace_default_project(
+                self.team_id,
+                self._integration_id(pk),
+                cast(User, request.user),
+                request.validated_data["integration_id"],
+            )
+        except SlackSetupNotFound as error:
+            raise NotFound() from error
         except WorkspaceSettingsError as error:
             raise PermissionDenied(str(error)) from error
-        setup = get_workspace_setup(integration, user, SlackSetupEntry.OTHER)
         return Response(SlackAppWorkspaceSetupSerializer(setup).data)
 
     @validated_request(
@@ -163,7 +171,9 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=True, methods=["get"], url_path="channels")
     def channels(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         try:
-            options = public_channel_options(self._integration(pk))
+            options = list_slack_setup_channels(self.team_id, self._integration_id(pk))
+        except SlackSetupNotFound as error:
+            raise NotFound() from error
         except ChannelCatalogBusy as error:
             raise Throttled(detail=str(error)) from error
         return Response(SlackAppChannelOptionsSerializer({"channels": options}).data)
@@ -179,12 +189,15 @@ class SlackAppWorkspaceSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=True, methods=["post"], url_path="join_channels")
     def join_channels(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         try:
-            results = join_slack_channels(
-                self._integration(pk),
+            results = join_slack_setup_channels(
+                self.team_id,
+                self._integration_id(pk),
                 cast(User, request.user),
                 request.validated_data["channel_ids"],
                 post_welcome=request.validated_data["post_welcome"],
             )
+        except SlackSetupNotFound as error:
+            raise NotFound() from error
         except WorkspaceSettingsError as error:
             raise PermissionDenied(str(error)) from error
         except ChannelCatalogBusy as error:

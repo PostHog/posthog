@@ -11,10 +11,11 @@ from collections.abc import Iterable
 
 from django.core.cache import cache
 
-from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import is_shared_channel
+
+from products.slack_app.backend.facade.types import ChannelCatalogBusy, ChannelOption
 
 CATALOG_TTL_SECONDS = 10 * 60
 FILLS_PER_WINDOW = 3
@@ -24,17 +25,6 @@ FILL_LOCK_SECONDS = 60
 # How long a request that lost the fill waits for the winner's list before it gives up.
 FILL_WAIT_SECONDS = 3.0
 FILL_POLL_SECONDS = 0.1
-
-
-class ChannelCatalogBusy(Exception):
-    """The workspace cannot list its Slack channels now. The message tells the person what to do."""
-
-
-@frozen
-class ChannelOption:
-    id: str
-    name: str
-    is_member: bool
 
 
 def _catalog_key(slack_workspace_id: str) -> str:

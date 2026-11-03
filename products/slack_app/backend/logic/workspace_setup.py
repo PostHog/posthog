@@ -6,8 +6,6 @@ from collections.abc import Callable
 from functools import cached_property
 from urllib.parse import urlencode
 
-from django.db import models
-
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationRecord
 from posthog.models import OrganizationMembership, User
@@ -16,6 +14,13 @@ from posthog.slack.channels import join_channel
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.facade.enums import SlackSetupEntry, SlackSetupStepKey
+from products.slack_app.backend.facade.types import (
+    ChannelJoinResult,
+    ProjectOption,
+    WorkspaceSettingsError,
+    WorkspaceSetup,
+)
 from products.slack_app.backend.models import ChannelWelcomeMode
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.public_channel_catalog import mark_channels_joined, public_channel_options
@@ -29,25 +34,8 @@ from products.slack_app.backend.services.workspace_integrations import Workspace
 
 SLACK_APP_REDIRECT_URL = "https://slack.com/app_redirect"
 CHANNELS_JOIN_SCOPE = "channels:join"
-# Slack rate limits conversations.join, and a long list in one request would hold the request open.
-MAX_CHANNELS_TO_JOIN = 20
 # pinned: analytics property value, the same events can come from other surfaces later
 EVENT_SOURCE = "web_setup"
-
-
-class SlackSetupStepKey(models.TextChoices):
-    AI_CONSENT = "ai_consent", "AI data processing"
-    DEFAULT_PROJECT = "default_project", "Default project"
-    CHANNELS = "channels", "Channels"
-
-
-class SlackSetupEntry(models.TextChoices):
-    SLACK_PAGE = "slack_page", "The Slack page in PostHog"
-    OTHER = "other", "Another place, such as a channel picker"
-
-
-class WorkspaceSettingsError(Exception):
-    pass
 
 
 @frozen(slots=False)
@@ -71,29 +59,6 @@ class SetupStep:
     key: SlackSetupStepKey
     applies: Callable[[SetupContext], bool]
     is_done: Callable[[SetupContext], bool]
-
-
-@frozen
-class ProjectOption:
-    integration_id: int
-    project_name: str
-    organization_name: str
-
-
-@frozen
-class WorkspaceSetup:
-    integration_id: int
-    slack_workspace_name: str | None
-    open_slack_url: str | None
-    steps: tuple[SlackSetupStepKey, ...]
-    project_options: tuple[ProjectOption, ...]
-    can_post_channel_welcome: bool
-
-
-@frozen
-class ChannelJoinResult:
-    channel_id: str
-    error: str | None
 
 
 def _ai_consent_applies(ctx: SetupContext) -> bool:
