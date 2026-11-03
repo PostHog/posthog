@@ -168,6 +168,7 @@ _V3_PHYSICAL_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("lc_plan_fingerprint", _v3_max("String"), ""),
     ("lc_estimated_rows", _v3_max("Int64"), ""),
     ("lc_estimated_bytes", _v3_max("Int64"), ""),
+    ("lc_is_scout_experiment", _v3_max("Bool"), ""),
 )
 
 # Read-time aliases that keep the column names of the earlier generations, so existing readers of
@@ -285,7 +286,8 @@ _V3_LOG_COMMENT_TUPLE = (
     "temporal Tuple(workflow_namespace String, workflow_type String, workflow_id String, "
     "workflow_run_id String, activity_type String, activity_id String, attempt Int64), "
     "dagster Tuple(job_name String, run_id String, tags Tuple(owner String)), "
-    "query Tuple(kind String, query String, source Tuple(kind String, query String))"
+    "query Tuple(kind String, query String, source Tuple(kind String, query String)), "
+    "is_scout_experiment Bool"
     ")"
 )
 
@@ -344,6 +346,7 @@ _V3_LOG_COMMENT_TRAILING_FIELDS = (
     "plan_fingerprint",
     "estimated_rows",
     "estimated_bytes",
+    "is_scout_experiment",
 )
 
 

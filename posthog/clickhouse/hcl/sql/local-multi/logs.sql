@@ -796,6 +796,7 @@ CREATE TABLE posthog.query_log_archive (
   lc_plan_fingerprint SimpleAggregateFunction(max, String),
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64),
+  lc_is_scout_experiment SimpleAggregateFunction(max, Bool),
   query_id String,
   event_time DateTime('UTC'),
   event_date Date,
