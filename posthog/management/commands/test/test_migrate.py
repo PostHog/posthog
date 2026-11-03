@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from unittest.mock import MagicMock
 
 from django.core.management.base import CommandError
@@ -11,8 +9,8 @@ from parameterized import parameterized
 from posthog.management.commands.migrate import (
     UNSUPPORTED_DATABASE_EXIT_CODE,
     check_database_version,
-    find_partly_applied_squashes,
-    replaced_by_squash,
+    find_unsafe_fallback,
+    resolve_replaced,
 )
 
 
@@ -40,34 +38,53 @@ class TestCheckDatabaseVersion(SimpleTestCase):
             check_database_version(fake_connection(error))
 
 
-class TestFindPartlyAppliedSquashes(SimpleTestCase):
-    LOADER = SimpleNamespace(
-        disk_migrations={
-            ("app", "0001_a"): SimpleNamespace(replaces=[]),
-            ("app", "0002_b"): SimpleNamespace(replaces=[]),
-            ("app", "0003_c"): SimpleNamespace(replaces=[]),
-            ("app", "0001_squash_2026_09_07_initial"): SimpleNamespace(replaces=[("app", "0001_a"), ("app", "0002_b")]),
-            ("app", "0001_squash_2026_11_02_initial"): SimpleNamespace(
-                replaces=[("app", "0001_squash_2026_09_07_initial"), ("app", "0003_c")]
-            ),
+class TestFindUnsafeFallback(SimpleTestCase):
+    # Two squash generations. The newer one nests the older one by name, and the squash
+    # tool removed a dependency entry from 0002, from the older squash's addons tail, and from 0004.
+    REPLACED = resolve_replaced(
+        {
+            ("a", "0001_squash_2026_09_07_initial"): [("a", "0001_x"), ("a", "0002_edited")],
+            ("a", "0001_squash_2026_11_02_initial"): [
+                ("a", "0001_squash_2026_09_07_initial"),
+                ("a", "0003_squash_2026_09_07_schema_addons"),
+                ("a", "0004_edited"),
+                ("a", "0005_y"),
+            ],
         }
     )
+    DEPENDENTS = [("a", "0002_edited"), ("a", "0003_squash_2026_09_07_schema_addons"), ("a", "0004_edited")]
+    EVERYTHING = {
+        ("a", "0001_x"),
+        ("a", "0002_edited"),
+        ("a", "0003_squash_2026_09_07_schema_addons"),
+        ("a", "0004_edited"),
+        ("a", "0005_y"),
+    }
 
     @parameterized.expand(
         [
-            ("fresh", set(), []),
-            ("at_the_floor", {("app", "0001_a"), ("app", "0002_b"), ("app", "0003_c")}, []),
+            ("fresh", set(), None, []),
+            ("fully_migrated", EVERYTHING, None, []),
+            ("a_few_days_behind", EVERYTHING - {("a", "0005_y")}, None, []),
             (
-                "inside_the_new_range",
-                {("app", "0001_a"), ("app", "0002_b")},
-                ["app.0001_squash_2026_11_02_initial"],
+                "before_an_edited_file_in_the_new_range",
+                EVERYTHING - {("a", "0004_edited"), ("a", "0005_y")},
+                None,
+                ["a.0004_edited"],
             ),
             (
-                "inside_the_old_range",
-                {("app", "0001_a")},
-                ["app.0001_squash_2026_09_07_initial", "app.0001_squash_2026_11_02_initial"],
+                "inside_the_older_squash",
+                {("a", "0001_x")},
+                None,
+                ["a.0002_edited", "a.0003_squash_2026_09_07_schema_addons", "a.0004_edited"],
+            ),
+            (
+                "fresh_with_a_replaced_target",
+                set(),
+                ("a", "0001_x"),
+                ["a.0002_edited", "a.0003_squash_2026_09_07_schema_addons", "a.0004_edited"],
             ),
         ]
     )
-    def test_flags_only_databases_that_stopped_inside_a_squash(self, _name, applied, expected):
-        assert find_partly_applied_squashes(replaced_by_squash(self.LOADER), applied) == expected
+    def test_flags_only_edited_files_that_would_run(self, _name, applied, target, expected):
+        assert find_unsafe_fallback(self.REPLACED, self.DEPENDENTS, applied, target) == expected

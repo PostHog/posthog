@@ -12,8 +12,8 @@ that have different migrations applied.
 from __future__ import annotations
 
 import os
-import re
 import sys
+import json
 import time
 import shutil
 import warnings
@@ -230,60 +230,115 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
         ) from exc
 
 
-# A database migrated at this commit, or at any later one, has applied every migration
-# that a squash in this tree replaces, so Django never needs a squash's fallback path.
-# Move it to the base commit of each new squash.
-MIGRATION_FLOOR_COMMIT = "5739878eb80f10d5e04b464cbc8335041fdaf89c"
+# The last master commit before the newest squash. Its migration files are the ones the
+# squash replaced, before the squash tool removed any dependency entries from them, so a
+# database of any age migrates there in the original order. Move it with each new squash.
+MIGRATION_FLOOR_COMMIT = "3ae7a3ca6121e6836d82a6aaf00192f7749ee5d2"
 
-SQUASH_INITIAL = re.compile(r"^0001_squash_\d{4}_\d{2}_\d{2}_initial$")
-
-
-def find_partly_applied_squashes(
-    replaced_by_squash: Mapping[tuple[str, str], Collection[tuple[str, str]]],
-    applied: Collection[tuple[str, str]],
-) -> list[str]:
-    """Return the squashes that have some, but not all, of their replaced migrations applied."""
-    partly_applied = []
-    for (app_label, name), replaced in replaced_by_squash.items():
-        hits = [key in applied for key in replaced]
-        if any(hits) and not all(hits):
-            partly_applied.append(f"{app_label}.{name}")
-    return sorted(partly_applied)
+MigrationKey = tuple[str, str]
 
 
-def replaced_by_squash(loader: MigrationLoader) -> dict[tuple[str, str], set[tuple[str, str]]]:
-    """Map each squash initial to the original migrations it stands for.
+def load_removed_dependencies() -> list[MigrationKey]:
+    """Return the migrations that run without a dependency entry the squash tool removed.
 
-    A squash can replace an older squash, so follow `replaces` down to the original files.
-    Those are the names a database recorded when it ran the original history.
+    The squash tool removes cross-app entries from replaced files to break dependency
+    cycles between squashes. For a `dependencies` entry the edited file is the side
+    that lost its prerequisite. For a `run_before` entry the target is.
+    """
+    path = Path(settings.BASE_DIR) / settings.NEXTGENSQUASH["REMOVED_DEPENDENCIES_FILE"]
+    dependents = set()
+    for removed in json.loads(path.read_text())["removed"]:
+        side = removed["file"] if removed["attribute"] == "dependencies" else removed["entry"]
+        dependents.add((side[0], side[1]))
+    return sorted(dependents)
+
+
+def resolve_replaced(
+    replaces: Mapping[MigrationKey, Collection[MigrationKey]],
+) -> dict[MigrationKey, set[MigrationKey]]:
+    """Map each squash to the migration names it stands for, at any depth of nesting.
+
+    A database records these names when it runs the original files, so they decide
+    whether Django applies the squash or falls back to the files it replaces.
     """
 
-    def originals(key: tuple[str, str]) -> set[tuple[str, str]]:
-        migration = loader.disk_migrations.get(key)
-        if migration is None or not migration.replaces:
+    def originals(key: MigrationKey) -> set[MigrationKey]:
+        if key not in replaces:
             return {key}
-        return {original for replaced in migration.replaces for original in originals(tuple(replaced))}
+        return {original for replaced in replaces[key] for original in originals(replaced)}
 
-    return {
-        key: originals(key)
-        for key, migration in loader.disk_migrations.items()
-        if migration.replaces and SQUASH_INITIAL.match(key[1])
-    }
+    return {key: originals(key) for key in replaces}
 
 
-def check_migration_history_is_supported(connection: BaseDatabaseWrapper) -> None:
-    """Stop with upgrade steps when the database stopped before the migration floor.
+def find_unsafe_fallback(
+    replaced: Mapping[MigrationKey, set[MigrationKey]],
+    dependents: Collection[MigrationKey],
+    applied: Collection[MigrationKey],
+    target: MigrationKey | None = None,
+) -> list[str]:
+    """Return the migrations that lost a dependency entry and would run on this database.
 
-    Such a database would run original migration files that the squash tool edited to break
-    dependency cycles, so their order is no longer guaranteed and a run can fail half way.
+    Django runs a squash's replaced files instead of the squash when the database applied
+    some of them but not all. A file that lost a dependency entry then runs without that
+    ordering, so a run can fail half way. An applied file does not run again. A target that
+    names a replaced migration makes Django ignore every squash, so every such file runs.
     """
-    loader = MigrationLoader(connection, ignore_no_migrations=True)
-    stranded = find_partly_applied_squashes(replaced_by_squash(loader), loader.applied_migrations or {})
-    if not stranded:
+    targets_replaced = target is not None and any(target in members for members in replaced.values())
+    unsafe = []
+    for dependent in dependents:
+        if dependent in applied:
+            continue
+        if targets_replaced:
+            unsafe.append(f"{dependent[0]}.{dependent[1]}")
+            continue
+        containing = [members for members in replaced.values() if dependent in members]
+        if not containing:
+            continue
+        innermost = min(containing, key=len)
+        if any(member in applied for member in innermost):
+            unsafe.append(f"{dependent[0]}.{dependent[1]}")
+    return sorted(unsafe)
+
+
+def resolve_target(
+    disk: Collection[MigrationKey], app_label: str | None, migration_name: str | None
+) -> MigrationKey | None:
+    """Return the migration a `migrate <app> <name>` call targets, the way Django matches a prefix."""
+    if not app_label or not migration_name or migration_name == "zero":
+        return None
+    matches = [key for key in disk if key[0] == app_label and key[1].startswith(migration_name)]
+    exact = (app_label, migration_name)
+    if exact in matches:
+        return exact
+    return matches[0] if len(matches) == 1 else None
+
+
+def check_migration_history_is_supported(
+    connection: BaseDatabaseWrapper, app_label: str | None, migration_name: str | None
+) -> None:
+    """Stop with upgrade steps when this migrate would run files the squash tool edited.
+
+    Reads the migration files without building the graph, because a graph that cannot be
+    ordered raises before any message could explain it. A target that names a replaced
+    migration makes Django ignore every squash, so each edited file that is not applied runs.
+    """
+    loader = MigrationLoader(connection, load=False, ignore_no_migrations=True)
+    loader.load_disk()
+    replaces = {
+        key: [(app_label, name) for app_label, name in migration.replaces]
+        for key, migration in loader.disk_migrations.items()
+        if migration.replaces
+    }
+    replaced = resolve_replaced(replaces)
+    dependents = load_removed_dependencies()
+    applied = set(MigrationRecorder(connection).applied_migrations())
+    target = resolve_target(loader.disk_migrations, app_label, migration_name)
+    unsafe = find_unsafe_fallback(replaced, dependents, applied, target)
+    if not unsafe:
         return
     raise CommandError(
         "This database stopped migrating before the oldest history this release supports. "
-        f"These squashes are only partly applied: {', '.join(stranded)}.\n\n"
+        f"These migrations would run without the order they need: {', '.join(unsafe)}.\n\n"
         "No migration ran, so the database is unchanged. Upgrade in two steps:\n"
         f"  1. Run migrations on PostHog at commit {MIGRATION_FLOOR_COMMIT}.\n"
         f"     In a dev checkout: git checkout {MIGRATION_FLOOR_COMMIT} && ./bin/migrate\n"
@@ -344,7 +399,7 @@ class Command(DjangoMigrateCommand):
         connection = connections[database]
 
         check_database_version(connection)
-        check_migration_history_is_supported(connection)
+        check_migration_history_is_supported(connection, options.get("app_label"), options.get("migration_name"))
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):

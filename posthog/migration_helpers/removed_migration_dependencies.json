@@ -1,0 +1,466 @@
+{
+    "removed": [
+        {
+            "file": ["batch_exports", "0004_migrate_managed_migrations_models"],
+            "entry": ["managed_migrations", "0001_migrate_managed_migrations_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["dashboards", "0006_migrate_product_analytics_models"],
+            "entry": ["product_analytics", "0001_migrate_product_analytics_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["data_modeling", "0001_initial"],
+            "entry": ["data_warehouse", "0009_alter_externaldatasource_source_type"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["data_modeling", "0005_remove_node_name_unique_within_team_dag_and_more"],
+            "entry": ["data_warehouse", "0014_mat_view_credential_deletion"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["data_modeling", "0022_github_sync_models"],
+            "entry": ["data_warehouse", "0041_migrate_stripe_job_inputs_to_auth_type"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["data_modeling", "0023_migrate_data_modeling_models"],
+            "entry": ["data_tools", "0001_migrate_data_tools_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["data_tools", "0001_migrate_data_tools_models"],
+            "entry": ["data_warehouse", "0053_remove_warehouse_sources_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0045_migrate_feature_flags_models"],
+            "entry": ["feature_flags", "0002_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0046_migrate_cdp_models"],
+            "entry": ["cdp", "0001_migrate_cdp_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0047_migrate_ai_observability_models"],
+            "entry": ["ai_observability", "0002_migrate_ai_observability_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0048_migrate_posthog_ai_models"],
+            "entry": ["posthog_ai", "0002_migrate_posthog_ai_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0048_migrate_posthog_ai_models"],
+            "entry": ["signals", "0027_migrate_posthog_ai_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0049_migrate_posthog_ai_models"],
+            "entry": ["posthog_ai", "0002_migrate_posthog_ai_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0049_migrate_posthog_ai_models"],
+            "entry": ["signals", "0027_migrate_posthog_ai_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0050_migrate_replay_models"],
+            "entry": ["replay", "0001_migrate_replay_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["ee", "0058_backfill_scim_provisioned_user_config"],
+            "entry": ["posthog", "1316_deprecate_organization_domain_idp_config"],
+            "attribute": "run_before",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["endpoints", "0003_add_endpoint_materialization"],
+            "entry": ["data_warehouse", "0004_add_saved_query_origin"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["endpoints", "0009_endpointversion_version_fields"],
+            "entry": ["data_warehouse", "0014_mat_view_credential_deletion"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["endpoints", "0011_make_endpoint_fields_nullable"],
+            "entry": ["data_warehouse", "0014_mat_view_credential_deletion"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "0717_errortrackingassignmentrule_role_and_more"],
+            "entry": ["ee", "0026_conversation_created_at_conversation_title_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "0829_organization_default_role"],
+            "entry": ["ee", "0026_conversation_created_at_conversation_title_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "0886_fake_social_django_jsonfield_migrations"],
+            "entry": ["social_django", "0010_uid_db_index"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "0993_approvalpolicy_bypass_options"],
+            "entry": ["ee", "0025_role_members"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1018_migrate_event_definition_models"],
+            "entry": ["ee", "0038_alter_enterpriseeventdefinition_eventdefinition_ptr_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1018_migrate_event_definition_models"],
+            "entry": ["event_definitions", "0001_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1032_remove_taggeditem_exactly_one_related_object_and_more"],
+            "entry": ["conversations", "0023_ticket_sla_due_at_index"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1032_remove_taggeditem_exactly_one_related_object_and_more"],
+            "entry": ["event_definitions", "0002_schemapropertygroupproperty_is_optional_in_types"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1056_migrate_experiments_models"],
+            "entry": ["experiments", "0001_migrate_experiments_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1063_remove_surveyresponsearchive_survey_and_more"],
+            "entry": ["product_tours", "0006_alter_producttour_linked_surveys"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1063_remove_surveyresponsearchive_survey_and_more"],
+            "entry": ["surveys", "0001_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1064_migrate_messaging_models"],
+            "entry": ["messaging", "0001_migrate_messaging_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1073_migrate_dashboards_models"],
+            "entry": ["dashboards", "0001_migrate_dashboards_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1073_migrate_dashboards_models"],
+            "entry": ["data_warehouse", "0038_migrate_dashboards_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1073_migrate_dashboards_models"],
+            "entry": ["ee", "0041_migrate_dashboards_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1106_alert_investigation_fields"],
+            "entry": ["notebooks", "0003_add_kernel_timeouts"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1117_role_external_reference"],
+            "entry": ["ee", "0041_migrate_dashboards_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1132_insight_dashboarditem_team_lmod_idx"],
+            "entry": ["dashboards", "0001_migrate_dashboards_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1143_sharingconfiguration_notebook"],
+            "entry": ["notebooks", "0003_add_kernel_timeouts"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1155_sharingconfiguration_interviewee_context"],
+            "entry": ["user_interviews", "0003_intervieweecontext"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1168_migrate_alerts_actions_models"],
+            "entry": ["actions", "0001_migrate_actions_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1168_migrate_alerts_actions_models"],
+            "entry": ["alerts", "0001_migrate_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1168_migrate_alerts_actions_models"],
+            "entry": ["surveys", "0002_action_fk_repoint"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1172_remove_taggeditem_exactly_one_related_object_and_more"],
+            "entry": ["customer_analytics", "0005_account"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1179_taggeditem_endpoint"],
+            "entry": ["endpoints", "0029_remove_data_modeling_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1182_migrate_feature_flags_models"],
+            "entry": ["early_access_features", "0006_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1182_migrate_feature_flags_models"],
+            "entry": ["ee", "0045_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1182_migrate_feature_flags_models"],
+            "entry": ["experiments", "0015_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1182_migrate_feature_flags_models"],
+            "entry": ["feature_flags", "0002_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1182_migrate_feature_flags_models"],
+            "entry": ["product_tours", "0007_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1182_migrate_feature_flags_models"],
+            "entry": ["surveys", "0004_migrate_feature_flags_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1184_migrate_product_analytics_models"],
+            "entry": ["alerts", "0002_migrate_product_analytics_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1184_migrate_product_analytics_models"],
+            "entry": ["customer_analytics", "0006_migrate_product_analytics_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1184_migrate_product_analytics_models"],
+            "entry": ["dashboards", "0006_migrate_product_analytics_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1184_migrate_product_analytics_models"],
+            "entry": ["product_analytics", "0001_migrate_product_analytics_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1184_migrate_product_analytics_models"],
+            "entry": ["surveys", "0005_migrate_product_analytics_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1187_migrate_hog_flow_models"],
+            "entry": ["workflows", "0007_migrate_hog_flow_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1188_migrate_cdp_models"],
+            "entry": ["cdp", "0001_migrate_cdp_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1202_migrate_exports_models"],
+            "entry": ["exports", "0001_migrate_exports_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1203_migrate_annotations_models"],
+            "entry": ["annotations", "0001_migrate_annotations_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1204_migrate_batch_exports_models"],
+            "entry": ["batch_exports", "0001_migrate_batch_exports_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1205_delete_batch_export_models"],
+            "entry": ["batch_exports", "0002_batchexport_batchexportbackfill_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1205_delete_batch_export_models"],
+            "entry": ["cdp", "0002_alter_hogfunction_batch_export"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1207_migrate_ai_observability_models"],
+            "entry": ["ai_observability", "0002_migrate_ai_observability_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1215_migrate_replay_models"],
+            "entry": ["replay", "0001_migrate_replay_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1216_migrate_cohorts_models"],
+            "entry": ["cohorts", "0001_migrate_cohorts_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1216_migrate_cohorts_models"],
+            "entry": ["error_tracking", "0017_migrate_cohorts_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1216_migrate_cohorts_models"],
+            "entry": ["experiments", "0018_migrate_cohorts_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1239_migrate_approvals_models"],
+            "entry": ["approvals", "0001_migrate_approvals_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1281_migrate_managed_warehouse_models"],
+            "entry": ["managed_warehouse", "0001_migrate_managed_warehouse_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1285_drop_desktop_file_system"],
+            "entry": ["canvas", "0003_migrate_desktop_tree"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1301_taggeditem_replay_scanner"],
+            "entry": ["replay_vision", "0065_replayscannerbackfill_skipped_count_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["posthog", "1319_team_posthog_team_widget_token_idx"],
+            "entry": ["dashboards", "0015_dashboard_customization"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["replay_vision", "0014_visionaction_visionactionrun_and_more"],
+            "entry": ["workflows", "0008_teamworkflowsconfig"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["replay_vision", "0029_visionaction_is_scanner_digest"],
+            "entry": ["workflows", "0008_teamworkflowsconfig"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["tasks", "0026_task_signal_report_alter_task_origin_product"],
+            "entry": ["signals", "0011_add_error_tracking_signal_types"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["tasks", "0063_loop_looptrigger_loopfire"],
+            "entry": ["signals", "0062_add_analytics_anomaly_investigation_source"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["tasks", "0098_task_hog_flow_id_task_origin_key_and_more"],
+            "entry": ["signals", "0094_delete_session_analysis_source_configs"],
+            "attribute": "dependencies",
+            "cutoff": "2026-09-07"
+        }
+    ]
+}
