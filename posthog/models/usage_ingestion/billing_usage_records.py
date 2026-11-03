@@ -7,6 +7,7 @@ from posthog.clickhouse.kafka_engine import (
 )
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_BILLING_USAGE_RECORDS
+from posthog.run_mode import run_mode
 
 BILLING_USAGE_RECORDS_TABLE = "billing_usage_records"
 SHARDED_BILLING_USAGE_RECORDS_TABLE = f"sharded_{BILLING_USAGE_RECORDS_TABLE}"
@@ -54,6 +55,45 @@ CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}
 ENGINE = {billing_usage_records_data_table_engine()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id)
+"""
+
+
+SHARDED_BILLING_USAGE_RECORDS_V2_TABLE = f"{SHARDED_BILLING_USAGE_RECORDS_TABLE}_v2"
+BILLING_USAGE_RECORDS_HOT_DAYS = 30
+
+
+def billing_usage_records_v2_data_table_engine() -> ReplacingMergeTree:
+    return ReplacingMergeTree(
+        SHARDED_BILLING_USAGE_RECORDS_V2_TABLE,
+        replication_scheme=ReplicationScheme.SHARDED,
+        ver="inserted_at",
+    )
+
+
+def _billing_usage_records_v2_tiering() -> str:
+    # The s3_tiered policy and its `cold` volume exist only on deployed-cloud clusters.
+    if run_mode().is_deployed_cloud:
+        return (
+            f"TTL toDate(timestamp) + INTERVAL {BILLING_USAGE_RECORDS_HOT_DAYS} DAY TO VOLUME 'cold'\n"
+            "SETTINGS storage_policy = 's3_tiered'"
+        )
+    return ""
+
+
+# The sorting key holds the same columns as the v1 table, so both tables deduplicate the same rows.
+# The day leads the key because every reader filters on a time range, and a team-first key forces
+# a one-day read to scan the whole month of every small team.
+def BILLING_USAGE_RECORDS_V2_DATA_TABLE_SQL() -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_V2_TABLE}
+(
+    {BASE_BILLING_USAGE_RECORDS_COLUMNS}
+    {KAFKA_COLUMNS_WITH_PARTITION}
+)
+ENGINE = {billing_usage_records_v2_data_table_engine()}
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (toDate(timestamp), team_id, producer_id, usage_key, record_id)
+{_billing_usage_records_v2_tiering()}
 """
 
 

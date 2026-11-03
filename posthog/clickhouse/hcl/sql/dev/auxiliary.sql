@@ -598,6 +598,21 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_billing_usage_records_v2 (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records_v2', '{replica}', inserted_at) ORDER BY (toDate(timestamp), team_id, producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(30) TO VOLUME 'cold' SETTINGS index_granularity = 8192, storage_policy = 's3_tiered';
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,

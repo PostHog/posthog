@@ -1,5 +1,11 @@
 # Both-prods deltas to shared aux objects.
 database "posthog" {
+  patch_table "sharded_billing_usage_records_v2" {
+    ttl = "toDate(timestamp) + toIntervalDay(30) TO VOLUME 'cold'"
+    settings = {
+      storage_policy = "s3_tiered"
+    }
+  }
   patch_table "hog_invocation_results_data" {
     settings = {
       storage_policy = "s3_tiered"
