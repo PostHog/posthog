@@ -1,11 +1,17 @@
 from django.contrib import admin, messages
 from django.db.models import QuerySet
 from django.http import HttpRequest
-from django.urls import reverse
+from django.urls import URLPattern, path, reverse
 from django.utils.html import format_html
 
 import structlog
 
+from products.workflows.backend.admin.ses_events_dlq_admin import (
+    PAGE_URL_NAME,
+    REPLAY_URL_NAME,
+    ses_events_dlq_replay_view,
+    ses_events_dlq_view,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.services.workflow_email_health import (
@@ -86,6 +92,18 @@ class HogFlowAdmin(admin.ModelAdmin):
         "email_sending_paused_reason",
         "email_sending_resumed_at",
     )
+
+    def get_urls(self) -> list[URLPattern]:
+        # The SES dead-letter queue page has no model of its own, so it lives under the workflows admin.
+        return [
+            path("ses-events-dlq/", self.admin_site.admin_view(ses_events_dlq_view), name=PAGE_URL_NAME),
+            path(
+                "ses-events-dlq/replay/",
+                self.admin_site.admin_view(ses_events_dlq_replay_view),
+                name=REPLAY_URL_NAME,
+            ),
+            *super().get_urls(),
+        ]
 
     @admin.display(description="Team")
     def team_link(self, hog_flow: HogFlow):
