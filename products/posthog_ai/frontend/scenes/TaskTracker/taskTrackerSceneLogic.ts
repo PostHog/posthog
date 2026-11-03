@@ -12,9 +12,14 @@ import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLog
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { attachedContextItemKey } from '~/layout/ai/attachedContext'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
@@ -37,7 +42,7 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { IntegrationType } from '../../../../../frontend/src/types'
-import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import {
@@ -54,16 +59,13 @@ import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
-import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
-import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
-import { tasksLogic } from '../../logics/tasksLogic'
+import { hasTasksFlag, tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
-import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
@@ -81,7 +83,7 @@ import { DEFAULT_COMPOSER_MODE, getModesForRuntimeAdapter, type PermissionMode }
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
-export type { ActiveCreation } from '../../logics/runnerPanelLogic'
+export type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 
 class CloudTargetUnresolvedError extends Error {}
 
@@ -205,6 +207,7 @@ export interface taskTrackerSceneLogicValues {
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    githubIntegrations: IntegrationType[] // integrationsLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
@@ -522,7 +525,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             tasksLogic,
             ['tasks', 'repositories', 'taskListParams'],
             integrationsLogic,
-            ['integrations'],
+            ['integrations', 'githubIntegrations'],
             attachedContextLogic,
             ['contextItems'],
             aiConsentLogic,
@@ -935,7 +938,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (values.newTaskData.repositoryConfig.integrationId) {
                 return
             }
-            const githubIntegrations = values.integrations?.filter((integration) => integration.kind === 'github') ?? []
+            const githubIntegrations = values.githubIntegrations
             if (githubIntegrations.length === 0) {
                 return
             }
@@ -1417,10 +1420,20 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
+        // Only the list and composer fall back to classic PostHog AI. Inbox task links need neither flag.
+        const redirectedWithoutAccess = (taskId?: string): boolean => {
+            if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
+                return false
+            }
+            router.actions.replace(urls.ai())
+            return true
+        }
         return {
+            '/tasks': () => (redirectedWithoutAccess() ? undefined : clearIfLeftCreatedTask()),
             // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
             // main-app URL changes are unrelated to its run — never release the side panel's active creation.
-            '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
+            '/tasks/:taskId': ({ taskId }) =>
+                props.panelId || redirectedWithoutAccess(taskId) ? undefined : clearIfLeftCreatedTask(taskId),
             [urls.ai()]: (_, search) =>
                 props.panelId
                     ? undefined

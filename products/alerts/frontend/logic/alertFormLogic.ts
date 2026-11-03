@@ -13,6 +13,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -21,7 +22,6 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
 import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'

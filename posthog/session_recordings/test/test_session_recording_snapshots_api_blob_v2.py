@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -931,3 +932,48 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_410_GONE
         assert response.json()["error"] == "recording_deleted"
         assert response.json()["deleted_at"] == 1700000000
+
+    @parameterized.expand(
+        [("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS), ("log_only", False, status.HTTP_200_OK)]
+    )
+    @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    def test_blob_v2_user_quota(
+        self,
+        _name,
+        enforced,
+        expected_status_over_quota,
+        mock_get_session_recording,
+        _mock_exists,
+        mock_list_blocks,
+        mock_recording_api_client,
+        _mock_rate_limit_enabled,
+    ):
+        cache.clear()
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = AsyncMock(return_value=b'{"timestamp": 1}')
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+
+        with override_settings(SNAPSHOT_USER_RATE_BURST="2/minute", SNAPSHOT_USER_RATE_LIMIT_ENFORCED=enforced):
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+            assert self.client.get(url).status_code == expected_status_over_quota
+        cache.clear()

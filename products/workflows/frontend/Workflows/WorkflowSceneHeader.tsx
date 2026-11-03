@@ -175,6 +175,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}
                 isLoading={workflowLoading && !workflow}
                 renameDebounceMs={200}
+                hideProductSetupButton
                 forceBackTo={workflowBackTo(workflow, props.id)}
                 actions={
                     <>

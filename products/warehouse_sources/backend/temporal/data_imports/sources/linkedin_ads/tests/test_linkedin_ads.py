@@ -11,7 +11,8 @@ from django.db import OperationalError
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.integrations import IntegrationNotFound
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
@@ -494,7 +495,9 @@ class TestFlattenLinkedinRecord:
         assert result["created_time"] is None
 
 
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration")
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.IntegrationManager"
+)
 class TestLinkedinAdsClientFunction:
     """Test linkedin_ads_client function."""
 
@@ -502,7 +505,7 @@ class TestLinkedinAdsClientFunction:
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
-        mock_integration_model.objects.get.return_value = mock_integration
+        mock_integration_model.linkedin_ads.oauth.get.return_value = mock_integration
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
 
@@ -526,20 +529,18 @@ class TestLinkedinAdsClientFunction:
         mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
 
         def fake_get(*args, **kwargs):
-            calls.append("Integration.objects.get")
+            calls.append("IntegrationManager.get")
             return mock_integration
 
-        mock_integration_model.objects.get.side_effect = fake_get
+        mock_integration_model.linkedin_ads.oauth.get.side_effect = fake_get
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
         linkedin_ads_client(config, team_id=789)
 
-        assert calls == ["close_old_connections", "Integration.objects.get"]
+        assert calls == ["close_old_connections", "IntegrationManager.get"]
 
 
-_INTEGRATION_GET_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration.objects.get"
-)
+_INTEGRATION_GET_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.IntegrationManager.linkedin_ads.oauth.get"
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.close_old_connections"
 )
@@ -602,10 +603,10 @@ class TestGetIntegrationDbResilience:
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
-            with pytest.raises(Integration.DoesNotExist):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.
@@ -615,7 +616,9 @@ class TestGetIntegrationDbResilience:
 @mock.patch(
     "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.OauthIntegration"
 )
-@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration")
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.IntegrationManager"
+)
 class TestLinkedinAdsClientTokenRefresh:
     """Token refresh behaviour of linkedin_ads_client."""
 
@@ -631,7 +634,7 @@ class TestLinkedinAdsClientTokenRefresh:
         integration = mock.MagicMock()
         integration.access_token = "refreshed-token"
         integration.errors = ""
-        mock_integration_model.objects.get.return_value = integration
+        mock_integration_model.linkedin_ads.oauth.get.return_value = integration
 
         oauth = mock_oauth_cls.return_value
         oauth.access_token_expired.return_value = token_expired
@@ -648,7 +651,7 @@ class TestLinkedinAdsClientTokenRefresh:
         integration = mock.MagicMock()
         integration.access_token = "stale-token"
         integration.errors = ERROR_TOKEN_REFRESH_FAILED
-        mock_integration_model.objects.get.return_value = integration
+        mock_integration_model.linkedin_ads.oauth.get.return_value = integration
 
         oauth = mock_oauth_cls.return_value
         oauth.access_token_expired.return_value = True

@@ -1,11 +1,12 @@
 //! The worker batcher: the dispatch orchestration behind one boundary.
 //!
 //! The consumer loop submits one [`Accumulator`] per poll, in poll order, and
-//! receives [`GroupCompletion`]s back, one per partition and generation of each
-//! settled request. Everything in between is an implementation detail of this
-//! module: the state machine queues each key's messages, packs ready keys into
-//! requests for free worker slots, places each request on a worker as it is
-//! sent, and retries failures; one task drives it and performs its effects. No
+//! receives [`BatcherCompletion`]s back: one per partition and generation of
+//! each settled request, and one per revoke. Everything in between is an
+//! implementation detail of this module: the state machine queues each key's
+//! messages, packs ready keys into requests for free worker slots, places each
+//! request on a worker as it is sent, and retries failures; one task drives it
+//! and performs its effects. No
 //! batch identity crosses the boundary: the consumer correlates completions by
 //! partition and offset.
 //!
@@ -14,6 +15,7 @@
 //! are reported on an error channel; the consumer turns them into a process
 //! failure, so the failure decision stays in the consumer loop.
 
+mod drains;
 mod driver;
 pub mod governor;
 pub mod in_flight;
@@ -44,10 +46,18 @@ use crate::order_sentinel::KeyOrderSentinel;
 use crate::types::Accumulator;
 use crate::worker_registry::WorkerId;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RevokeId(pub u64);
+
+pub enum BatcherCompletion {
+    /// One partition and generation of a settled request.
+    Group(GroupCompletion),
+    Drained(RevokeId),
+}
+
 /// The batcher's output channels, held by the consumer loop.
 pub struct BatcherOutputs {
-    /// One completion per partition and generation of each settled request.
-    pub completions: mpsc::UnboundedReceiver<GroupCompletion>,
+    pub completions: mpsc::UnboundedReceiver<BatcherCompletion>,
     /// Fatal orchestration failures.
     pub errors: mpsc::UnboundedReceiver<String>,
 }
@@ -73,9 +83,12 @@ impl Batcher {
         self.driver.key_order_sentinel()
     }
 
-    /// The batcher's half of the consumer's revocation hook.
-    pub fn revoker(&self) -> Revoker {
-        Revoker(self.driver.revoke_sender())
+    /// Drops the partitions' queued messages, also those of polls submitted
+    /// before this call, and the messages that come back unfinished or failed.
+    /// Answers with [`BatcherCompletion::Drained`] after the last `Group` of
+    /// the partitions.
+    pub fn revoke(&self, revoke: RevokeId, partitions: &[(String, i32)]) {
+        self.driver.revoke(revoke, partitions);
     }
 
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
@@ -139,16 +152,6 @@ impl BatcherObserver {
                 ..BatcherSnapshot::default()
             },
         }
-    }
-}
-
-/// Purges revoked partitions from the batcher. Purged messages never
-/// complete.
-pub struct Revoker(driver::RevokeSender);
-
-impl Revoker {
-    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
-        self.0.purge_revoked(partitions);
     }
 }
 

@@ -153,6 +153,7 @@ class RunAgenticReportOutput:
     # reconcile existing rows only when this marker came from a new verification turn.
     reconcile_checks: bool = False
     checks_summary: str | None = None
+    checks_error: str | None = None
     # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
     # one into a child report. `None` predates the field and creates none.
     layers: list[dict[str, Any]] | None = None
@@ -1317,6 +1318,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             else None,
             reconcile_checks=result.checks is not None,
             checks_summary=result.checks_summary,
+            checks_error=result.checks_error,
             checks_snapshot=checks_snapshot,
             checks_monitoring_enabled=monitoring_enabled,
             layers=[layer.model_dump(mode="json") for layer in result.layers],

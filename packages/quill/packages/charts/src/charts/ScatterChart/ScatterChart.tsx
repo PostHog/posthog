@@ -6,7 +6,7 @@ import { drawAxes, drawGrid, drawTickMarks, resolveAxisLineColor } from '../../c
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { applyMarginOverride, DEFAULT_MARGINS } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, DEFAULT_MARGINS, useStableMargins } from '../../core/hooks/useChartMargins'
 import { sanitizeFixedDomain } from '../../core/scales'
 import { useResolvedChartTheme } from '../../core/theme'
 import type {
@@ -98,8 +98,9 @@ function ScatterChartInner<Meta = unknown>({
         showCrosshair = true,
         showBestFit = false,
         isPointHighlighted,
-        margins,
+        margins: marginsOverride,
     } = config ?? {}
+    const margins = useStableMargins(marginsOverride)
     // Destructured to primitives, so an inline `config` literal can't re-run the scale build.
     const { scaleType: xScaleType, domain: xDomain, startAtZero: xStartAtZero, tickFormatter: xTickFormatter } = xAxis
     const { scaleType: yScaleType, domain: yDomain, startAtZero: yStartAtZero, tickFormatter: yTickFormatter } = yAxis
@@ -303,7 +304,7 @@ function ScatterChartInner<Meta = unknown>({
         const computed: Partial<ChartMargins> = {
             right: Math.max(DEFAULT_MARGINS.right, xLabelEdgeReserve(points, xDomain, xTickFormatter)),
         }
-        return margins ? applyMarginOverride(computed, margins) : computed
+        return applyMarginOverride(computed, margins)
     }, [xAxis.hide, margins, points, xDomain, xTickFormatter])
 
     const baseConfig = useMemo<ChartConfig>(

@@ -13,7 +13,16 @@ export const DEFAULT_SKELETON_ROWS = 3
 const TRAILING_SOURCES: RemoteSource[] = ['persons', 'groups']
 
 /** Lists that filter in memory on every keystroke, in the order they render in Search mode. */
-const LOCAL_SOURCES = ['products', 'data-management', 'people', 'health', 'misc', 'settings', 'create'] as const
+const LOCAL_SOURCES = [
+    'products',
+    'data-management',
+    'people',
+    'health',
+    'misc',
+    'shortcuts',
+    'settings',
+    'create',
+] as const
 type LocalSource = (typeof LOCAL_SOURCES)[number]
 
 export type CommandKMode = 'empty' | 'key' | 'value' | 'search'
@@ -89,6 +98,7 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     people: 'People',
     health: 'Health',
     misc: 'Misc',
+    shortcuts: 'Shortcuts',
     settings: 'Settings',
     create: 'Create new',
     events: 'Events',
@@ -369,13 +379,20 @@ function lowerSections(
     if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
         return loadingMore()
     }
-    if (input.askAiQuestion) {
+    const hasItems = shown.size > 0 || loaded().some((section) => section.rows.some((row) => row.kind === 'item'))
+    if (input.askAiQuestion && !hasItems) {
         sections.push({
             ...readySection('ask-ai', [{ kind: 'ask-ai', key: 'ask-ai/ask', question: input.askAiQuestion }]),
             state,
         })
     }
-    return appendInOrder(TRAILING_SOURCES) ? loaded() : loadingMore()
+    if (!appendInOrder(TRAILING_SOURCES)) {
+        return loadingMore()
+    }
+    const all = loaded()
+    return all.some((section) => section.key !== 'ask-ai' && section.rows.some((row) => row.kind === 'item'))
+        ? all.filter((section) => section.key !== 'ask-ai')
+        : all
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
@@ -392,6 +409,7 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
                     local.products.filter((item) => !item.parentName)
                 )
             ),
+            readySection('shortcuts', itemRows('shortcuts', local.shortcuts)),
         ].filter((section) => section.rows.length > 0)
     }
 
