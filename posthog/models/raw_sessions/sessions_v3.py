@@ -60,7 +60,9 @@ def TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3():
 
 def DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3():
     # sync is added when dropping the sharded table, see https://posthog.slack.com/archives/C076R4753Q8/p1760696004214289?thread_ts=1760695175.656789&cid=C076R4753Q8
-    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()} SYNC"
+    # max_table_size_to_drop = 0 lifts the server's drop-size guard, so a self-hosted install whose
+    # table grew past the default limit still gets through a rebuild migration.
+    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()} SYNC SETTINGS max_table_size_to_drop = 0"
 
 
 def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3():
