@@ -5719,6 +5719,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
 /** @schemaEnum */
 export enum SlackIntegrationScopeInReview {
+    CANVASES_READ = 'canvases:read',
     CHANNELS_JOIN = 'channels:join',
 }
 

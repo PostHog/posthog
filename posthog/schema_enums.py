@@ -3059,6 +3059,7 @@ class SlackIntegrationScope(StrEnum):
 
 
 class SlackIntegrationScopeInReview(StrEnum):
+    CANVASES_READ = "canvases:read"
     CHANNELS_JOIN = "channels:join"
 
 

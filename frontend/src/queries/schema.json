@@ -54207,7 +54207,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["channels:join"],
+            "enum": ["canvases:read", "channels:join"],
             "type": "string"
         },
         "SlashCommandName": {
