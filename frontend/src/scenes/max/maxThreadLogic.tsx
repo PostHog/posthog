@@ -164,7 +164,6 @@ async function shouldBlockPendingPiTask(pendingBindTaskId: string): Promise<bool
     }
 }
 
-// Keyed by the mount's disposables manager, so each mount loads once and a remount loads again.
 // Adding the 'billing-context' disposable a second time would unmount the logic and load billing again.
 const billingContextLoads = new WeakMap<DisposablesManager, Promise<void>>()
 
@@ -186,7 +185,6 @@ function mountBillingContext(cache: Record<string, any>): Promise<void> {
             disposables.add(() => maxBillingContextLogic.mount(), 'billing-context', { pauseOnPageHidden: false })
         })
         .catch((error) => {
-            // Messages go out without billing context. The next flag change or mount tries again.
             billingContextLoads.delete(disposables)
             if (isChunkLoadError(error)) {
                 console.warn('[PostHog AI] Billing context chunk failed to load', error)
@@ -3084,7 +3082,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         if (values.autoRun && values.question) {
             if (values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
-                // The first message carries the billing context, so wait for its chunk before sending.
                 const disposables = cache.disposables
                 await mountBillingContext(cache)
                 if (disposables.isDisposed || !(logic as BuiltLogic<maxThreadLogicType>).isMounted()) {
