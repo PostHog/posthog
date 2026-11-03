@@ -666,9 +666,12 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                 row = store.latest_daily_point(
                     calculation_config, since=experiment.start_date, until=now, preserve_history=True
                 )
-                # A point that ends before the end date misses the final hours, so a run must compute them.
-                if row is not None and row.query_to < experiment_window_end(experiment, now):
-                    row = None
+                # A point whose data ends before the end date misses the final hours, so a run must compute them.
+                # A backfill stamps the end of its day as query_to, but its data ends at completed_at.
+                if row is not None:
+                    data_until = min(row.query_to, row.completed_at or row.query_to)
+                    if data_until < experiment_window_end(experiment, now):
+                        row = None
             if row is None:
                 row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:
