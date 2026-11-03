@@ -356,6 +356,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             min_connections: config.fallback_pg_min_connections,
             pool_name: Some("personhog-leader-fallback".to_string()),
             statement_timeout_ms: Some(5_000),
+            idle_timeout: Some(Duration::from_secs(86_400)),
             ..Default::default()
         };
         let fallback = PgFallback {
