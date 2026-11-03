@@ -135,4 +135,23 @@ describe('destinationConnectSceneLogic', () => {
             setupDefaults: { host: 'db.example.com', port: 6543, user: 'loader' },
         })
     })
+
+    it('drops migration settings on a plain link and ignores a save from the previous item', async () => {
+        const open = (itemId?: string): void =>
+            router.actions.push('/data-warehouse/connect-destination', {
+                kind: 'postgresql',
+                ...(itemId ? { migration_id: 'migration-1', migration_item_id: itemId } : {}),
+            })
+        await expectLogic(destinationConnectSceneLogic, () => {
+            open('item-1')
+            open()
+        }).toFinishAllListeners()
+        expect(destinationConnectSceneLogic.values).toMatchObject({ migrationItemId: null, setupDefaults: undefined })
+
+        await expectLogic(destinationConnectSceneLogic, () => open('item-2')).toFinishAllListeners()
+        destinationConnectSceneLogic.actions.completeSetup(42, 'item-1')
+        expect(destinationConnectSceneLogic.values.integrationId).toBeNull()
+        destinationConnectSceneLogic.actions.completeSetup(43, 'item-2')
+        expect(destinationConnectSceneLogic.values.integrationId).toEqual(43)
+    })
 })

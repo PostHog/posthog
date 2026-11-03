@@ -28,10 +28,11 @@ export function DestinationConnectScene(): JSX.Element {
         integrationSetup,
         isModalOpen,
         integrationId,
+        migrationItemId,
         migrationPrefillLoading,
         setupDefaults,
     } = useValues(destinationConnectSceneLogic)
-    const { setModalOpen, setIntegrationId } = useActions(destinationConnectSceneLogic)
+    const { setModalOpen, completeSetup } = useActions(destinationConnectSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />
@@ -98,11 +99,13 @@ export function DestinationConnectScene(): JSX.Element {
                 )}
             </div>
             <SetupModal
+                // The form reads its defaults once, so another migration item gets a fresh form.
+                key={String(migrationItemId)}
                 isOpen={isModalOpen && integrationId === null}
                 kind={kind}
                 defaults={setupDefaults}
                 // The modals' close button calls onComplete with the click event, so only a number is a saved id.
-                onComplete={(id) => (typeof id === 'number' ? setIntegrationId(id) : setModalOpen(false))}
+                onComplete={(id) => (typeof id === 'number' ? completeSetup(id, migrationItemId) : setModalOpen(false))}
                 onClose={() => setModalOpen(false)}
             />
         </SceneContent>

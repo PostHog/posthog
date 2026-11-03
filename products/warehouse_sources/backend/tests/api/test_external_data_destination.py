@@ -1338,7 +1338,9 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         if expected_status == status.HTTP_200_OK:
             data = response.json()
             assert data["connect_url"].endswith(f"&migration_id={item.migration_id}&migration_item_id={item.id}")
-            assert "database='analytics', schema='posthog_shop'" in data["instructions"]
+            assert data["suggested_config"] == {"database": "analytics", "schema": "posthog_shop"}
+            assert "suggested_config" in data["instructions"]
+            assert "analytics" not in data["instructions"]
 
 
 class TestDestinationAPIKeyScopes(DestinationAPITestBase):

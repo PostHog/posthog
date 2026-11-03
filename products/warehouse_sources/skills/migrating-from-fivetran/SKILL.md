@@ -80,7 +80,7 @@ project yet. Tell the user that and stop.
    `migration_item_id` set to the item, so the page fills in the connection settings from Fivetran and the user
    types only the secret. The page does not set the schema. Then create the destination with
    `external-data-destinations-create`, and pass `posthog_<prefix>` as the schema in its target config, with the
-   other target values the link's `instructions` suggest. Pass the new destination's id as `destination_ids` to
+   other target values in the link's `suggested_config`. Pass the new destination's id as `destination_ids` to
    apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
