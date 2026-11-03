@@ -31,6 +31,9 @@ import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
 jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn(() => Promise.resolve(true)),
 }))
+jest.mock('./hogflows/steps/components/InstructionsDiff', () => ({
+    InstructionsDiff: () => null,
+}))
 
 const WORKFLOW_ID = 'wf-view-only-1'
 
@@ -204,28 +207,42 @@ describe('view-only workflow', () => {
     })
 
     it('lets a viewer compare AI task instructions with another version', async () => {
+        const aiTask = (prompt: string): HogFlow['actions'][number] => ({
+            id: 'task_node',
+            type: 'function',
+            name: 'Create task',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { template_id: 'template-posthog-create-task', inputs: { prompt: { value: prompt } } },
+        })
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': {
                     ...VIEWER_WORKFLOW,
                     status: 'active',
-                    actions: [
-                        ...VIEWER_WORKFLOW.actions,
-                        {
-                            id: 'task_node',
-                            type: 'function',
-                            name: 'Create task',
-                            description: '',
-                            created_at: 0,
-                            updated_at: 0,
-                            config: {
-                                template_id: 'template-posthog-create-task',
-                                inputs: { prompt: { value: 'Summarize the week' } },
-                            },
-                        },
-                    ],
+                    version: 3,
+                    actions: [...VIEWER_WORKFLOW.actions, aiTask('Summarize the week')],
                 },
-                '/api/environments/:team_id/hog_flows/:id/revisions/': { results: [], count: 0 },
+                '/api/environments/:team_id/hog_flows/:id/revisions/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [1, 2].map((version) => ({
+                        version,
+                        created_at: '2026-09-01T10:00:00Z',
+                        created_by: null,
+                    })),
+                },
+                '/api/environments/:team_id/hog_flows/:id/revisions/:version/': (req) => [
+                    200,
+                    {
+                        version: Number(req.params.version),
+                        created_at: '2026-09-01T10:00:00Z',
+                        created_by: null,
+                        content: { actions: [aiTask(`Summarize version ${req.params.version}`)] },
+                    },
+                ],
             },
         })
         await act(async () => {
@@ -238,8 +255,12 @@ describe('view-only workflow', () => {
         )
 
         fireEvent.click(screen.getByText('Compare instructions with another version'))
-        expect(screen.getByLabelText('Version to compare with')).toBeInTheDocument()
+        fireEvent.click(await screen.findByLabelText('Version to compare with'))
+        fireEvent.click(await screen.findByText(/^v1 ·/))
 
+        expect(
+            await screen.findByText('Removed lines are from v1. Added lines are in this step now.')
+        ).toBeInTheDocument()
         fireEvent.click(screen.getByText('Close'))
         expect(screen.getByText('Compare instructions with another version')).toBeInTheDocument()
     })
