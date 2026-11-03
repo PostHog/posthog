@@ -180,6 +180,8 @@ jobs:
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
+                        - 'nodejs/jest.serial.sequencer.js'
+                        - 'nodejs/jest.serial.durations.json'
                         - 'nodejs/package.json'
                         - 'nodejs/tsconfig*.json'
                         - 'pnpm-lock.yaml'
