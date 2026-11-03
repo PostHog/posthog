@@ -122,6 +122,8 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "team_id": self.team.id,
             "outcome": "found",
             "status": expected_status,
+            "auth_method": "project_secret_api_key",
+            "authorized_by": "hog_flow",
         }
         assert response.json() == {
             "id": self.message_id,
@@ -155,16 +157,26 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_scope", ["hog_flow:read"], status.HTTP_200_OK),
-            ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            ("read_scope", ["hog_flow:read"], status.HTTP_200_OK, "hog_flow"),
+            ("status_scope", ["transactional_email:read"], status.HTTP_200_OK, "transactional_email"),
+            ("send_scope", ["transactional_email:write"], status.HTTP_200_OK, "transactional_email"),
+            ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN, None),
+            ("preference_scope", ["messaging_preference:write"], status.HTTP_403_FORBIDDEN, None),
         ]
     )
-    def test_project_secret_api_key_needs_the_read_scope(self, _flag, _name, scopes, expected_status):
+    def test_project_secret_api_key_needs_the_read_scope(
+        self, _flag, _name, scopes, expected_status, expected_authorized_by
+    ):
         self._status_rows([("queued", 0, "")])
 
-        response = self._psak_client(scopes).get(self._url(self.message_id))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self._psak_client(scopes).get(self._url(self.message_id))
 
         assert response.status_code == expected_status
+        if expected_authorized_by:
+            assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
 
     def test_a_session_cannot_read_a_status(self, _flag):
         self._status_rows([("queued", 0, "")])

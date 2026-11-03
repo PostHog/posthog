@@ -42,6 +42,7 @@ from products.experiments.backend.temporal.recalculation_workflow import (
 )
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
+_CALC_BUDGET = timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
 _WORKFLOW_MODULE = "products.experiments.backend.temporal.recalculation_workflow"
 _ACTIVITIES_MODULE = "products.experiments.backend.temporal.recalculation_activities"
 
@@ -130,7 +131,7 @@ async def _run_workflow(activities) -> dict:
 _Call = tuple[str, PrecomputationMode | None]
 
 
-def _recording_calculate(calls: list[_Call]) -> Callable:
+def _recording_calculate(calls: list[_Call], budgets: list[timedelta | None]) -> Callable:
     @activity.defn(name="calculate_experiment_metric_for_recalculation")
     async def mock_calculate(
         experiment_id: int,
@@ -141,6 +142,7 @@ def _recording_calculate(calls: list[_Call]) -> Callable:
         precomputation_mode: PrecomputationMode | None = None,
     ) -> MetricRecalculationResult:
         calls.append((metric_uuid, precomputation_mode))
+        budgets.append(activity.info().schedule_to_close_timeout)
         return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
     return mock_calculate
@@ -152,6 +154,7 @@ class _QueueRun:
     workflow_queue_calls: list[_Call]
     activity_queue_calls: list[_Call]
     precompute_queue_calls: list[_Call]
+    schedule_to_close_timeouts: list[timedelta | None]
     history: WorkflowHistory
 
 
@@ -165,6 +168,7 @@ async def _run_with_calc_queue_workers(
     workflow_queue_calls: list[_Call] = []
     activity_queue_calls: list[_Call] = []
     precompute_queue_calls: list[_Call] = []
+    budgets: list[timedelta | None] = []
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with (
@@ -172,18 +176,18 @@ async def _run_with_calc_queue_workers(
                 env.client,
                 task_queue=task_queue,
                 workflows=[ExperimentMetricsRecalculationWorkflow],
-                activities=[*activities[:2], _recording_calculate(workflow_queue_calls)],
+                activities=[*activities[:2], _recording_calculate(workflow_queue_calls, budgets)],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ),
             Worker(
                 env.client,
                 task_queue=activity_worker_task_queue,
-                activities=[_recording_calculate(activity_queue_calls)],
+                activities=[_recording_calculate(activity_queue_calls, budgets)],
             ),
             Worker(
                 env.client,
                 task_queue=precompute_worker_task_queue or str(uuid.uuid4()),
-                activities=[_recording_calculate(precompute_queue_calls)],
+                activities=[_recording_calculate(precompute_queue_calls, budgets)],
             ),
         ):
             handle = await env.client.start_workflow(
@@ -201,6 +205,7 @@ async def _run_with_calc_queue_workers(
         workflow_queue_calls=workflow_queue_calls,
         activity_queue_calls=activity_queue_calls,
         precompute_queue_calls=precompute_queue_calls,
+        schedule_to_close_timeouts=budgets,
         history=history,
     )
 
@@ -692,12 +697,22 @@ class TestExperimentMetricsRecalculationWorkflow:
 
     @parameterized.expand(
         [
-            # name, routed_to_precompute, run_on_activity_queue, recorded_without_routes, expected calls per queue
-            ("precompute_route", True, True, False, [], [], [("m1", None)]),
-            ("direct_route", False, True, False, [], [("m1", PrecomputationMode.DIRECT)], []),
-            ("run_off_the_flag_ignores_the_route", True, False, False, [("m1", None)], [], []),
-            ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], []),
-            ("history_without_routes_replays_with_another_arity", False, True, True, [], [("m1", None)], []),
+            # name, routed_to_precompute, run_on_activity_queue, recorded_without_routes, expected calls per queue,
+            # has the total budget
+            ("precompute_route", True, True, False, [], [], [("m1", None)], False),
+            ("direct_route", False, True, False, [], [("m1", PrecomputationMode.DIRECT)], [], False),
+            ("run_off_the_flag_ignores_the_route", True, False, False, [("m1", None)], [], [], True),
+            ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], [], True),
+            (
+                "history_without_routes_replays_with_another_arity",
+                False,
+                True,
+                True,
+                [],
+                [("m1", None)],
+                [],
+                True,
+            ),
         ]
     )
     async def test_discovery_route_dispatches_the_calculation(
@@ -709,6 +724,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         expected_workflow_queue_calls: list[_Call],
         expected_activity_queue_calls: list[_Call],
         expected_precompute_queue_calls: list[_Call],
+        has_total_budget: bool,
     ):
         activity_worker_task_queue = str(uuid.uuid4())
         precompute_worker_task_queue = str(uuid.uuid4())
@@ -723,7 +739,9 @@ class TestExperimentMetricsRecalculationWorkflow:
         def dispatch_without_routes(
             metric: ExperimentMetricToRecalculate, activity_task_queue: str | None
         ) -> _CalcDispatch:
-            return _CalcDispatch(task_queue=activity_task_queue, precomputation_mode=None)
+            return _CalcDispatch(
+                task_queue=activity_task_queue, precomputation_mode=None, schedule_to_close_timeout=_CALC_BUDGET
+            )
 
         with patch(
             f"{_WORKFLOW_MODULE}._calc_dispatch",
@@ -740,6 +758,12 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert run.workflow_queue_calls == expected_workflow_queue_calls
         assert run.activity_queue_calls == expected_activity_queue_calls
         assert run.precompute_queue_calls == expected_precompute_queue_calls
+        assert len(run.schedule_to_close_timeouts) == 1
+        if has_total_budget:
+            assert run.schedule_to_close_timeouts[0] == _CALC_BUDGET
+        else:
+            # The test server reports an unset budget as a ten-year one.
+            assert run.schedule_to_close_timeouts[0] in (None, timedelta(days=3650))
         await temporalio.worker.Replayer(
             workflows=[ExperimentMetricsRecalculationWorkflow],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),

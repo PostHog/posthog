@@ -111,12 +111,12 @@ export interface LogsIngestionConsumerDeps {
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 // A producer can stamp internal rows with less retention than the team default.
-const INTERNAL_LOGS_MIN_RETENTION_DAYS = 1
+export const INTERNAL_LOGS_MIN_RETENTION_DAYS = 1
 
 /** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
-function retentionBytesMetricName(retentionDays: number): string | null {
+export function retentionBytesMetricName(retentionDays: number): string | null {
     return RETENTION_USAGE_TIERS.has(retentionDays) ? `bytes_ingested_retention_${retentionDays}d` : null
 }
 
@@ -134,7 +134,7 @@ export type UsageStats = {
 }
 
 /** `raw` is a comma-separated team-ID list, `*` for all teams, or empty for none. */
-function teamIdMatchesCsv(raw: string, teamId: number): boolean {
+export function teamIdMatchesCsv(raw: string, teamId: number): boolean {
     const trimmed = (raw || '').trim()
     if (!trimmed) {
         return false
@@ -192,7 +192,7 @@ export function parseMinTimestampHeader(raw: string | undefined): number | undef
     return Number.isSafeInteger(parsed) ? parsed : undefined
 }
 
-const DEFAULT_USAGE_STATS: UsageStats = {
+export const DEFAULT_USAGE_STATS: UsageStats = {
     bytesReceived: 0,
     recordsReceived: 0,
     bytesAllowed: 0,
@@ -207,7 +207,7 @@ const DEFAULT_USAGE_STATS: UsageStats = {
 export type UsageStatsByTeam = Map<number, UsageStats>
 
 /** Cap concurrent per-message processing within a single kafka batch. */
-const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
+export const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -371,7 +371,7 @@ export function billingByteReductionForDrops(headerBytes: number, bytesDropped: 
  * attributed — so it reports no per-rule accounting, just the `transformations` tag when it removed
  * any record.
  */
-function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
+export function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
     return {
         kind: 'filter',
         name: 'transformations',
