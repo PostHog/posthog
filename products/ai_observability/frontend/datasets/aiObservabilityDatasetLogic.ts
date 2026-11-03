@@ -1283,14 +1283,18 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
     })),
 
     trackedActionToUrl(({ props, values }) => ({
-        setActiveTab: () => [
-            router.values.location.pathname,
-            {
-                ...withoutTraceDrawerParams(router.values.searchParams),
-                tab: values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined,
-            },
-            router.values.hashParams,
-        ],
+        setActiveTab: () => {
+            const tab = values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined
+            // urlToAction also syncs the tab from a URL the person went back to, and that URL must keep its open trace.
+            if ((router.values.searchParams.tab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined) === tab) {
+                return
+            }
+            return [
+                router.values.location.pathname,
+                { ...withoutTraceDrawerParams(router.values.searchParams), tab },
+                router.values.hashParams,
+            ]
+        },
         setFilters: () => {
             const nextSearchParams = {
                 ...router.values.searchParams,

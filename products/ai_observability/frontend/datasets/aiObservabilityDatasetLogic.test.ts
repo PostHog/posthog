@@ -1243,10 +1243,11 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(router.values.searchParams).toEqual({ search: 'quality', tab: 'metadata' })
 
                 await expectLogic(logic, () => {
-                    router.actions.push(datasetUrl, { search: 'quality' })
+                    router.actions.push(datasetUrl, { search: 'quality', trace: 'a' })
                 }).toFinishAllListeners()
 
                 expect(logic.values.activeTab).toBe('items')
+                expect(router.values.searchParams).toEqual({ search: 'quality', trace: 'a' })
                 expect(mockDatasetsApi.listItems).not.toHaveBeenCalled()
             })
 
