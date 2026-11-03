@@ -1,6 +1,4 @@
-//! Port of `batching-pipeline.ts`. Node spreads the batch context into each value
-//! (`TInput & CBatch`); here a value is `WithBatch<T, CB>`, which derefs to the value. Node
-//! merges the feed context into the batch context; here it is its own `BatchResult` field.
+//! Node spreads the batch context into each value. Here a value is `WithBatch<T, CB>`, and the feed context is a `BatchResult` field.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};

@@ -1,5 +1,3 @@
-//! Mirrors `docs/17-fan-out-fan-in.test.ts`.
-
 mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

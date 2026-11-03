@@ -1,5 +1,3 @@
-//! Port of `retry.ts` and `retryIfRetriable` from `~/common/utils/retries`.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +9,7 @@ use crate::metrics::record_retry_attempts;
 use crate::results::{dlq, PipelineResult};
 use crate::steps::{ChunkProcessingStep, ProcessingStep};
 
-/// Port of `RetrySchedule` plus `RetryOptions.name`. Defaults match `defaultRetryConfig`.
+/// Defaults match `defaultRetryConfig`.
 #[derive(Debug, Clone, Default)]
 pub struct RetryOptions {
     pub tries: Option<u32>,
@@ -40,8 +38,7 @@ where
     retry_with_input((), |()| f(), options).await
 }
 
-/// Every attempt but the last possible one gets a clone, so `tries: 1` clones nothing. The first
-/// attempt cannot take `input`, because a retry needs it again.
+/// Every attempt but the last gets a clone, because a retry needs the input again.
 pub async fn retry_with_input<V, T, F, Fut>(
     input: V,
     mut f: F,

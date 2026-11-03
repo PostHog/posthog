@@ -1,12 +1,4 @@
-/**
- * Per-element framework overhead. The steps do trivial work (`v + 1`), so the numbers are the
- * cost of the framework itself. The workloads and sizes match
- * `rust/ingestion-framework/benches/framework.rs`, so the two can be compared.
- *
- * Run from `nodejs/`. The config module needs a database URL at import time; nothing connects:
- * `DATABASE_URL=postgres://localhost/bench pnpm exec tsx src/ingestion/framework/benchmarks/framework-bench.ts`
- * Prints one JSON line per workload and size with the mean ns per element.
- */
+// The workloads and sizes match `rust/ingestion-framework/benches/framework.rs`, so the two can be compared.
 import {
     newBatchingPipeline,
     newChunkPipelineBuilder,
@@ -176,7 +168,6 @@ function assertCount(actual: number, expected: number): void {
 }
 
 async function bench(name: string, n: number, run: (n: number) => Promise<void>): Promise<void> {
-    // Warm up the JIT before timing.
     const warmupUntil = performance.now() + Math.min(500, MIN_BENCH_MS / 4)
     while (performance.now() < warmupUntil) {
         await run(n)

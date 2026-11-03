@@ -1,5 +1,3 @@
-//! Port of `per-element-step.ts`.
-
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
@@ -8,8 +6,7 @@ use futures::stream::{FuturesOrdered, StreamExt};
 use crate::steps::{ChunkProcessingStep, ProcessingStep};
 use crate::sync::FifoLimiter;
 
-/// `join_all` with the output sized up front. Above `JOIN_ALL_SMALL`, `join_all` grows its output
-/// one push at a time, which copies a chunk of large results on every growth. Poll order is the same.
+/// Sized up front, because above `JOIN_ALL_SMALL` `join_all` grows its output one push at a time.
 async fn join_all_presized<F: Future>(runs: Vec<F>) -> Vec<F::Output> {
     if runs.len() <= JOIN_ALL_SMALL {
         return futures::future::join_all(runs).await;
@@ -25,10 +22,7 @@ async fn join_all_presized<F: Future>(runs: Vec<F>) -> Vec<F::Output> {
 /// Mirrors `futures_util::future::join_all::SMALL`.
 const JOIN_ALL_SMALL: usize = 30;
 
-/// Results keep input order. With `max_concurrency`, values start FIFO like `concurrently`. The
-/// steps run inside the one chunk-step future, not as tasks, as Node runs them on one event loop.
-/// The first error fails the chunk, as `Promise.all` rejects. Nothing cancels the other values in
-/// Node, so they run to the end, but here the chunk step returns only after they end.
+/// Steps run inside one future, not as tasks, as Node runs them on one event loop. The first error fails the chunk after the rest end.
 /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
 pub fn per_element<T, U>(
     step: ProcessingStep<T, U>,

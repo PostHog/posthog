@@ -1,5 +1,3 @@
-//! Mirrors `docs/14-batching.test.ts`.
-
 mod common;
 
 use common::{items, shared};

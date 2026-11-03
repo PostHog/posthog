@@ -1,5 +1,3 @@
-//! Port of `concurrently-grouping-chunk-pipeline.ts`.
-
 use std::collections::{HashSet, VecDeque};
 use std::hash::Hash;
 use std::panic::AssertUnwindSafe;
@@ -62,8 +60,7 @@ where
     O: Send + 'static,
     C: Send + 'static,
 {
-    /// A completing group calls this for its own key. Every key left in `queues` then belongs to a
-    /// running group, so their order no longer matters and the remove can be a `swap_remove`.
+    /// Every key left in `queues` belongs to a running group, so its order no longer matters and `swap_remove` is safe.
     fn start_group_if_queued(self: &Arc<Self>, state: &mut GroupState<K, M, O, C>, key: &K) {
         if state.active.contains(key) {
             return;

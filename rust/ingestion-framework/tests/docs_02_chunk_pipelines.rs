@@ -1,5 +1,3 @@
-//! Mirrors `docs/02-chunk-pipelines.test.ts`.
-
 mod common;
 
 use common::{collect_chunks, items, shared};

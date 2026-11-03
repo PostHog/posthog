@@ -1,5 +1,3 @@
-//! Mirrors `docs/09-ingestion-warnings.test.ts`.
-
 mod common;
 
 use std::sync::Arc;

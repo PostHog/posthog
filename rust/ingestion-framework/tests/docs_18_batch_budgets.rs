@@ -1,5 +1,4 @@
-//! Mirrors `docs/18-batch-budgets.test.ts`. `tokio::time::advance` inside a step replaces
-//! the synchronous `jest.advanceTimersByTime`.
+//! `tokio::time::advance` inside a step replaces the synchronous `jest.advanceTimersByTime`.
 
 mod common;
 

@@ -1,5 +1,3 @@
-//! Mirrors `docs/03-concurrent-processing.test.ts`. Paused tokio time replaces fake timers.
-
 mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

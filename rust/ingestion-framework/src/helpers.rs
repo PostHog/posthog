@@ -1,5 +1,3 @@
-//! Port of `helpers.ts`.
-
 use std::collections::BTreeMap;
 
 use serde_json::json;
@@ -7,8 +5,7 @@ use serde_json::json;
 use crate::context::{OkResultWithContext, PipelineContext};
 use crate::outputs::{HasMessage, KafkaMessage};
 
-// The headers a responder needs to write an event restriction for a poison message.
-// distinct_id and session_id are customer-controlled and stay out.
+// A responder needs these headers for an event restriction. distinct_id and session_id are customer-controlled and stay out.
 const LOGGED_HEADERS: [&str; 3] = ["token", "event", "uuid"];
 
 pub fn create_kafka_debug_context(message: &KafkaMessage) -> serde_json::Value {
@@ -97,7 +94,7 @@ impl HasMessage for MessageContext {
     }
 }
 
-/// Port of `createBatch`. The value is a copy of the context, as in Node, where it is `{ message }` too.
+/// The value is a copy of the context, as in Node, where it is `{ message }` too.
 pub fn create_batch(
     messages: Vec<KafkaMessage>,
 ) -> Vec<OkResultWithContext<MessageContext, MessageContext>> {

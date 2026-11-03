@@ -1,5 +1,3 @@
-//! Port of `batch-budget.ts`.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -69,7 +67,7 @@ impl BatchBudget {
 
 const MAX_TIMER_DELAY_MS: u64 = (1 << 31) - 1;
 
-/// Port of `budgetDeadline`. Zero or an allowance above the Node timer limit means no deadline.
+/// Zero, or an allowance above the Node timer limit, means no deadline.
 pub fn budget_deadline(armed_at: Instant, budget_ms: u64) -> Option<Instant> {
     if budget_ms == 0 || budget_ms > MAX_TIMER_DELAY_MS {
         None

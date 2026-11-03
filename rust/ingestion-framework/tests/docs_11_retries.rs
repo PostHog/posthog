@@ -1,6 +1,3 @@
-//! Mirrors `docs/11-retries.test.ts`. `PipelineError::retriable` / `non_retriable` stand in
-//! for the `isRetriable` property on a thrown error.
-
 mod common;
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -141,7 +138,6 @@ async fn tries_and_sleep_ms_control_attempts_and_backoff() {
         .build();
     let handle =
         tokio::spawn(async move { pipeline.process(create_ok_context("data".into(), ())).await });
-    // Like `jest.advanceTimersByTimeAsync`: run every timer due by then before asserting.
     async fn advance(ms: u64) {
         sleep_ms(ms).await;
         for _ in 0..10 {

@@ -1,5 +1,3 @@
-//! Mirrors `docs/04-sequential-processing.test.ts`.
-
 mod common;
 
 use common::{collect_chunks, consume_all, items, shared, sleep_ms};

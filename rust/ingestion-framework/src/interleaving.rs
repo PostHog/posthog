@@ -1,7 +1,4 @@
-//! Port of `interleaving-chunk-pipeline.ts`. Node races the pending sub-pipeline pull against a
-//! feed wake-up and keeps the pull across `next()` calls. Here the pull is a boxed `'static` future
-//! that owns an `Arc` of the callbacks, so it can wait in a field and `select!` can race it. It is
-//! not spawned, because a spawn per `next()` costs a cross-thread wake on a multi-thread runtime.
+//! The pull is a boxed future in a field, not a spawned task, because a spawn per `next()` costs a cross-thread wake.
 
 use std::sync::{Arc, Mutex};
 
@@ -82,8 +79,7 @@ where
         }
 
         loop {
-            // Arm a fresh wake-up before the pull. A feed during the pull still wins the
-            // race below, and a stale feed signal does not pull the next chunk early.
+            // Arm a fresh wake-up before the pull, so a stale feed signal does not pull the next chunk early.
             self.new_input.reset();
 
             let pulled = match self.callbacks.on_source_pull().await {

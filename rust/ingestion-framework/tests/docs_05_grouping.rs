@@ -1,5 +1,3 @@
-//! Mirrors `docs/05-grouping.test.ts`.
-
 mod common;
 
 use std::collections::HashMap;

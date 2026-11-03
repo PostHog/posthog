@@ -1,5 +1,4 @@
-//! Mirrors `docs/10-branching.test.ts`. Node checks branch coverage at compile time; branch
-//! names are strings here, so only the run-time DLQ path exists.
+//! Branch names are strings, so only the run-time DLQ path exists.
 
 mod common;
 

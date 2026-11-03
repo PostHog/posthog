@@ -1,6 +1,3 @@
-//! Port of `chunk-pipeline.interface.ts`, `buffering-chunk-pipeline.ts`, `base-chunk-pipeline.ts`,
-//! `sequential-chunk-pipeline.ts`, `gathering-chunk-pipeline.ts` and `chunk-pipeline-unwrapper.ts`.
-
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 

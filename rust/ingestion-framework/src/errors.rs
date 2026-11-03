@@ -1,5 +1,4 @@
-//! Node steps flag retriability with `isRetriable` on the thrown error. Here `is_retriable` reads
-//! a `PipelineError` from the top-level error only, as Node reads the thrown object, not its `cause`.
+//! `is_retriable` reads only the top-level error, as Node reads `isRetriable` on the thrown object and not on its `cause`.
 
 use std::fmt;
 use std::sync::Arc;
@@ -28,8 +27,7 @@ impl PipelineError {
     }
 }
 
-/// The Node `error.isRetriable` lookup: a `context()` wrapper has no flag of its own, so it reads
-/// as `None`. A `SharedError` is one error object shared by several callers, so it reads through.
+/// A `context()` wrapper reads as `None`, as in Node. A `SharedError` is one error object that several callers share, so it reads through.
 pub fn is_retriable(error: &anyhow::Error) -> Option<bool> {
     // `anyhow`'s `downcast_ref` also finds a context wrapper's inner error, so check the outermost.
     let outermost: &(dyn std::error::Error + 'static) = error.chain().next()?;
@@ -72,8 +70,7 @@ pub fn join_error(error: tokio::task::JoinError) -> anyhow::Error {
     anyhow::anyhow!("pipeline task failed: {error}")
 }
 
-/// Port of JavaScript's `AggregateError(errors, message)`: its message is `message` only. A `None`
-/// sub error is a sub result without an error, which Node keeps as `undefined`.
+/// As in JavaScript's `AggregateError`, the message is `message` only, and a `None` sub error is Node's `undefined`.
 pub struct AggregateError {
     pub message: String,
     pub errors: Vec<Option<Arc<anyhow::Error>>>,

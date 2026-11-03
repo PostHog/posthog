@@ -1,5 +1,3 @@
-//! Port of `pipeline.interface.ts` (`Pipeline`), `start-pipeline.ts` and `step-pipeline.ts`.
-
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -10,7 +8,7 @@ use crate::metrics::{record_budget_checkpoint, record_step_duration, BudgetCheck
 use crate::results::{NonOk, Outcome};
 use crate::steps::ProcessingStep;
 
-/// A single-item processor. An `Err` is the Node `throw`: it crashes the batch.
+/// An `Err` is the Node `throw`: it crashes the batch.
 #[async_trait]
 pub trait Pipeline<I, O, C>: Send + Sync {
     async fn process(

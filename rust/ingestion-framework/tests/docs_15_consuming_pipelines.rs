@@ -1,5 +1,3 @@
-//! Mirrors `docs/15-consuming-pipelines.test.ts`.
-
 mod common;
 
 use std::sync::{Arc, Mutex};

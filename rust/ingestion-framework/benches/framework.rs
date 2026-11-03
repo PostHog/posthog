@@ -1,6 +1,4 @@
-//! Per-element framework overhead with trivial steps (`v + 1`). Workloads and sizes match
-//! `nodejs/src/ingestion/framework/benchmarks/framework-bench.ts`. A current-thread runtime matches
-//! the single Node event loop, and the `*_multi_thread` variants show what spawned tasks gain.
+//! Workloads and sizes match `framework-bench.ts`. A current-thread runtime matches the single Node event loop.
 
 use std::sync::Arc;
 

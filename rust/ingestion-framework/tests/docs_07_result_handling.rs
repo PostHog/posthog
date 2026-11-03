@@ -1,5 +1,3 @@
-//! Mirrors `docs/07-result-handling.test.ts`.
-
 mod common;
 
 use std::sync::Arc;

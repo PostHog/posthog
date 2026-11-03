@@ -1,5 +1,3 @@
-//! Semantics the living docs do not pin down but the Node implementation guarantees.
-
 mod common;
 
 use std::sync::Arc;

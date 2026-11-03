@@ -1,5 +1,3 @@
-//! Mirrors `docs/06-gathering.test.ts`.
-
 mod common;
 
 use common::{collect_chunks, items, sleep_ms};

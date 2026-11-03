@@ -1,5 +1,3 @@
-//! Port of `results.ts`.
-
 use std::fmt;
 use std::sync::Arc;
 
@@ -121,8 +119,7 @@ impl<T> Outcome<T> {
     }
 }
 
-/// Node's result keeps its own copy of the side effects after the merge into the context. A
-/// `SideEffect` is a task handle and cannot be copied, so the pipeline moves them instead.
+/// A `SideEffect` is a task handle that cannot be copied, so the pipeline moves it where Node keeps a copy.
 pub struct PipelineResult<T> {
     pub outcome: Outcome<T>,
     pub side_effects: Vec<SideEffect>,

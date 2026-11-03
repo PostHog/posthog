@@ -1,6 +1,4 @@
-//! Port of `builders/pipeline-builders.ts`, `builders/chunk-pipeline-builders.ts` and `builders/helpers.ts`.
-//! Node checks at compile time that every branch and redirect output is configured. The names are
-//! strings here, so those checks run at run time, and an unknown branch becomes a DLQ, as in Node.
+//! Branch and redirect names are strings, so Node's compile-time coverage checks run at run time, and an unknown branch is a DLQ.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -8,7 +6,6 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 
-// Node exports `perElement` from `builders/index.ts`.
 pub use crate::per_element::per_element;
 
 use crate::batching::{
@@ -66,7 +63,7 @@ impl<T: Send + 'static, C: Send + 'static> StartPipelineBuilder<T, C> {
         PipelineBuilder::new(Arc::new(StepPipeline::new(step, self.start())))
     }
 
-    /// `pipe(step, { retry })`. Retrying passes the value again, so it must be `Clone`.
+    /// Retrying passes the value again, so it must be `Clone`.
     pub fn pipe_with_retry<U: Send + 'static>(
         self,
         step: ProcessingStep<T, U>,

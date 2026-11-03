@@ -1,5 +1,3 @@
-//! Mirrors `docs/13-conventions.test.ts`.
-
 mod common;
 
 use std::sync::Arc;

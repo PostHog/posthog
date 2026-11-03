@@ -1,5 +1,4 @@
-//! Port of `steps.ts` and `ChunkProcessingStep` from `base-chunk-pipeline.ts`. Node reads a step's
-//! name from the function's `.name`, and Rust closures have none, so a step carries its name.
+//! Rust closures have no `.name`, so a step carries its name.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -111,7 +110,6 @@ impl<T: 'static, U: 'static> ChunkProcessingStep<T, U> {
 }
 
 impl<T: Send + 'static, U: Send + 'static> ChunkProcessingStep<T, U> {
-    /// Same as the `perMessage` helper in the Node metrics pipeline.
     pub fn per_item(step: ProcessingStep<T, U>) -> Self {
         crate::per_element::per_element(step, None)
     }

@@ -1,5 +1,4 @@
-//! Port of `metrics.ts`. The metric names and labels match the Node side, so one
-//! dashboard reads both implementations.
+//! Metric names and labels match the Node side, so one dashboard reads both.
 
 use std::sync::Arc;
 
@@ -9,9 +8,7 @@ pub const PIPELINE_RETRY_ATTEMPTS_HISTOGRAM: &str = "ingestion_pipeline_retry_at
 pub const BATCH_BUDGET_EXHAUSTED_COUNTER: &str = "ingestion_batch_budget_exhausted_total";
 pub const BATCH_BUDGET_OVERRUN_HISTOGRAM: &str = "ingestion_batch_budget_overrun_seconds";
 pub const BATCH_BUDGET_CHECKPOINT_COUNTER: &str = "ingestion_batch_budget_checkpoint_total";
-/// From `~/ingestion/common/metrics`, used by the result handling pipeline.
 pub const INGESTION_PIPELINE_RESULTS_COUNTER: &str = "ingestion_pipeline_results";
-/// From `~/ingestion/common/ingestion-warnings`.
 pub const INGESTION_WARNING_COUNTER: &str = "ingestion_warnings_total";
 
 #[derive(Debug, Clone, Copy)]

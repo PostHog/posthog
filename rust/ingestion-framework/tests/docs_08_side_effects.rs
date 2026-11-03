@@ -1,5 +1,3 @@
-//! Mirrors `docs/08-side-effects.test.ts`.
-
 mod common;
 
 use std::sync::Arc;

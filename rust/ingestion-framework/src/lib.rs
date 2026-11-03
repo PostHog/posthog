@@ -1,7 +1,4 @@
-//! Rust port of the Node ingestion pipeline framework in
-//! `nodejs/src/ingestion/framework`. The two are kept in step: same concepts, same names
-//! (snake_case), same semantics. `PARITY.md` maps each TypeScript file to its module and
-//! lists every known difference.
+//! Kept in step with `nodejs/src/ingestion/framework`. `PARITY.md` lists every known difference.
 
 pub mod batching;
 pub mod branching;

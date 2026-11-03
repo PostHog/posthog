@@ -1,5 +1,3 @@
-//! Port of `ingestion-warning-handling-chunk-pipeline.ts` and the emit half of `ingestion-warnings.ts`.
-
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
@@ -13,9 +11,7 @@ use crate::outputs::{HasTeamId, IngestionOutputs, OutputMessage, INGESTION_WARNI
 use crate::results::{NonOk, Outcome};
 use crate::side_effects::SideEffect;
 
-/// Node rate-limits per `team:type:key` with `IngestionWarningLimiter`, an app concern, so it
-/// sits behind this trait. `Ok(false)` means not sent: rate-limited, or a failed produce, which
-/// Node logs and does not reject. `Err` fails the side effect, as Node's `emitIngestionWarning` rejects.
+/// Node logs a failed produce and does not reject, so that is `Ok(false)`. `Err` fails the side effect, as Node's emit rejects.
 #[async_trait]
 pub trait IngestionWarningEmitter: Send + Sync {
     async fn emit(&self, team_id: i64, warning: PipelineWarning) -> anyhow::Result<bool>;
@@ -69,10 +65,7 @@ pub fn warning_classification(warning_type: &str) -> Option<WarningClassificatio
         .copied()
 }
 
-/// Port of `serializeIngestionWarning`, byte for byte: the keys in Node's order, the
-/// caller's details in insertion order, then `category`, `severity` and a non-empty
-/// `pipelineStep`. A key that the caller already set keeps its place and takes the new
-/// value, as in a JavaScript object spread. Fails for an unregistered type, as Node's lookup throws.
+/// Byte for byte as Node. A key the caller already set keeps its place and takes the new value, as in an object spread.
 pub fn serialize_ingestion_warning(
     team_id: i64,
     warning: &PipelineWarning,

@@ -1,5 +1,3 @@
-//! Port of `concurrent-chunk-pipeline.ts`.
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -47,8 +45,7 @@ where
             match item.into_ok() {
                 Ok(ok) => {
                     let processor = self.processor.clone();
-                    // Admission is reserved here, in pull order, so the head of the queue
-                    // always gets a slot first and emission order holds.
+                    // Admission is reserved in pull order, so the head of the queue gets a slot first and emission order holds.
                     let permit = self.limit.as_ref().map(|limit| limit.acquire());
                     queue.push_back(Queued::Running(tokio::spawn(async move {
                         let _permit = match permit {

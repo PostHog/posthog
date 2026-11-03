@@ -1,5 +1,3 @@
-//! Port of `branching-pipeline.ts`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 

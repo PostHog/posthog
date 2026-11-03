@@ -1,5 +1,3 @@
-//! Port of `side-effect-handling-pipeline.ts`.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -1,5 +1,3 @@
-//! `ResettableSignal` (port of `resettable-signal.ts`) and `FifoLimiter` (Node's `p-limit` semantics).
-
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -44,8 +42,7 @@ impl ResettableSignal {
     }
 }
 
-/// A FIFO concurrency cap like `p-limit`. A caller queues when it calls `acquire()`, not when it
-/// first polls the future, so admission order is call order.
+/// A caller queues when it calls `acquire()`, not when it first polls, so admission order is call order.
 pub struct FifoLimiter {
     max: usize,
     state: Mutex<LimiterState>,

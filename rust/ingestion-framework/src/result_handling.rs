@@ -1,5 +1,3 @@
-//! Port of `result-handling-pipeline.ts` and `result-handling-helpers.ts`.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -27,7 +25,7 @@ fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// Port of `copyAndExtendHeaders`. Node stringifies a non-buffer, non-string value, so null is `"null"`.
+/// Node stringifies a non-buffer, non-string value, so null is `"null"`.
 pub fn copy_and_extend_headers(message: &KafkaMessage, additional: Headers) -> Headers {
     let mut headers = Headers::new();
     for (key, value) in &message.headers {

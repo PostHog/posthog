@@ -1,12 +1,8 @@
-//! `IngestionOutputs` stands in for the Node `IngestionOutputs` registry: steps produce by
-//! output name and never see a producer or a topic.
-
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 pub use bytes::Bytes;
 
-/// Port of the `DLQ_OUTPUT` and `INGESTION_WARNINGS_OUTPUT` names from `~/common/outputs`.
 pub const DLQ_OUTPUT: &str = "dlq";
 pub const INGESTION_WARNINGS_OUTPUT: &str = "ingestion_warnings";
 
@@ -23,7 +19,7 @@ pub struct KafkaMessage {
 }
 
 impl KafkaMessage {
-    /// Port of `parseKafkaHeaders`: the last value of a repeated key wins.
+    /// The last value of a repeated key wins, as in `parseKafkaHeaders`.
     pub fn header_map(&self) -> std::collections::HashMap<String, String> {
         let mut map = std::collections::HashMap::new();
         for (key, value) in &self.headers {
@@ -106,7 +102,7 @@ pub struct OutputMessage {
 #[async_trait]
 pub trait IngestionOutputs: Send + Sync {
     async fn produce(&self, output: &str, message: OutputMessage) -> anyhow::Result<()>;
-    /// Queues messages. Node's `queueMessages` also resolves on the ack.
+    /// Resolves on the ack, as Node's `queueMessages` does.
     async fn queue_messages(
         &self,
         output: &str,

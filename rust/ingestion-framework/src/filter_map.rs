@@ -1,4 +1,3 @@
-//! Port of `filter-map-chunk-pipeline.ts`. Node's output context is `COutput | CIntermediate`, and
 //! Rust has no union types, so the output context implements `From` the earlier one for passthroughs.
 
 use std::sync::Arc;

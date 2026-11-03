@@ -1,5 +1,3 @@
-//! Mirrors `per-element-step.test.ts`.
-
 use std::sync::{Arc, Mutex};
 
 use ingestion_framework::{ok, per_element, step, PipelineResult};
@@ -25,8 +23,7 @@ async fn keeps_input_order_and_never_runs_more_than_max_concurrency_steps_at_onc
                     t.running += 1;
                     t.peak = t.peak.max(t.running);
                 }
-                // Later values wait fewer ticks and finish first, so output order cannot
-                // follow completion order.
+                // Later values wait fewer ticks and finish first, so output order cannot follow completion order.
                 for _ in 0..(8 - value) {
                     tokio::task::yield_now().await;
                 }

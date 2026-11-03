@@ -1,6 +1,4 @@
-//! A Node async function runs up to its first `await` when it is called. `SideEffect::spawn`
-//! keeps that: it polls once on the caller's thread and spawns only the rest, so produce calls
-//! start in creation order as in Node. Dropping it detaches the task, like an unhandled promise.
+//! `spawn` polls once on the caller's thread, as a Node async function runs to its first `await`, so produces start in creation order.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -114,10 +112,7 @@ pub trait SideEffectScheduler: Send + Sync {
     fn schedule(&self, side_effect: SideEffect);
 }
 
-/// Node drops a promise from its set when it settles. Here a grown `schedule()`,
-/// `pending_count()` and `wait_for_all()` prune settled entries instead.
-/// Unlike Node, it latches the first failure, as the metrics consumer's `FailureLatchingPromiseScheduler`
-/// does, so the consumer never stores offsets for a batch whose side effect failed early.
+/// Unlike Node, it latches the first failure, so the consumer never stores offsets for a batch whose side effect failed early.
 #[derive(Default, Clone)]
 pub struct PromiseScheduler {
     inner: Arc<Mutex<SchedulerState>>,
@@ -190,8 +185,7 @@ impl PromiseScheduler {
         state.pending.len()
     }
 
-    /// Node's `Promise.all` over the current set. Entries leave only when they settle, so an
-    /// overlapping call also waits for them and a cancelled call leaves them for the next one.
+    /// Entries leave only when they settle, so an overlapping call also waits for them and a cancelled call leaves them.
     pub async fn wait_for_all(&self) -> anyhow::Result<()> {
         let snapshot: Vec<(u64, Pending)> = self
             .inner

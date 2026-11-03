@@ -1,6 +1,4 @@
-//! A JSON writer with the output of JavaScript's `JSON.stringify`. `serde_json` writes `1.0` and
-//! `1e21` where JavaScript writes `1` and `1e+21`, and its key order depends on the build's
-//! `preserve_order` feature, so Kafka messages that must equal the Node bytes use this module.
+//! Kafka messages that must equal the Node bytes use this writer, because `serde_json` prints `1.0` and `1e21`, not `1` and `1e+21`.
 
 use std::fmt::Write;
 
@@ -87,7 +85,7 @@ pub fn write_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
-/// `Number.prototype.toString`. JavaScript numbers are f64, so an integer above 2^53 prints as in Node.
+/// JavaScript numbers are f64, so an integer above 2^53 prints as in Node.
 pub fn write_number(out: &mut String, f: f64) {
     if !f.is_finite() {
         out.push_str("null");
@@ -127,8 +125,7 @@ pub fn write_number(out: &mut String, f: f64) {
     }
 }
 
-/// `{:e}` gives the shortest round-trip digits. ECMAScript breaks a tie between two shortest
-/// candidates toward even, so an odd last digit is checked against the exactly rounded form.
+/// ECMAScript breaks a tie between two shortest candidates toward even, so an odd last digit is checked against the exact rounding.
 fn shortest_scientific(value: f64) -> String {
     let shortest = format!("{value:e}");
     let mantissa = shortest.split_once('e').map_or("", |(m, _)| m);

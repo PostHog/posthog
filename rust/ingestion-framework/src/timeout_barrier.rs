@@ -1,5 +1,3 @@
-//! Port of `timeout-barrier-pipeline.ts`.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -12,8 +10,7 @@ use crate::results::{NonOk, Outcome};
 
 const TIMEOUT_BARRIER: &str = "timeoutBarrier";
 
-/// The last budget checkpoint. An element that reaches it with time left continues with an
-/// unlimited budget, so it always finishes. An exhausted element stops here.
+/// An element with time left continues with an unlimited budget, so it always finishes.
 pub struct TimeoutBarrierPipeline<I, O, C> {
     previous: DynPipeline<I, O, C>,
 }

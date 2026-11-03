@@ -1,6 +1,3 @@
-//! Mirrors `docs/12-filter-map.test.ts`. Node types the output context as a union; here the
-//! team-aware context converts from the message context, with `team_id` unset for passthroughs.
-
 mod common;
 
 use std::sync::Arc;

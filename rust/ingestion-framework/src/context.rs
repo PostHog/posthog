@@ -1,5 +1,3 @@
-//! Port of `pipeline.interface.ts` and `chunk-pipeline.interface.ts` (the data types).
-
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -29,8 +27,7 @@ pub struct PipelineWarning {
 }
 
 impl PipelineWarning {
-    /// A `json!` object has sorted keys unless the build enables serde_json's `preserve_order`,
-    /// so use `with_detail` where the key order of the message matters.
+    /// A `json!` object has sorted keys without serde_json's `preserve_order`, so use `with_detail` where key order matters.
     pub fn new(warning_type: impl Into<String>, details: serde_json::Value) -> Self {
         Self {
             warning_type: warning_type.into(),
@@ -55,9 +52,7 @@ impl PipelineWarning {
     }
 }
 
-/// Port of `PipelineContext<C>`. Node spreads `C` into the object with the framework fields; here
-/// `C` lives in `data`, and `Deref` exposes its fields. `message_id` belongs to Node's
-/// `BatchingContext`, and lives here so that batching does not change the context type.
+/// Node spreads `C` into the context. Here `C` lives in `data` behind `Deref`, and `message_id` lives here so batching keeps the type.
 pub struct PipelineContext<C> {
     pub data: C,
     pub last_step: Option<Arc<str>>,

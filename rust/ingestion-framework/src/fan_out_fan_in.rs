@@ -1,6 +1,3 @@
-//! Port of `fan-out-fan-in-chunk-pipeline.ts`. Node tags each sub-context with a symbol-keyed
-//! parent token; here `FanOutSubContext` holds an opaque parent id.
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -301,8 +298,7 @@ where
                     self.settle(&mut state, sub_result, &mut done)?;
                 }
             }
-            // Each parent is ready before the next fan-in runs, so a later fan-in failure
-            // does not lose it. The poisoned drain returns it, as Node's readyResults does.
+            // A parent is ready before the next fan-in runs, so the poisoned drain returns it, as Node's readyResults does.
             for settled in done {
                 let finished = self.finish(settled)?;
                 self.state.lock().unwrap().ready.push(finished);
