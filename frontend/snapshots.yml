@@ -3400,30 +3400,38 @@ snapshots:
         hash: v1.k794b7964.7cb2348662f942bc00e904aca1cf74990ac3b8e25549be308b29e907c156d0eb.WQ5R8L0lbbFdH9oG3RShU2S1nHfj_SHpnz9PrjLAx6A
     errortracking-volumesparkline--events-before-data-range--light:
         hash: v1.k794b7964.c88c4e3b028915efba3fdbbac7107a063662d8210dfb6ba8667e96d719fa3d4f.tzwEQFa4F1f1O9PGqBkcaqSavbFVgAwPAjyh9Uf9NL8
+    experiments-healthchecksoverview--check-details-of-a-check-that-does-not-apply--dark:
+        hash: v1.k794b7964.ebb5b817b0a9b4bb6bae2c3cd45a0b38818584e8866134b61c08ffd93f3362d5.MUjVFifBOedHd2GA6TtvfKp-Nx8Mj5I-UTOq1JPnVzY
+    experiments-healthchecksoverview--check-details-of-a-check-that-does-not-apply--light:
+        hash: v1.k794b7964.f5e4913a62e1e01741dc4e880598bb8c201005b0f704d7fe720d1797c9718fc1.VQCG4WEsoHK-jWyrAJAH1N5TdIS0d2F3ZiPiQO-k_cs
+    experiments-healthchecksoverview--check-details-with-a-measurement--dark:
+        hash: v1.k794b7964.beea1b208d24c851f82094bed9f3a39aae5ae3caad0481d24de610ca9a8253b1.Ok3EDpxjH9-hXggrp7MlVAZDCy_lmYhSr-cM_GVPdqw
+    experiments-healthchecksoverview--check-details-with-a-measurement--light:
+        hash: v1.k794b7964.38a1738c641bdffa21c9644f5b673732b5aedbd8d09c36f4a1cce484393614cd.bW-xQzxh7qk1_h1dsXbx_H9IaA0S21haMS3KfULxCts
     experiments-healthchecksoverview--checks-that-could-not-run--dark:
-        hash: v1.k794b7964.8146d36bf02449ae4b2cbc068d3a8c9b9a526fe98943acf0b57bd5dcaad5e6d5.fc6r4oDTtjgfC-OHKRDsugjSlC6k5cWSM54vvzQM9mo
+        hash: v1.k794b7964.5731be92503447c64212347dc0828774452c9d9673b4033d79726aa6acb958a4.wjAtiEyDKEjIOG3rIBgRmYlkLIfWWvFOI3QGfzpaW9M
     experiments-healthchecksoverview--checks-that-could-not-run--light:
-        hash: v1.k794b7964.06e0cff56ebe51ceff259f34b68d3264930fb0c11905b56b7fe9ceaf8f418bf6.7fZpFHvrBEgKqkNydDxXtJ_LKQKV6Fryti6eNfk57PM
+        hash: v1.k794b7964.61c7db3e6ad3821204d03b0e9737531b4f71226321fe94fd4b090f761bb8b058.Aclf61b1bHuxi1r8bO1pl-hjgoCBEaX8d7D_4DzE66s
     experiments-healthchecksoverview--draft--dark:
-        hash: v1.k794b7964.8ce0d1b68bbf088f3f69dc2f88f2f3bb8ac9059ea99a2c3f4f0e6409f5546ee5.zIywLX5gjLEKZ2xB2qzK3WPrKvQZpFjwcKoWuoKZELU
+        hash: v1.k794b7964.d16ac34a2d5ace6fbd43f4e3326b70de8f2ef8136650781aa81b569a4a0ac379.upf1fasUVWnNtl__hRaoDQEjhdA5__LtqImlkqR7JYo
     experiments-healthchecksoverview--draft--light:
-        hash: v1.k794b7964.59103b098225cdf194d6e196b7ef86c6039e4f507f96ed2d8f98d336d56fbbbe.ftqfIR3wi-bslWbDUy9rG2Pc1Lo9j_xfNagx88xm5Ps
+        hash: v1.k794b7964.fbeeca6537a201435f6d6b87a88c52b26fdec333d84b731c4523c20290b34c0d.YlZcgD0vIoCVuaNCHq-GXYgUcplhODFha-FyOkfjMKY
     experiments-healthchecksoverview--draft-with-events-not-received--dark:
-        hash: v1.k794b7964.9c70afa920669d0b9bcced0e8cfc3323352add548e6754b3be6e26135ebe28ee.5-qXSWJuFs5bNVjJTb1kNSz7EpmxGj0cfVkKSShMKTU
+        hash: v1.k794b7964.593d931ef10e1dfa13c3b9e84fcac505808e5dcf9e251def8fd74f8e477a09b8.5TO3tRdAiqZRSkQ5z_fSXmh-tcU448WwZrpoQt0AhPA
     experiments-healthchecksoverview--draft-with-events-not-received--light:
-        hash: v1.k794b7964.a2dcf1155d438600b9b8b1b43916c33496e7fd32b65527fbd5c4ba1ac50b9b10.URRKvYDQ_6mxCNckg_4Vm94P6FR9aSHm5jYTyM9WIXI
+        hash: v1.k794b7964.cdbd81729b929387c92c3445151ffa0b44db0dbcb669edf5530a9218d42d88a5.zEyeK3-4p_p-O_-RziKypXwXiOr7_c_GsqMjGzjFMCk
     experiments-healthchecksoverview--running-with-an-issue--dark:
-        hash: v1.k794b7964.67ae51acb1a5a680cdf7e008911ce8c4c0828711a76727d21ed3889b07b26917.pK9afrH7eguEJ5gSocUl68zIoqovXYKRWfbxPvEgtSI
+        hash: v1.k794b7964.4eaa36867b90c26f36b146f519ddaa00e9668301064716efe0992beeb572f516.5uSKe33yLu7tuwvNIsF4GWofGFvge6niuE4tcyCDz4c
     experiments-healthchecksoverview--running-with-an-issue--light:
-        hash: v1.k794b7964.ac37db2eb5df0a36a0aeb9603c56b5a6d31f5d45afee36dca97cd9144235aecc.HA2SaQlI_HoSfw_kbDTh9RtAg2MeqQbuhoDgUWREwOs
+        hash: v1.k794b7964.36d898bc716c594dacd4998dae84414ff0b7e70171426e6b07e7c0b732bd98d3.bmoF1F9NGvYbtS6R_uKhPLBnKlwMCfROEPMcGaYDDMw
     experiments-healthchecksoverview--running-with-metric-windows-not-complete--dark:
-        hash: v1.k794b7964.c028d2802d8c6040c3b96acb60be867dda5dfa7a20c061f11c0806f8d13a3ffc.Xcx8Ntc7rjwkn8nCIk5F6mH0yLEykqFsa569tUnM8cA
+        hash: v1.k794b7964.3678a64cb528ceaca7d91459a0eddd12fe61c50c9190bd04c0b773db27771002.G4JwFDn0J8aXv3Qo3Jaf6M0tmhqwp_D4GP_QfqVmGAo
     experiments-healthchecksoverview--running-with-metric-windows-not-complete--light:
-        hash: v1.k794b7964.3d6323d20aafa349eaab62f5e0fd4408129f694ad65dcb51fe04373ee087cdf5.x5ZDA6dnw2p2pMO0DI7qeY80hY4-IuoROj9tlrGVMQ4
+        hash: v1.k794b7964.6f0f2095c2fac0466734599b45d96b043bb2a16b147df6346a27198e9d001aeb.Nf_8pb45Uk1zPZhHVpuMRLc7QSPmp2i5Wxei_PqSVRU
     experiments-healthchecksoverview--running-with-significance-on-a-small-sample--dark:
-        hash: v1.k794b7964.2a56cfad0fe2b8742792e7cc20dcd687883839ab474620f847b7c235ea440bfb.PfXKVn-zxcl2L9-HEffR5Ft5euEA6J8S5l9O-MzIyko
+        hash: v1.k794b7964.5e53a67703b82bcc386061e3cfb32654c7abe3deb61711f5047260de67ba950c.uakl2Ik2xiH0o4dIAjpjHsbnPipnwoYx6uNZX4uIcto
     experiments-healthchecksoverview--running-with-significance-on-a-small-sample--light:
-        hash: v1.k794b7964.748f4506e88aed65c9c075130598283823aa4e4e878d3282c6a5e5b9237fb40f.Bff__yx5A0zeNw3QFeNx-tqHiWL--GIIlEMYr0te510
+        hash: v1.k794b7964.1fc60ac88944e51bc7ac686cd4ea4bab33e265c0b6234562eb9ac2f7871d99c7.-B5a36kS4xMd0A0ZkCfd6Q3zwVLieVcNJjLbuUhfCv8
     experiments-howtoreadtooltip--intervals-bayesian--dark:
         hash: v1.k794b7964.a06d267cee9cb54bafc732335b35d461d3c1a59250c6daa8becace0fcb8492d2.vR5tecOozn6B51xE8LrByAFVsi03J4w-iUu-j2hQUTU
     experiments-howtoreadtooltip--intervals-bayesian--light:
