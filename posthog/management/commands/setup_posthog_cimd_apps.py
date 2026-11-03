@@ -61,7 +61,6 @@ POSTHOG_CIMD_DOCUMENTS: list[dict[str, object]] = [
     },
 ]
 
-# Skipped rather than failed, so the call from bin/ensure-local-setup is safe anywhere.
 PRODUCTION_REGIONS = frozenset({"US", "EU"})
 
 
