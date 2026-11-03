@@ -37,6 +37,7 @@ import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
+import { WorkflowStepCallbacks } from '../step-callback'
 import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
 
 describe('HogFunctionHandler', () => {
@@ -119,6 +120,7 @@ describe('HogFunctionHandler', () => {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                workflowStepCallbacks: new WorkflowStepCallbacks(hub),
             }
         )
         mockHogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)

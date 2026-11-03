@@ -1,5 +1,7 @@
 import { NativeTemplate } from '~/cdp/types'
 
+import { webhookRequestInputs } from '../webhook/webhook-inputs'
+
 export const template: NativeTemplate = {
     free: false,
     status: 'hidden',
@@ -21,54 +23,7 @@ export const template: NativeTemplate = {
         }
     },
     inputs_schema: [
-        {
-            key: 'url',
-            type: 'string',
-            label: 'Webhook URL',
-            secret: false,
-            required: true,
-            description: 'Endpoint URL to send event data to.',
-        },
-        {
-            key: 'method',
-            type: 'choice',
-            label: 'Method',
-            secret: false,
-            choices: [
-                {
-                    label: 'POST',
-                    value: 'POST',
-                },
-                {
-                    label: 'PUT',
-                    value: 'PUT',
-                },
-                {
-                    label: 'PATCH',
-                    value: 'PATCH',
-                },
-                {
-                    label: 'GET',
-                    value: 'GET',
-                },
-                {
-                    label: 'DELETE',
-                    value: 'DELETE',
-                },
-            ],
-            default: 'POST',
-            required: false,
-            description: 'HTTP method to use for the request.',
-        },
-        {
-            key: 'body',
-            type: 'json',
-            label: 'JSON Body',
-            default: { event: '{event}', person: '{person}' },
-            secret: false,
-            required: false,
-            description: 'JSON payload to send in the request body.',
-        },
+        ...webhookRequestInputs,
         {
             key: 'headers',
             type: 'dictionary',

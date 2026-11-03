@@ -35,6 +35,7 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { WorkflowStepCallbacks } from './step-callback'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -127,6 +128,7 @@ describe('Hogflow Executor', () => {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                workflowStepCallbacks: new WorkflowStepCallbacks(hub),
             }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
