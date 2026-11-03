@@ -24,7 +24,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.constants import AvailableFeature
-from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReference
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -15790,3 +15790,143 @@ class TestSourceUpdateCredentialsRow(APIBaseTest):
         assert confirmed.status_code == status.HTTP_403_FORBIDDEN, confirmed.json()
         row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, int(self._reference(source)))
         assert row.sensitive_config["fields"]["password"] == "fake-password"
+
+
+_VIEWS = "products.warehouse_sources.backend.presentation.views.external_data_source"
+
+
+@patch.object(PostgresSource, "validate_credentials_for_access_method", return_value=(True, None))
+@patch(f"{_VIEWS}.base.capture_exception")
+@patch(f"{_VIEWS}.base.sync_discover_schemas_schedule")
+@patch(f"{_VIEWS}.base.bulk_create_external_data_job_schedules", return_value=[])
+class TestCreateSourceCredentialsRow(APIBaseTest):
+    CONNECTION: dict[str, Any] = {
+        "host": "db.example.com",
+        "port": 5432,
+        "database": "app",
+        "user": "reader",
+        "password": "fake-password",
+        "schema": "public",
+    }
+
+    def _discovered(self) -> list[SourceSchema]:
+        return [
+            SourceSchema(
+                name="orders",
+                supports_incremental=True,
+                supports_append=True,
+                supports_cdc=True,
+                columns=[("id", "integer", False), ("updated_at", "timestamp", False)],
+                foreign_keys=[],
+                detected_primary_keys=["id"],
+                source_schema="public",
+                source_table_name="orders",
+            )
+        ]
+
+    def _post(self, payload: dict[str, Any], *, flag_on: bool = True, get_schemas_error: Exception | None = None):
+        reset_credentials_rollout_caches()
+        self.addCleanup(reset_credentials_rollout_caches)
+        with (
+            patch.object(schema_flags.posthoganalytics, "feature_enabled", return_value=flag_on),
+            patch.object(PostgresSource, "get_schemas", return_value=self._discovered(), side_effect=get_schemas_error),
+            patch(f"{_VIEWS}.base.is_cdc_enabled_for_team", return_value=True),
+            patch(f"{_VIEWS}.base.cdc_pg_connection"),
+            patch(f"{_VIEWS}.base.get_primary_key_columns", return_value={"orders": ["id"]}),
+            patch.object(ExternalDataSourceViewSet, "_setup_cdc_resources", return_value="Could not create the slot"),
+        ):
+            return self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={"source_type": "Postgres", "payload": {**self.CONNECTION, **payload}},
+                format="json",
+            )
+
+    def _credentials_rows(self) -> list[Any]:
+        return IntegrationManager.source("postgresql").credentials.list(self.team.pk)
+
+    @parameterized.expand(
+        [
+            ("discovery_fails", {}, True, RuntimeError("connection reset")),
+            ("schemas_not_a_list", {"schemas": "orders"}, True, None),
+            ("unknown_table", {"schemas": [{"name": "missing", "should_sync": True}]}, True, None),
+            (
+                "unknown_sync_type",
+                {"schemas": [{"name": "orders", "should_sync": True, "sync_type": "bogus"}]},
+                True,
+                None,
+            ),
+            (
+                "webhook_unsupported",
+                {"schemas": [{"name": "orders", "should_sync": True, "sync_type": "webhook"}]},
+                True,
+                None,
+            ),
+            (
+                "cdc_not_enabled",
+                {"schemas": [{"name": "orders", "should_sync": True, "sync_type": "cdc"}]},
+                True,
+                None,
+            ),
+            (
+                "cdc_setup_fails_after_insert",
+                {"cdc_enabled": True, "schemas": [{"name": "orders", "should_sync": True, "sync_type": "cdc"}]},
+                True,
+                None,
+            ),
+            (
+                "incremental_field_missing_after_insert",
+                {"schemas": [{"name": "orders", "should_sync": True, "sync_type": "incremental"}]},
+                True,
+                None,
+            ),
+            (
+                "lookback_out_of_range_after_insert",
+                {
+                    "schemas": [
+                        {
+                            "name": "orders",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                            "incremental_field_lookback_seconds": 10**9,
+                        }
+                    ]
+                },
+                True,
+                None,
+            ),
+            (
+                "flag_off_failure_after_insert",
+                {"schemas": [{"name": "orders", "should_sync": True, "sync_type": "incremental"}]},
+                False,
+                None,
+            ),
+        ]
+    )
+    def test_failed_create_leaves_no_source_and_no_credentials_row(
+        self,
+        _bulk_create_schedules: MagicMock,
+        _discover_schedule: MagicMock,
+        _capture: MagicMock,
+        _validate: MagicMock,
+        _name: str,
+        payload: dict[str, Any],
+        flag_on: bool,
+        get_schemas_error: Exception | None,
+    ) -> None:
+        response = self._post(payload, flag_on=flag_on, get_schemas_error=get_schemas_error)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+        assert self._credentials_rows() == []
+
+    def test_successful_create_keeps_one_credentials_row_that_the_source_uses(self, *_mocks: MagicMock) -> None:
+        response = self._post({"schemas": [{"name": "orders", "should_sync": True, "sync_type": "full_refresh"}]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        rows = self._credentials_rows()
+        assert len(rows) == 1
+        source = ExternalDataSource.objects.get(team_id=self.team.pk)
+        assert source.credentials_integration_id == str(IntegrationReference.from_legacy_id(rows[0].id))
+        assert rows[0].sensitive_config["fields"]["password"] == "fake-password"
