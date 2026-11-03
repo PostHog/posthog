@@ -2902,7 +2902,7 @@ class IntegrationViewSet(
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         if not any(
             email_flag_enabled(flag, self.team, cast(User, request.user))
-            for flag in ("workflows-email-domain-wizard", EMAIL_FROM_CODE_FLAG)
+            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
         ):
             raise NotFound()
         instance = self.get_object()

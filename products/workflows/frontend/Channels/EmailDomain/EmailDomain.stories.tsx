@@ -246,6 +246,6 @@ export const AgentHandoff: Story = {
         stage: (_, id) => emailDomainAgentLogic.findMounted({ id })?.actions.openAgentModal(),
     },
     parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE],
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP],
     },
 }
