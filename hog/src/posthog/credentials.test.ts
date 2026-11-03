@@ -134,6 +134,6 @@ describe('resolveCredentials', () => {
 
         expect(error.code).toBe('not_authenticated')
         expect(error.hint).toContain('HOG_HOME')
-        expect(error.hint).toContain('HOG_API_KEY')
+        expect(error.hint).toContain('HOG_PERSONAL_API_KEY')
     })
 })

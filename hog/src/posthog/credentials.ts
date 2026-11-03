@@ -80,7 +80,7 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
 }
 
 const NO_HOME_HINT =
-    'Set HOG_HOME to a folder hog can write to, or set HOG_API_KEY and HOG_PROJECT_ID to skip logging in.'
+    'Set HOG_HOME to a folder hog can write to, or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID to skip logging in.'
 
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.HOG_HOME) {
