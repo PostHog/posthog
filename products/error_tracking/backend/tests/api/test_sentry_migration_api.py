@@ -202,6 +202,20 @@ class TestSentryMigrationAPI(APIBaseTest):
         assert message in response.json()["detail"]
         assert len(self.requested) == requests_sent
 
+    def test_one_item_budget_covers_every_list_in_a_request(self) -> None:
+        routes = {
+            "/api/0/organizations/": _response([{"slug": "acme", "name": "Acme"}], headers=_no_more_pages()),
+            "/api/0/organizations/acme/projects/": _response(
+                [{"slug": "web", "name": "Web"}, {"slug": "api", "name": "API"}], headers=_no_more_pages()
+            ),
+        }
+
+        with patch.object(sentry_client, "MAX_LIST_ITEMS", 2):
+            response = self._post("projects", routes, {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "more Sentry data than PostHog can read" in response.json()["detail"]
+
     def test_every_sentry_call_caps_the_response_and_the_time_it_takes(self) -> None:
         response = self._post("preview", PROJECT_RESPONSES, self._project_body())
 
