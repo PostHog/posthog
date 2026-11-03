@@ -18,8 +18,11 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
         scopeRows,
         scopeLevels,
         scopeSearchTerm,
+        editingPolicy,
+        editingProvider,
+        claimLabels,
     } = useValues(workloadTrustPoliciesLogic)
-    const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm } =
+    const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm, setConditionValue } =
         useActions(workloadTrustPoliciesLogic)
 
     const isNew = editingPolicyId === 'new'
@@ -54,10 +57,10 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Production deploys" maxLength={200} />
                     </LemonField>
-                    <LemonField name="issuer" label="CI provider">
+                    <LemonField name="issuer" label="Provider">
                         <LemonSelect
                             fullWidth
-                            placeholder="Choose a CI provider"
+                            placeholder="Choose a provider"
                             options={(providers?.supported ?? []).map((provider) => ({
                                 value: provider.issuer,
                                 label: provider.name,
@@ -66,40 +69,48 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                     </LemonField>
                     <div className="flex flex-wrap gap-4">
                         <LemonField
-                            name="repository"
-                            label="Repository"
-                            help="The full name, for example acme/web."
+                            name="subject_name"
+                            label={claimLabels.subjectName}
+                            help={editingProvider?.subject_name_claim.help_text || undefined}
                             className="flex-1 min-w-60"
                         >
-                            <LemonInput placeholder="acme/web" />
+                            <LemonInput />
                         </LemonField>
                         <LemonField
-                            name="repository_id"
-                            label="Repository ID"
-                            help="The ID your CI provider gives the repository. It doesn't change when the repository is renamed."
+                            name="subject"
+                            label={claimLabels.subject}
+                            help={editingProvider?.subject_claim.help_text || undefined}
                             className="flex-1 min-w-60"
                         >
-                            <LemonInput placeholder="123456789" />
+                            <LemonInput />
                         </LemonField>
                     </div>
-                    <div className="flex flex-wrap gap-4">
+                    {editingProvider && editingProvider.condition_claims.length > 0 ? (
                         <LemonField
-                            name="ref"
-                            label="Ref"
-                            help="Leave empty to allow any ref."
-                            className="flex-1 min-w-60"
+                            name="conditions"
+                            label="Conditions"
+                            help="A token matches only when it carries every value you set. Leave a field empty to allow any value."
                         >
-                            <LemonInput placeholder="refs/heads/main" />
+                            {() => (
+                                <div className="flex flex-wrap gap-4 w-full">
+                                    {editingProvider.condition_claims.map((claim) => (
+                                        <LemonField.Pure
+                                            key={claim.name}
+                                            label={claim.label}
+                                            help={claim.help_text || undefined}
+                                            className="flex-1 min-w-60"
+                                        >
+                                            <LemonInput
+                                                value={editingPolicy.conditions[claim.name] ?? ''}
+                                                onChange={(value) => setConditionValue(claim.name, value)}
+                                                data-attr={`workload-trust-policy-condition-${claim.name}`}
+                                            />
+                                        </LemonField.Pure>
+                                    ))}
+                                </div>
+                            )}
                         </LemonField>
-                        <LemonField
-                            name="environment"
-                            label="Environment"
-                            help="Leave empty to allow any environment."
-                            className="flex-1 min-w-60"
-                        >
-                            <LemonInput placeholder="production" />
-                        </LemonField>
-                    </div>
+                    ) : null}
                     <LemonField
                         name="scopes"
                         label="Scopes"
