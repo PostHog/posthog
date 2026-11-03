@@ -2819,6 +2819,40 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(inline_after - inline_before, 1.0)
 
+    def test_paginating_union_query_counts_as_user_error(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="union_limit_test",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS x UNION ALL SELECT 2 AS x"},
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"execution_type": "inline", "query_kind": "hogql"}
+        user_error_before = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "user_error"}) or 0.0
+        )
+        error_before = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "error"}) or 0.0
+        )
+
+        with mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {"limit": 10}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        user_error_after = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "user_error"}) or 0.0
+        )
+        error_after = (
+            REGISTRY.get_sample_value("posthog_endpoint_execution_total", {**labels, "status": "error"}) or 0.0
+        )
+        self.assertEqual(user_error_after - user_error_before, 1.0)
+        self.assertEqual(error_after - error_before, 0.0)
+        mock_capture.assert_not_called()
+
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the
         org/source gates allow it — anything raising before that is a plumbing bug."""
