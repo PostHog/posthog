@@ -3030,7 +3030,6 @@ describe('Workflows E2E (email queue)', () => {
         }
     }
 
-    // AppMetricsAggregator dedupes in memory, so sum `count` because counting messages would hide a double emit.
     function sumCounts(filter: (message: DecodedKafkaMessage) => boolean): number {
         return mockProducerObserver
             .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)

@@ -52,29 +52,16 @@ export class SesEmailRequest {
     }
 }
 
-export class LocalSesAwsEnvironment {
-    private readonly original = { ...process.env }
-
-    configure(): void {
-        process.env.AWS_ACCESS_KEY_ID = 'local-ses-test'
-        process.env.AWS_SECRET_ACCESS_KEY = 'local-ses-test'
-        delete process.env.AWS_SESSION_TOKEN
-        delete process.env.AWS_PROFILE
-        this.setMaxAttempts(1)
-    }
-
-    setMaxAttempts(attempts: number): void {
-        process.env.AWS_MAX_ATTEMPTS = String(attempts)
-    }
-
-    restore(): void {
-        for (const key of Object.keys(process.env)) {
-            if (!(key in this.original)) {
-                delete process.env[key]
-            }
-        }
-        Object.assign(process.env, this.original)
-    }
+// Replaced through jest, so the suite's jest.restoreAllMocks() puts the real environment back.
+export function useLocalSesAwsEnvironment(): void {
+    jest.replaceProperty(process, 'env', {
+        ...process.env,
+        AWS_ACCESS_KEY_ID: 'local-ses-test',
+        AWS_SECRET_ACCESS_KEY: 'local-ses-test',
+        AWS_MAX_ATTEMPTS: '1',
+    })
+    delete process.env.AWS_SESSION_TOKEN
+    delete process.env.AWS_PROFILE
 }
 
 export class LocalSes {

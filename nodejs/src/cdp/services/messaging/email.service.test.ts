@@ -743,15 +743,13 @@ describe('EmailService', () => {
 
             beforeEach(() => {
                 claimAllOrNothingPair = jest.fn()
-                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                jest.spyOn(services.workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
                 ;({ service: cappedService, send: cappedSendSpy } = services.createWithSendSpy({
                     sesConfig: {
                         teamEmailCapMode: 'enforce',
                         teamEmailTierHourlyCaps: [100],
                         teamEmailTierDailyCaps: [200],
                     },
-                    teamWorkflowsConfigService: configService,
                     teamEmailRateLimiter: { claimAllOrNothingPair } as unknown as RateLimiterService,
                 }))
             })
@@ -844,20 +842,17 @@ describe('EmailService', () => {
             // their own future slots instead of all waking together, and another team's send
             // goes straight out. Runs against the real limiter.
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
-                // 360/hour refills one token every 10s, so the denied sends park on slots 10s apart.
                 const hourlyCap = 360
                 const dailyCap = 8640
                 const redis = createEmailLimiterRedis(hub)
                 const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
-                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
-                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                jest.spyOn(services.workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
                 const { service: enforcedService, send: enforcedSendSpy } = services.createWithSendSpy({
                     sesConfig: {
                         teamEmailCapMode: 'enforce',
                         teamEmailTierHourlyCaps: [hourlyCap],
                         teamEmailTierDailyCaps: [dailyCap],
                     },
-                    teamWorkflowsConfigService: configService,
                     teamEmailRateLimiter: limiter,
                 })
 
@@ -1386,7 +1381,6 @@ describe('EmailService', () => {
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
             })
 
-            // email_sending_suspension_reason is NOT NULL with a Django-side default, so the raw INSERT supplies it.
             const setProviderTenantStatus = async (status: string): Promise<void> => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,

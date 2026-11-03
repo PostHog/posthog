@@ -14,18 +14,12 @@ const workflowEmailRateLimitedTotal = new Counter({
 
 // The metadata blob is the flow action's config plus flow-level keys stamped in by
 // HogFlowFunctionsService.buildHogFunction; parse defensively since it is untyped.
-export function parseWorkflowEmailRateLimit(
-    metadata: HogFunctionType['metadata']
-): HogFlowEmailSendingRateLimit | null {
-    const raw = metadata?.email_sending_rate_limit
-    if (!raw) {
-        return null
-    }
-    const parsed = HogFlowEmailSendingRateLimitSchema.safeParse(raw)
+function parseWorkflowEmailRateLimit(metadata: HogFunctionType['metadata']): HogFlowEmailSendingRateLimit | null {
+    const parsed = HogFlowEmailSendingRateLimitSchema.safeParse(metadata?.email_sending_rate_limit)
     return parsed.success ? parsed.data : null
 }
 
-export function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
+function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
     // retries so they don't all re-dequeue (and re-claim against one token) at the same instant.
     // Clamped so second-scale limits don't churn the queue and hour-scale limits still wake
