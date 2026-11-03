@@ -1034,6 +1034,7 @@ SERVER_AND_MOBILE_SDK_LIBS: tuple[str, ...] = (
     "posthog-rails",
     "posthog-go",
     "posthog-php",
+    "posthog-laravel",
     "posthog-java",
     "posthog-server",
     "posthog-dotnet",
