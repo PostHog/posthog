@@ -94,6 +94,7 @@ CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # A metrics alert's investigation is a few bounded metric queries. One attempt, because the run
 # leases its row, so a retry would find it taken.
 METRICS_INVESTIGATION_START_TO_CLOSE = dt.timedelta(seconds=45)
+METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE = METRICS_INVESTIGATION_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
 # checks per tick. Rounds refill the slots that finished checks free, the way production's
@@ -112,7 +113,7 @@ EVALUATION_BUDGET = (
     + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
     + CLAIM_SCHEDULE_TO_CLOSE
-    + METRICS_INVESTIGATION_START_TO_CLOSE
+    + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
     + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
@@ -379,9 +380,10 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
     """Runs the metrics investigations a claim granted, apart from the claim, so their queries never
     hold back an agent's start."""
     from products.alerts.backend.platform_investigation import run_metrics_investigation  # noqa: PLC0415
+    from products.alerts.backend.platform_source_cycle import ClickHouseQuerySlot  # noqa: PLC0415
 
     for run in inputs.runs:
-        run_metrics_investigation(run)
+        run_metrics_investigation(run, query_slot=ClickHouseQuerySlot(f"metrics-investigation:{run.investigation_id}"))
 
 
 @activity.defn
@@ -818,6 +820,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     run_platform_metrics_investigations_activity,
                     MetricsInvestigationsInputs(runs=claims.metrics),
                     start_to_close_timeout=METRICS_INVESTIGATION_START_TO_CLOSE,
+                    schedule_to_close_timeout=METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             except ActivityError:

@@ -328,7 +328,7 @@ def readmit_retried_check(
     return token if admitted else None
 
 
-class _ClickHouseSlot:
+class ClickHouseQuerySlot:
     """Holds a ClickHouse slot around one attempt's query, and counts how long it waited for one.
 
     Raises `ClickHouseBudgetFull` when no slot comes free in time. `holder` names one attempt of one
@@ -363,7 +363,7 @@ class _ClickHouseSlot:
                     logger.exception("Could not release a ClickHouse slot", holder=self.holder)
 
 
-def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: _ClickHouseSlot) -> T:
+def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: ClickHouseQuerySlot) -> T:
     """Runs a check's query, and runs it again after a ClickHouse refusal for load, on the retry
     policy production evaluates the alert's cadence with.
 
@@ -742,7 +742,7 @@ def _decide(
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
-    query_slot = _ClickHouseSlot(f"{evaluation_id}:{attempt}")
+    query_slot = ClickHouseQuerySlot(f"{evaluation_id}:{attempt}")
     if check.grouping.mode != GroupingMode.SINGLE:
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
@@ -905,7 +905,7 @@ def _decide_grouped(
     alert: AlertConfiguration,
     *,
     now: datetime,
-    query_slot: _ClickHouseSlot,
+    query_slot: ClickHouseQuerySlot,
 ) -> PlatformAlertOutcome | None:
     """One check of a breakdown alert, judged per breakdown value through the platform's decision.
 
