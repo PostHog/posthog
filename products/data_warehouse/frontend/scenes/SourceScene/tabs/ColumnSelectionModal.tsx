@@ -230,6 +230,43 @@ function useColumnSelection(
     }
 }
 
+function SensitivityChip({ sensitivity }: { sensitivity: ColumnSensitivity | null }): JSX.Element | null {
+    if (!sensitivity) {
+        return null
+    }
+    return (
+        <Tooltip title="This column's name suggests personal or secret data. Consider masking it.">
+            <LemonTag size="small" type="caution">
+                {SENSITIVITY_LABELS[sensitivity]}
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
+function MaskSuggestedColumnsBar({ count, onMask }: { count: number; onMask: () => void }): JSX.Element | null {
+    if (count === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-secondary">
+                {count === 1
+                    ? '1 column looks like personal or secret data.'
+                    : `${count} columns look like personal or secret data.`}
+            </span>
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconLock />}
+                onClick={onMask}
+                data-attr="schema-mask-suggested-columns"
+            >
+                Mask suggested columns
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ColumnSelectionPicker({
     schema,
     onSave,
@@ -259,28 +296,13 @@ export function ColumnSelectionPicker({
         filteredColumns,
     } = useColumnSelection(schema, onChange, onMaskedChange)
     const suggestSensitive = useFeatureFlag('WAREHOUSE_COLUMN_SENSITIVITY') && !!enableMasking
+    const chipFor = (column: SchemaAvailableColumn): ColumnSensitivity | null =>
+        suggestSensitive && isMaskable(column.name) ? (column.sensitivity ?? null) : null
 
     return (
         <div className="flex flex-col gap-2">
             <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
-            {suggestSensitive && suggestedColumns.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs text-secondary">
-                        {suggestedColumns.length === 1
-                            ? '1 column looks like personal or secret data.'
-                            : `${suggestedColumns.length} columns look like personal or secret data.`}
-                    </span>
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconLock />}
-                        onClick={maskSuggested}
-                        data-attr="schema-mask-suggested-columns"
-                    >
-                        Mask suggested columns
-                    </LemonButton>
-                </div>
-            )}
+            <MaskSuggestedColumnsBar count={suggestSensitive ? suggestedColumns.length : 0} onMask={maskSuggested} />
             <div className="max-h-96 overflow-y-auto border rounded">
                 {available.length === 0 && (
                     <div className="text-center text-muted-alt py-6 text-sm">
@@ -289,7 +311,6 @@ export function ColumnSelectionPicker({
                 )}
                 {filteredColumns.map((column) => {
                     const retained = isAlwaysRetained(column.name)
-                    const sensitivity = suggestSensitive && isMaskable(column.name) ? column.sensitivity : null
                     const checkbox = (
                         <LemonCheckbox
                             checked={isChecked(column.name)}
@@ -301,13 +322,7 @@ export function ColumnSelectionPicker({
                                     {column.data_type && (
                                         <span className="text-xs text-muted-alt">{column.data_type}</span>
                                     )}
-                                    {sensitivity && (
-                                        <Tooltip title="This column's name suggests personal or secret data. Consider masking it.">
-                                            <LemonTag size="small" type="caution">
-                                                {SENSITIVITY_LABELS[sensitivity]}
-                                            </LemonTag>
-                                        </Tooltip>
-                                    )}
+                                    <SensitivityChip sensitivity={chipFor(column)} />
                                     {retained && (
                                         <span className="text-xs text-muted">
                                             {primaryKeys.has(column.name) ? 'primary key' : 'incremental field'}
