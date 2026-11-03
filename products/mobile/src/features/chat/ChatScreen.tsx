@@ -616,7 +616,8 @@ export function ChatScreen({
                                     topInset={insets.top + CHAT_HEADER_HEIGHT}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
-                                        session.reloadHistory().catch(() => undefined)
+                                        if (session.reconnect) session.reconnect()
+                                        else session.reloadHistory().catch(() => undefined)
                                     }}
                                 />
                             )}
@@ -655,6 +656,7 @@ export function ChatScreen({
                                         pending={session.isSending}
                                         onAnswer={(answerInput) => void session.answer(answerInput)}
                                         onDismissNotice={dismissNotice}
+                                        onReconnect={notice === session.notice ? session.reconnect : undefined}
                                         onRetryNotice={composerDraft.draftError ? composerDraft.retrySave : undefined}
                                         noticePending={composerDraft.draftSaving}
                                     />
