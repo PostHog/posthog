@@ -2,7 +2,7 @@
 pick the right repository or abstain?
 
 Every case runs the production `select_repository` against the synthetic catalog in
-`repo_selection_fixtures`. The needs-repo classifier and the cascade do not run here, so
+`fixtures`. The needs-repo classifier and the cascade do not run here, so
 classifier behavior cannot hide a difference between selector models; the end-to-end path is
 `slack_app/eval_repo_selection_routing`.
 
@@ -23,10 +23,10 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.tasks.backend.facade import api as tasks_facade
 
-from .repo_selection_fixtures import FIXTURE_VERSION, SELECTOR_CASES, fixture_fingerprint
-from .repo_selection_runner import selector_case_runner
-from .repo_selection_scorers import SELECTOR_SCORERS, selector_expected
-from .repo_selection_seeders import scenario_seeder
+from .fixtures import FIXTURE_VERSION, SELECTOR_CASES, fixture_fingerprint
+from .runner import selector_case_runner
+from .scorers import SELECTOR_SCORERS, selector_expected
+from .seeders import scenario_seeder
 
 EXPERIMENT_NAME = "repo-selection-selector"
 

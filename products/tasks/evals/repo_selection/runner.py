@@ -37,7 +37,7 @@ from products.tasks.backend.facade.repo_selection import (
 )
 from products.tasks.backend.models import TaskRun
 
-from .repo_selection_fixtures import RepoSelectionScenario
+from .fixtures import RepoSelectionScenario
 
 logger = logging.getLogger(__name__)
 

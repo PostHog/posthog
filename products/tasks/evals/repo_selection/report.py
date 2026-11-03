@@ -1,6 +1,6 @@
 """Turn a repository-selection model comparison into a quality, latency, and cost table.
 
-    python -m products.tasks.evals.repo_selection_report <comparison-dir> [--json out.json]
+    python -m products.tasks.evals.repo_selection.report <comparison-dir> [--json out.json]
 
 Reads each arm's run report, per-trial artifacts, and the eval gateway's captured
 `$ai_generation` events. Every planned trial stays in the denominators: a trial with an
@@ -21,11 +21,11 @@ from typing import Any
 
 from products.posthog_ai.eval_harness.log_sink import _case_log_slug
 
-from .repo_selection_fixtures import FIXTURE_VERSION, SELECTOR_CASES, fixture_fingerprint
-from .repo_selection_scorers import judge_selection, selector_expected
+from .fixtures import FIXTURE_VERSION, SELECTOR_CASES, fixture_fingerprint
+from .scorers import judge_selection, selector_expected
 
 EXPERIMENT = "repo-selection-selector"
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 LLM_COSTS = REPO_ROOT / "nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json"
 
 # The provider row of `llm-costs.json` each arm's gateway route bills at.

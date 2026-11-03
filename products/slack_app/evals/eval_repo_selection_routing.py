@@ -33,16 +33,16 @@ from products.slack_app.backend.temporal.activities.classifiers import (
 from products.slack_app.backend.temporal.activities.repo_selection import _resolve_explicit_repo
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, TurnPollTimeout
-from products.tasks.evals.repo_selection_fixtures import (
+from products.tasks.evals.repo_selection.fixtures import (
     FIXTURE_VERSION,
     REPOSITORY_NAMES,
     ROUTING_CASES,
     RepoSelectionScenario,
     fixture_fingerprint,
 )
-from products.tasks.evals.repo_selection_runner import RepoSelectionArtifacts, run_selector
-from products.tasks.evals.repo_selection_scorers import ROUTING_SCORERS, routing_expected
-from products.tasks.evals.repo_selection_seeders import scenario_seeder
+from products.tasks.evals.repo_selection.runner import RepoSelectionArtifacts, run_selector
+from products.tasks.evals.repo_selection.scorers import ROUTING_SCORERS, routing_expected
+from products.tasks.evals.repo_selection.seeders import scenario_seeder
 
 EXPERIMENT_NAME = "slack-repo-selection-routing"
 

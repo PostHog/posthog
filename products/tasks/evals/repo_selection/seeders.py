@@ -18,7 +18,7 @@ from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
-from .repo_selection_fixtures import FIXTURE_VERSION, ORG, REPOSITORIES, RepoSelectionScenario, fixture_fingerprint
+from .fixtures import FIXTURE_VERSION, ORG, REPOSITORIES, RepoSelectionScenario, fixture_fingerprint
 
 # Not a credential. GitHub rejects it, so a `gh api` call from the sandbox cannot reach real repositories.
 PLACEHOLDER_GITHUB_TOKEN = "fixture-token-not-a-github-credential"

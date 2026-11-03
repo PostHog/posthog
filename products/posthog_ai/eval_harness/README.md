@@ -32,7 +32,7 @@ Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to
 
 ## Repository selection evals
 
-Two suites measure repository selection on a synthetic `fernhill` catalog that each case installs in its own isolated project: repository names, descriptions, READMEs, tree paths, visibility, and routing rules come from [`products/tasks/evals/repo_selection_fixtures.py`](../../tasks/evals/repo_selection_fixtures.py).
+Two suites measure repository selection on a synthetic `fernhill` catalog that each case installs in its own isolated project: repository names, descriptions, READMEs, tree paths, visibility, and routing rules come from [`products/tasks/evals/repo_selection/fixtures.py`](../../tasks/evals/repo_selection/fixtures.py).
 No case depends on a real team's connected repositories, and expected answers stay out of the agent's input.
 
 - `slack_app/eval_repo_selection_routing` runs a Slack mention through the production cascade, the needs-repo classifier, and the discovery agent. It scores the terminal stage and outcome, and the routed repository.
@@ -45,7 +45,7 @@ hogli evals tasks/eval_repo_selection --trials 3 --max-sandboxes 4 \
   --compare-model claude:claude-haiku-5-5 \
   --compare-model codex:gpt-6-luna,reasoning_effort=medium \
   --compare-model codex:gpt-6-luna,reasoning_effort=medium,service_tier=flex
-python -m products.tasks.evals.repo_selection_report <comparison-dir>
+python -m products.tasks.evals.repo_selection.report <comparison-dir>
 ```
 
 The report joins each trial with the eval gateway's ledger and request log. It lists accuracy, abstention, errors, latency, tokens, gateway-accounted cost, and the tier that served each call, so a Flex request that fell back to Standard is counted as Standard.

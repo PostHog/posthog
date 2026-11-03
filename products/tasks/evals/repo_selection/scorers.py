@@ -11,7 +11,7 @@ from typing import Any
 
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
-from .repo_selection_fixtures import RoutingExpectation, SelectorExpectation
+from .fixtures import RoutingExpectation, SelectorExpectation
 
 SCORER_VERSION = "1"
 

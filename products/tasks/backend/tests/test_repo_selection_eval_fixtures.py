@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from products.tasks.evals.repo_selection_fixtures import (
+from products.tasks.evals.repo_selection.fixtures import (
     METRICS_DASHBOARD_RULE,
     REPOSITORIES,
     REPOSITORY_NAMES,
@@ -11,7 +11,7 @@ from products.tasks.evals.repo_selection_fixtures import (
     SUPPORT_DESK_RULE,
     SelectorExpectation,
 )
-from products.tasks.evals.repo_selection_scorers import judge_selection
+from products.tasks.evals.repo_selection.scorers import judge_selection
 
 
 @pytest.mark.parametrize("case", SELECTOR_CASES, ids=lambda case: case.scenario.name)
