@@ -9,6 +9,8 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError
+
 from products.subscriptions.backend.temporal.llm_change_summary import (
     _attach_images_to_user_message,
     _get_openai_client,
@@ -712,6 +714,23 @@ class TestGenerateChangeSummary:
         assert headers["X-PostHog-Distinct-Id"] == "US/subscription-summary-team-42"
         assert headers.get("X-PostHog-Billable") == expected_billable
         assert "X-PostHog-Privacy-Mode" not in headers
+
+    @parameterized.expand(
+        [
+            ("unset", "", ""),
+            ("missing_key", "https://ai-gateway.example.com/v1", ""),
+            ("missing_v1_path", "https://ai-gateway.example.com", "phs_test"),
+        ]
+    )
+    def test_refuses_the_python_gateway_when_go_is_unconfigured(self, _name, url, api_key):
+        with override_settings(
+            AI_GATEWAY_URL=url,
+            AI_GATEWAY_API_KEY=api_key,
+            LLM_GATEWAY_URL="https://llm-gateway.example.com",
+            LLM_GATEWAY_API_KEY="phx_test",
+        ):
+            with pytest.raises(GatewayNotConfiguredError):
+                _get_openai_client(team=None, delivery_id=None, user_tag="US/subscription-summary-team-42")
 
     @parameterized.expand(
         [

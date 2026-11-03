@@ -10,6 +10,8 @@ import httpx
 from openai import APIConnectionError, APIStatusError
 from parameterized import parameterized
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError
+
 from products.subscriptions.backend.temporal.query_results_summary import (
     MAX_CONDENSATION_INPUT_LENGTH,
     _get_async_openai_client,
@@ -171,3 +173,20 @@ class TestCondensationGatewayClient:
         }
         assert headers["X-PostHog-Privacy-Mode"] == "true"
         assert headers.get("X-PostHog-Billable") == expected_billable
+
+    @parameterized.expand(
+        [
+            ("unset", "", ""),
+            ("missing_key", "https://ai-gateway.example.com/v1", ""),
+            ("missing_v1_path", "https://ai-gateway.example.com", "phs_test"),
+        ]
+    )
+    def test_refuses_the_python_gateway_when_go_is_unconfigured(self, _name, url, api_key) -> None:
+        with override_settings(
+            AI_GATEWAY_URL=url,
+            AI_GATEWAY_API_KEY=api_key,
+            LLM_GATEWAY_URL="https://llm-gateway.example.com",
+            LLM_GATEWAY_API_KEY="phx_test",
+        ):
+            with pytest.raises(GatewayNotConfiguredError):
+                _get_async_openai_client(team=None, delivery_id=None, user_tag="US/subscription-summary-team-42")

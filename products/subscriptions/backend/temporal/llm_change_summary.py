@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import build_openai_client
+from posthog.llm.gateway_client import GatewayNotConfiguredError, build_openai_client, resolve_ai_gateway_config
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
@@ -389,6 +389,8 @@ def _attach_images_to_user_message(
 
 
 def _get_openai_client(*, team: Team | None, delivery_id: str | None, user_tag: str) -> OpenAI:
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
     properties: dict[str, str] = {}
     if delivery_id:
         properties["delivery_id"] = delivery_id

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
-from posthog.llm.gateway_client import build_async_openai_client
+from posthog.llm.gateway_client import GatewayNotConfiguredError, build_async_openai_client, resolve_ai_gateway_config
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 from posthog.utils import get_instance_region
 
@@ -83,6 +83,8 @@ def _event_statistics(query_kind: str, query_results: dict[str, Any]) -> dict[st
 
 
 def _get_async_openai_client(*, team: Team | None, delivery_id: str | None, user_tag: str) -> AsyncOpenAI:
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
     properties = {"summary_stage": "query_condensation"}
     if delivery_id:
         properties["delivery_id"] = delivery_id
