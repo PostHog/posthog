@@ -453,12 +453,12 @@ class TestRuleAssignmentNotification(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_assignee", "none", True, "no_assignee"),
-            ("flag_off", "current", False, "flag_off"),
-            ("reassigned_before_the_activity", "previous", True, "assignee_changed"),
+            ("no_assignee", "none", True),
+            ("flag_off", "current", False),
+            ("assignee_changed", "previous", True),
         ]
     )
-    def test_sends_nothing(self, _name: str, reported: str, flag_on: bool, expected_outcome: str) -> None:
+    def test_sends_nothing(self, expected_outcome: str, reported: str, flag_on: bool) -> None:
         self.flag_enabled.return_value = flag_on
         _, current = self._assign_like_cymbal("user")
         previous_user = User.objects.create_and_join(self.organization, "previous@example.com", "password")

@@ -8,10 +8,10 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.logic import build_issue_permalink_path, get_canonical_fingerprint
 from products.error_tracking.backend.logic.assignees import assignee_property
+from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
-    prepare_issue_lifecycle_event,
-    produce_issue_lifecycle_events_on_commit,
+    produce_issue_lifecycle_event_on_commit,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 from products.notifications.backend.facade.api import (
@@ -120,7 +120,7 @@ def dispatch_issue_assigned_realtime(
 def notify_automatic_assignment(
     *,
     assignment: ErrorTrackingIssueAssignment,
-    assignee: dict[str, int | str],
+    assignee: AssigneeRef,
     label: str,
 ) -> None:
     """Tell the assignee about an assignment that no person made, and emit `$error_tracking_issue_assigned`.
@@ -129,15 +129,11 @@ def notify_automatic_assignment(
     The in-app notification goes first, so the assignee still gets it when the event or the email raises.
     """
     actor = AssignmentActor.automatic(label)
-    dispatch_issue_assigned_realtime(assignment=assignment, assignee=assignee, actor=actor)
-    produce_issue_lifecycle_events_on_commit(
-        [
-            prepare_issue_lifecycle_event(
-                event=ISSUE_ASSIGNED_EVENT,
-                issue=assignment.issue,
-                user=None,
-                extra_properties={"assignee": assignee_property(assignee)},
-            )
-        ]
+    dispatch_issue_assigned_realtime(assignment=assignment, assignee=assignee.to_json(), actor=actor)
+    produce_issue_lifecycle_event_on_commit(
+        event=ISSUE_ASSIGNED_EVENT,
+        issue=assignment.issue,
+        user=None,
+        extra_properties={"assignee": assignee_property(assignee.to_json())},
     )
     send_error_tracking_issue_assigned.delay(assignment.id, None, actor.label)

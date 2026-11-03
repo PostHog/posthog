@@ -25,6 +25,8 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.error_tracking.backend.logic.assignees import assignee_property
+from products.error_tracking.backend.logic.issue_changes import AssigneeRef
 from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
     build_severity_state,
@@ -392,20 +394,6 @@ def dispatch_issue_created_alert_activity(inputs: IssueCreatedWorkflowInputs) ->
     )
 
 
-def _current_rule_assignment(
-    inputs: IssueCreatedWorkflowInputs, assignee: dict[str, int | str]
-) -> ErrorTrackingIssueAssignment | None:
-    """The issue's assignment, if it still names the assignee that cymbal reported."""
-    assignee_filter = {"user_id": assignee["id"]} if assignee["type"] == "user" else {"role_id": assignee["id"]}
-    return (
-        ErrorTrackingIssueAssignment.objects.filter(
-            issue_id=inputs.issue_id, issue__team_id=inputs.team_id, **assignee_filter
-        )
-        .select_related("issue__team")
-        .first()
-    )
-
-
 def _capture_auto_assigned(assignment: ErrorTrackingIssueAssignment, assignee_type: str) -> None:
     team = assignment.issue.team
     ph_background_capture()(
@@ -428,11 +416,16 @@ def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmen
     from products.error_tracking.backend.notifications import notify_automatic_assignment  # noqa: PLC0415
 
     try:
-        assignee: dict[str, int | str] = json.loads(inputs.assignee)
-        assignment = _current_rule_assignment(inputs, assignee)
-        if assignment is None:
+        assignment = (
+            ErrorTrackingIssueAssignment.objects.filter(issue_id=inputs.issue_id, issue__team_id=inputs.team_id)
+            .select_related("issue__team")
+            .first()
+        )
+        assignee = AssigneeRef.from_assignment(assignment)
+        # A person can reassign the issue before this activity runs, and that change sends its own notifications.
+        if assignment is None or assignee is None or assignee_property(assignee.to_json()) != inputs.assignee:
             return RuleAssignmentNotifyOutcome.ASSIGNEE_CHANGED
-        _capture_auto_assigned(assignment, str(assignee["type"]))
+        _capture_auto_assigned(assignment, assignee.type)
         notify_automatic_assignment(assignment=assignment, assignee=assignee, label=RULE_ASSIGNMENT_LABEL)
     except Exception as error:
         logger.exception(
