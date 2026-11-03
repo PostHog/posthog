@@ -142,10 +142,14 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     @parameterized.expand(
-        [("logs_scope_only", ["logs:read"], 0), ("with_hog_flow_scope", ["logs:read", "hog_flow:read"], 1)]
+        [
+            ("logs_scope_only", ["logs:read"], 0),
+            ("one_source_scope", ["logs:read", "hog_flow:read"], 0),
+            ("every_source_scope", ["logs:read", "hog_flow:read", "hog_function:read"], 1),
+        ]
     )
     @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
-    def test_internal_workflow_logs_need_hog_flow_read(self, _name, scopes, expected_for_key):
+    def test_internal_logs_need_read_scope_for_every_source(self, _name, scopes, expected_for_key):
         window = {"date_from": "2025-12-20T00:00:00Z", "date_to": "2025-12-21T00:00:00Z"}
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             log_item = json.loads(f.readline())

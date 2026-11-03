@@ -206,12 +206,13 @@ def queried_access_controlled_resources(
     from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+    from posthog.hogql.printer.access_control import INTERNAL_LOG_SOURCE_RESOURCES  # noqa: PLC0415
     from posthog.hogql.visitor import GetFieldsTraverser  # noqa: PLC0415
 
     catalog = _catalog or _WarehouseCatalog(team_id=team.pk)
 
     if getattr(query, "kind", None) == "LogsQuery":
-        return {"hog_flow"}
+        return set(INTERNAL_LOG_SOURCE_RESOURCES.values())
 
     if getattr(query, "kind", None) == "AccountsTableQuery":
         return _with_fallback_parents({"account"}, bypassed_scopes)
@@ -262,7 +263,7 @@ def queried_access_controlled_resources(
             scopes |= _TRANSITIVE_SYSTEM_TABLE_SCOPES.get(name, frozenset())
 
         if table_names & _INTERNAL_LOGS_TABLES:
-            scopes.add("hog_flow")
+            scopes |= set(INTERNAL_LOG_SOURCE_RESOURCES.values())
 
         # The catalog-enriched information_schema tables aren't PostgresTables, so they're absent from
         # `access_controlled_system_tables()`; gate them explicitly on `data_catalog` read access.

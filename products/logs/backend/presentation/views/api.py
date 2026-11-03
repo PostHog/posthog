@@ -25,6 +25,7 @@ from rest_framework.throttling import BaseThrottle
 from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
 
 from posthog.hogql.errors import QueryError
+from posthog.hogql.printer.access_control import INTERNAL_LOG_SOURCE_RESOURCES
 
 from posthog.api.documentation import PropertyGroupOperator, _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
@@ -1488,13 +1489,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return super().get_throttles()
 
     def _internal_logs_user(self) -> User | None:
-        """The user to run logs queries as. Without one, the queries hide internal workflow logs.
+        """The user to run logs queries as. Without one, the queries hide internal logs.
 
-        A token holds `logs:read` for these routes, but internal workflow logs also need `hog_flow:read`.
+        A token holds `logs:read` for these routes, but internal logs also need read access to the
+        resource of every internal source, for example `hog_flow:read` and `hog_function:read`.
         """
         scopes = get_authenticator_scopes(self.request.successful_authenticator)
-        if scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes):
-            return None
+        if scopes is not None and "*" not in scopes:
+            for resource in INTERNAL_LOG_SOURCE_RESOURCES.values():
+                if not {f"{resource}:read", f"{resource}:write"} & set(scopes):
+                    return None
         return self.request.user if isinstance(self.request.user, User) else None
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:

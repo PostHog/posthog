@@ -545,25 +545,29 @@ class TestRestParityForObjectGrants(BaseTest):
 
     @parameterized.expand(
         [
-            ("full_access", None, "logs", False),
-            ("resource_denied", "resource", "logs", True),
-            ("one_workflow_denied", "object", "logs", True),
-            ("rollup_one_workflow_denied", "object", "posthog.logs_volume_buckets", True),
+            ("full_access", None, None, "logs", None),
+            ("workflows_denied", "hog_flow", "resource", "logs", ["", "hog_function"]),
+            ("one_workflow_denied", "hog_flow", "object", "logs", ["", "hog_function"]),
+            ("rollup_one_workflow_denied", "hog_flow", "object", "posthog.logs_volume_buckets", ["", "hog_function"]),
+            ("destinations_denied", "hog_function", "resource", "logs", ["", "hog_flow"]),
+            ("one_destination_denied", "hog_function", "object", "logs", ["", "hog_flow"]),
         ]
     )
-    def test_internal_logs_need_access_to_every_workflow(
-        self, _name: str, denial: str | None, table: str, hidden: bool
+    def test_internal_logs_need_access_to_every_object_of_their_source(
+        self, _name: str, resource: str | None, denial: str | None, table: str, readable: list[str] | None
     ) -> None:
         if denial == "resource":
-            self._ac(resource="hog_flow", access_level="none")
+            self._ac(resource=resource, access_level="none")
         elif denial == "object":
-            self._ac(
-                resource="hog_flow", resource_id="flow-1", access_level="none", organization_member=self.membership
-            )
+            self._ac(resource=resource, resource_id="obj-1", access_level="none", organization_member=self.membership)
 
-        sql, _ = self._compile(f"SELECT count() FROM {table}")
+        sql, context = self._compile(f"SELECT count() FROM {table}")
 
-        assert ("equals(" in sql and ".internal_source, %(" in sql) is hidden
+        if readable is None:
+            assert ".internal_source" not in sql
+        else:
+            assert "in(" in sql and ".internal_source, tuple(" in sql
+            assert sorted(v for v in context.values.values() if isinstance(v, str)) == readable
 
 
 class TestDeniedTableError(BaseTest):

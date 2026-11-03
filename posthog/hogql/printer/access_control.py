@@ -151,29 +151,38 @@ def _build_creator_exemption(
     )
 
 
-def can_read_internal_logs(user_access_control: Optional["UserAccessControl"]) -> bool:
-    """Whether the user may read the logs PostHog writes for the team's workflows.
+# The resource that owns each `internal_source` value. A source missing here is hidden from everyone
+# except organization admins, so add it here before its producer starts sending.
+INTERNAL_LOG_SOURCE_RESOURCES: dict[str, "APIScopeObject"] = {"hog_flow": "hog_flow", "hog_function": "hog_function"}
 
-    The workflow logs endpoint checks access per workflow. The logs tables cannot map every row to
-    its workflow, so this check fails closed: one denied workflow hides every internal row.
+
+def readable_internal_log_sources(user_access_control: Optional["UserAccessControl"]) -> list[str]:
+    """The internal log sources the user may read.
+
+    The workflow and destination logs endpoints check access per object. The logs tables cannot map every
+    row to its object, so this check fails closed: one denied object hides every row of its source.
     """
     if user_access_control is None:
-        return False
+        return []
     if user_access_control.is_organization_admin:
-        return True
-    return user_access_control.check_access_level_for_resource(
-        "hog_flow", "viewer"
-    ) and not user_access_control.blocked_resource_ids_by_scope.get("hog_flow")
+        return list(INTERNAL_LOG_SOURCE_RESOURCES)
+    return [
+        source
+        for source, resource in INTERNAL_LOG_SOURCE_RESOURCES.items()
+        if user_access_control.check_access_level_for_resource(resource, "viewer")
+        and not user_access_control.blocked_resource_ids_by_scope.get(resource)
+    ]
 
 
 def build_internal_logs_guard(table_type: ast.TableOrSelectType, context: HogQLContext) -> Optional[ast.Expr]:
-    """`internal_source = ''` on a logs table, unless the user may read internal logs."""
+    """`internal_source IN ('', <readable sources>)` on a logs table, unless the user reads every source."""
     user_access_control = context.database.user_access_control if context.database else None
-    if can_read_internal_logs(user_access_control):
+    readable = readable_internal_log_sources(user_access_control)
+    if len(readable) == len(INTERNAL_LOG_SOURCE_RESOURCES):
         return None
     return ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
+        op=ast.CompareOperationOp.In,
         left=ast.Field(chain=["internal_source"], type=ast.FieldType(name="internal_source", table_type=table_type)),
-        right=ast.Constant(value=""),
+        right=ast.Tuple(exprs=[ast.Constant(value=source) for source in ["", *readable]]),
         type=ast.BooleanType(),
     )
