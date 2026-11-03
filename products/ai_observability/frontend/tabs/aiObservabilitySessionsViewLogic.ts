@@ -15,6 +15,7 @@ import type { SortDirection, SortState } from '../aiObservabilitySharedLogic'
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import type { DateRangeFilter } from '../types'
 
 export type AIObservabilitySessionsViewLogicProps = Record<string, never>
@@ -377,7 +378,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
 
     actionToUrl(() => ({
         selectSession: ({ sessionId }) => {
-            const search = router.values.searchParams
+            const search = withoutTraceDrawerParams(router.values.searchParams)
             return sessionId
                 ? combineUrl(urls.aiObservabilitySession(sessionId), search).url
                 : combineUrl(urls.aiObservabilitySessions(), search).url
