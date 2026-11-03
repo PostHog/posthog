@@ -254,10 +254,6 @@ export function speedUpViews(
 }
 
 /** True when a cadence is refused only because a downstream view needs fresher data, which a pin allows. */
-/**
- * The cadence a pinned view drops back to once an unpin is saved, or null when unpinning changes nothing.
- * The finest downstream demand is the coarsest cadence a pin would delay nobody at.
- */
 export function unpinnedCadence(
     delaysBy: Partial<Record<string, { name: string }[]>>,
     value: SyncFrequencyValue | null

@@ -364,7 +364,6 @@ describe('SyncFrequencySelect', () => {
 })
 
 describe('unpinnedCadence', () => {
-    // Pinned at 6h over a 15m consumer: every cadence from 30m up would delay it.
     const delaysBy = {
         '15min': [],
         '30min': [{ name: 'signups' }],
