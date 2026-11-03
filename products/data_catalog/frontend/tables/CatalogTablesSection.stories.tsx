@@ -29,6 +29,10 @@ function sourceTable(id: string, name: string, sourceType: string, lastSyncedAt:
     }
 }
 
+function selfManagedTable(id: string, name: string): Record<string, unknown> {
+    return { type: 'data_warehouse', id, name, fields: {}, format: 'Parquet', url_pattern: 's3://example-bucket/*' }
+}
+
 function view(id: string, name: string): Record<string, unknown> {
     return { type: 'view', id, name, fields: {}, query: { kind: 'HogQLQuery', query: 'select 1' } }
 }
@@ -40,6 +44,7 @@ const databaseTables = Object.fromEntries(
         posthogTable('sessions'),
         sourceTable('table-charges', 'stripe.charges', 'Stripe', '2026-09-14T20:10:00Z'),
         sourceTable('table-contacts', 'hubspot.contacts', 'Hubspot', '2026-09-14T23:00:00Z'),
+        selfManagedTable('table-orders-export', 'orders_export'),
         view('query-revenue', 'revenue_by_account'),
         view('query-orders', 'orders_daily'),
         view('query-marketing', 'marketing_spend'),

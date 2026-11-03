@@ -14,6 +14,7 @@ const KIND_OPTIONS: { value: TablesFilters['kind']; label: string }[] = [
     { value: 'any', label: 'All types' },
     { value: 'posthog', label: KIND_LABELS.posthog },
     { value: 'source', label: KIND_LABELS.source },
+    { value: 'self_managed', label: KIND_LABELS.self_managed },
     { value: 'view', label: KIND_LABELS.view },
     { value: 'materialized_view', label: KIND_LABELS.materialized_view },
 ]

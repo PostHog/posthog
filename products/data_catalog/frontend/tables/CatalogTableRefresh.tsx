@@ -15,6 +15,7 @@ const RUN_HISTORY_LENGTH = 5
 const NO_REFRESH_LABELS: Record<TableKind, string> = {
     posthog: 'Managed by PostHog',
     source: 'Not synced yet',
+    self_managed: 'Queried in place',
     view: 'Runs on read',
     materialized_view: 'Never run',
 }
@@ -64,7 +65,7 @@ function RefreshTime({ row }: { row: CatalogTableRow }): JSX.Element {
 }
 
 export function CatalogTableRefresh({ row }: { row: CatalogTableRow }): JSX.Element {
-    if (row.kind === 'posthog' || row.kind === 'view') {
+    if (row.kind === 'posthog' || row.kind === 'self_managed' || row.kind === 'view') {
         return <MutedCellText>{NO_REFRESH_LABELS[row.kind]}</MutedCellText>
     }
     return (

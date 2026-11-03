@@ -25,7 +25,7 @@ import type { SubjectGroup } from 'products/data_quality/frontend/overview/dataQ
 import type { CertificationTargetType } from './certificationsLogic'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
-export type TableKind = 'posthog' | 'source' | 'view' | 'materialized_view'
+export type TableKind = 'posthog' | 'source' | 'self_managed' | 'view' | 'materialized_view'
 export type TableScope = 'all' | 'attention'
 export type TrustFilter = 'any' | 'certified' | 'proposed' | 'deprecated' | 'none'
 export type ChecksFilter = 'any' | 'with' | 'without'
@@ -46,11 +46,10 @@ export const PROPOSED_TABLES_FILTER = 'proposed'
 export const KIND_LABELS: Record<TableKind, string> = {
     posthog: 'PostHog',
     source: 'Source table',
+    self_managed: 'Self-managed',
     view: 'View',
     materialized_view: 'Materialized view',
 }
-
-const SELF_MANAGED_ORIGIN = 'Self-managed'
 
 const UNLISTED_KINDS: Partial<Record<string, TableKind>> = {
     [SubjectTypeEnumApi.PosthogTable]: 'posthog',
@@ -190,12 +189,13 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
 
     const sourceRows = sources.dataWarehouseTables.map((table) => {
         const key = `${SubjectTypeEnumApi.Table}:${table.id}`
+        const kind: TableKind = table.source ? 'source' : 'self_managed'
         return rowFor(
             {
                 key,
                 name: table.name,
-                kind: 'source',
-                origin: table.source?.source_type ?? SELF_MANAGED_ORIGIN,
+                kind,
+                origin: table.source?.source_type ?? KIND_LABELS.self_managed,
                 node: null,
                 subject: { subjectType: SubjectTypeEnumApi.Table, subjectId: table.id },
                 checkGroup: takeGroup(key),
@@ -299,4 +299,59 @@ export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters):
 export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean {
     const needle = search.trim().toLowerCase()
     return !needle || row.name.toLowerCase().includes(needle) || row.subtitle.toLowerCase().includes(needle)
+}
+
+export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'refresh'
+export type SortDirection = 'asc' | 'desc'
+
+export interface TablesSort {
+    column: TablesSortColumn
+    direction: SortDirection
+}
+
+const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
+
+function passingShare(row: CatalogTableRow): number | null {
+    const checks = row.checkGroup?.checks
+    if (!checks?.length) {
+        return null
+    }
+    return checks.filter((check) => check.last_status === 'passed').length / checks.length
+}
+
+const SORT_VALUES: Record<TablesSortColumn, (row: CatalogTableRow) => string | number | null> = {
+    name: (row) => row.name,
+    status: attentionRank,
+    checks: passingShare,
+    trust: (row) => (row.certification ? (TRUST_RANK[row.certification.status] ?? null) : null),
+    refresh: (row) => row.refreshedAt,
+}
+
+function compareValues(left: string | number, right: string | number): number {
+    return typeof left === 'string' && typeof right === 'string'
+        ? left.localeCompare(right)
+        : Number(left) - Number(right)
+}
+
+export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort | null): CatalogTableRow[] {
+    if (!sort) {
+        return rows
+    }
+    const valueOf = SORT_VALUES[sort.column]
+    const sign = sort.direction === 'asc' ? 1 : -1
+    return [...rows].sort((left, right) => {
+        const leftValue = valueOf(left)
+        const rightValue = valueOf(right)
+        if (leftValue === null || rightValue === null) {
+            return Number(leftValue === null) - Number(rightValue === null) || left.name.localeCompare(right.name)
+        }
+        return sign * compareValues(leftValue, rightValue) || left.name.localeCompare(right.name)
+    })
+}
+
+export function nextTablesSort(current: TablesSort | null, column: TablesSortColumn): TablesSort | null {
+    if (current?.column !== column) {
+        return { column, direction: 'asc' }
+    }
+    return current.direction === 'asc' ? { column, direction: 'desc' } : null
 }

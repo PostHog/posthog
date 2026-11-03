@@ -34,6 +34,7 @@ import { CertificationStatusTag, certificationStatusTag } from '../certification
 import { CatalogTableRefresh } from './CatalogTableRefresh'
 import { CatalogTableRowMenu } from './CatalogTableRowMenu'
 import { CatalogTablesPagination } from './CatalogTablesPagination'
+import { CatalogTablesSortableHead } from './CatalogTablesSortableHead'
 import { MutedCellText } from './MutedCellText'
 import { TableChecksPanel } from './TableChecksPanel'
 
@@ -229,11 +230,15 @@ export function CatalogTablesTable(): JSX.Element {
                             <TableHead className="w-0 pr-0">
                                 <span className="sr-only">Checks</span>
                             </TableHead>
-                            <TableHead expand>Name</TableHead>
-                            <TableHead className={WIDE_ONLY_CELL}>Status</TableHead>
-                            <TableHead className={WIDE_ONLY_CELL}>Checks</TableHead>
-                            <TableHead className={WIDE_ONLY_CELL}>Trust</TableHead>
-                            <TableHead className={WIDE_ONLY_CELL}>Last refresh</TableHead>
+                            <CatalogTablesSortableHead column="name" label="Name" expand />
+                            <CatalogTablesSortableHead column="status" label="Status" className={WIDE_ONLY_CELL} />
+                            <CatalogTablesSortableHead column="checks" label="Checks" className={WIDE_ONLY_CELL} />
+                            <CatalogTablesSortableHead column="trust" label="Trust" className={WIDE_ONLY_CELL} />
+                            <CatalogTablesSortableHead
+                                column="refresh"
+                                label="Last refresh"
+                                className={WIDE_ONLY_CELL}
+                            />
                             <TableHead className="w-0">
                                 <span className="sr-only">Actions</span>
                             </TableHead>

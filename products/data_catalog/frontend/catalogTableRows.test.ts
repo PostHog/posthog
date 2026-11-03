@@ -17,8 +17,10 @@ import {
     CatalogTableRow,
     DEFAULT_TABLES_FILTERS,
     TablesFilters,
+    TablesSort,
     buildCatalogTableRows,
     rowMatchesFilters,
+    sortCatalogTableRows,
 } from './catalogTableRows'
 import type { DataCatalogCertificationApi } from './generated/api.schemas'
 
@@ -62,6 +64,12 @@ const charges = {
     source: { id: 'source-1', source_type: 'Stripe', status: 'Completed', prefix: '', last_synced_at: 'source-sync' },
     schema: { id: 'schema-1', name: 'charges', should_sync: true, incremental: false, last_synced_at: 'schema-sync' },
 } as unknown as DatabaseSchemaDataWarehouseTable
+const ordersExport = {
+    type: 'data_warehouse',
+    id: 'table-orders-export',
+    name: 'orders_export',
+    fields: {},
+} as unknown as DatabaseSchemaDataWarehouseTable
 const view = (id: string, name: string): DatabaseSchemaViewTable =>
     ({ type: 'view', id, name, fields: {} }) as unknown as DatabaseSchemaViewTable
 
@@ -86,7 +94,7 @@ function buildRows(): CatalogTableRow[] {
     ]
     return buildCatalogTableRows({
         posthogTables: [events, sessions],
-        dataWarehouseTables: [charges],
+        dataWarehouseTables: [charges, ordersExport],
         views: [view('query-orders', 'orders_daily'), view('query-revenue', 'revenue'), view('query-api', 'api_v1')],
         savedQueries: [
             savedQuery('query-orders', 'orders_daily'),
@@ -134,6 +142,14 @@ describe('catalogTableRows', () => {
                 trust: 'cert-orders',
                 refreshedAt: null,
             },
+            {
+                name: 'orders_export',
+                subtitle: 'Self-managed',
+                problems: [],
+                checks: 0,
+                trust: null,
+                refreshedAt: null,
+            },
             { name: 'sessions', subtitle: 'PostHog', problems: [], checks: 0, trust: null, refreshedAt: null },
             {
                 name: 'stripe.charges',
@@ -151,8 +167,9 @@ describe('catalogTableRows', () => {
         [{ kind: 'posthog' }, ['events', 'sessions']],
         [{ problem: 'checks' }, ['events']],
         [{ trust: 'proposed' }, ['orders_daily']],
-        [{ trust: 'none' }, ['revenue', 'events', 'deleted_view', 'sessions']],
-        [{ checks: 'without' }, ['revenue', 'orders_daily', 'sessions']],
+        [{ kind: 'self_managed' }, ['orders_export']],
+        [{ trust: 'none' }, ['revenue', 'events', 'deleted_view', 'orders_export', 'sessions']],
+        [{ checks: 'without' }, ['revenue', 'orders_daily', 'orders_export', 'sessions']],
         [{ kind: 'source', trust: 'certified', checks: 'with' }, ['stripe.charges']],
     ])('filters %j keep %j', (filters, expectedNames) => {
         expect(
@@ -160,5 +177,30 @@ describe('catalogTableRows', () => {
                 .filter((row) => rowMatchesFilters(row, { ...DEFAULT_TABLES_FILTERS, ...filters }))
                 .map((row) => row.name)
         ).toEqual(expectedNames)
+    })
+
+    it.each<[TablesSort, string[]]>([
+        [
+            { column: 'name', direction: 'asc' },
+            ['deleted_view', 'events', 'orders_daily', 'orders_export', 'revenue', 'sessions', 'stripe.charges'],
+        ],
+        [
+            { column: 'status', direction: 'asc' },
+            ['revenue', 'events', 'deleted_view', 'orders_daily', 'orders_export', 'sessions', 'stripe.charges'],
+        ],
+        [
+            { column: 'checks', direction: 'desc' },
+            ['deleted_view', 'stripe.charges', 'events', 'orders_daily', 'orders_export', 'revenue', 'sessions'],
+        ],
+        [
+            { column: 'trust', direction: 'asc' },
+            ['stripe.charges', 'orders_daily', 'deleted_view', 'events', 'orders_export', 'revenue', 'sessions'],
+        ],
+        [
+            { column: 'refresh', direction: 'desc' },
+            ['stripe.charges', 'revenue', 'deleted_view', 'events', 'orders_daily', 'orders_export', 'sessions'],
+        ],
+    ])('sorting by %j orders rows %j, empty values last', (sort, expectedNames) => {
+        expect(sortCatalogTableRows(buildRows(), sort).map((row) => row.name)).toEqual(expectedNames)
     })
 })
