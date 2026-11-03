@@ -625,8 +625,12 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 context: RemoteContext,
                 correction: SearchCorrection | null
             ): Record<string, string> => {
-                const objectsQuery =
-                    correction?.from === resolved.backendSearch ? correction.to : resolved.backendSearch
+                // Filters come first in backendSearch, so the corrected words replace its end.
+                const corrects =
+                    correction?.from === resolved.freeText.trim() && resolved.backendSearch.endsWith(correction.from)
+                const objectsQuery = corrects
+                    ? resolved.backendSearch.slice(0, -correction.from.length) + correction.to
+                    : resolved.backendSearch
                 const queries: Record<string, string> = {}
                 // Every request searches the current project, so none runs before one is known.
                 if (context.currentTeamId === null) {
@@ -775,7 +779,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         rankableSettings(local, displayed.query.localQuery).length > 0 &&
                         featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
                     unifiedRanking,
-                    searchCorrection: searchCorrection?.to === displayed.query.localQuery ? searchCorrection : null,
+                    searchCorrection:
+                        searchCorrection &&
+                        (displayed.query.remoteQueries.results ?? displayed.query.localQuery).endsWith(
+                            searchCorrection.to
+                        )
+                            ? searchCorrection
+                            : null,
                 })
             },
         ],
@@ -813,10 +823,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             const settled = Object.entries(values.remoteQueries).every(
                 ([source, sourceQuery]) => !sourceQuery || sourceQuery in values.remote[source as RemoteSource].cache
             )
+            const failed = Object.entries(values.remoteQueries).some(
+                ([source, sourceQuery]) =>
+                    !!sourceQuery && !!values.remote[source as RemoteSource].failed?.[sourceQuery]
+            )
             const empty = !values.sections.some((section) => section.rows.some((row) => row.kind === 'item'))
             if (
                 corrected &&
                 settled &&
+                !failed &&
                 !values.displayedQuery.stale &&
                 empty &&
                 values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
@@ -885,7 +900,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             }
         }
 
+        // Cached answers arrive inside this loop, so a correction waits until the loop is done.
         const syncRemote = (): void => {
+            cache.syncingRemote = true
+            startRemoteRequests()
+            cache.syncingRemote = false
+            correctWhenEmpty()
+        }
+
+        const startRemoteRequests = (): void => {
             const started: Record<string, string> = {}
             for (const request of REMOTE_REQUESTS) {
                 const query = values.requestQueries[request.id] ?? ''
@@ -1101,7 +1124,9 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             clearQuery: () => actions.setChipsAndText([], '', 0),
             remoteLoaded: () => {
                 showSettledQuery()
-                correctWhenEmpty()
+                if (!cache.syncingRemote) {
+                    correctWhenEmpty()
+                }
             },
             applyCorrection: () => syncRemote(),
             loadFolders: async () => {

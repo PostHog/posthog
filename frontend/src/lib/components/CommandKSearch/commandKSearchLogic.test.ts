@@ -58,7 +58,10 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.highlightedRow).toBe(rows[rows.length - 1])
     })
 
-    it('corrects a search only after every source answered with nothing', () => {
+    test.each([
+        ['answered with nothing', false, { from: 'фзш', to: 'api' }],
+        ['answered, but one failed', true, null],
+    ])('corrects a search only after every source %s', (_, oneFailed, expected) => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: 'test' })
         logic.actions.inputChanged('фзш', 3, false)
         const sources = Object.keys(logic.values.remoteQueries)
@@ -67,10 +70,14 @@ describe('commandKSearchLogic', () => {
         logic.actions.remoteLoaded('фзш', { results: [] })
         expect(logic.values.searchCorrection).toBeNull()
 
-        for (const source of sources) {
-            logic.actions.remoteLoaded('фзш', { [source]: [] } as RemoteResults)
-        }
-        expect(logic.values.searchCorrection).toEqual({ from: 'фзш', to: 'api' })
+        sources.forEach((source, index) => {
+            logic.actions.remoteLoaded(
+                'фзш',
+                { [source]: [] } as RemoteResults,
+                oneFailed && index === sources.length - 1
+            )
+        })
+        expect(logic.values.searchCorrection).toEqual(expected)
     })
 
     it('searches a keyboard layout correction until the text changes', () => {
@@ -80,7 +87,10 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.localQuery).toEqual('api')
         expect(logic.values.requestQueries.objects).toEqual('api')
 
-        logic.actions.inputChanged('фзшы', 4, false)
+        logic.actions.setChipsAndText([{ key: 'is', value: 'insight', label: 'Insight', negated: false }], 'фзш', 3)
+        expect(logic.values.requestQueries.objects).toEqual('type:insight api')
+
+        logic.actions.setChipsAndText([], 'фзшы', 4)
 
         expect(logic.values.localQuery).toEqual('фзшы')
     })
