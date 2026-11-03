@@ -7,12 +7,18 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 
 #[tokio::test(start_paused = true)]
 async fn transport_errors_do_not_discard_messages() {
-    for error_count in [0, 1, 3] {
-        let errors = (0..error_count).map(|_| {
-            Err(KafkaError::MessageConsumption(
-                RDKafkaErrorCode::BrokerTransportFailure,
-            ))
-        });
+    use RDKafkaErrorCode::{AllBrokersDown, BrokerTransportFailure};
+
+    for codes in [
+        &[][..],
+        &[BrokerTransportFailure],
+        &[BrokerTransportFailure; 3],
+        &[AllBrokersDown],
+        &[BrokerTransportFailure, AllBrokersDown],
+    ] {
+        let errors = codes
+            .iter()
+            .map(|&code| Err(KafkaError::MessageConsumption(code)));
         let mut messages = stream::iter(errors.chain([Ok(1), Ok(2)]));
 
         assert_eq!(support::recv(&mut messages).await.unwrap(), 1);
