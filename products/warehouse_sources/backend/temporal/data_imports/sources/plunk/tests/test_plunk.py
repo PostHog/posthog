@@ -371,7 +371,13 @@ class TestReadBounded:
 
 
 class TestBoundedSession:
-    def test_send_pins_default_timeout_and_rebuffers_body(self):
+    @pytest.mark.parametrize(
+        "send_kwargs,expected_timeout",
+        [({}, DEFAULT_TIMEOUT_SECONDS), ({"timeout": None}, DEFAULT_TIMEOUT_SECONDS), ({"timeout": 3}, 3)],
+    )
+    def test_send_pins_default_timeout_and_rebuffers_body(
+        self, send_kwargs: dict[str, Any], expected_timeout: Any
+    ) -> None:
         session = _make_bounded_session("sk_test")
         captured: dict[str, Any] = {}
 
@@ -383,11 +389,11 @@ class TestBoundedSession:
             return resp
 
         with mock.patch.object(requests.Session, "send", side_effect=fake_super_send):
-            response = session.send(requests.PreparedRequest())
+            response = session.send(requests.PreparedRequest(), **send_kwargs)
 
         # A timeout is pinned when the caller passes none, redirects are refused, and the body is
         # streamed — then re-buffered so RESTClient's `.json()` still works.
-        assert captured["timeout"] == DEFAULT_TIMEOUT_SECONDS
+        assert captured["timeout"] == expected_timeout
         assert captured["allow_redirects"] is False
         assert captured["stream"] is True
         assert response.json() == {"data": []}

@@ -6,12 +6,14 @@ from typing import Any, Optional, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from posthog.models.integration import Integration, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -632,6 +634,55 @@ class TestSourceForPipelineTokenRefresh:
         assert result.raised is not None
         assert result.requests == []
         assert error_message_matches(str(result.raised), source.get_non_retryable_errors())
+
+
+_SNAPCHAT_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source"
+
+
+def _snapchat_http_error(status_code: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+
+class TestGetOAuthAccounts:
+    def test_maps_accounts_grouped_by_organization(self) -> None:
+        source = SnapchatAdsSource()
+        listed = [
+            ({"id": "acc-1", "name": "Example Self Service", "status": "PENDING"}, "Example Org"),
+            ({"id": "acc-2", "name": "Example", "status": "ACTIVE"}, "Example Org"),
+        ]
+        with (
+            patch.object(source, "get_oauth_integration", return_value=_snapchat_integration(refreshed_seconds_ago=60)),
+            patch(f"{_SNAPCHAT_SOURCE_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            accounts = source.get_oauth_accounts(1, 2)
+
+        assert accounts == [
+            IntegrationAccount(
+                value="acc-1", display_name="Example Self Service", badges=("Pending",), group="Example Org"
+            ),
+            IntegrationAccount(value="acc-2", display_name="Example", badges=("Active",), group="Example Org"),
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_auth_error_asks_to_reconnect(self, status_code: int) -> None:
+        source = SnapchatAdsSource()
+        with (
+            patch.object(source, "get_oauth_integration", return_value=_snapchat_integration(refreshed_seconds_ago=60)),
+            patch(f"{_SNAPCHAT_SOURCE_MODULE}.list_ad_accounts", side_effect=_snapchat_http_error(status_code)),
+        ):
+            with pytest.raises(IntegrationAccountListingError, match="reconnect your Snapchat Ads"):
+                source.get_oauth_accounts(1, 2)
+
+    def test_non_auth_api_error_propagates(self) -> None:
+        source = SnapchatAdsSource()
+        with (
+            patch.object(source, "get_oauth_integration", return_value=_snapchat_integration(refreshed_seconds_ago=60)),
+            patch(f"{_SNAPCHAT_SOURCE_MODULE}.list_ad_accounts", side_effect=_snapchat_http_error(500)),
+        ):
+            with pytest.raises(requests.HTTPError):
+                source.get_oauth_accounts(1, 2)
 
 
 class TestValidateCredentials:

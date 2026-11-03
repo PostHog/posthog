@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -5,7 +6,10 @@ from unittest import mock
 
 from requests.exceptions import Timeout
 
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -20,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     RedditAdsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
+
+_REDDIT_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source"
 
 
 class TestRedditAdsSource:
@@ -150,6 +156,83 @@ class TestRedditAdsSource:
             self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
 
         assert expected_fragment in str(excinfo.value).lower()
+
+    def test_get_oauth_accounts_groups_ad_accounts_under_their_business(self):
+        ad_accounts = {
+            "biz-1": [{"id": "a2_one", "name": "Example Ads", "suspension_reason": None}],
+            "biz-2": [{"id": "a2_two", "name": "Blocked Ads", "suspension_reason": "PAYMENT_FAILURE"}],
+        }
+        integration = mock.MagicMock(errors="", access_token="token")
+        with (
+            mock.patch.object(RedditAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_REDDIT_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                f"{_REDDIT_SOURCE_MODULE}.list_businesses",
+                return_value=[{"id": "biz-1", "name": "Example Co"}, {"id": "biz-2", "name": "Other Co"}],
+            ),
+            mock.patch(
+                f"{_REDDIT_SOURCE_MODULE}.list_business_ad_accounts",
+                side_effect=lambda _token, business_id: ad_accounts[business_id],
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            accounts = self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
+
+        assert accounts == [
+            IntegrationAccount(value="a2_one", display_name="Example Ads", group="Example Co", secondary_text="a2_one"),
+            IntegrationAccount(
+                value="a2_two",
+                display_name="Blocked Ads",
+                badges=("Suspended",),
+                group="Other Co",
+                secondary_text="a2_two",
+            ),
+        ]
+
+    def test_get_oauth_accounts_bad_request_propagates(self):
+        # A 400 means we built a bad request, which the user cannot fix.
+        integration = mock.MagicMock(errors="", access_token="token")
+        with (
+            mock.patch.object(RedditAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_REDDIT_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                f"{_REDDIT_SOURCE_MODULE}.list_businesses",
+                side_effect=RedditAdsApiError("Reddit Ads API error (400): bad", 400),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            with pytest.raises(RedditAdsApiError):
+                self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
+
+    def test_get_oauth_accounts_retries_refresh_for_integration_carrying_a_past_refresh_failure(self):
+        # `errors` persists on the row, so a past (possibly transient) refresh failure must not
+        # permanently block the picker: the refresh runs again, and a successful one clears it.
+        integration = Integration(
+            kind="reddit-ads",
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+            config={"expires_in": 3600, "refreshed_at": time.time() - 7200},
+            sensitive_config={"access_token": "stale-token", "refresh_token": "refresh"},
+        )
+
+        def _succeed(oauth_integration: OauthIntegration) -> None:
+            oauth_integration.integration.errors = ""
+            oauth_integration.integration.sensitive_config["access_token"] = "refreshed-token"
+
+        with (
+            mock.patch.object(RedditAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=_succeed) as refresh,
+            mock.patch(f"{_REDDIT_SOURCE_MODULE}.list_businesses", return_value=[{"id": "biz-1", "name": "Example"}]),
+            mock.patch(
+                f"{_REDDIT_SOURCE_MODULE}.list_business_ad_accounts",
+                return_value=[{"id": "a2_one", "name": "Example Ads"}],
+            ) as list_accounts,
+        ):
+            accounts = self.source.get_oauth_accounts(self.config.reddit_integration_id, self.team_id)
+
+        assert refresh.call_count == 1
+        # The refreshed token is the one used to list, not the stale one.
+        assert list_accounts.call_args.args[0] == "refreshed-token"
+        assert [account.value for account in accounts] == ["a2_one"]
 
     def _drive(self, schema_name: str, script: list[ScriptedResponse], access_token: str | None, **inputs: Any):
         integration = mock.MagicMock(access_token=access_token)

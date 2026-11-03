@@ -334,3 +334,9 @@ class TestOktaFanout:
 
         assert isinstance(result.raised, ValueError)
         assert result.paths == ["/api/v1/groups"]
+
+
+def test_connection_target_change_requires_secret_reentry() -> None:
+    # The API token is sent to `okta_domain`.
+    # A change to this field must make the update API ask for the secret again.
+    assert OktaSource().connection_host_fields == ["okta_domain"]

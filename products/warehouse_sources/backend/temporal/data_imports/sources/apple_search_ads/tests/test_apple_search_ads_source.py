@@ -486,3 +486,29 @@ class TestAppleAdsAccessToken:
 
         with pytest.raises(AppleAdsOauthError, match=MISSING_TOKEN_MESSAGE):
             apple_ads_access_token(integration)
+
+
+def test_config_reads_the_key_pair_branch_next_to_the_flat_key_pair_fields() -> None:
+    # Stored job inputs keep the flat key pair fields next to the branch, so that old workers can read them.
+    key_pair = {
+        "client_id": "SEARCHADS.client",
+        "apple_team_id": "SEARCHADS.team",
+        "key_id": "key-1",
+        "private_key": "-----BEGIN EC PRIVATE KEY-----\nabc\n-----END EC PRIVATE KEY-----",
+    }
+
+    config = AppleSearchAdsSourceConfig.from_dict(
+        {
+            **key_pair,
+            "ad_account_id": "123456789",
+            "start_date": "2026-06-01",
+            "org_id": "555",
+            "auth_method": {"selection": "key_pair", **key_pair},
+        }
+    )
+
+    assert config.auth_method.selection == "key_pair"
+    assert config.auth_method.client_id == "SEARCHADS.client"
+    assert config.auth_method.private_key == key_pair["private_key"]
+    assert config.auth_method.apple_ads_integration_id is None
+    assert (config.ad_account_id, config.start_date, config.org_id) == ("123456789", "2026-06-01", "555")

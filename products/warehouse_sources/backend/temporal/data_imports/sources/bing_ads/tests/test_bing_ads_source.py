@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -247,6 +248,11 @@ class TestBingAdsSource:
                 "could not authenticate",
                 "Invalid client data",
             ),
+            (
+                "Failed to list Bing Ads accounts: OAuthTokenRequestException: invalid_grant The grant",
+                "reconnect your Bing Ads integration",
+                "invalid_grant",
+            ),
         ],
     )
     @mock.patch(
@@ -269,6 +275,44 @@ class TestBingAdsSource:
 
         assert expected_fragment in str(exc_info.value)
         assert unexpected_fragment not in str(exc_info.value)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.credentials_service.get_secrets",
+        return_value={
+            "BING_ADS_DEVELOPER_TOKEN": "dev-token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        },
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.BingAdsClient")
+    @mock.patch.object(BingAdsSource, "get_oauth_integration")
+    def test_get_oauth_accounts_returns_the_listed_accounts(self, mock_get_oauth, mock_client_cls, _mock_secret):
+        listed = [IntegrationAccount(value="123", display_name="Example Ads")]
+        mock_client_cls.return_value.list_accounts.return_value = listed
+
+        assert self.source.get_oauth_accounts(integration_id=1, team_id=self.team_id) == listed
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.credentials_service.get_secrets",
+        return_value={
+            "BING_ADS_DEVELOPER_TOKEN": "dev-token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        },
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.BingAdsClient")
+    @mock.patch.object(BingAdsSource, "get_oauth_integration")
+    def test_get_oauth_accounts_unknown_listing_failure_propagates(self, mock_get_oauth, mock_client_cls, _mock_secret):
+        # A failure that is not a known auth or credential problem is a bug, not bad user input.
+        mock_client_cls.return_value.list_accounts.side_effect = ValueError("schema parser exploded")
+
+        with pytest.raises(ValueError, match="schema parser exploded"):
+            self.source.get_oauth_accounts(integration_id=1, team_id=self.team_id)
+
+    @mock.patch.object(BingAdsSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 1"))
+    def test_get_oauth_accounts_missing_integration_asks_to_reconnect(self, _mock_get_oauth):
+        with pytest.raises(IntegrationAccountListingError, match="reconnect"):
+            self.source.get_oauth_accounts(integration_id=1, team_id=self.team_id)
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""

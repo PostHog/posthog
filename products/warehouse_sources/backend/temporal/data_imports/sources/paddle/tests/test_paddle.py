@@ -126,6 +126,54 @@ class TestPagination:
         assert result.requests[1].query == {"after": ("c_1",)}
 
 
+ENDPOINT_ROWS: dict[str, dict[str, Any]] = {
+    "customers": {
+        "id": "ctm_01h8bx9mqw8z9k5f9v9v9v9v9v",
+        "name": "John Doe",
+        "email": "john@doe.com",
+        "status": "active",
+        "created_at": "2023-08-21T11:05:00Z",
+        "updated_at": "2023-08-21T11:05:00Z",
+        "marketing_consent": True,
+        "locale": "en",
+        "custom_data": None,
+        "import_meta": None,
+    },
+    "subscriptions": {
+        "id": "sub_01h8bx9mqw8z9k5f9v9v9v9v9v",
+        "status": "active",
+        "customer_id": "ctm_01h8bx9mqw8z9k5f9v9v9v9v9v",
+        "address_id": "add_01h8bx9mqw8z9k5f9v9v9v9v9v",
+        "business_id": None,
+        "currency_code": "USD",
+        "created_at": "2023-08-21T11:05:00Z",
+        "updated_at": "2023-08-21T11:05:00Z",
+        "started_at": "2023-08-21T11:05:00Z",
+        "next_billed_at": "2023-09-21T11:05:00Z",
+        "collection_mode": "automatic",
+        "billing_details": None,
+        "current_billing_period": {"starts_at": "2023-08-21T11:05:00Z", "ends_at": "2023-09-21T11:05:00Z"},
+        "items": [{"price_id": "pri_01h8bx9mqw8z9k5f9v9v9v9v9v", "quantity": 1, "status": "active"}],
+        "custom_data": None,
+    },
+}
+
+
+class TestEndpointRows:
+    @pytest.mark.parametrize("schema_name", list(ENDPOINT_ROWS))
+    def test_rows_reach_the_pipeline_with_their_keys(self, schema_name: str) -> None:
+        row = ENDPOINT_ROWS[schema_name]
+
+        result = _driver().run(schema_name, [_response([row])])
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.rows == [row]
+        # The pipeline deduplicates and partitions on these columns, so each row must carry them.
+        assert set(result.response.primary_keys or []) <= row.keys()
+        assert set(result.response.partition_keys or []) <= row.keys()
+
+
 class TestIncremental:
     def test_incremental_field_adds_server_side_filter(self) -> None:
         result = _driver().run(

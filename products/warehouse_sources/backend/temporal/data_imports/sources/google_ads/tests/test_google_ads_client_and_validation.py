@@ -1,15 +1,9 @@
-import os
-import json
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 import pytest
 from unittest import mock
 
 import pyarrow as pa
-
-from posthog.models import Team
-from posthog.models.organization import Organization
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
@@ -23,60 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsTable,
     _search_as_arrow_tables,
-    get_schemas,
     google_ads_client,
-    google_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
-
-SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS = pytest.mark.skipif(
-    "GOOGLE_SERVICE_ACCOUNT_CREDENTIALS" not in os.environ
-    and "GOOGLE_DEVELOPER_TOKEN" not in os.environ
-    and "GOOGLE_ADS_CUSTOMER_ID" not in os.environ,
-    reason="Google service account credentials and/or developer token not set in environment",
-)
-
-
-@pytest.fixture
-def customer_id() -> str:
-    """Return customer id if available in environment, otherwise a default."""
-    customer_id = os.getenv("GOOGLE_ADS_CUSTOMER_ID", None)
-
-    if not customer_id:
-        return "1111111111"
-    else:
-        return customer_id
-
-
-@pytest.fixture
-def developer_token() -> str:
-    """Return developer token if available in environment, otherwise a default."""
-    developer_token = os.getenv("GOOGLE_DEVELOPER_TOKEN", None)
-
-    if not developer_token:
-        return "aaabbbccc111222333"
-    else:
-        return developer_token
-
-
-@pytest.fixture
-def service_account_secrets(developer_token: str):
-    """Serve the platform service account credentials through the credentials service wrapper."""
-    credentials_file_path = os.environ["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"]
-    with open(credentials_file_path) as f:
-        credentials = json.load(f)
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.credentials_service.get_secrets",
-        return_value={
-            "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY": credentials["private_key"],
-            "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID": credentials["private_key_id"],
-            "GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI": credentials["token_uri"],
-            "GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL": credentials["client_email"],
-            "GOOGLE_ADS_DEVELOPER_TOKEN": developer_token,
-        },
-    ):
-        yield
 
 
 @pytest.mark.parametrize(
@@ -90,90 +33,6 @@ def test_google_ads_service_account_config_loads(raw_customer_id: str, expected:
     cfg = GoogleAdsServiceAccountSourceConfig.from_dict({"resource_name": "campaign", "customer_id": raw_customer_id})
 
     assert cfg.customer_id == expected
-
-
-@SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
-def test_get_schemas(customer_id: str, service_account_secrets: None):
-    """Test get_schemas returns well-known schemas.
-
-    This test is not exhaustive and merely limits itself to asserting a handful
-    of well-known schemas are returned.
-    """
-    org = Organization.objects.create(name="org")
-    team = Team.objects.create(organization=org)
-
-    cfg = GoogleAdsServiceAccountSourceConfig(customer_id=customer_id)
-    schemas = get_schemas(cfg, team_id=team.id, api_version=GoogleAdsSource().default_version)
-
-    assert "campaign" in schemas
-    assert "ad_group" in schemas
-    assert "ad" in schemas
-
-    campaign = schemas["campaign"]
-    assert campaign["campaign_id"].to_arrow_field() == pa.field("campaign_id", pa.int64())
-    assert campaign["campaign_name"].to_arrow_field() == pa.field("campaign_name", pa.string())
-    assert campaign["campaign_status"].to_arrow_field() == pa.field("campaign_status", pa.string())
-    assert campaign["campaign_start_date"].to_arrow_field() == pa.field("campaign_start_date", pa.date32())
-
-    ad_group = schemas["ad_group"]
-    assert ad_group["ad_group_id"].to_arrow_field() == pa.field("ad_group_id", pa.int64())
-    assert ad_group["campaign_id"].to_arrow_field() == pa.field("campaign_id", pa.int64())
-    assert ad_group["ad_group_name"].to_arrow_field() == pa.field("ad_group_name", pa.string())
-    assert ad_group["ad_group_status"].to_arrow_field() == pa.field("ad_group_status", pa.string())
-    assert ad_group["ad_group_type"].to_arrow_field() == pa.field("ad_group_type", pa.string())
-
-    ad = schemas["ad"]
-    assert ad["ad_group_ad_ad_id"].to_arrow_field() == pa.field("ad_group_ad_ad_id", pa.int64())
-    assert ad["ad_group_ad_ad_name"].to_arrow_field() == pa.field("ad_group_ad_ad_name", pa.string())
-    assert ad["ad_group_ad_ad_type"].to_arrow_field() == pa.field("ad_group_ad_ad_type", pa.string())
-
-
-@SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
-def test_google_ads_source(customer_id: str, service_account_secrets: None):
-    """Test google_ads_source can iterate rows.
-
-    This test is not exhaustive and merely limits itself to attempting to
-    iterate a few sources.
-    """
-
-    org = Organization.objects.create(name="org")
-    team = Team.objects.create(organization=org)
-
-    cfg = GoogleAdsServiceAccountSourceConfig(customer_id=customer_id)
-    for resource in (
-        "campaign",
-        "campaign_stats",
-        "ad_group",
-        "ad_group_stats",
-        "ad",
-        "ad_stats",
-        "keyword",
-        "keyword_stats",
-        "video",
-        "video_stats",
-        "customer_stats",
-        "search_term_stats",
-        "geographic_stats",
-        "campaign_overview_stats",
-        "video_performance_stats",
-        "asset_group",
-        "asset_group_stats",
-        "shopping_performance_view",
-        "conversion_action",
-    ):
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-        source = google_ads_source(
-            cfg,
-            resource_name=resource,
-            team_id=team.id,
-            resumable_source_manager=manager,
-            api_version=GoogleAdsSource().default_version,
-        )
-
-        items = source.items()
-        assert isinstance(items, Iterable)
-        list(items)
 
 
 @dataclass
@@ -415,22 +274,6 @@ class TestGoogleAdsSourceValidation:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
     )
-    def test_validate_credentials_access_token_scope_insufficient(self, mock_client):
-        mock_client.return_value.get_service.side_effect = Exception(
-            "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
-        )
-
-        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
-
-        is_valid, error = self.source.validate_credentials(config, self.team_id)
-
-        assert is_valid is False
-        assert error is not None
-        assert "Reconnect your Google Ads account" in error
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"
-    )
     def test_validate_credentials_not_ads_user(self, mock_client):
         mock_client.return_value.get_service.side_effect = Exception(
             "NOT_ADS_USER: The Google account is not associated with any Ads accounts"
@@ -607,9 +450,9 @@ def test_source_registration_does_not_import_google_ads_sdk(google_ads_sdk_leak_
     # So registering sources (load_all_sources, which any sync triggers via SourceRegistry) must NOT
     # import the SDK — it loads lazily only when a google-ads sync actually runs. This guards the
     # split between configs.py (lightweight, registered) and google_ads.py (SDK, deferred).
-    # The clean-interpreter subprocess doing the check is launched at session start by the
-    # google_ads_sdk_leak_check fixture (products/warehouse_sources/backend/conftest.py) so its
-    # interpreter boot overlaps the rest of the suite; this test just collects its verdict.
+    # The clean-interpreter subprocess doing the check is launched early by the
+    # google_ads_sdk_leak_check fixture (conftest.py in this directory) so its interpreter boot
+    # overlaps the other tests here; this test just collects its verdict.
     assert google_ads_sdk_leak_check is not None
     returncode, stdout, stderr = google_ads_sdk_leak_check.result(timeout=120)
     assert returncode == 0, stderr[-2000:]

@@ -55,3 +55,9 @@ class TestValidateCredentials:
     def test_a_connection_failure_is_reported_not_raised(self, _name: str, error: Exception) -> None:
         with patch(_FETCH_CLUSTER, side_effect=error):
             assert KafkaSource().validate_credentials(_CONFIG, team_id=1) == (False, str(error))
+
+
+def test_connection_target_change_requires_secret_reentry() -> None:
+    # The SASL password is sent to the brokers named in `bootstrap_servers`.
+    # A change to this field must make the update API ask for the secret again.
+    assert KafkaSource().connection_host_fields == ["bootstrap_servers"]

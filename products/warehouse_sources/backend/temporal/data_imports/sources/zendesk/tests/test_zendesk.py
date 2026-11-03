@@ -615,3 +615,9 @@ class TestZendeskResume:
         assert isinstance(result.raised, RuntimeError)
         assert "rejected the saved pagination cursor" in str(result.raised)
         assert result.final_state is None
+
+
+def test_zendesk_tables_keep_every_column() -> None:
+    # The HogQL tables of Zendesk use a fixed canonical schema, so the API must refuse a column
+    # selection that would drop a referenced column.
+    assert ZendeskSource().has_managed_hogql_schema is True

@@ -1,9 +1,13 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import pytest
 from unittest import mock
 
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pinterestads import (
@@ -165,3 +169,76 @@ class TestPinterestAdsSource:
 
         with pytest.raises(IntegrationAccountListingError, match="Pinterest is having trouble responding"):
             self.source.get_oauth_accounts(456, self.team_id)
+
+
+_PINTEREST_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source"
+
+
+def _pinterest_http_error(status_code: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status_code
+    return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+
+class TestPinterestAdsGetOAuthAccounts:
+    @contextmanager
+    def _listing(self, *, token_expired: bool = False) -> Iterator[tuple[mock.MagicMock, mock.MagicMock]]:
+        integration = mock.MagicMock(errors="", access_token="token")
+        with (
+            mock.patch.object(PinterestAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_PINTEREST_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_PINTEREST_SOURCE_MODULE}.build_session"),
+            mock.patch(f"{_PINTEREST_SOURCE_MODULE}.list_ad_accounts") as mock_list,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = token_expired
+            yield mock_oauth, mock_list
+
+    def test_maps_accounts_with_permission_badges(self) -> None:
+        with self._listing() as (_, mock_list):
+            mock_list.return_value = [
+                {"id": "549770029420", "name": "Example Inc", "permissions": ["OWNER"]},
+                {"id": "111", "name": "Client", "permissions": ["CAMPAIGN_MANAGER"]},
+            ]
+            accounts = PinterestAdsSource().get_oauth_accounts(456, 123)
+
+        assert accounts == [
+            IntegrationAccount(value="549770029420", display_name="Example Inc", badges=("Owner",)),
+            IntegrationAccount(value="111", display_name="Client", badges=("Campaign manager",)),
+        ]
+
+    @pytest.mark.parametrize(
+        "status_code, expected_fragment",
+        [
+            (401, "reconnect"),
+            (403, "reconnect"),
+            # Pinterest rate-limits `/ad_accounts` and returns 5xx during outages. Neither is a bug
+            # on our side, so the picker asks the user to try again.
+            (429, "try again"),
+            (500, "try again"),
+            (503, "try again"),
+        ],
+    )
+    def test_http_errors_map_to_actionable_listing_errors(self, status_code: int, expected_fragment: str) -> None:
+        with self._listing() as (_, mock_list):
+            mock_list.side_effect = _pinterest_http_error(status_code)
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                PinterestAdsSource().get_oauth_accounts(456, 123)
+
+        assert expected_fragment in str(exc_info.value).lower()
+
+    def test_a_request_pinterest_does_not_recognise_propagates(self) -> None:
+        # A 404 means we built a bad request, which the user cannot fix.
+        with self._listing() as (_, mock_list):
+            mock_list.side_effect = _pinterest_http_error(404)
+            with pytest.raises(requests.HTTPError):
+                PinterestAdsSource().get_oauth_accounts(456, 123)
+
+    def test_unreachable_token_endpoint_asks_the_user_to_retry(self) -> None:
+        # `refresh_access_token` records a refusal in `integration.errors`, but a network failure
+        # escapes as an exception.
+        with self._listing(token_expired=True) as (mock_oauth, mock_list):
+            mock_oauth.return_value.refresh_access_token.side_effect = requests.ConnectionError("boom")
+            with pytest.raises(IntegrationAccountListingError, match="try again"):
+                PinterestAdsSource().get_oauth_accounts(456, 123)
+
+        mock_list.assert_not_called()

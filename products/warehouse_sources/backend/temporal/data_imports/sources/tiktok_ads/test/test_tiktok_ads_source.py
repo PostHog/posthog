@@ -18,6 +18,7 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -299,18 +300,63 @@ class TestTikTokAdsSource:
 
         assert "reconnect your TikTok Ads integration" in str(exc_info.value)
 
-    def test_get_oauth_accounts_does_not_treat_other_40000_errors_as_auth(self):
+    @parameterized.expand(
+        [
+            ("generic_40000", 40000, "Invalid parameter: advertiser_id"),
+            ("bad_request", 40002, "TikTok advertiser/get failed (40002): bad request"),
+        ]
+    )
+    def test_get_oauth_accounts_does_not_treat_other_errors_as_auth(self, name, api_code, message):
         """Code 40000 is a generic params-error bucket with many unrelated messages — only the
         specific app/token mismatch text should map to the reconnect message; anything else must
         keep surfacing as a bug so real request-construction errors aren't hidden."""
         _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
-        error = TikTokAdsAPIError("Invalid parameter: advertiser_id", api_code=40000)
+        error = TikTokAdsAPIError(message, api_code=api_code)
         with (
             patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
             patch(f"{_MODULE}.list_advertisers", side_effect=error),
         ):
             with pytest.raises(TikTokAdsAPIError):
                 self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+    @parameterized.expand([(40016,), (40100,), (40101,), (40102,), (50000,), (51001,), (60001,)])
+    def test_get_oauth_accounts_maps_transient_api_codes_to_retry_not_reconnect(self, api_code):
+        """40100 ("requests made too frequently") once read as an auth error and told a throttled team
+        to reconnect a healthy integration. None of these codes is a credential problem or our bug."""
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        error = TikTokAdsAPIError(f"TikTok advertiser/get failed ({api_code}): busy", api_code=api_code)
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", side_effect=error),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert str(exc_info.value) == TIKTOK_TRANSIENT_ERROR_MESSAGE
+        assert "reconnect" not in str(exc_info.value).lower()
+
+    def test_get_oauth_accounts_without_access_token_asks_to_reconnect(self):
+        self.mock_integration.access_token = None
+        with patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration):
+            with pytest.raises(IntegrationAccountListingError, match="no access token"):
+                self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+    def test_get_oauth_accounts_maps_advertisers_to_accounts(self):
+        _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
+        advertisers = [
+            {"advertiser_id": "7554133187111469074", "advertiser_name": "Example0925"},
+            {"advertiser_id": "7554135782433308688", "advertiser_name": ""},
+        ]
+        with (
+            patch.object(self.source, "get_oauth_integration", return_value=self.mock_integration),
+            patch(f"{_MODULE}.list_advertisers", return_value=advertisers),
+        ):
+            accounts = self.source.get_oauth_accounts(self.integration_id, self.team_id)
+
+        assert accounts == [
+            IntegrationAccount(value="7554133187111469074", display_name="Example0925"),
+            IntegrationAccount(value="7554135782433308688", display_name="Unnamed account"),
+        ]
 
     @parameterized.expand(
         [

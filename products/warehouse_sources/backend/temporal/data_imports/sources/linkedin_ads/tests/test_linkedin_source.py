@@ -7,10 +7,17 @@ from unittest import mock
 from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import (
+    LinkedinAdsApiError,
+    LinkedinAdsClient,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
     _CONNECTION_CHECK_ERROR,
     _MISSING_INTEGRATION_ERROR,
@@ -155,6 +162,46 @@ class TestLinkedInAdsSource:
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
         assert mock_client_for_integration.call_args.kwargs["api_version"] == "202610"
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_client_for_integration"
+    )
+    def test_get_oauth_accounts_maps_ad_accounts_to_accounts(self, mock_client_for_integration):
+        mock_client_for_integration.return_value.get_accounts.return_value = [
+            {"id": 5123, "name": "Example Ads", "status": "ACTIVE"},
+            {"id": 6000, "name": "", "status": None},
+        ]
+
+        accounts = self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+        assert accounts == [
+            IntegrationAccount(value="5123", display_name="Example Ads", badges=("ACTIVE",)),
+            IntegrationAccount(value="6000", display_name="Unnamed account"),
+        ]
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_client_for_integration"
+    )
+    def test_get_oauth_accounts_auth_error_asks_to_reauthorize(self, mock_client_for_integration, status_code):
+        mock_client_for_integration.return_value.get_accounts.side_effect = LinkedinAdsApiError(
+            f"LinkedIn API error ({status_code}): nope", status_code
+        )
+
+        with pytest.raises(IntegrationAccountListingError, match="re-authorize"):
+            self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_client_for_integration"
+    )
+    def test_get_oauth_accounts_bad_request_propagates(self, mock_client_for_integration):
+        # Any status other than 401/403 means we built a bad request, which the user cannot fix.
+        mock_client_for_integration.return_value.get_accounts.side_effect = LinkedinAdsApiError(
+            "LinkedIn API error (400): bad", 400
+        )
+
+        with pytest.raises(LinkedinAdsApiError):
+            self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
     def test_demographic_breakdowns_are_offered_but_not_enabled_by_default(self):
         # These fan out to one row per day per demographic value on top of the performance tables,

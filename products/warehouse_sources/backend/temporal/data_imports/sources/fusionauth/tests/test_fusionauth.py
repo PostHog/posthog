@@ -10,12 +10,14 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth import fusionauth as fusionauth_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth.fusionauth import (
+    DEFAULT_TIMEOUT_SECONDS,
     HTTP_NOT_ALLOWED_ERROR,
     FusionAuthOffsetPaginator,
     FusionAuthResponseTimeoutError,
     FusionAuthResponseTooLargeError,
     FusionAuthResumeConfig,
     _build_search_body,
+    _make_bounded_session,
     _read_bounded,
     fusionauth_source,
     validate_credentials,
@@ -397,6 +399,32 @@ class TestReadBounded:
         with pytest.raises(FusionAuthResponseTimeoutError):
             _read_bounded(cast(requests.Response, response), max_bytes=100, max_seconds=0)
         assert response.closed is True
+
+
+class TestBoundedSession:
+    # RESTClient sends without a timeout, so the session must pin one or a stalled host hangs the worker.
+    @pytest.mark.parametrize(
+        "send_kwargs,expected_timeout",
+        [({}, DEFAULT_TIMEOUT_SECONDS), ({"timeout": None}, DEFAULT_TIMEOUT_SECONDS), ({"timeout": 3}, 3)],
+    )
+    def test_send_pins_default_timeout_only_when_caller_passes_none(
+        self, send_kwargs: dict[str, Any], expected_timeout: Any
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_super_send(_request: requests.PreparedRequest, **kwargs: Any) -> _FakeStreamResponse:
+            captured.update(kwargs)
+            response = _FakeStreamResponse([b"{}"])
+            response.is_redirect = False  # type: ignore[attr-defined]
+            response.is_permanent_redirect = False  # type: ignore[attr-defined]
+            return response
+
+        with mock.patch.object(requests.Session, "send", side_effect=fake_super_send):
+            _make_bounded_session("key").send(requests.PreparedRequest(), **send_kwargs)
+
+        assert captured["timeout"] == expected_timeout
+        assert captured["allow_redirects"] is False
+        assert captured["stream"] is True
 
 
 class TestFusionAuthUserRegistrations:

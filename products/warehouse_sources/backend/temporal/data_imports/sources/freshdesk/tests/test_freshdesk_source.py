@@ -59,3 +59,9 @@ class TestFreshdeskSource:
         assert result.response.name == "agents"
         assert result.response.partition_mode is None
         assert result.response.partition_keys is None
+
+
+def test_connection_target_change_requires_secret_reentry() -> None:
+    # The API key is sent to the Freshdesk `subdomain`.
+    # A change to this field must make the update API ask for the secret again.
+    assert FreshdeskSource().connection_host_fields == ["subdomain"]

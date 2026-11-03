@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     error_message_matches,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -57,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     MetaAdsAuthError,
     MetaAdsRateLimitError,
     MetaAdsResumeConfig,
+    MetaAdsTokenRefreshError,
     _earliest_supported_since,
     _fetch_integration_row,
     _is_invalid_cursor_error,
@@ -2376,6 +2378,67 @@ class TestListAdAccounts:
         assert all(request.read_timeout == AD_ACCOUNT_LISTING_TIMEOUT_SECONDS for request in network.requests_log)
 
 
+_META_ADS_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source"
+
+
+class TestGetOAuthAccounts:
+    def test_maps_ad_accounts_to_accounts(self) -> None:
+        listed = [
+            {"account_id": "1234567890", "name": "Example Ads", "account_status": 1},
+            {"account_id": "9876543210", "name": "Old Ads", "account_status": 101},
+        ]
+        with (
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.get_integration_by_id"),
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.list_ad_accounts", return_value=listed),
+        ):
+            accounts = MetaAdsSource().get_oauth_accounts(1, 2)
+
+        assert accounts == [
+            IntegrationAccount(value="1234567890", display_name="Example Ads", badges=("Active",)),
+            IntegrationAccount(value="9876543210", display_name="Old Ads", badges=("Closed",)),
+        ]
+
+    @pytest.mark.parametrize(
+        "patched, error, expected_message",
+        [
+            # Meta refusing to refresh the stored token is a customer-side state (revoked access).
+            (
+                "get_integration_by_id",
+                MetaAdsTokenRefreshError(META_TOKEN_REFRESH_ERROR_MESSAGE),
+                META_TOKEN_REFRESH_ERROR_MESSAGE,
+            ),
+            # Throttling is not a bug, so the user gets a message to retry.
+            (
+                "list_ad_accounts",
+                MetaAdsRateLimitError("Meta is rate limiting requests for this connection."),
+                "Meta is rate limiting requests for this connection.",
+            ),
+        ],
+        ids=["token_refresh_error", "rate_limit"],
+    )
+    def test_customer_side_failures_become_listing_errors(
+        self, patched: str, error: Exception, expected_message: str
+    ) -> None:
+        with (
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.get_integration_by_id"),
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.list_ad_accounts"),
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.{patched}", side_effect=error),
+        ):
+            with pytest.raises(IntegrationAccountListingError) as exc_info:
+                MetaAdsSource().get_oauth_accounts(1, 2)
+
+        assert str(exc_info.value) == expected_message
+
+    def test_unexpected_error_propagates(self) -> None:
+        # Only the classified failures become listing errors. Anything else is a bug.
+        with (
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.get_integration_by_id"),
+            mock.patch(f"{_META_ADS_SOURCE_MODULE}.list_ad_accounts", side_effect=RuntimeError("boom")),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                MetaAdsSource().get_oauth_accounts(1, 2)
+
+
 def _source_config(
     *, action_attribution_windows: str | None = None, use_unified_attribution_setting: str | None = None
 ) -> mock.MagicMock:
@@ -2749,3 +2812,12 @@ class TestApiVersionDispatch:
         # The default must never be deprecated — a pinned-off-default warning on every new source
         # would be the drift the framework prevents.
         assert source.get_version_deprecation(META_ADS_API_VERSION_V26) is None
+
+
+def test_config_reads_an_empty_sync_lookback_days_as_unset() -> None:
+    # The connect form submits an optional number field it leaves blank as an empty string.
+    config = MetaAdsSourceConfig.from_dict(
+        {"account_id": "123", "meta_ads_integration_id": 1, "sync_lookback_days": ""}
+    )
+
+    assert config.sync_lookback_days is None

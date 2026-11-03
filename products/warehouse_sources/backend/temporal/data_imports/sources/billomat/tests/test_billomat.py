@@ -273,3 +273,9 @@ class TestBillomatSource:
         assert result.raised is None
         assert result.requests[0].headers["x-appid"] == "app-1"
         assert result.requests[0].headers["x-appsecret"] == "secret-1"
+
+
+def test_connection_target_change_requires_secret_reentry() -> None:
+    # The API key and app secret are sent to `https://{billomat_id}.billomat.net`.
+    # A change to this field must make the update API ask for the secret again.
+    assert BillomatSource().connection_host_fields == ["billomat_id"]

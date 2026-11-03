@@ -28,6 +28,7 @@ from google.auth import exceptions as google_auth_exceptions
 from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
@@ -1493,6 +1494,40 @@ class TestGetOAuthAccountsCaching:
         walk.assert_called_once()
         assert [account.value for account in first] == ["123-456-7890"]
         assert [account.value for account in second] == ["987-654-3210"]
+
+
+class TestGetOAuthAccountsHierarchy:
+    def test_maps_the_hierarchy_and_groups_only_the_first_level(self):
+        # `parent_id` is the accessible root the hierarchy walk started from, not the direct manager,
+        # so it names the true parent only one level down. A client of a sub-manager must not claim
+        # to sit under the root.
+        cache.clear()
+        listed = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Example Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+            {"parent_id": "6501924158", "id": "2222222222", "level": "1", "name": "Sub Manager", "manager": True},
+            {"parent_id": "6501924158", "id": "5555555555", "level": "2", "name": "Deep Client", "manager": False},
+        ]
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = listed
+            accounts = GoogleAdsSource().get_oauth_accounts(1, 2)
+
+        # Stored dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
+        assert accounts == [
+            IntegrationAccount(value="650-192-4158", display_name="Example Corp", is_primary=True, badges=("Manager",)),
+            IntegrationAccount(value="123-456-7890", display_name="Client One", group="Example Corp"),
+            IntegrationAccount(
+                value="222-222-2222", display_name="Sub Manager", badges=("Manager",), group="Example Corp"
+            ),
+            IntegrationAccount(value="555-555-5555", display_name="Deep Client"),
+        ]
 
 
 class TestGetOAuthAccountsNetworkErrorHandling:
