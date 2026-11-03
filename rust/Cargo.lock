@@ -9832,7 +9832,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -11105,7 +11105,6 @@ dependencies = [
  "memchr",
  "moka",
  "percent-encoding",
- "posthog-replay-anonymizer",
  "public-suffix",
  "rand 0.8.5",
  "serde",
@@ -11153,7 +11152,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "moka",
- "posthog-replay-anonymizer",
  "rand 0.8.5",
  "rdkafka",
  "replay-core-v4",
@@ -11164,7 +11162,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]

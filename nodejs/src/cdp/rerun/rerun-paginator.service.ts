@@ -776,6 +776,21 @@ export class RerunPaginatorService {
                     teamId,
                     invocation_id: row.invocation_id,
                 })
+                this.monitoringService.queueLogs(
+                    [
+                        {
+                            team_id: teamId,
+                            log_source: 'hog_flow',
+                            log_source_id: functionId,
+                            instance_id: row.invocation_id,
+                            timestamp: DateTime.now(),
+                            level: 'warn',
+                            message:
+                                "Not re-run: this run's message is sensitive, so its content wasn't stored and can't be sent again.",
+                        },
+                    ],
+                    'hog_flow'
+                )
                 return null
             }
             if (persistedState.send && !replayCodeSends) {
