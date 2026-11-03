@@ -123,10 +123,13 @@ impl EscapedMatchers {
 /// Finds a declined URL in a spelling the rewrite cannot replace, such as with CSS hex escapes, so it fails the block.
 struct DeclinedSpellings {
     /// Each URL from the slash before its host, so that a copy with another scheme or none also matches, with its
-    /// backslashes read as slashes, as a browser reads them.
+    /// backslashes read as slashes, as a browser reads them. A URL with `//` also matches as `http:` or `https:` and
+    /// its host, because a browser reads a special scheme without its slashes.
     urls: AhoCorasick,
-    /// The same parts of the URLs as JSON writes them, to search the stored bytes.
+    /// The same patterns as JSON writes them, to search the stored bytes.
     json_urls: AhoCorasick,
+    /// The declined URL that each pattern belongs to, as an index into `targets` and `replaced`.
+    owners: Vec<usize>,
     targets: Vec<usize>,
     /// The two spellings each URL has where `replace_urls` and `replace_escaped_urls` look for it, with the length of
     /// the part before the slash before its host.
@@ -160,15 +163,22 @@ impl DeclinedSpellings {
         if declined.is_empty() {
             return None;
         }
-        let tails: Vec<&str> = declined
-            .iter()
-            .map(|&index| {
-                let url = &targets[index].url;
-                &url[slash_before_host(url)..]
-            })
-            .collect();
-        let urls = declined_matcher(tails.iter().map(|tail| tail.replace('\\', "/")))?;
-        let json_urls = declined_matcher(tails.iter().map(|tail| json_string_contents(tail)))?;
+        let mut patterns = Vec::new();
+        let mut owners = Vec::new();
+        for (owner, &index) in declined.iter().enumerate() {
+            let url = &targets[index].url;
+            let slash = slash_before_host(url);
+            let tail = &url[slash..];
+            patterns.push(tail.to_owned());
+            if slash > 0 {
+                patterns
+                    .extend(["http:", "https:"].map(|scheme| format!("{scheme}{}", &tail[1..])));
+            }
+            owners.resize(patterns.len(), owner);
+        }
+        let urls = declined_matcher(patterns.iter().map(|pattern| pattern.replace('\\', "/")))?;
+        let json_urls =
+            declined_matcher(patterns.iter().map(|pattern| json_string_contents(pattern)))?;
         let replaced = declined
             .iter()
             .map(|&index| {
@@ -189,6 +199,7 @@ impl DeclinedSpellings {
         Some(Self {
             urls,
             json_urls,
+            owners,
             targets: declined,
             replaced,
         })
@@ -685,7 +696,8 @@ impl UrlRewrite {
             return;
         };
         let mut note = |pattern: usize, (start, _): (usize, usize)| {
-            let replaced = spellings.replaced[pattern][..1 + usize::from(escaped_pass_ran)]
+            let owner = spellings.owners[pattern];
+            let replaced = spellings.replaced[owner][..1 + usize::from(escaped_pass_ran)]
                 .iter()
                 .any(|(spelling, before)| {
                     start
@@ -694,7 +706,7 @@ impl UrlRewrite {
                         == Some(&spelling[..])
                 });
             if !replaced {
-                self.declined_respelled.insert(spellings.targets[pattern]);
+                self.declined_respelled.insert(spellings.targets[owner]);
             }
         };
         for found in spellings.json_urls.find_iter(bytes) {
