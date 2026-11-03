@@ -485,28 +485,31 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @parameterized.expand(
         [
-            ("old_columns", False, False),
-            ("new_columns", True, True),
-            ("old_column_then_new_columns", False, True),
+            ("old_columns", "old", "old"),
+            ("new_columns", "new", "new"),
+            ("old_column_then_new_columns", "old", "new"),
+            ("kind_without_id", "kind_only", "kind_only"),
         ]
     )
     def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(
-        self, _name: str, older_on_new_columns: bool, newer_on_new_columns: bool
+        self, _name: str, older_columns: str, newer_columns: str
     ):
-        def flow_columns(flow_id: UUID, on_new_columns: bool) -> dict:
-            if on_new_columns:
-                return {"source_kind": "hog_flow", "source_id": str(flow_id)}
-            return {"hog_flow_id": flow_id}
+        def flow_columns(flow_id: UUID, columns: str) -> dict:
+            return {
+                "old": {"hog_flow_id": flow_id},
+                "new": {"source_kind": "hog_flow", "source_id": str(flow_id)},
+                "kind_only": {"source_kind": "hog_flow", "hog_flow_id": flow_id},
+            }[columns]
 
         now = django_timezone.now()
         flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
         older = self._make_task(
-            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_with_runs, older_on_new_columns)
+            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_with_runs, older_columns)
         )
         newer = self._make_task(
             origin_product=Task.OriginProduct.WORKFLOW,
             archived=True,
-            **flow_columns(flow_with_runs, newer_on_new_columns),
+            **flow_columns(flow_with_runs, newer_columns),
         )
         Task.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
         Task.objects.filter(pk=newer.pk).update(created_at=now - timedelta(hours=1))
@@ -519,14 +522,12 @@ class TestFacadeReadsAndMappers(TestCase):
         self._make_task(
             origin_product=Task.OriginProduct.WORKFLOW,
             internal=True,
-            **flow_columns(flow_with_runs, newer_on_new_columns),
+            **flow_columns(flow_with_runs, newer_columns),
         )
         not_started = self._make_task(
-            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_without_run, newer_on_new_columns)
+            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_without_run, newer_columns)
         )
-        self._make_task(
-            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_not_asked, newer_on_new_columns)
-        )
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_not_asked, newer_columns))
 
         last_runs = facade.list_workflow_last_runs(self.team.id, self.user.id, [flow_with_runs, flow_without_run])
 

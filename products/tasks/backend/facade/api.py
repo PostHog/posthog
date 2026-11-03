@@ -7339,7 +7339,11 @@ def list_workflow_last_runs(
         .filter(source_q(SourceKind.HOG_FLOW, ids), internal=False)
         .annotate(
             _workflow_id=Case(
-                When(source_kind=SourceKind.HOG_FLOW.value, then=Cast("source_id", UUIDField())),
+                When(
+                    source_kind=SourceKind.HOG_FLOW.value,
+                    source_id__isnull=False,
+                    then=Cast("source_id", UUIDField()),
+                ),
                 default=F("hog_flow_id"),
                 output_field=UUIDField(),
             ),
