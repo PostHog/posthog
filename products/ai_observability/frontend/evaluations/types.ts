@@ -53,6 +53,7 @@ export interface EvaluationTargetConfig {
 
 export type LLMJudgeEvaluationConfig = Extract<EvaluationApiEvaluationConfig, { prompt: string }>
 export type JudgeMethod = NonNullable<LLMJudgeEvaluationConfig['judge_method']>
+export type ReasoningLevel = NonNullable<LLMJudgeEvaluationConfig['reasoning_level']>
 
 export interface HogEvaluationConfig {
     source: string

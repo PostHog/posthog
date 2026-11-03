@@ -250,6 +250,7 @@ def serving_manifest_event(
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
             "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
+            "user_vectors_key": manifest.user_vectors,
         }
     if mirror is not None:
         properties |= {

@@ -2334,3 +2334,29 @@ test('playwright changes overlap the frontend domain', () => {
         true
     )
 })
+
+for (const writable of [true, false]) {
+    test(`the CLI preserves targets when the telemetry output is ${writable ? 'writable' : 'unwritable'}`, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-telemetry-'))
+        try {
+            const telemetryFile = path.join(root, writable ? 'properties.json' : 'missing/properties.json')
+            const output = execFileSync(process.execPath, [path.join(__dirname, 'trunk-impacted-targets.js')], {
+                input: 'README.md\n',
+                env: { ...process.env, PATH: '', LANE_TELEMETRY_FILE: telemetryFile },
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+            })
+            assert.deepEqual(JSON.parse(output), ['prose'])
+            if (writable) {
+                const properties = JSON.parse(fs.readFileSync(telemetryFile, 'utf8'))
+                assert.equal(properties.is_prose, true)
+                assert.equal(properties.changed_file_count, 1)
+                assert.equal(properties.cross_lane, false)
+            } else {
+                assert.equal(fs.existsSync(telemetryFile), false)
+            }
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+}

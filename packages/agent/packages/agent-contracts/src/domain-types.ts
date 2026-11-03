@@ -1182,6 +1182,20 @@ export interface SignalReportsResponse {
   count: number;
 }
 
+/** The list filters a section count request shares with the inbox list. */
+export interface SignalReportSectionCountsParams {
+  source_product?: string;
+  priority?: string;
+  suggested_reviewers?: string;
+}
+
+export interface SignalReportSectionCounts {
+  /** Ready reports with an implementation pull request. */
+  pull_requests: number;
+  /** Ready reports without an implementation pull request. */
+  reports: number;
+}
+
 export interface SignalProcessingStateResponse {
   paused_until: string | null;
 }

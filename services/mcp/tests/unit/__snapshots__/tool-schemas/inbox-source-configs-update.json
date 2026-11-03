@@ -9,6 +9,21 @@
             },
             "type": "object"
         },
+        "config_remove": {
+            "description": "Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "config_set": {
+            "additionalProperties": {},
+            "description": "Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
         "enabled": {
             "type": "boolean"
         },

@@ -18,7 +18,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
-import { healthFindingReason } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
     getTotalExposures,
     hasSampleRatioMismatch,
@@ -185,9 +184,9 @@ export function Exposures(): JSX.Element {
             ? srmFinding
                 ? {
                       code: 'srm',
-                      variant: srmFinding.subcode ?? undefined,
+                      subcode: srmFinding.subcode ?? undefined,
                       severity: srmFinding.severity,
-                      reason: healthFindingReason(srmFinding.evidence),
+                      reason: srmFinding.reason ?? undefined,
                   }
                 : { code: 'srm' }
             : null,

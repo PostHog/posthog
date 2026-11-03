@@ -2774,6 +2774,7 @@ dependencies = [
  "arc-swap",
  "axum 0.7.9",
  "common-alloc",
+ "common-cohort-team-access",
  "common-database",
  "common-kafka",
  "common-liveness",
@@ -2927,6 +2928,22 @@ dependencies = [
  "moka",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "common-cohort-team-access"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "common-types",
+ "lifecycle",
+ "metrics",
+ "metrics-util",
+ "rand 0.8.5",
+ "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -4791,6 +4808,7 @@ dependencies = [
  "sqlx",
  "strum 0.28.0",
  "subtle",
+ "tempfile",
  "test-case",
  "thiserror 2.0.18",
  "tokio",
@@ -7501,6 +7519,7 @@ dependencies = [
  "axum 0.7.9",
  "common-liveness",
  "metrics",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -9776,7 +9795,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.12.1"
+version = "0.13.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -11048,6 +11067,7 @@ dependencies = [
  "memchr",
  "moka",
  "percent-encoding",
+ "posthog-replay-anonymizer",
  "public-suffix",
  "rand 0.8.5",
  "serde",
@@ -11095,6 +11115,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "moka",
+ "posthog-replay-anonymizer",
  "rand 0.8.5",
  "rdkafka",
  "replay-core-v4",

@@ -34,6 +34,7 @@ const emptyLocal = (): LocalLists => ({
     people: [],
     health: [],
     misc: [],
+    shortcuts: [],
     settings: [],
     create: [],
     recents: [],
@@ -76,6 +77,14 @@ const remoteResults = (items: SearchItem[]): Partial<SectionsInput> => {
 }
 
 describe('buildSections', () => {
+    it('shows every shortcut last when the input is empty', () => {
+        const shortcuts = [dashboard('shortcut-1', '1'), dashboard('shortcut-2', '2')]
+        const sections = buildSections(input('empty', { local: { ...emptyLocal(), shortcuts } }))
+
+        expect(sections.at(-1)?.key).toBe('shortcuts')
+        expect(sections.at(-1)?.rows).toHaveLength(2)
+    })
+
     test.each<[string, SectionsInput, string, number]>([
         ['remote results', input('search', remoteResults(itemsWithRepeats(RESULTS_LIMIT))), 'results', RESULTS_LIMIT],
         [

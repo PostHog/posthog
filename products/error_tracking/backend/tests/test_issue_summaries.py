@@ -14,6 +14,7 @@ from django.db import OperationalError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
 
 from posthog.constants import AvailableFeature
@@ -114,6 +115,18 @@ class TestIssueSummaryParsing(SimpleTestCase):
     def test_input_hash(self, _name: str, before: dict[str, Any], after: dict[str, Any], same: bool) -> None:
         base: dict[str, Any] = {"fingerprints": ["a"], "latest_release": "1.0.0", "occurrences": 5}
         assert (compute_input_hash(**{**base, **before}) == compute_input_hash(**{**base, **after})) == same
+
+    @parameterized.expand(
+        [
+            ("single_slot", 1, 1),
+            ("keeps_two_for_alerts", 4, 2),
+            ("floor", 5, 3),
+            ("floor_above_quarter", 12, 3),
+            ("quarter", 50, 12),
+        ]
+    )
+    def test_issue_summary_worker_slot_count(self, _name: str, max_concurrent_activities: int, expected: int) -> None:
+        assert summary_worker.issue_summary_worker_slot_count(max_concurrent_activities) == expected
 
 
 # Failures after the gates pass.
@@ -536,25 +549,40 @@ class TestIssueSummaryGeneration(BaseTest):
                 "created",
                 issue_created_activities,
                 lambda test: generate_issue_created_summary_activity(test._issue_created_inputs()),
+                "write",
             ),
             (
                 "reopened",
                 issue_reopened_activities,
                 lambda test: generate_issue_reopened_summary_activity(test._issue_reopened_inputs()),
+                "reopen",
             ),
         ]
     )
     def test_lifecycle_summary_activity_skips_while_worker_summary_slots_are_full(
-        self, _name: str, activities: Any, run_activity: Any
+        self, _name: str, activities: Any, run_activity: Any, trigger: str
     ) -> None:
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(activities, "fetch_event_properties", return_value={"$lib": "web"}))
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
         slots = threading.BoundedSemaphore(1)
         self.enterContext(patch.object(summary_worker, "ISSUE_SUMMARY_WORKER_SLOTS", slots))
+        counter_labels = {"outcome": IssueSummaryOutcome.RATE_LIMITED.value, "trigger": trigger}
+        skips_before = REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) or 0
 
         slots.acquire()
         assert run_activity(self) == IssueSummaryOutcome.RATE_LIMITED.value
         assert self.llm_calls == 0
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT
+        properties = capture.call_args.kwargs["properties"]
+        assert (properties["outcome"], properties["trigger"], properties["has_summary"]) == (
+            IssueSummaryOutcome.RATE_LIMITED.value,
+            trigger,
+            False,
+        )
+        assert REGISTRY.get_sample_value("error_tracking_issue_summary_total", counter_labels) == skips_before + 1
 
         slots.release()
         assert run_activity(self) == IssueSummaryOutcome.GENERATED.value
@@ -971,12 +999,10 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
         assert isinstance(from_clickhouse, IssueSummaryInputs)
         assert isinstance(from_event, IssueSummaryInputs)
         assert from_event.input_hash == from_clickhouse.input_hash
-        assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_event.prompt
-
-        without_session = {key: value for key, value in properties.items() if key != "$session_id"}
-        from_sessionless_event = build_issue_summary_inputs_from_event(self.team, issue.id, without_session)
-        assert isinstance(from_sessionless_event, IssueSummaryInputs)
-        assert "Impact in range: 1 occurrences, 1 users, 0 sessions" in from_sessionless_event.prompt
+        assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_clickhouse.prompt
+        assert "- Impact: not known yet" in from_event.prompt
+        assert "users" not in from_event.prompt
+        assert "sessions" not in from_event.prompt
 
     def test_issue_without_exception_events_has_no_inputs(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")

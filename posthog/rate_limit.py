@@ -791,6 +791,18 @@ class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Theme and group summaries aggregate a window of observation history per call, and scouts call them on a
+# schedule, so they get their own team bucket and never use up the highlight feed's.
+class ReplayVisionClustersBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionClustersSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_sustained"
+    rate = "600/hour"
+
+
 # Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
 # team's feed bucket.
 class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
