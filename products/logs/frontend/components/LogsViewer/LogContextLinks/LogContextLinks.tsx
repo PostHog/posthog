@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconDecisionTree } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import type { TraceDialogEntryPoint } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
@@ -10,7 +9,6 @@ import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -25,6 +23,7 @@ import { type ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 import { LogErrorCount } from './LogErrorCount'
 import { MissingLinkInvestigate } from './MissingLinkInvestigate'
 import { MissingLink } from './missingLinkPrompt'
+import { ViewWorkflowButton } from './ViewWorkflowButton'
 
 export type LogContextLinksSurface = 'drawer' | 'row'
 
@@ -85,17 +84,7 @@ export function LogContextLinks({
 
     return (
         <div className="flex items-center gap-1 flex-wrap min-w-0">
-            {workflowId && (
-                <LemonButton
-                    to={urls.workflow(workflowId, 'invocations')}
-                    icon={<IconDecisionTree />}
-                    size="xsmall"
-                    type="secondary"
-                    data-attr={`logs-${surface}-context-workflow`}
-                >
-                    View workflow
-                </LemonButton>
-            )}
+            {workflowId && <ViewWorkflowButton workflowId={workflowId} surface={surface} />}
             {traceId && (
                 <ViewTraceButton
                     traceId={traceId}
