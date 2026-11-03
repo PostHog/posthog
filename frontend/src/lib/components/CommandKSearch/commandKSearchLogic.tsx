@@ -99,14 +99,12 @@ const PICK_MEMORY_PERSIST_OPTIONS =
 
 const pickInput = (query: string | undefined): string => freeWords(query ?? '').join(' ')
 
-type TelemetryValues = Pick<
-    commandKSearchLogicValues,
-    'remoteQueries' | 'localQuery' | 'layoutCorrection' | 'localLists'
->
+type TelemetryValues = Pick<commandKSearchLogicValues, 'displayedQuery' | 'layoutCorrection' | 'localLists'>
 
 // Search text never leaves the browser. Words outside PostHog's own product and settings names are masked.
 const searchTelemetry = (values: TelemetryValues): Record<string, string | number | boolean> => {
-    const searched = pickInput(values.remoteQueries.results ?? values.localQuery)
+    const shown = values.displayedQuery.query
+    const searched = pickInput(shown.remoteQueries.results ?? shown.localQuery)
     return {
         query_words: searched ? searched.split(' ').length : 0,
         query_shape: queryShape(searched, [values.localLists.products, values.localLists.settings]),
@@ -903,20 +901,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 return
             }
             actions.markResultOpened()
-            if (
-                item &&
-                row.kind === 'item' &&
-                row.ranked &&
-                values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-            ) {
-                actions.recordPick(pickInput(values.remoteQueries.results), item.id, Date.now())
-            }
-            const searched = values.remoteQueries.results ?? values.localQuery
+            // The rows on screen can still belong to the previous search while the new one loads.
+            const shownInput = pickInput(values.displayedQuery.query.remoteQueries.results)
+            const rankedItem = item && row.kind === 'item' && row.ranked ? item : null
             const picked =
-                item && row.kind === 'item' && row.ranked
-                    ? (pickScores(values.pickMemory, pickInput(searched), Date.now()).get(item.id) ?? 0) >=
-                      PICKED_THRESHOLD
-                    : false
+                !!rankedItem &&
+                (pickScores(values.pickMemory, shownInput, Date.now()).get(rankedItem.id) ?? 0) >= PICKED_THRESHOLD
+            if (rankedItem && values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test') {
+                actions.recordPick(shownInput, rankedItem.id, Date.now())
+            }
             posthog.capture('command k result opened', {
                 ...searchTelemetry(values),
                 picked_before: picked,

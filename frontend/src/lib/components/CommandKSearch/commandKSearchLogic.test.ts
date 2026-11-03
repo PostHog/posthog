@@ -85,6 +85,38 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.pickMemory).toEqual(expected.map((entry) => expect.objectContaining(entry)))
     })
 
+    it('records a pick against the search whose rows are on screen', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: 'test' })
+        logic.actions.showQuery({
+            remoteQueries: { results: 'replay' },
+            localQuery: 'replay',
+            themeItem: null,
+            askAiQuestion: null,
+            viewAll: null,
+        })
+        logic.actions.inputChanged('replay vision', 13, false)
+
+        logic.actions.activateRow(
+            {
+                kind: 'item',
+                key: 'best-matches/product-Session replay',
+                item: {
+                    id: 'product-Session replay',
+                    name: 'Session replay',
+                    category: 'products',
+                    onSelect: () => {},
+                },
+                section: 'products',
+                highlightWords: ['replay'],
+                ranked: true,
+            },
+            false,
+            'click'
+        )
+
+        expect(logic.values.pickMemory).toEqual([expect.objectContaining({ input: 'replay' })])
+    })
+
     it('searches a keyboard layout correction until the text changes', () => {
         logic.actions.inputChanged('фзш', 3, false)
         logic.actions.correctLayout({ from: 'фзш', to: 'api' })

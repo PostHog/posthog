@@ -361,6 +361,29 @@ describe('buildSections', () => {
         }
     })
 
+    it('with unified ranking, a domain search through the sections puts the account that owns the domain first', () => {
+        const account: SearchItem = {
+            id: 'account-1',
+            name: 'Acme',
+            category: 'accounts',
+            itemType: 'account',
+            identityFields: ['example.org'],
+        }
+        const remote = emptyRemoteSlots()
+        remote.results.cache['example.org'] = [
+            { ...dashboard('a', '1'), name: 'Example org signups', rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, -1] },
+        ]
+        remote.accounts.cache['example.org'] = [account]
+        const current = query({
+            remoteQueries: { results: 'example.org', accounts: 'example.org' },
+            localQuery: 'example.org',
+        })
+
+        const sections = buildSections(input('search', { remote, ...current, unifiedRanking: true }))
+
+        expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: account })
+    })
+
     it('shows saved objects when the Accounts request settles empty', () => {
         const remote = emptyRemoteSlots()
         remote.results.cache.billing = [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }]

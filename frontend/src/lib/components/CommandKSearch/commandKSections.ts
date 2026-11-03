@@ -325,11 +325,13 @@ function rankedResultsSections(
     picks: Map<string, number>
 ): CommandKSection[] {
     const words = freeWords(query)
+    // The unified scorer reads punctuation, so a domain or an email address keeps it.
+    const freeText = query.replace(FILTER_TOKEN, ' ').replace(/\s+/g, ' ').trim()
     return buildRankedResults({
         persons,
         accounts,
         settings: settingsInResults ? rankableSettings(local, localQuery) : [],
-        query: words.join(' '),
+        query: unifiedRanking ? freeText : words.join(' '),
         highlightWords: words,
         results,
         products: localQuery ? local.products : [],
