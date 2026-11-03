@@ -6,7 +6,7 @@ from urllib.parse import urlencode, urljoin
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.mention.settings import MENTION_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     frozen,
     make_tracked_session,
+    reach_safe_point,
     retry_with_deadline,
 )
 
@@ -104,10 +105,17 @@ def _more_url(payload: dict[str, Any]) -> Optional[str]:
     return resolved
 
 
+def _safe_point_before_retry_wait(_state: RetryCallState) -> None:
+    # Every request runs between pages: the rows before it are yielded, and no caller holds rows
+    # while it fetches.
+    reach_safe_point()
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((MentionRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
+    before_sleep=_safe_point_before_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -195,19 +203,16 @@ def _alert_rows(
     while url:
         payload = _fetch_page(session, url, logger)
         rows = [_unwrap_alert(row) for row in _rows_from_payload(payload, "alerts", url)]
-        if rows:
-            yield rows
 
         # A missing ``_links.more`` marks the end of the collection. An empty page also terminates
         # defensively so a lingering cursor can never produce an infinite loop.
-        next_url = _more_url(payload)
-        if not next_url or not rows:
-            break
+        next_url = _more_url(payload) if rows else None
+        if next_url:
+            resumable_source_manager.save_state(MentionResumeConfig(next_url=next_url))
+        if rows:
+            yield rows
 
         url = next_url
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(MentionResumeConfig(next_url=next_url))
 
 
 def _fan_out_alert_ids(
@@ -222,40 +227,6 @@ def _fan_out_alert_ids(
         )
         return list(resume.alert_ids), resume.next_url
     return _list_all_alert_ids(session, account_id, logger), None
-
-
-def _mention_rows(
-    session: requests.Session,
-    logger: FilteringBoundLogger,
-    resume: MentionResumeConfig | None,
-    resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    account_id = str(_get_account(session, logger)["id"])
-    alert_ids, next_url = _fan_out_alert_ids(session, account_id, logger, resume)
-
-    while alert_ids:
-        alert_id = alert_ids[0]
-        url: Optional[str] = next_url or _list_url(f"/accounts/{account_id}/alerts/{alert_id}/mentions")
-
-        while url:
-            payload = _fetch_page(session, url, logger)
-            rows = _rows_from_payload(payload, "mentions", url)
-            for row in rows:
-                # Normalized to a string so the merge key type is consistent across alerts.
-                row["alert_id"] = alert_id
-            if rows:
-                yield rows
-
-            more = _more_url(payload)
-            if not more or not rows:
-                break
-
-            url = more
-            resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids, next_url=url))
-
-        alert_ids = alert_ids[1:]
-        next_url = None
-        resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids))
 
 
 def _alert_tag_rows(
@@ -275,11 +246,13 @@ def _alert_tag_rows(
         rows = _rows_from_payload(payload, "tags", url)
         for row in rows:
             row["alert_id"] = alert_id
-        if rows:
-            yield rows
 
         alert_ids = alert_ids[1:]
         resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def _paginated_alert_fan_out_rows(
@@ -423,7 +396,9 @@ def get_rows(
     elif endpoint == "alert_tags":
         yield from _alert_tag_rows(session, logger, resume, resumable_source_manager)
     elif endpoint == "mentions":
-        yield from _mention_rows(session, logger, resume, resumable_source_manager)
+        yield from _paginated_alert_fan_out_rows(
+            session, logger, resume, resumable_source_manager, path="mentions", key="mentions"
+        )
     elif endpoint == "alert_authors":
         yield from _paginated_alert_fan_out_rows(
             session, logger, resume, resumable_source_manager, path="authors", key="authors"

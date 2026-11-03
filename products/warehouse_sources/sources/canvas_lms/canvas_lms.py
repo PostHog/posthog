@@ -224,6 +224,12 @@ def validate_credentials(
     return False, f"Could not connect to Canvas (HTTP {response.status_code})"
 
 
+def _check_host(domain: str, team_id: int) -> None:
+    host_ok, host_err = _is_host_safe(normalize_domain(domain), team_id)
+    if not host_ok:
+        raise CanvasHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+
+
 def _non_fanout_source(
     config: CanvasEndpointConfig,
     domain: str,
@@ -274,10 +280,10 @@ def _non_fanout_source(
     def items() -> Iterable[Any]:
         # Re-check at run time (not just at source-create) in case the domain was edited or now
         # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-        host_ok, host_err = _is_host_safe(normalize_domain(domain), team_id)
-        if not host_ok:
-            raise CanvasHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-        yield from resource
+        _check_host(domain, team_id)
+        # Return the framework resource itself, not a generator around it, so the framework
+        # reaches its per-page safe points.
+        return resource
 
     return _make_source_response(config, items)
 
@@ -340,10 +346,8 @@ def _fanout_source(
     )
 
     def items() -> Iterable[Any]:
-        host_ok, host_err = _is_host_safe(normalize_domain(domain), team_id)
-        if not host_ok:
-            raise CanvasHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-        yield from dependent_resource
+        _check_host(domain, team_id)
+        return dependent_resource
 
     return _make_source_response(config, items)
 
