@@ -15,6 +15,7 @@ from posthog.models.activity_logging.activity_log import Trigger
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.services.sandbox_sender import sandbox_sender_configured
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -27,6 +28,9 @@ logger = structlog.get_logger(__name__)
 APP_SOURCE = "hog_flow"
 
 SENT_METRIC = "email_sent"
+# Recorded alongside `email_sent` for sends from the shared sandbox sender. Those reach only the
+# team's own members, so they count toward neither the tier volume nor the rate denominators.
+SANDBOX_SENT_METRIC = "email_sandbox_sent"
 HARD_BOUNCE_METRIC = "email_bounced_hard"
 # SES complaint events are recorded under this name (see the SES webhook handler in the email
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
@@ -332,7 +336,7 @@ def _fetch_daily_metrics(
     workload: Workload = Workload.DEFAULT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
-    metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
+    metric_names = [*sent_metric_names(), HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
     # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
     # state in the background, so it is enrichment, not a customer-facing query. One context here
@@ -354,12 +358,22 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     return TeamSendingHistory(
         team_id=team_id,
-        sent=sum(counts.get(SENT_METRIC, 0) for counts in days.values()),
+        sent=sum(own_sends(counts) for counts in days.values()),
         hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
         complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
         auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
-        daily_sends={day: counts.get(SENT_METRIC, 0) for day, counts in days.items() if counts.get(SENT_METRIC, 0)},
+        daily_sends={day: sends for day, counts in days.items() if (sends := own_sends(counts)) > 0},
     )
+
+
+def sent_metric_names() -> list[str]:
+    # A deployment without the sandbox sender has no sandbox sends, so it queries only `email_sent`.
+    return [SENT_METRIC, SANDBOX_SENT_METRIC] if sandbox_sender_configured() else [SENT_METRIC]
+
+
+def own_sends(counts: dict[str, int]) -> int:
+    """Sends from the team's own senders. Floored at zero, so a sandbox count without its `email_sent` never subtracts."""
+    return max(0, counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0))
 
 
 def _empty_history(team_id: int) -> TeamSendingHistory:

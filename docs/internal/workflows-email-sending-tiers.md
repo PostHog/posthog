@@ -28,6 +28,8 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 
 The `workflows-sandbox-sender` flag enables a PostHog-managed email integration per project through `POST /api/projects/:project_id/integrations/email_sandbox_sender/`.
 The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
+Staff turn the sandbox sender off for one organization by adding a `SandboxSenderOrganizationBlock` row in the Django admin, and lift the block by deleting the row.
+While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay.
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable and lets every team register any domain as before.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 With the flag on, opening the Channels page creates the sender and shows it in its own row.
@@ -110,5 +112,10 @@ A reached allowance skips the send instead of delaying it. A limiter error, or a
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.
+Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
+A committed state change reaches the workers through the `reload-sandbox-sender-state` message.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier and the sending allowance can leave them out; test sends record neither.
+The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, floored at zero per day and per workflow.
+While `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, or `SES_SANDBOX_TENANT_NAME` is empty, both read only `email_sent`, as before.
+Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.

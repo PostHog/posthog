@@ -1,11 +1,12 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, Integration
 
 from products.messaging.backend.facade.testing import create_message_category_for_test, create_message_template_for_test
 from products.workflows.backend.models import HogFlow
@@ -40,7 +41,21 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             actions=[{"id": "step", "type": action_type}],
         )
 
-    def test_a_new_project_starts_at_the_channel(self) -> None:
+    @parameterized.expand([("no sender", False), ("only the sandbox sender", True)])
+    @override_settings(
+        WORKFLOWS_SANDBOX_SENDER_DOMAIN="sandbox.example.com",
+        SES_SANDBOX_FROM_ADDRESS="sender@sandbox.example.com",
+        SES_SANDBOX_TENANT_NAME="sandbox-tenant",
+    )
+    def test_a_new_project_starts_at_the_channel(self, _name: str, has_sandbox_sender: bool) -> None:
+        if has_sandbox_sender:
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+                config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+            )
+
         body = self._status()
 
         assert not any(self._done(body).values())
