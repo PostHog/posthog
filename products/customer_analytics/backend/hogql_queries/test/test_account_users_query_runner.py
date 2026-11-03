@@ -17,13 +17,14 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api_queries_budget import budget_spec_for, debit, get_request_query_cost, refill_and_read
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import get_api_team_rate_limiter, get_app_org_rate_limiter
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.query_runner import API_QUERIES_BUDGET_ENFORCEMENT_FLAG, ExecutionMode, get_query_runner
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -602,6 +603,31 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             assert response.status_code == 429, response.content
             assert "Retry-After" in response
             assert self.client.get(self.endpoint).status_code == 200
+
+    @parameterized.expand([(False,), (True,)])
+    def test_api_get_reads_obey_the_read_budget(self, enforced: bool) -> None:
+        spec = budget_spec_for(self.organization)
+        refill_and_read(str(self.team.pk), spec)
+        debit(str(self.team.pk), int(spec.capacity_bytes + spec.bytes_per_hour))
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="account persons",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["account:read", "person:read"],
+        )
+        with patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == API_QUERIES_BUDGET_ENFORCEMENT_FLAG and enforced,
+        ):
+            assert self.client.get(self.endpoint).status_code == 200
+            response = self.client.get(self.endpoint, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == (429 if enforced else 200), response.content
+        if enforced:
+            assert "Retry-After" in response
+        else:
+            cost = get_request_query_cost()
+            assert cost is not None and cost.bytes_read > 0
 
     @parameterized.expand([("query",), ("source",), ("both",)])
     def test_widget_accepts_default_query_kinds(self, omitted: str) -> None:

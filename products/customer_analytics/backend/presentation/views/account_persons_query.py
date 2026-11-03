@@ -16,7 +16,9 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import QueryViewSet, add_query_response_identity_headers
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api_queries_budget import reset_request_query_cost
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import get_query_tag_value, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.models import User
 
@@ -83,13 +85,15 @@ class AccountPersonsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
         query = AccountPersonsQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         try:
-            page = list_account_persons(
-                team=self.team,
-                user=cast(User, request.user),
-                account_id=self.kwargs["id"],
-                user_access_control=self.user_access_control,
-                options=AccountPersonsOptions(**query.validated_data),
-            )
+            reset_request_query_cost()
+            with tags_context(api_queries_budgeted=get_query_tag_value("access_method") == "personal_api_key"):
+                page = list_account_persons(
+                    team=self.team,
+                    user=cast(User, request.user),
+                    account_id=self.kwargs["id"],
+                    user_access_control=self.user_access_control,
+                    options=AccountPersonsOptions(**query.validated_data),
+                )
         except (ExposedHogQLError, ExposedCHQueryError) as error:
             raise ValidationError(str(error), getattr(error, "code_name", None)) from error
         except ConcurrencyLimitExceeded as error:
