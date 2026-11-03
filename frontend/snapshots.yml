@@ -2613,17 +2613,17 @@ snapshots:
     components-sample-data-tag--default--light:
         hash: v1.k794b7964.8ebad648dbf23b4ccf50c7b2543d02e9429c2f5c67446cee8823fc06fc98a97d.MSu4A4yz_nNpo8sN007sucqXSdbb7pJQExT5Z2ki0Ys
     components-search--default--dark:
-        hash: v1.k794b7964.dca87db2490271ab0f31e1b979c2c750b4f043aa08498e30c5369b1c83f3e850.9IyyaNG3y6r8tfQ_In6KmoBQAu6FlPFJwch9B89Iuac
+        hash: v1.k794b7964.a31e507e5100bda9cf79afe63ff56f09ae4b8bf87cf21262dc41aac4743d7bfb.bXeCWe9xu6E09y_REa_qrvoiXNd0oIAmeS47a6C0prQ
     components-search--default--light:
-        hash: v1.k794b7964.10627e8b69503bd6032015f2ad8c2e552e81867fdb62edb4b227db9161714699.3KhOPe07YqESm6ymnYqFsas51lcVitH0LkFikbyS_pI
+        hash: v1.k794b7964.dd6e176d613ede77b64c03c5b698c8d1552ba65edf3c7aa2678909ce1a55f77e.TVkA8RF5EfKRAQ4dH5HeKZekeVwzUWN8R7GFw29b0UE
     components-search--no-recents--dark:
-        hash: v1.k794b7964.8f8e67ab8165a5bb4aa3d509893f94ba58f7f8035914616cf8bcf7c534e66b26.mnAGjlTGX_zDvUYV4Dk8apN7oSJKHt1N44Kc_8QYNhE
+        hash: v1.k794b7964.0fd0f5d4767912eb77720bd4c629f886a998551875574392ee5ba4140cde90e9.W0slxaCCdN_quO_OA4mBH35mVBVVoWTbw5jMNLwb1HY
     components-search--no-recents--light:
-        hash: v1.k794b7964.d69ea663238ed0999dcd14571ae277687251aa334630b3633d74c797668259d3.-WbgKzJQ53wPPlS9fSRAPccrJxlr-5O4gnvxaj7wQS8
+        hash: v1.k794b7964.572677b54d24a313ffe88417f45523a1fc227842d8ba5641a379119462514c97.oYrP6VC6sQz50UkiafTiT1Fe87b4uYZKnBZ8zg_pMrg
     components-search--product-recents-and-starred--dark:
-        hash: v1.k794b7964.cf516b70563583f8fb7769dbcc5137148c0386e3b94425e0ccb69a56dc79f40a.VFbD1u7M3am4LhA_Vg6qeDRZPpleheJwcpfOsmF9YkA
+        hash: v1.k794b7964.29465f375be31fc69736e575ebe19da578ed65788f7859ac1ddb297bbd87055b.SOeHl2ORMMggoedJOfrBXk9xHEOB0FJddC0RVusv-B8
     components-search--product-recents-and-starred--light:
-        hash: v1.k794b7964.de38039f5c4dd76a9caf4c523b664147d93a5920443ff6afa6353227e58ef2e6.NsoucGXVlw4tPpndBq9jFa-71CN-nHMr1VhLxOoPNUM
+        hash: v1.k794b7964.b4341fc26c099d3e62aacbd6273249487b1a190273edae9c6e2d6448dbba5aff.IOJTS2PvP9IC17AmGQ4kVnbrTyYv4S-zOBFCyEheZYM
     components-search--searching--dark:
         hash: v1.k794b7964.ed4e2cf61e6843b34f6587a88d3a6d9528c63b3d38cc2d1e8ff4cb8a65d3f167.eWt0RKzJ0ys-GMJudG5IAKfZNgJ9fD_sxNZncIhLC3U
     components-search--searching--light:
