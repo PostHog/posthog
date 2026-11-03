@@ -28,14 +28,14 @@ export function AdPerformanceOverviewMetrics({
     const shown = shownOverviewMetrics(items, selection)
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="@container/overview-metrics flex flex-col gap-2">
             {!loading && shown.length === 0 && (
                 <p className="m-0 text-secondary text-sm" data-attr="marketing-overview-metrics-empty">
                     No metrics for this date range. Try a longer range, or check that your ad sources have synced.
                 </p>
             )}
             <OverviewMetricCardGrid
-                className="grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
+                className="grid-cols-2 @min-[36rem]/overview-metrics:grid-cols-3 @min-[56rem]/overview-metrics:grid-cols-5"
                 items={shown}
                 loading={loading}
                 numSkeletons={MAX_OVERVIEW_METRICS}

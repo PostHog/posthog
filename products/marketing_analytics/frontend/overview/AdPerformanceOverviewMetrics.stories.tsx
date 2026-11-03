@@ -49,6 +49,14 @@ const meta: Meta<typeof AdPerformanceOverviewMetrics> = {
     title: 'Scenes-App/Marketing Analytics/Overview metrics',
     component: AdPerformanceOverviewMetrics,
     parameters: { layout: 'padded' },
+    // The grid breaks on its container's width, and the padded root takes its width from its content.
+    decorators: [
+        (Story) => (
+            <div className="w-[72rem]">
+                <Story />
+            </div>
+        ),
+    ],
     args: {
         items,
         loading: false,
@@ -66,7 +74,18 @@ export const Narrow: Story = {
     args: { viewKey: 'overview-metrics-narrow-story' },
     decorators: [
         (Story) => (
-            <div className="max-w-lg">
+            <div className="w-lg">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
+export const MediumWidth: Story = {
+    args: { viewKey: 'overview-metrics-medium-story' },
+    decorators: [
+        (Story) => (
+            <div className="w-[38rem]">
                 <Story />
             </div>
         ),
