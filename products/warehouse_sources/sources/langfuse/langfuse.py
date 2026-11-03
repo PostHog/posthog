@@ -427,7 +427,14 @@ def get_rows(
     session = make_tracked_session(retry=Retry(total=0))
 
     @retry_with_deadline(
-        retry=retry_if_exception_type((LangfuseRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+        retry=retry_if_exception_type(
+            (
+                LangfuseRetryableError,
+                requests.ReadTimeout,
+                requests.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,
         reraise=True,
