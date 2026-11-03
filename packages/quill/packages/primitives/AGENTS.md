@@ -382,7 +382,7 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 </Combobox>
 ```
 
-`ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
+A Combobox in a `DropdownMenuSubContent` takes `inline` and no `ComboboxContent`: the submenu is its popup, and its items keep the check mark's gutter. `ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
 
 Something attached to the popup's edge, such as a resize handle: pass `popupSibling` on `ComboboxContent`, as on `SelectContent`. It renders in the positioner beside the popup, outside the popup's overflow, so it can sit across the edge. Position it absolute so it never resizes the popup.
 
@@ -1082,7 +1082,7 @@ Reduced motion shows the finished highlight at once.
 </ResizablePanelGroup>
 ```
 
-For an edge that resizes something outside a panel group, such as a popup, use `ResizeGrip`. It has the handle's look and no behavior: the caller runs the drag. It forwards its ref, so it can be a `TooltipTrigger` render target. Set `--quill-resizable-hit-size` to widen the hit area, and pass `className="bg-transparent"` when a border already draws the line.
+For an edge that resizes something outside a panel group, such as a popup, use `ResizeGrip`. `size="sm"` is a shorter, thinner handle for a tight edge. It has the handle's look and no behavior: the caller runs the drag. It forwards its ref, so it can be a `TooltipTrigger` render target. Set `--quill-resizable-hit-size` to widen the hit area, and pass `className="bg-transparent"` when a border already draws the line.
 
 ### Scroll Area
 
@@ -1132,6 +1132,8 @@ const range = getPaginationRange(pageCount, pageIndex)
 ### Table
 
 Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches, `size="sm"` to tighten head/cell inline padding to `0.75rem` (from `1rem`) for dense tables and to align edge columns with a `Card size="sm"`.
+
+For resizable columns, pass `columnWidths` on `Table`, one width in pixels per column, and put a `TableColumnResizer` last in each `TableHead`: `<Table columnWidths={[width, 200]}><TableHead>Name<TableColumnResizer value={width} onValueCommitted={setWidth} min={80} /></TableHead>`. `Table` owns the rest: the `<col>` widths, the table's width as their sum, clipping the cells, and moving the column on each frame of a drag. A drag never renders: `onValueCommitted` reports the width once, when it ends, and the `columnWidths` you pass must then follow it. `onReset` runs on a double click. In a `fullWidth` table, end each row with `<TableCell filler />` and the header with `<TableHead filler />`, to fill the space the columns leave. `columnWidths="content"` keeps the columns fitting their content until you pass the array. A `DataTable` does all of this with `resizableColumns`, so reach for this only in a table built from the primitives.
 
 **Backgrounds: transparent by default, opaque when sticky.** Plain cells and headers are transparent, so a `Table` inherits whatever surface it sits on (inside a `Card`, a tinted panel). Sticky parts (`stickyHeader`, `stickyHeader="page"`, `sticky="left"/"right"`) get an opaque background automatically — they'd otherwise bleed scrolled-under content — so you don't add `bg-background` yourself. It defaults to the app background; if the table sits on a different surface, override the inherited `--quill-table-sticky-bg` custom property on the `Table` so the frozen cells match — e.g. inside a `Card`, `className="[--quill-table-sticky-bg:var(--card)]"`.
 
