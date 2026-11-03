@@ -345,7 +345,7 @@ export interface personalAPIKeysLogicMeta {
             allowedScopes: APIScope[],
             formScopeRadioValues: Record<string, string>,
             editingKey: EditingKeyFormValues,
-            riskyScopes: any
+            riskyScopes: Record<string, string>
         ) => PersonalAPIKeyScopeRow[]
         filteredScopeGroups: (searchTerm: string, scopeRows: PersonalAPIKeyScopeRow[]) => PersonalAPIKeyScopeGroup[]
         formScopeRadioValues: (editingKey: EditingKeyFormValues) => Record<string, string>
