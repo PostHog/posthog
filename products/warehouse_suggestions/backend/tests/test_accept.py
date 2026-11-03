@@ -170,6 +170,11 @@ def make_the_postgres_source_direct(view: DataWarehouseSavedQuery) -> None:
     )
 
 
+def read_a_direct_source(view: DataWarehouseSavedQuery) -> None:
+    add_an_upstream_view_over_postgres(view)
+    make_the_postgres_source_direct(view)
+
+
 def change_the_upstream_query(view: DataWarehouseSavedQuery) -> None:
     DataWarehouseSavedQuery.objects.filter(team=view.team, name="orders_source").update(
         query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders WHERE 1 = 1"}
@@ -413,6 +418,13 @@ class TestAcceptSuggestion(APIBaseTest):
                 status.HTTP_409_CONFLICT,
             ),
             ("refuses_when_it_feeds_a_destination", True, add_destination, RULES.window_days, status.HTTP_409_CONFLICT),
+            (
+                "refuses_when_it_reads_a_direct_source",
+                True,
+                read_a_direct_source,
+                RULES.window_days,
+                status.HTTP_409_CONFLICT,
+            ),
         ]
     )
     def test_accepting_a_deprecate_suggestion_can_delete_the_view(

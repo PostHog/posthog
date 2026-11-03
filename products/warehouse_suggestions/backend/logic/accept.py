@@ -193,6 +193,8 @@ def _delete_blocker(team_id: int, saved_query_id: UUID) -> str | None:
         return OTHER_VIEWS_READ_IT
     if saved_query_id in saved_queries_feeding_consumers(team_id, [saved_query_id]):
         return SYNCS_READ_IT
+    if reads_direct_source(team_id, saved_query_id, direct_access_table_ids(team_id)):
+        return READS_DIRECT_SOURCE
     return None
 
 
