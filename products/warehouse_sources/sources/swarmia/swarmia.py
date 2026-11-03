@@ -28,7 +28,7 @@ class SwarmiaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass(frozen=False)
+@dataclasses.dataclass(frozen=True)
 class SwarmiaResumeConfig:
     # ISO date (YYYY-MM-DD) of the start of the next window to fetch. Staged before each window's rows
     # are yielded, so the pipeline commits it together with those rows.
