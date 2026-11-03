@@ -25,7 +25,9 @@ describe('userAutonomyLogic', () => {
         useMocks({ get: { [ENDPOINT]: () => response } })
         logic = userAutonomyLogic()
 
-        await expectLogic(logic, () => logic.mount())
+        await expectLogic(logic, () => {
+            logic.mount()
+        })
             .toDispatchActions(['loadAutonomyConfigSuccess'])
             .toNotHaveDispatchedActions(['loadAutonomyConfigFailure'])
             .toMatchValues({ autonomyConfig: null })
