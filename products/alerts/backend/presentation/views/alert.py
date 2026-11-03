@@ -1494,7 +1494,6 @@ MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
 
 
 # The notebook model, reached through the check's link so this product does not import another's models.
-# Typed loosely for the same reason: its own type lives in those models.
 _NOTEBOOK: Final = cast(type[Any], AlertCheck._meta.get_field("investigation_notebook").related_model)
 
 

@@ -123,7 +123,6 @@ def moved_alert_check_page(
         for investigation in InsightAlertInvestigation.objects.for_team(team_id)
         .filter(alert_configuration_id=alert_id, evaluation_key__in=keys)
         .select_related("notebook")
-        # A notebook's content can be large, and the history needs only its short id.
         .only("evaluation_key", "status", "verdict", "summary", "notebook__short_id")
     }
     suppressed_holds = source_suppressed_holds_by_legacy_id(
