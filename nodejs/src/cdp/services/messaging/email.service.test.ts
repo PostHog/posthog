@@ -851,7 +851,6 @@ describe('EmailService', () => {
                 const dailyCap = 8640
                 const redis = createEmailLimiterRedis(hub)
                 const limiter = new RateLimiterService(redis, { name: 'team-email-cap-test' })
-                jest.spyOn(services.workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
                 const { service: enforcedService, send: enforcedSendSpy } = services.createWithSendSpy({
                     sesConfig: {
                         teamEmailCapMode: 'enforce',
