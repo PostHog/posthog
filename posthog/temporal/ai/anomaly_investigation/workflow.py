@@ -44,14 +44,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
+from products.alerts.backend.facade import investigations as alerts
+from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
-from products.alerts.backend.investigation_release import (
-    InvestigationRelease,
-    finish_investigation,
-    mark_investigation_failed,
-    mark_investigation_running,
-    verdict_change_is_news,
-)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts_platform.backend.facade import api as platform
@@ -103,7 +98,7 @@ _VERDICT_CHANGE_FOLLOWUP_KEY = "investigation_verdict_change"
 _MAX_DESCRIPTION_CHARS = 3000
 
 
-@dataclass
+@dataclass(frozen=False)
 class AnomalyInvestigationWorkflowInputs:
     team_id: int
     alert_id: UUID
@@ -261,7 +256,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     summary = result.report.summary.strip()
     deliveries: list[AlertDeliveryRequest] = []
     if isinstance(subject, InsightAlertInvestigation):
-        release = await sync_to_async(finish_investigation, thread_sensitive=False)(
+        release = await sync_to_async(alerts.finish_investigation, thread_sensitive=False)(
             alert, subject, verdict=result.report.verdict, summary=summary or None, notebook_id=notebook.id
         )
         deliveries = list(release.deliveries)
@@ -372,7 +367,7 @@ async def _deliver_alert_check_outcome(
 async def _finish_platform_investigation(
     alert: AlertConfiguration, investigation: InsightAlertInvestigation
 ) -> InvestigationRelease:
-    return await sync_to_async(finish_investigation, thread_sensitive=False)(
+    return await sync_to_async(alerts.finish_investigation, thread_sensitive=False)(
         alert,
         investigation,
         verdict=investigation.verdict,
@@ -695,7 +690,7 @@ def _dispatch_verdict_change_followup(
     Never raises into the activity: a correction that cannot be sent is not worth a second
     agent run.
     """
-    if not verdict_change_is_news(verdict, previous_verdict, alert.investigation_inconclusive_action):
+    if not alerts.verdict_change_is_news(verdict, previous_verdict, alert.investigation_inconclusive_action):
         return
     receipts = check.targets_notified or {}
     if receipts.get(_VERDICT_CHANGE_FOLLOWUP_KEY):
@@ -818,7 +813,7 @@ def _build_breach_descriptions(
 
 async def _mark_running(subject: AlertCheck | InsightAlertInvestigation) -> None:
     if isinstance(subject, InsightAlertInvestigation):
-        await sync_to_async(mark_investigation_running, thread_sensitive=False)(subject)
+        await sync_to_async(alerts.mark_investigation_running, thread_sensitive=False)(subject)
         return
     await sync_to_async(AlertCheck.objects.filter(id=subject.id).update, thread_sensitive=False)(
         investigation_status=InvestigationStatus.RUNNING,
@@ -827,7 +822,7 @@ async def _mark_running(subject: AlertCheck | InsightAlertInvestigation) -> None
 
 async def _mark_failed(subject: AlertCheck | InsightAlertInvestigation, reason: str) -> None:
     if isinstance(subject, InsightAlertInvestigation):
-        await sync_to_async(mark_investigation_failed, thread_sensitive=False)(subject, reason)
+        await sync_to_async(alerts.mark_investigation_failed, thread_sensitive=False)(subject, reason)
         return
     await sync_to_async(AlertCheck.objects.filter(id=subject.id).update, thread_sensitive=False)(
         investigation_status=InvestigationStatus.FAILED,
