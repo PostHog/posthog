@@ -95,10 +95,13 @@ export class PostHogApi {
     // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
     private url(path: string): URL {
         const { host, projectId } = this.session.current
-        // hostUrl keeps the path a self-hosted PostHog can sit under, which `new URL` would drop.
-        return path.startsWith('/')
-            ? hostUrl(host, path.slice(1))
-            : new URL(path, hostUrl(host, `api/environments/${projectId}/`))
+        // hostUrl keeps the path a self-hosted PostHog can sit under, which `new URL` would drop. A
+        // path from a pagination link already starts with it.
+        const root = hostUrl(host, '')
+        if (path.startsWith('/')) {
+            return path.startsWith(root.pathname) ? new URL(path, root) : hostUrl(host, path.slice(1))
+        }
+        return new URL(path, hostUrl(host, `api/environments/${projectId}/`))
     }
 
     get<T>(path: string): Promise<T> {

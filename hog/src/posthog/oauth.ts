@@ -138,6 +138,15 @@ export class OAuthLogin implements AccessKey {
                     'Run `hog auth login` to log in again.'
                 )
             }
+            // A new login, possibly to another project, replaced this one. Using it would send the
+            // rest of the command to a project it didn't plan against.
+            if (current.loginId !== this.loginId) {
+                throw new HogError(
+                    'login_changed',
+                    'You logged in again while this command ran.',
+                    'Run the command again to use the new login.'
+                )
+            }
             if (!needsRenewal(current)) {
                 return current
             }

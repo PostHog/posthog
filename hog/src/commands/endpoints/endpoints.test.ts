@@ -75,13 +75,20 @@ variables:
 `
 
 describe('hog endpoints', () => {
-    test('list follows pages until PostHog has no more', async () => {
+    test.each([
+        ['', BASE],
+        ['under a path', 'https://ph.example.com/posthog/api/environments/7/'],
+    ])('list follows pages until PostHog has no more, for a host %s', async (_name, base) => {
         const result = await runHog(['endpoints', 'list'], {
-            env: AGENT,
-            respond: (url) =>
-                url === `${BASE}endpoints/`
-                    ? { status: 200, body: { results: [TRENDS], next: `${BASE}endpoints/?offset=1` } }
-                    : { status: 200, body: { results: [HOGQL], next: null } },
+            env: { ...AGENT, HOG_HOST: new URL('../../../', base).toString() },
+            respond: (url) => {
+                if (url === `${base}endpoints/`) {
+                    return { status: 200, body: { results: [TRENDS], next: `${base}endpoints/?offset=1` } }
+                }
+                return url === `${base}endpoints/?offset=1`
+                    ? { status: 200, body: { results: [HOGQL], next: null } }
+                    : { status: 404, body: {} }
+            },
         })
         expect(
             result.stdout
