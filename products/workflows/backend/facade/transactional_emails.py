@@ -1,9 +1,11 @@
 """Transactional emails: a message template made sendable over the API, backed by a one-step workflow."""
 
 from products.workflows.backend.facade.contracts import (
+    EMAIL_FROM_CODE_FLAG,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSender,
+    TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -16,9 +18,11 @@ from products.workflows.backend.services.transactional_email_workflows import (
 )
 
 __all__ = [
+    "EMAIL_FROM_CODE_FLAG",
     "TransactionalEmailContent",
     "TransactionalEmailContentInvalid",
     "TransactionalEmailSender",
+    "TransactionalEmailSenderRequired",
     "TransactionalEmailSenderUnavailable",
     "WorkflowNotFound",
     "code_send_sender",

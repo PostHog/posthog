@@ -121,6 +121,10 @@ class EmailAttachment:
     content_id: str | None = None
 
 
+class SenderRequired(TransactionalEmailError):
+    code = "sender_required"
+
+
 class TooManyKeys(TransactionalEmailError):
     code = "too_many_keys"
 

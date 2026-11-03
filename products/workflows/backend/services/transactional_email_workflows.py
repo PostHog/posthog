@@ -15,6 +15,7 @@ from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSender,
+    TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -176,6 +177,19 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
     return sender.id
 
 
+def _sender_without_address(team_id: int) -> int:
+    if _default_sender_id(team_id) is not None:
+        return resolve_transactional_email_sender(team_id, None)
+    verified = [
+        sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
+    ]
+    if len(verified) > 1:
+        raise TransactionalEmailSenderRequired()
+    if not verified:
+        raise TransactionalEmailSenderUnavailable()
+    return verified[0]
+
+
 def _sender_on_domain(team_id: int, email: str) -> int:
     address = email.lower()
     domain = address.rpartition("@")[2]
@@ -198,9 +212,7 @@ def _sender_on_domain(team_id: int, email: str) -> int:
 
 def code_send_sender(*, team_id: int, email: str | None, name: str | None) -> TransactionalEmailSender:
     if email is None:
-        return TransactionalEmailSender(
-            integration_id=resolve_transactional_email_sender(team_id, None), email=None, name=None
-        )
+        return TransactionalEmailSender(integration_id=_sender_without_address(team_id), email=None, name=None)
     return TransactionalEmailSender(integration_id=_sender_on_domain(team_id, email), email=email, name=name)
 
 

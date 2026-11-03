@@ -10,6 +10,8 @@ from posthog.hogql.parser import parse_select
 from posthog.models.integration.model import Integration
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
+from products.cdp.backend.validation import compile_hog
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint, resumable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FileFormatError
@@ -41,7 +43,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     route,
 )
 
+from common.hogvm.python.execute import execute_bytecode
+
 __all__ = [
+    "BaseHogFunctionTemplateSimpleTest",
     "ColumnTypeCategory",
     "DEFAULT_RETRY_ATTEMPTS",
     "DriveResult",
@@ -60,7 +65,9 @@ __all__ = [
     "boundary_checkpoint",
     "build_default_schemas",
     "build_default_sync_settings",
+    "compile_hog",
     "error_message_matches",
+    "execute_bytecode",
     "mock_anti_ssrf_dns_lookup",
     "parse_select",
     "rest_client",

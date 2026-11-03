@@ -154,7 +154,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender."
+            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default."
         ),
 })
 

@@ -184,6 +184,7 @@ from products.workflows.backend.facade.broadcast_conversion import (
 )
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
+    EMAIL_FROM_CODE_FLAG,
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
     StaffPausedError,
@@ -388,6 +389,17 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+def _code_sends_rolled_out(team: Any) -> bool:
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        EMAIL_FROM_CODE_FLAG,
+        str(team.uuid),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -5447,6 +5459,10 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
+        if hog_flow.origin_product == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS and not _code_sends_rolled_out(
+            self.team
+        ):
+            raise exceptions.NotFound()
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
