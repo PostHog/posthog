@@ -5,17 +5,19 @@ from requests import RequestException
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationManager
 from posthog.models import Organization
-from posthog.models.integration import GitHubIntegrationError, Integration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
-from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.github_optional import ResearchAccessPolicy, team_has_code_access
 from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
@@ -63,12 +65,18 @@ async def github_optional_pilot_activity(team_id: int) -> bool:
 
 
 def _pilot_code_availability(team_id: int) -> ReportResearchContext:
-    integrations = list(Integration.objects.filter(team_id=team_id, kind="github"))
+    integrations = IntegrationManager.github.oauth.list(team_id)
     if not integrations:
         return ReportResearchContext(mode="data_only", repository_status="no_integration")
-    if all(item.repository_cache_updated_at and item.repository_cache == [] for item in integrations):
+    adapters = [
+        GitHubIntegration(item, source="signals_report_research", priority=Priority.NORMAL) for item in integrations
+    ]
+    if all(
+        adapter.integration.repository_cache_updated_at and adapter.integration.repository_cache == []
+        for adapter in adapters
+    ):
         return ReportResearchContext(mode="data_only", repository_status="no_repositories")
-    if resolve_team_github_integration(team_id, team_only=True) is None:
+    if not team_has_code_access(team_id):
         return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
     return ReportResearchContext(mode="code", repository_status="available")
 

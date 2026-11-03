@@ -19,8 +19,8 @@ def _alert(team_id: int, alert_id: UUID) -> LogsAlertConfiguration | None:
 
 
 def on_created(*, team_id: int, alert_id: UUID, at: datetime, grouping: Grouping | None = None) -> bool:
-    """Hands a new alert to the platform when its team has begun the cutover, with its copy grouped
-    by `grouping`. False when the alert stays with logs.
+    """Hands a new alert to the platform, with its copy grouped by `grouping`, unless its team keeps
+    its alerts on logs. False when the alert stays with logs.
 
     Raises `InvalidPlatformAlertEdit` when the alert cannot take the grouping. Only an alert the
     platform owns can take one other than single.

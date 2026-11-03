@@ -5,9 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -28,6 +26,7 @@ import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } f
 import type { EvaluationApiOutputConfig } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic, type ModelOption, type ProviderModelGroup } from '../modelPickerLogic'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { LLMProviderKey, llmProviderKeysLogic, toLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
@@ -36,6 +35,7 @@ import { evaluationErrorMessage } from './apiErrors'
 import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
+    EVALUATION_SENTIMENT_GRADED_HOGQL,
     numericEvaluationPassedHogQL,
     evaluationPassedHogQL,
     evaluationPassRateHogQL,
@@ -1563,12 +1563,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 // The new creation page lands on the evaluation itself, which says when its first result arrives.
-                const opensEvaluation =
-                    isNew &&
-                    !!response?.id &&
-                    !!featureFlagLogic.findMounted()?.values.featureFlags[
-                        FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW
-                    ]
+                const opensEvaluation = isNew && !!response?.id
                 router.actions.push(
                     opensEvaluation
                         ? urls.aiObservabilityEvaluation(response.id)
@@ -1650,12 +1645,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 originalEvaluation: EvaluationConfig | null
             ): boolean => evaluationSupportsReports(isNewEvaluation ? evaluation : originalEvaluation),
         ],
-        // The evaluation's headline result as a trends query: the pass rate, or the mean score without a passing rule.
+        // The evaluation's headline result as a trends query: the pass rate, the mean score without a passing rule, or
+        // the negative sentiment rate.
         trendsQuery: [
             (s) => [s.originalEvaluation],
             (evaluation: EvaluationConfig | null): TrendsQuery | null =>
                 evaluation &&
-                (evaluationSupportsRunOutcomes(evaluation) || evaluation.output_type === 'numeric') &&
+                (evaluationSupportsRunOutcomes(evaluation) ||
+                    evaluation.output_type === 'numeric' ||
+                    evaluation.output_type === 'sentiment') &&
                 evaluation.id
                     ? ({
                           kind: NodeKind.TrendsQuery,
@@ -1663,22 +1661,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                               {
                                   kind: NodeKind.EventsNode,
                                   event: '$ai_evaluation',
-                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
+                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'sentiment' ? 'Negative rate' : evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
                                   math: HogQLMathType.HogQL,
                                   math_hogql:
-                                      evaluation.output_type === 'categorical'
+                                      evaluation.output_type === 'sentiment'
                                           ? evaluationPassRateHogQL(
-                                                categoricalEvaluationPassedHogQL(evaluation),
-                                                EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                                `lower(properties.$ai_sentiment_label) = 'negative'`,
+                                                EVALUATION_SENTIMENT_GRADED_HOGQL
                                             )
-                                          : evaluation.output_type === 'numeric'
-                                            ? evaluation.output_config.passing_rule
-                                                ? evaluationPassRateHogQL(
-                                                      numericEvaluationPassedHogQL(evaluation),
-                                                      EVALUATION_NUMERIC_GRADED_HOGQL
-                                                  )
-                                                : EVALUATION_NUMERIC_MEAN_HOGQL
-                                            : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
+                                          : evaluation.output_type === 'categorical'
+                                            ? evaluationPassRateHogQL(
+                                                  categoricalEvaluationPassedHogQL(evaluation),
+                                                  EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                              )
+                                            : evaluation.output_type === 'numeric'
+                                              ? evaluation.output_config.passing_rule
+                                                  ? evaluationPassRateHogQL(
+                                                        numericEvaluationPassedHogQL(evaluation),
+                                                        EVALUATION_NUMERIC_GRADED_HOGQL
+                                                    )
+                                                  : EVALUATION_NUMERIC_MEAN_HOGQL
+                                              : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
                                   properties: [
                                       {
                                           key: '$ai_evaluation_id',
@@ -2057,7 +2060,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
             return [
                 router.values.location.pathname,
-                { ...router.values.searchParams, evaluation_tab: evaluationTab },
+                { ...withoutTraceDrawerParams(router.values.searchParams), evaluation_tab: evaluationTab },
                 router.values.hashParams,
                 { replace: true },
             ]

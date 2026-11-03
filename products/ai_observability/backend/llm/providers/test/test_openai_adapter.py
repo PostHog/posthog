@@ -12,6 +12,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError, model_validator
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     ContentFilteredError,
     ContextWindowExceededError,
@@ -19,8 +20,8 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
@@ -178,23 +179,40 @@ class TestOpenAIStreamOutputSchema:
         assert "response_format" not in self._stream_kwargs(None)
 
 
-class TestOpenAIImageParts:
+class TestOpenAIAttachmentParts:
     @pytest.mark.parametrize(
-        ("image", "expected_url"),
+        ("part", "expected_block"),
         [
             pytest.param(
-                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
-                "https://example.com/a.png",
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
+                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
                 id="link",
             ),
-            pytest.param(ImagePart(mime_type="image/png", data=b"hi"), "data:image/png;base64,aGk=", id="inline"),
+            pytest.param(
+                AttachmentPart(mime_type="image/png", data=b"hi"),
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+                id="inline",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                {
+                    "type": "file",
+                    "file": {"filename": "attachment.pdf", "file_data": "data:application/pdf;base64,aGk="},
+                },
+                id="pdf",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="audio/mpeg", data=b"hi"),
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "mp3"}},
+                id="audio",
+            ),
         ],
     )
     @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])
-    def test_image_parts_are_sent_as_image_url_blocks(self, image: ImagePart, expected_url: str, json_fallback: bool):
+    def test_attachment_parts_are_sent_as_blocks(self, part: AttachmentPart, expected_block: dict, json_fallback: bool):
         request = CompletionRequest(
             model="gpt-4.1",
-            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            messages=[{"role": "user", "content": [part, {"type": "text", "text": "hi"}]}],
             provider="openai",
             response_format=_Verdict if json_fallback else None,
         )
@@ -209,8 +227,24 @@ class TestOpenAIImageParts:
 
         sent = mock_client.chat.completions.create.call_args.kwargs["messages"]
         assert next(message for message in sent if message["role"] == "user")["content"] == [
-            {"type": "image_url", "image_url": {"url": expected_url}},
+            expected_block,
             {"type": "text", "text": "hi"},
+        ]
+
+    def test_openrouter_sends_video_as_a_video_url_block(self):
+        request = CompletionRequest(
+            model="google/gemini-2.5-flash",
+            messages=[{"role": "user", "content": [AttachmentPart(mime_type="video/mp4", data=b"hi")]}],
+            provider="openrouter",
+        )
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.usage = None
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenRouterAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": "video_url", "video_url": {"url": "data:video/mp4;base64,aGk="}}
         ]
 
 

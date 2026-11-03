@@ -1,7 +1,7 @@
 ---
 name: authoring-ci-workflows
 description: >
-  Use when adding or editing a GitHub Actions workflow, composite action, or reusable workflow under `.github/` — new CI jobs, triggers, matrices, checkout/clone tuning, action pinning, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, caching, or runner choice.
+  Use when adding or editing a GitHub Actions workflow, composite action, reusable workflow, or `actions.lock` under `.github/`: new CI jobs, triggers, matrices, checkout/clone tuning, action pinning and lockfiles, GitHub App token auth, concurrency groups, `timeout-minutes`, `paths` filters, caching, or runner choice.
   Covers PostHog's workflow-authoring conventions and the reasons behind them: the 500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency, dedicated App-token rate-limit buckets, and fork-safe secrets on a public repo.
   Points to the linters (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules, and to the narrower skills for production deploys, secrets, and Depot runners.
   Not for debugging red CI (use debugging-ci-failures) or wiring a new secret end to end (use managing-github-actions-secrets).
@@ -30,7 +30,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
 Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
-Third-party action digests are bumped by Renovate.
+Renovate bumps third-party action digests, except in workflows listed in `actions.lock`.
 
 ## Check what a condition does before you push it
 
@@ -284,6 +284,10 @@ Measured checkout-step durations, from the GitHub API on real runs:
   The only reason to check out is that a local action must exist on disk, so sparse-checkout `.github/actions/paths-filter` plus any file the job's own steps read.
   **Never pass `base: HEAD` to paths-filter from a sparse job** — that routes it to `git diff HEAD`, which a sparse worktree makes return nothing, so every downstream job silently skips green.
 
+- **If one step in a gating job needs history, check the history out in a second, conditional step.**
+  `ci-nodejs.yml`'s affected-crate detection diffs the merge base, so its `changes` job used to carry a full-history checkout: 75s of an 80s job (median of 12 runs), and every job in the workflow waits on it.
+  A sparse filter-action checkout for the gate first, then a `fetch-depth: 0` + `filter: blob:none` + sparse `rust/ proto/ .github/` checkout behind `steps.filter.outputs.rust == 'true'`, puts the ~2s path on every run that does not touch Rust and leaves Rust runs paying what they paid before.
+
 - **Foot-gun:** `git fetch --deepen=N` with **no refspec** falls back to the wildcard `refs/heads/*` and pulls _every branch_.
   Always pass an explicit, `--no-tags`, `--filter=blob:none` refspec scoped to the base ref.
   (Bumping `actions/checkout`'s own `fetch-depth` is safe — it uses a scoped `refs/pull/N/merge` refspec.)
@@ -293,9 +297,11 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 ## Pinning and tool versions
 
-- **Pin every third-party action to a full 40-char commit SHA** with a `# vX.Y.Z` comment.
-  A moved tag can ship malicious code; pinning is also reproducible and skips a per-run GitHub-API version lookup.
-  The only sanctioned exception is a debug-only action.
+- **Pin third-party actions to full 40-character commit SHAs** with `# vX.Y.Z` comments.
+  Workflows already listed in `.github/workflows/actions.lock` may use exact version tags backed by locked commits.
+  Before editing one or the lockfile, read [Maintaining workflow lockfiles](references/workflow-lockfiles.md).
+  Keep inline SHA pins elsewhere: copying an onboarded workflow does not onboard its copy.
+  The other sanctioned exception is a debug-only action.
   In-repo composites use a local path with no ref (`uses: ./.github/actions/pnpm-install`).
 - **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a hardcoded `node-version:`.
   Sparse-checkout `.nvmrc` if the job has no checkout.
@@ -408,7 +414,7 @@ The only sanctioned exception is a job whose purpose is validating the migration
 
 ## Runners
 
-`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs, except light jobs on the critical path of a merge-queue required check, which pick Depot on `trunk-merge/` runs only because GitHub-hosted runners queue longer at busy hours.
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
@@ -545,7 +551,8 @@ Before that date, fix or add to the baseline every violation that landed during 
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout names only the paths the job reads (`sparse-checkout` + cone mode off), or is shallow; bounded `1000 + blob:none` only for base diffing.
-- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
+- [ ] Third-party actions SHA-pinned, or the already-onboarded workflow's lockfile regenerated and verified.
+- [ ] Node from `.nvmrc`; `setup-uv` version pinned; runner labels name an OS version (`ubuntu-24.04`, never `ubuntu-latest`).
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.

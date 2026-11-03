@@ -1979,6 +1979,27 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         non_retryable = CustomSource().get_non_retryable_errors()
         assert any(key in err for key in non_retryable)
 
+    def test_temporary_dns_resolution_failure_message_is_classified_retryable(self):
+        # `_is_host_safe` raises this message when the resolver itself fails to answer (a DNS
+        # blip), distinct from the permanent "Couldn't resolve the host" case above. It must stay
+        # out of get_non_retryable_errors and be matched by get_retryable_errors, so the caller
+        # treats it as transient and re-raises for Temporal to retry instead of reporting it.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+            return_value=(
+                False,
+                "Temporary failure resolving the host 'api.example.com'. Try again in a moment.",
+            ),
+        ):
+            ok, err = validate_manifest_urls(_minimal_manifest(), team_id=999)
+
+        assert not ok
+        assert err is not None
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert not any(key in err for key in non_retryable)
+        retryable = CustomSource().get_retryable_errors()
+        assert any(key in err for key in retryable)
+
     @parameterized.expand(["invalid_client", "invalid_grant"])
     def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
         # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
@@ -2748,21 +2769,29 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert err is not None and "resource_defaults" in err
 
 
-class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
-    def _manifest(self) -> dict:
+_INVALID_PAGINATOR_CASES = [
+    ("unsupported_key", {"type": "offset", "limit": 100, "limit_body_path": "meta.limit"}, False, "limit_body_path"),
+    ("null_required_key", {"type": "offset", "limit": None}, False, "non-null value for limit"),
+    ("missing_required_key", {"type": "offset"}, False, "non-null value for limit"),
+    ("inherited_null_required_key", {"type": "offset", "limit": None}, True, "non-null value for limit"),
+]
+
+
+class TestCustomSourcePaginatorInvalidConfig(SimpleTestCase):
+    def _manifest(self, paginator: dict, in_defaults: bool) -> dict:
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["paginator"] = {
-            "type": "offset",
-            "limit": 100,
-            "limit_body_path": "meta.limit",
-        }
+        if in_defaults:
+            manifest["resource_defaults"] = {"endpoint": {"paginator": paginator}}
+        else:
+            manifest["resources"][0]["endpoint"]["paginator"] = paginator
         return manifest
 
+    @parameterized.expand(_INVALID_PAGINATOR_CASES)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_unsupported_key_raises_non_retryable_before_engine(self, mock_resources):
+    def test_raises_non_retryable_before_engine(self, _name, paginator, in_defaults, expected, mock_resources):
         mock_resources.return_value = [_fake_resource("users")]
         source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()))
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(paginator, in_defaults)))
         inputs = MagicMock(
             team_id=1,
             schema_name="users",
@@ -2772,15 +2801,34 @@ class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
         )
         with self.assertRaises(NonRetryableException) as ctx:
             source.source_for_pipeline(config, inputs)
-        assert "limit_body_path" in str(ctx.exception)
+        assert expected in str(ctx.exception)
         mock_resources.assert_not_called()
 
-    def test_unsupported_key_rejected_at_validation(self):
+    @parameterized.expand(_INVALID_PAGINATOR_CASES)
+    def test_rejected_at_validation(self, _name, paginator, in_defaults, expected):
         source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()), auth_token="abc")
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest(paginator, in_defaults)), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok is False
-        assert err is not None and "limit_body_path" in err and "'users'" in err
+        location = "resource_defaults.endpoint.paginator" if in_defaults else "'users'"
+        assert err is not None and expected in err and location in err
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_overridden_default_paginator_is_not_checked(self, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        manifest = self._manifest({"type": "offset", "limit": None}, in_defaults=True)
+        manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        source.source_for_pipeline(config, inputs)
+        mock_resources.assert_called_once()
 
 
 def _apikey_manifest() -> dict:

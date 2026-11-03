@@ -1152,6 +1152,20 @@ return result`,
                 expect(logic.values.isReportableEvaluation).toBe(false)
             })
 
+            it('charts the negative rate for a sentiment evaluation', () => {
+                logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+                logic.mount()
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                })
+                expect(logic.values.trendInsightUrl).toContain('Negative%20rate')
+            })
+
             it.each([
                 { trueCount: 999, expected: 99.9 },
                 { trueCount: 1000, expected: 100 },
@@ -1215,6 +1229,17 @@ return result`,
             logic.actions.setActiveTab('runs')
 
             expect(router.values.searchParams.evaluation_tab).toBeUndefined()
+        })
+
+        it('leaves the trace drawer params behind on a tab change', async () => {
+            router.actions.push(combineUrl(urls.aiObservabilityEvaluation('eval-123'), { trace: 'a', step: 'b' }).url)
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setActiveTab('configuration')
+
+            expect(router.values.searchParams).toEqual({ evaluation_tab: 'configuration' })
         })
     })
 

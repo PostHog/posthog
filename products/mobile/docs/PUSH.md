@@ -88,7 +88,7 @@ The server records the `X-PostHog-Client-Platform: mobile` creation header on th
 Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread_message` (with `messageId`, no run), `handoff` (no run), `pr_merged`, and `pr_closed` (with `pullRequestUrl`).
 `projectId` is the task's team id. Pushes from servers that predate it have no project id.
 
-**Pull request outcomes** come from verified PR close events through `notify_task_pull_request_outcome()`. Ordinary task pushes use title `PostHog` and body `"{task title}" pull request was merged` or `"{task title}" pull request was closed`, with `Untitled task` as the blank-title fallback. Report work uses title `Report update`, the same suffix with the report title (`Untitled report` fallback), and the report updates preference. Both carry `pullRequestUrl` as the stable PR identity. A durable per-recipient, task, PR, and outcome claim prevents retry duplicates independently of Slack announcement history.
+**Pull request outcomes** come from verified PR close events through `notify_task_pull_request_outcome()`. Ordinary task pushes use the chat title and body `"{task title}" pull request was merged` or `"{task title}" pull request was closed`, with `Untitled task` as the blank-title fallback. Report work uses title `Report update`, the same suffix with the report title (`Untitled report` fallback), and the report updates preference. Both carry `pullRequestUrl` as the stable PR identity. A durable per-recipient, task, PR, and outcome claim prevents retry duplicates independently of Slack announcement history.
 
 **Snooze reminders** are local notifications. They use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
 

@@ -3,8 +3,10 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from posthog.dataclasses import frozen
 from posthog.models.health_issue import HealthIssue
 
 if TYPE_CHECKING:
@@ -58,9 +60,28 @@ class BatchResult:
 BatchDetectFn = Callable[[list[int]], dict[int, list[HealthCheckResult]]]
 
 DEFAULT_ACTIVE_SINCE_DAYS: int = 90
+# Shorter than a day, so a broken run of a daily check closes before the next scheduled start.
+DEFAULT_EXECUTION_TIMEOUT: timedelta = timedelta(hours=12)
 
 
-@dataclass
+@frozen
+class HealthCheckRunProgress:
+    """How far one scheduled run got. It crosses continue-as-new, so the run reports and judges every team."""
+
+    after_team_id: int = 0
+    totals: BatchResult = dataclasses.field(default_factory=BatchResult)
+    batches: int = 0
+    failed_batches: int = 0
+
+
+@frozen
+class TeamIdPage:
+    team_ids: list[int]
+    next_after_team_id: int | None
+    stopped_by_kill_switch: bool = False
+
+
+@dataclass(frozen=True)
 class HealthCheckWorkflowInputs:
     name: str
     kind: str
@@ -72,6 +93,7 @@ class HealthCheckWorkflowInputs:
     dry_run: bool = False
     active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
     owner: str = ""
+    progress: HealthCheckRunProgress | None = None
 
     @classmethod
     def from_config(cls, config: HealthCheckRegistration) -> HealthCheckWorkflowInputs:
@@ -90,3 +112,11 @@ class HealthCheckWorkflowInputs:
 
 class HealthCheckThresholdExceeded(Exception):
     pass
+
+
+class HealthCheckBatchSkipped(Exception):
+    """Raised by `detect` when the batch cannot be judged, for example when its input data is stale.
+
+    The framework counts every team in the batch as skipped, so each team keeps its current issues
+    and the run fails once skipped teams pass `not_processed_threshold`.
+    """

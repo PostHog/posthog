@@ -44,7 +44,11 @@ The same notes appear in the PostHog app on the imported workflow, and `workflow
 
 ## Senders and categories
 
-An email gets the PostHog email sender with the same address as its Customer.io sender. When no PostHog sender has that address, a `needs_input` note names it, so the user can add it as a sender. An email's subscription topic becomes the PostHog message category the opt-out import made from that topic. When the topics were not imported, a note says so.
+An email gets the PostHog email sender with the same address as its Customer.io sender. When no PostHog sender has that address, a `needs_input` note names it, so the user can add it as a sender. An email's subscription topic, or the automation's topic when the email has none, becomes the PostHog message category the opt-out import made from that topic. When the topics were not imported, a note says so.
+
+## Images
+
+The import copies email images hosted by Customer.io into the project's media library, so they keep loading after the Customer.io account closes. That needs the `uploaded_media:write` scope. If a note says images still load from Customer.io's servers, ask the user to reconnect the PostHog MCP and allow uploading media, then import again.
 
 ## Segments and cohorts
 

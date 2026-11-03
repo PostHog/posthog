@@ -9,6 +9,20 @@ import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
 export const manifest: ProductManifest = {
     name: 'Data ops',
+    activityDescribers: {
+        [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () =>
+            import('scenes/data-warehouse/saved_queries/activityDescriptions').then(
+                (module) => module.dataWarehouseSavedQueryActivityDescriber
+            ),
+        [ActivityScope.EXTERNAL_DATA_SOURCE]: () =>
+            import('./frontend/shared/components/activityDescriptions').then(
+                (module) => module.externalDataSourceActivityDescriber
+            ),
+        [ActivityScope.EXTERNAL_DATA_SCHEMA]: () =>
+            import('./frontend/shared/components/activityDescriptions').then(
+                (module) => module.externalDataSourceActivityDescriber
+            ),
+    },
     scenes: {
         DataOps: {
             name: 'Data ops',

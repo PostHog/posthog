@@ -311,6 +311,18 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
 })
 
 /**
+ * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
+ */
+export const AiObservabilityTracesExportsCreateBody = /* @__PURE__ */ zod.object({
+    timestamp_hint: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.'
+        ),
+})
+
+/**
  * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
  */
 export const aiObservabilityTracesSummaryCreateBodyRegenerateDefault = false

@@ -55,6 +55,7 @@ class AvailableFeature(StrEnum):
     TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     MEMBER_GOVERNANCE = "member_governance"
+    SSF = "ssf"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
@@ -230,6 +231,7 @@ class BreakdownAttributionType(StrEnum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 
 
 class EventDefinitionType(StrEnum):
