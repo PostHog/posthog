@@ -27,6 +27,10 @@ class TestDebugbearSource:
                 "DebugBear rejected the RUM metrics request for project 1 with a 400 error — "
                 "Real User Monitoring is likely not set up for this project.",
             ),
+            (
+                "410 Client Error: Gone for url: https://www.debugbear.com",
+                "410 Client Error: Gone for url: https://www.debugbear.com/api/v1/projects",
+            ),
         ],
     )
     def test_non_retryable_errors_match(self, pattern: str, message: str) -> None:
