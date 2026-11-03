@@ -1688,7 +1688,8 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("legacy_task_key", ["signal_scout:write", "task:write"], status.HTTP_200_OK),
-            ("inbox_key", ["signal_scout:write", "inbox:write"], status.HTTP_200_OK),
+            ("inbox_and_task_key", ["signal_scout:write", "inbox:write", "task:write"], status.HTTP_200_OK),
+            ("inbox_only_key", ["signal_scout:write", "inbox:write"], status.HTTP_403_FORBIDDEN),
             ("narrow_key", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
         ]
     )

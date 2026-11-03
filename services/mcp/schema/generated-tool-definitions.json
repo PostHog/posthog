@@ -8011,12 +8011,12 @@
         }
     },
     "inbox-reports-claim": {
-        "description": "Start, resume, or release work on an inbox report. Returns `assignee.claim_id` for the work attempt; pass it on later updates. For internal task agents, claiming records the task association automatically. Add pull_requests (GitHub PR URLs) in the same call, including when you start work. Adding pull requests needs task:write as well as inbox:write. A report resolves when every linked PR is closed or merged and at least one merged, and it is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports with inbox-reports-set-state.",
+        "description": "Start, resume, or release work on an inbox report. Returns `assignee.claim_id` for the work attempt; pass it on later updates. For internal task agents, claiming records the task association automatically. Add pull_requests (GitHub PR URLs) in the same call, including when you start work. A report resolves when every linked PR is closed or merged and at least one merged, and it is suppressed when all closed without merging. Open, draft, unknown, or no PRs do not complete it. Repositories without a connected GitHub integration keep unknown PR state, so resolve those reports with inbox-reports-set-state.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update work on an inbox report",
         "title": "Update work on an inbox report",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/claim/"],
         "annotations": {
             "destructiveHint": true,
