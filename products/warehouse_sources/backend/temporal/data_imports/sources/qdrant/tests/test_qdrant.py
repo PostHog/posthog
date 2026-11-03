@@ -30,6 +30,8 @@ ACCOUNTS_URL = "https://api.cloud.qdrant.io/api/account/v1/accounts"
 CLUSTERS_URL = f"https://api.cloud.qdrant.io/api/cluster/v1/accounts/{ACCOUNT_ID}/clusters"
 PROVIDERS_PATH = f"/api/platform/v1/accounts/{ACCOUNT_ID}/cloud-providers"
 METERINGS_PATH = f"/api/metering/v1/accounts/{ACCOUNT_ID}/meterings"
+PACKAGES_PATH = f"/api/booking/v1/accounts/{ACCOUNT_ID}/packages"
+HYBRID_ENV = "00000000-0000-4000-8000-0000000000e1"
 CLUSTER_A = "00000000-0000-4000-8000-00000000000a"
 CLUSTER_B = "00000000-0000-4000-8000-00000000000b"
 
@@ -107,6 +109,10 @@ def test_repeated_cursor_fails(config: QdrantSourceConfig) -> None:
         ("cloud_provider_regions", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
         ("metering_entries", f"https://api.cloud.qdrant.io{METERINGS_PATH}", False),
         ("cluster_usage_metrics", CLUSTERS_URL, True),
+        ("cluster_inference_metrics", CLUSTERS_URL, True),
+        ("packages", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
+        ("account_members", f"https://api.cloud.qdrant.io/api/account/v1/accounts/{ACCOUNT_ID}/members", False),
+        ("invoices", f"https://api.cloud.qdrant.io/api/billing/v1/accounts/{ACCOUNT_ID}/invoices", False),
     ],
 )
 def test_credentials_make_one_probe(
@@ -204,6 +210,83 @@ def test_cluster_usage_metrics_explode_per_cluster(
         {"cluster_id": CLUSTER_A, "node_id": "", "metric": "cpu", **point},
         {"cluster_id": CLUSTER_A, "node_id": "node-0", "metric": "ram", **point},
     ]
+
+
+def test_packages_fan_out_over_every_provider_region(config: QdrantSourceConfig) -> None:
+    result = drive(
+        config,
+        "packages",
+        [
+            ScriptedResponse(json={"items": [{"id": "aws"}, {"id": "hybrid"}]}),
+            ScriptedResponse(json={"items": [{"id": "us-east-1", "provider": "aws"}]}),
+            ScriptedResponse(json={"items": [{"id": "pkg-1", "name": "small"}]}),
+            ScriptedResponse(json={"items": [{"id": HYBRID_ENV, "provider": "openshift"}]}),
+            ScriptedResponse(json={"items": [{"id": "pkg-1", "name": "small"}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.paths == [
+        PROVIDERS_PATH,
+        f"{PROVIDERS_PATH}/aws/regions",
+        PACKAGES_PATH,
+        f"{PROVIDERS_PATH}/hybrid/regions",
+        PACKAGES_PATH,
+    ]
+    package_queries = [query for query, path in zip(result.queries, result.paths) if path == PACKAGES_PATH]
+    statuses = ("PACKAGE_STATUS_ACTIVE", "PACKAGE_STATUS_DEACTIVATED")
+    assert package_queries == [
+        {"cloudProviderId": ("aws",), "cloudProviderRegionId": ("us-east-1",), "statuses": statuses},
+        {"cloudProviderId": ("hybrid",), "cloudProviderRegionId": (HYBRID_ENV,), "statuses": statuses},
+    ]
+    assert result.rows == [
+        {"id": "pkg-1", "name": "small", "cloud_provider_id": "aws", "cloud_provider_region_id": "us-east-1"},
+        {"id": "pkg-1", "name": "small", "cloud_provider_id": "hybrid", "cloud_provider_region_id": HYBRID_ENV},
+    ]
+
+
+@time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "inputs,expected_since",
+    [
+        ({}, "2026-10-24T00:00:00Z"),
+        (
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-10-31T00:00:00Z"},
+            "2026-10-31T00:00:00Z",
+        ),
+    ],
+)
+def test_cluster_inference_metrics_explode_per_model(
+    config: QdrantSourceConfig, inputs: dict[str, Any], expected_since: str
+) -> None:
+    point = {"timestamp": "2026-10-31T00:00:00Z", "value": 1200}
+    result = drive(
+        config,
+        "cluster_inference_metrics",
+        [
+            ScriptedResponse(json={"items": [{"id": CLUSTER_A}, {"id": CLUSTER_B}]}),
+            ScriptedResponse(json={"models": [{"inferenceModelId": "model-1", "values": [point]}]}),
+            ScriptedResponse(json={}),
+        ],
+        **inputs,
+    )
+
+    assert result.raised is None
+    assert result.params("since") == [None, expected_since, expected_since]
+    assert result.params("interval") == [None, "INFERENCE_METRICS_INTERVAL_DAY", "INFERENCE_METRICS_INTERVAL_DAY"]
+    assert result.rows == [{"cluster_id": CLUSTER_A, "inference_model_id": "model-1", **point}]
+
+
+def test_account_members_flatten_user(config: QdrantSourceConfig) -> None:
+    user = {"id": "user-1", "email": "member@example.com", "createdAt": "2026-01-01T00:00:00Z"}
+    result = drive(
+        config,
+        "account_members",
+        [ScriptedResponse(json={"items": [{"accountMember": user, "isOwner": True}, {"accountMember": user}]})],
+    )
+
+    assert result.raised is None
+    assert result.rows == [{**user, "isOwner": True}, {**user, "isOwner": False}]
 
 
 @pytest.mark.parametrize("body", [{"items": []}, {"items": [{"id": "another-account"}]}])

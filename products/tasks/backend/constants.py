@@ -20,6 +20,7 @@ CI_STATUSES = ("passing", "failing", "pending", "none")
 GITHUB_PR_URL_PREFIX = "https://github.com/"
 ARTIFACT_OPEN_NETWORK_WRITER_KEY = "written_with_open_network"
 ARTIFACT_SCRIPT_SHA256_KEY = "script_sha256"
+FINAL_MESSAGE_MAX_CHARS = 20_000
 
 
 def is_html_artifact(name: str, content_type: str) -> bool:

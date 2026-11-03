@@ -299,6 +299,27 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
@@ -657,6 +678,27 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
 
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
@@ -669,6 +711,15 @@ jobs:
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            # The container's cache path and recorded checkout path differ from the host.
+            # Each runner provider needs a master shard to seed its separate cache.
+            - name: Save pnpm lockfile verdict
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && steps.pnpm-cache.outputs.path != '' && steps.pnpm-verdict.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -987,6 +1038,27 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: pnpm-${{ runner.os }}-
+
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile

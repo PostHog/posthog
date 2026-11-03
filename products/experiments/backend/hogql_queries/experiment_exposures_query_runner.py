@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from functools import cached_property
 from typing import Any
 
 import structlog
@@ -67,7 +68,7 @@ from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
 )
-from products.experiments.backend.health.rollout import shows_health_findings
+from products.experiments.backend.health.rollout import runs_for_impersonated_session, shows_health_findings
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -84,10 +85,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     has_positive_test_account_filter,
 )
-from products.experiments.backend.hogql_queries.precompute_policy import (
-    ensure_exposures_precomputed,
-    team_precompute_skip_reason,
-)
+from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -197,16 +195,26 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _get_date_range(self) -> DateRange:
         return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
-    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
-        if not self.window_start:
-            raise ValidationError("Experiment must have a start date for lazy computation")
-
-        return ensure_exposures_precomputed(
-            self.team,
-            builder,
-            self.window_start,
-            analysis_window_end(self.window_end_date, self.as_of),
+    @cached_property
+    def _exposures_precompute(self) -> ExposuresPrecompute:
+        return ExposuresPrecompute(
+            team=self.team,
+            team_experiments_config=get_or_create_team_extension(self.team, TeamExperimentsConfig),
+            experiment=self.experiment,
+            window_start=self.window_start,
+            window_end=analysis_window_end(self.window_end_date, self.as_of),
+            exposure_criteria=self.exposure_criteria,
+            cohort_filter_sources=(),
+            precomputation_mode=None,
+            is_data_warehouse_query=False,
+            group_type_index=self.group_type_index,
         )
+
+    def _exposures_precompute_applicable(self) -> bool:
+        return self._exposures_precompute.applicable
+
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        return self._exposures_precompute.ensure_precomputed(builder)
 
     def _query_builder(self, exposure_params: ExposureQueryParams) -> ExperimentQueryBuilder:
         return ExperimentQueryBuilder(
@@ -227,18 +235,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # TODO: Add a query-level precomputation_mode override for ExperimentExposureQuery. The main
         # runner lets PrecomputationMode.PRECOMPUTED bypass the duration gate. This path has no such
         # override, so callers cannot force precomputation for an experiment below the minimum duration.
-        # The group_type_index check mirrors the main runner: group builds always fail, because the
-        # INSERT cannot resolve the materialized $group_N column on sharded_events.
-        if (
-            self.group_type_index is None
-            and team_precompute_skip_reason(
-                self.team,
-                get_or_create_team_extension(self.team, TeamExperimentsConfig),
-                self.experiment,
-                self.exposure_criteria,
-            )
-            is None
-        ):
+        if self._exposures_precompute_applicable():
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
@@ -336,8 +333,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _runs_segments_query(self) -> bool:
         # The segments only explain a finding and the query scans the exposure events, so it runs only for a reader
-        # who sees the findings. A userless run sees none. The answer stays out of the cache key: an async run computes
-        # the key again in a worker, from that worker's flag definitions, and a key that disagrees with the web
+        # who sees the findings. A userless run sees none. The flag's answer stays out of the cache key: an async run
+        # computes the key again in a worker, from that worker's flag definitions, and a key that disagrees with the web
         # request's makes every page load miss the cache.
         if not isinstance(self.user, User):
             return False
@@ -620,4 +617,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The test account filter finding asks the user to edit these filters, so an edit must not serve the old answer.
         if applies_test_account_filters(self.team, self.exposure_criteria):
             payload["test_account_filters"] = self.team.test_account_filters
+        # An impersonated session reads the segments whether or not the customer has the flag, so it must not get the
+        # customer's cached answer without them. The query tag follows an async run, so a worker computes the same key.
+        if runs_for_impersonated_session():
+            payload["impersonated_session"] = True
         return payload

@@ -23,6 +23,29 @@ tools:
             users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not
             available for this project.
         feature_flag: activity-summary
+    activity-summary-search:
+        operation: signals_activity_summary_members_search
+        enabled: true
+        scopes:
+            - signal_scout_internal:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search member activity summaries
+        description: >
+            Find the project members whose activity summary matches a topic, an object name or a product, to route a
+            report to people connected to the work. It also finds people who only open the work and never edit it, such
+            as product managers, which the activity log cannot show. Search as you search anything: start broad with the
+            object, the topic and other wordings, then narrow with `product` or rephrase, and pass `exclude_user_uuids`
+            to skip people you already checked. Set `include_profile` only for the few people worth reading. `hybrid`
+            (the default) merges keyword and semantic ranking; `matched_on` says why each member matched. A result is a
+            lead, not an owner. Check it against the report before you select the person. If you select someone because
+            they open an object often, the `reason` must say so, such as "opens this dashboard most days", and must not
+            claim ownership. Ownership rules and human reviewer corrections take priority over this search.
+            `not_ready_count` is the number of members with no summary, whom the search cannot find. A 404 means the
+            search is not available for this project.
+        feature_flag: activity-summary-search
     activity-summary-versions-list:
         operation: signals_activity_summary_versions_retrieve
         enabled: true

@@ -104,7 +104,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.80.3",
+    "posthoganalytics==7.81.1",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -122,7 +122,9 @@ dependencies = [
     "python-docx==1.2.0",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
-    "pytz==2023.3",
+    # clickhouse-driver converts DateTime results with pytz. Keep it on the IANA release that
+    # production ClickHouse ships, or trends day labels shift for zones whose rules differ.
+    "pytz==2026.4",
     "rapidfuzz==3.14.5",
     "redis==5.3.1",
     "requests~=2.33.0",
@@ -287,7 +289,7 @@ dev = [
     "types-paramiko==3.4.0.20240423",
     "types-pymysql==1.1.0.20240524",
     "types-python-dateutil~=2.9.0",
-    "types-pytz==2023.3",
+    "types-pytz==2026.4.0.20260926",
     "types-pyyaml==6.0.1",
     "types-redis==4.6.0.20241004",
     # >= 2.31.0.7 versions of types-requests require urllib>=2, which is incompatible with our dependencies
@@ -751,6 +753,11 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
+    # TODO: the web experiments API still reads the experiments models directly. Thin it to
+    # parse -> facade -> serialize and delete these entries.
+    "products.experiments.backend.presentation.web_experiments -> products.experiments.backend.models.experiment",
+    "products.experiments.backend.presentation.web_experiments -> products.experiments.backend.models.team_experiments_config",
+    "products.experiments.backend.presentation.web_experiments -> products.experiments.backend.models.web_experiment",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
