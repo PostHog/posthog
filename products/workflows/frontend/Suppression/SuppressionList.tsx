@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    LemonTagType,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -11,6 +19,13 @@ import type { MessageSuppressionApi } from 'products/messaging/frontend/generate
 import { suppressionListLogic } from './suppressionListLogic'
 
 const PAGE_SIZE = 20
+
+const SOURCE_TAGS: Record<MessageSuppressionApi['source'], { label: string; type: LemonTagType }> = {
+    MANUAL: { label: 'Manual', type: 'completion' },
+    COMPLAINT: { label: 'Spam complaint', type: 'danger' },
+    BOUNCE: { label: 'Bounces', type: 'warning' },
+    KNOWN_INVALID: { label: 'Invalid address', type: 'warning' },
+}
 
 export function SuppressionList(): JSX.Element {
     const {
@@ -44,11 +59,10 @@ export function SuppressionList(): JSX.Element {
             title: 'Added by',
             dataIndex: 'source',
             key: 'source',
-            render: (source) => (
-                <LemonTag type={source === 'MANUAL' ? 'completion' : source === 'COMPLAINT' ? 'danger' : 'warning'}>
-                    {source === 'MANUAL' ? 'Manual' : source === 'COMPLAINT' ? 'Spam complaint' : 'Bounces'}
-                </LemonTag>
-            ),
+            render: (source) => {
+                const tag = SOURCE_TAGS[source as MessageSuppressionApi['source']] ?? SOURCE_TAGS.BOUNCE
+                return <LemonTag type={tag.type}>{tag.label}</LemonTag>
+            },
         },
         {
             title: 'Reason',
@@ -125,7 +139,7 @@ export function SuppressionList(): JSX.Element {
                 emptyState={
                     searchTerm.trim()
                         ? 'No suppressed addresses match your search'
-                        : 'No suppressed addresses. Addresses land here automatically after repeated soft bounces, or when you add them manually.'
+                        : 'No suppressed addresses. Addresses land here automatically after bounces or spam complaints, or when you add them manually.'
                 }
                 size="small"
             />
