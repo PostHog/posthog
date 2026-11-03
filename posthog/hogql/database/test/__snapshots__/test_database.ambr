@@ -2012,6 +2012,16 @@
                   "table": null,
                   "type": "string"
               },
+              "internal_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "internal_source",
+                  "id": null,
+                  "name": "internal_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "service_name": {
                   "chain": null,
                   "fields": null,
@@ -16736,6 +16746,16 @@
                   "hogql_value": "event_name",
                   "id": null,
                   "name": "event_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "internal_source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "internal_source",
+                  "id": null,
+                  "name": "internal_source",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
