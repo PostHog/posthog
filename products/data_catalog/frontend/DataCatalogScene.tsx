@@ -18,7 +18,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
 
 import { ModelsLineageTab } from 'products/data_modeling/frontend/lineage/ModelsLineageTab'
-import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
 
 import { certificationsLogic } from './certificationsLogic'
 import { buildDataCatalogAgentContext, DATA_CATALOG_AGENT_HEADLINES } from './dataCatalogAgentContext'
@@ -29,6 +28,7 @@ import { relationshipsLogic } from './relationshipsLogic'
 import { CertificationsTab } from './tabs/CertificationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
+import { TablesTab } from './tabs/TablesTab'
 
 export const scene: SceneExport = {
     component: DataCatalogScene,
@@ -63,7 +63,12 @@ export function DataCatalogScene(): JSX.Element {
 
     const tabLink = (tab: DataCatalogTab): string => urls.dataCatalog(tab === defaultTab ? undefined : tab)
     const allTabs: LemonTab<DataCatalogTab>[] = [
-        { key: 'tables', label: 'Tables', content: <DataQualityOverview />, link: tabLink('tables') },
+        {
+            key: 'tables',
+            label: <TabLabel label="Tables" count={certificationsPending} />,
+            content: <TablesTab />,
+            link: tabLink('tables'),
+        },
         { key: 'lineage', label: 'Lineage', content: <ModelsLineageTab />, link: tabLink('lineage') },
         {
             key: 'metrics',
