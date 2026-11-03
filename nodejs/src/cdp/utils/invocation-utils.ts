@@ -281,6 +281,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         | 'warehouseWebhookPayloads'
         | 'messageAssets'
         | 'conversionWatchers'
+        | 'conversionWatcherVersion'
         | 'logs'
         | 'metrics'
         | 'error'

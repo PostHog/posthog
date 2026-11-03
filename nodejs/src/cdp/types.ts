@@ -379,6 +379,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     warehouseWebhookPayloads: WarehouseWebhookPayload[]
     messageAssets: MessageAssetRow[]
     conversionWatchers: ConversionWatcherRow[]
+    conversionWatcherVersion?: number
     execResult?: unknown
 }
 

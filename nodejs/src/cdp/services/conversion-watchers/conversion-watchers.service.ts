@@ -16,6 +16,11 @@ const counterConversionWatchersFailed = new Counter({
     help: 'Watcher rows dropped because the insert failed. Each one is a run whose conversion can never be counted, so the conversion rate under-reports by exactly this much.',
 })
 
+const counterConversionWatcherVersionUpdatesFailed = new Counter({
+    name: 'cdp_conversion_watcher_version_updates_failed',
+    help: 'Watcher version updates dropped because the update failed. Each one is a run whose conversion counts under the version it started on, not the version that sent its message.',
+})
+
 const gaugeConversionWatchersPending = new Gauge({
     name: 'cdp_conversion_watchers_pending_rows',
     help: 'Watcher rows queued in memory waiting for the next flush. Resets to 0 after each flush.',
@@ -26,7 +31,7 @@ const gaugeConversionWatchersPending = new Gauge({
 const INSERT_CHUNK_SIZE = 1000
 
 /**
- * Writes a watcher row when a run enrolls.
+ * Writes a watcher row when a run enrolls and keeps its version current.
  *
  * Reading and claiming watchers belongs to the subscription matcher, which is where the event stream
  * is, and deleting expired ones belongs to the cyclotron janitor. This service is the write side,
@@ -34,6 +39,7 @@ const INSERT_CHUNK_SIZE = 1000
  */
 export class ConversionWatchersService {
     private queuedRows: ConversionWatcherRow[] = []
+    private queuedVersionUpdates = new Map<string, number>()
     private pool: Pool | null = null
     private stopped = false
     private inFlight = new Set<Promise<unknown>>()
@@ -84,6 +90,11 @@ export class ConversionWatchersService {
             if (result.conversionWatchers.length) {
                 this.queuedRows.push(...result.conversionWatchers)
             }
+            const version = result.conversionWatcherVersion
+            if (version !== undefined) {
+                const queuedVersion = this.queuedVersionUpdates.get(result.invocation.id) ?? version
+                this.queuedVersionUpdates.set(result.invocation.id, Math.max(queuedVersion, version))
+            }
         }
         gaugeConversionWatchersPending.set(this.queuedRows.length)
     }
@@ -99,26 +110,35 @@ export class ConversionWatchersService {
     }
 
     public async flush(): Promise<void> {
-        await this.track(this.writeQueuedRows())
+        await this.track(this.writeQueued())
     }
 
-    private async writeQueuedRows(): Promise<void> {
-        if (!this.queuedRows.length) {
+    private async writeQueued(): Promise<void> {
+        if (!this.queuedRows.length && !this.queuedVersionUpdates.size) {
             return
         }
         const rows = this.queuedRows
+        const versionUpdates = this.queuedVersionUpdates
         this.queuedRows = []
+        this.queuedVersionUpdates = new Map()
         gaugeConversionWatchersPending.set(0)
 
         const pool = this.getPool()
         if (!pool) {
             counterConversionWatchersFailed.inc(rows.length)
+            counterConversionWatcherVersionUpdatesFailed.inc(versionUpdates.size)
             logger.error('⚠️', 'Dropping conversion watchers: no cyclotron database configured', {
                 count: rows.length,
+                versionUpdates: versionUpdates.size,
             })
             return
         }
 
+        await this.insertRows(pool, rows)
+        await this.raiseVersions(pool, versionUpdates)
+    }
+
+    private async insertRows(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {
         for (let offset = 0; offset < rows.length; offset += INSERT_CHUNK_SIZE) {
             const chunk = rows.slice(offset, offset + INSERT_CHUNK_SIZE)
             try {
@@ -132,6 +152,25 @@ export class ConversionWatchersService {
                 logger.error('⚠️', 'Failed to insert conversion watchers', { err, count: chunk.length })
                 captureException(err)
             }
+        }
+    }
+
+    private async raiseVersions(pool: Pool, versionUpdates: Map<string, number>): Promise<void> {
+        if (!versionUpdates.size) {
+            return
+        }
+        try {
+            await pool.query(
+                `UPDATE conversion_watchers cw
+                 SET flow_version = u.flow_version
+                 FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS flow_version) u
+                 WHERE cw.id = u.id AND (cw.flow_version IS NULL OR cw.flow_version < u.flow_version)`,
+                [[...versionUpdates.keys()], [...versionUpdates.values()]]
+            )
+        } catch (err) {
+            counterConversionWatcherVersionUpdatesFailed.inc(versionUpdates.size)
+            logger.error('⚠️', 'Failed to update conversion watcher versions', { err, count: versionUpdates.size })
+            captureException(err)
         }
     }
 
