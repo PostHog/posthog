@@ -8064,6 +8064,8 @@ export namespace Schemas {
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
+      /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+      internalError?: boolean | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -101444,6 +101446,8 @@ export namespace Schemas {
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
+      /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+      internalError?: boolean | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];

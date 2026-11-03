@@ -980,6 +980,8 @@ export interface HogQLMetadataColumn {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]

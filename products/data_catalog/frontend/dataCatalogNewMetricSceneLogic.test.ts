@@ -211,6 +211,21 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         expect(logic.values.sqlValidationMessage).toBeNull()
     })
 
+    it('does not treat a validator failure as a known query error', () => {
+        logic.actions.setMetricFormValues(SQL_FORM)
+        logic.actions.setSqlEditorError('Error on line 1, column 1')
+        logic.actions.setSqlMetadata({
+            query: SQL_FORM.sql,
+            internalError: true,
+            errors: [{ message: 'Unexpected OperationalError' }],
+            warnings: [],
+            notices: [],
+        })
+
+        expect(logic.values.sqlValidationMessage).toBeNull()
+        expect(logic.values.saveDisabledReason).toBeNull()
+    })
+
     it('runs one test query at a time', () => {
         ;(performQuery as jest.Mock).mockReturnValue(new Promise(() => {}))
         logic.actions.setMetricFormValues(SQL_FORM)

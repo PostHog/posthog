@@ -21939,6 +21939,13 @@ class QueryResponseAlternative9(BaseModel):
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )
+    internalError: bool | None = Field(
+        default=None,
+        description=(
+            "The validator raised an internal error, such as a database failure, so the"
+            " errors do not prove that the query is invalid."
+        ),
+    )
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
@@ -29549,6 +29556,13 @@ class HogQLMetadataResponse(BaseModel):
     errors: list[HogQLNotice]
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
+    )
+    internalError: bool | None = Field(
+        default=None,
+        description=(
+            "The validator raised an internal error, such as a database failure, so the"
+            " errors do not prove that the query is invalid."
+        ),
     )
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None

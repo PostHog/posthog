@@ -252,6 +252,8 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
         else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
+        if not isinstance(e, ExposedHogQLError):
+            response.internalError = True
     finally:
         if context is not None:
             response.warnings = [*context.warnings, *heuristic_warnings]

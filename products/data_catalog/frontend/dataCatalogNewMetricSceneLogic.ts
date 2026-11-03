@@ -417,7 +417,9 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
         sqlMetadataError: [
             null as string | null,
             {
-                setSqlMetadata: (_, { metadata }) => metadata?.errors?.[0]?.message ?? null,
+                // An internal error says nothing about the query text. Save validates the query again on its own.
+                setSqlMetadata: (_, { metadata }) =>
+                    metadata?.internalError ? null : (metadata?.errors?.[0]?.message ?? null),
             },
         ],
         sqlValidatedQuery: [
@@ -480,10 +482,10 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
             ): string | null => {
                 // Keep the error during a pending validation so that the banner does not flicker while typing.
                 // A failed validation reports nothing, so an error for other text must not outlive it.
-                if (!sqlMetadataLoading && sqlValidatedQuery !== form.sql) {
+                if (!sqlMetadataError || (!sqlMetadataLoading && sqlValidatedQuery !== form.sql)) {
                     return null
                 }
-                return [sqlEditorError, sqlMetadataError].filter(Boolean).join(': ') || null
+                return [sqlEditorError, sqlMetadataError].filter(Boolean).join(': ')
             },
         ],
         saveDisabledReason: [

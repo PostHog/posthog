@@ -29991,6 +29991,10 @@
                     },
                     "type": "array"
                 },
+                "internalError": {
+                    "description": "The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid.",
+                    "type": "boolean"
+                },
                 "isUsingIndices": {
                     "$ref": "#/definitions/QueryIndexUsage"
                 },
@@ -43295,6 +43299,10 @@
                                 "$ref": "#/definitions/PredicateIndexUsage"
                             },
                             "type": "array"
+                        },
+                        "internalError": {
+                            "description": "The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid.",
+                            "type": "boolean"
                         },
                         "isUsingIndices": {
                             "$ref": "#/definitions/QueryIndexUsage"
