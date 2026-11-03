@@ -364,6 +364,60 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
     @parameterized.expand(
         [
+            ("project_member", ResourceType.PROJECT, OrganizationMembership.Level.MEMBER, None, [True, True]),
+            ("project_admin", ResourceType.PROJECT, OrganizationMembership.Level.ADMIN, None, [True, True]),
+            (
+                "organization_member",
+                ResourceType.ORGANIZATION,
+                OrganizationMembership.Level.MEMBER,
+                None,
+                [True, False],
+            ),
+            ("organization_owner", ResourceType.ORGANIZATION, OrganizationMembership.Level.OWNER, None, [True, False]),
+            ("scope_without_rules", ResourceType.PERSON, OrganizationMembership.Level.MEMBER, None, [True, True]),
+            (
+                "scope_closed_by_a_rule",
+                ResourceType.PERSON,
+                OrganizationMembership.Level.MEMBER,
+                "none",
+                [False, False],
+            ),
+            (
+                "scope_read_only_by_a_rule",
+                ResourceType.COHORT,
+                OrganizationMembership.Level.MEMBER,
+                "viewer",
+                [True, False],
+            ),
+        ]
+    )
+    def test_type_check_matches_v1(
+        self,
+        _name: str,
+        resource_type: ResourceType,
+        org_level: OrganizationMembership.Level,
+        rule: str | None,
+        expected: list[bool],
+    ) -> None:
+        self.organization_membership.level = org_level
+        self.organization_membership.save()
+        if rule:
+            self._rule(resource_type.value, rule)
+        membership_type = resource_type in (ResourceType.PROJECT, ResourceType.ORGANIZATION)
+        v1_levels = ("member", "admin") if membership_type else ("viewer", "editor")
+        resource = Resource(type=resource_type, project_id=self.team.id)
+
+        results = [
+            authorization.check(resource=resource, action=action, subject=Subject(user_id=self.user.id))
+            for action in (Action.VIEW, Action.EDIT)
+        ]
+
+        access = UserAccessControl(self.user, self.team)
+        assert results == expected
+        assert results == [access.check_access_level_for_resource(resource_type.value, level) for level in v1_levels]  # type: ignore[arg-type]
+
+    @parameterized.expand(
+        [
             ("member", OrganizationMembership.Level.MEMBER, {Action.VIEW}),
             (
                 "admin",
@@ -493,7 +547,7 @@ class TestCheckMatchesCurrentRules(BaseTest):
                 ValueError,
             ),
             ("organization_without_an_id", {"resource": Resource(type=ResourceType.ORGANIZATION)}, ValueError),
-            ("project_without_an_id", {"resource": Resource(type=ResourceType.PROJECT, project_id=1)}, ValueError),
+            ("project_without_an_id_or_a_project", {"resource": Resource(type=ResourceType.PROJECT)}, ValueError),
             (
                 "role_without_an_organization",
                 {"resource": Resource(type=ResourceType.ROLE, id=str(UUID(int=1)))},
