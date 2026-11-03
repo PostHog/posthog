@@ -37,12 +37,9 @@ frontend/src/scenes/project-homepage/today/TodayExplore.tsx -> .TodayJumpRow
 frontend/src/scenes/project-homepage/today/TodayFigureMark.tsx -> .TodayFigureMark
 frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRow
 frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRows
-frontend/src/scenes/project-homepage/today/TodayHomePage.tsx -> .TodayHome
-frontend/src/scenes/project-homepage/today/TodayHomePage.tsx -> .TodayPulse
 frontend/src/scenes/project-homepage/today/TodayHoverMark.tsx -> .TodayHoverMark
 frontend/src/scenes/project-homepage/today/TodayImplementMenu.tsx -> .TodayImplementMenu
 frontend/src/scenes/project-homepage/today/TodayKeyClauseMark.tsx -> .TodayKeyClauseMark
-frontend/src/scenes/project-homepage/today/TodayPulse.tsx -> .TodayPulse
 frontend/src/scenes/project-homepage/today/TodayRecents.tsx -> .TodayJumpList
 frontend/src/scenes/project-homepage/today/TodayRecents.tsx -> .TodayJumpRow
 frontend/src/scenes/project-homepage/today/TodayReportBody.tsx -> .TodayReportArticle

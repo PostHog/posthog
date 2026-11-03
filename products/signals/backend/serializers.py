@@ -1500,8 +1500,8 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
         min_value=0,
         max_value=30,
         help_text=(
-            "When the request starts a build or one is running, wait up to this many seconds for its list. "
-            "Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds."
+            "When the request starts a build or one is running, wait for its list until this many seconds after "
+            "the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds."
         ),
     )
 
@@ -1632,7 +1632,7 @@ def personal_ranking_payload(served: "ServedRanking") -> dict[str, Any]:
         **{
             field.name: getattr(served, field.name)
             for field in dataclasses.fields(served)
-            if field.name not in {"results", "folded"}
+            if field.name not in {"results", "folded", "timings"}
         },
         "results": [
             {
@@ -3252,6 +3252,27 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
         } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if (
+            obj.type == SignalReportArtefact.ArtefactType.NOTE
+            and isinstance(parsed, dict)
+            and "analytics_query_context" in parsed
+        ):
+            queries = parsed.pop("analytics_query_context")
+            acting_user_id = parsed.pop("restricted_to_user_id", None)
+            request = self.context.get("request")
+            viewer_id = getattr(getattr(request, "user", None), "id", None)
+            policy = report_metric_access_policy(self.context)
+            if (
+                viewer_id is None
+                or acting_user_id != viewer_id
+                or not isinstance(queries, list)
+                or not all(
+                    isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
+                )
+            ):
+                parsed["note"] = "You don't have access to this assessment's evidence."
+            return parsed
 
         if (
             obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE

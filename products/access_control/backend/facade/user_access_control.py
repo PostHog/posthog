@@ -126,6 +126,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # Vision alerts are configured via the scanner's access level rather than a
     # separate resource.
     "vision_alert": "replay_scanner",
+    # The inbox API scope split off `task`, but access control still governs the inbox through the
+    # `task` rules, so a member restricted on tasks stays restricted on the inbox.
+    "inbox": "task",
 }
 
 # Every scope a rule write accepts: the project, the resource types with resource-level rules,
@@ -278,8 +281,9 @@ class ResolvedAccess:
       without the entitlement, where rules are never consulted)
     - "org_admin": rules never consulted — the admin bypass
     - "creator": rules never consulted — the user created the object
-    - "org_membership": the object is the organization itself — organizations have no access
-      rules; the level comes from the user's OrganizationMembership.level (admin or member)
+    - "org_membership": the level comes from the user's OrganizationMembership.level (admin or
+      member) — the object is the organization itself, which has no access rules, or a project
+      in an organization without the entitlement, where rules are never consulted
     """
 
     access_level: AccessControlLevel
@@ -523,6 +527,7 @@ class UserAccessControl:
         # Pop from __dict__ rather than hasattr/delattr
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
+        self.__dict__.pop("_cached_access_controls_by_object", None)
         self.__dict__.pop("_dashboard_edit_limits", None)
         self.__dict__.pop("_is_project_admin", None)
         self.__dict__.pop("blocked_resource_ids_by_scope", None)
@@ -611,6 +616,13 @@ class UserAccessControl:
         # No org-id annotation: this team-scoped pool is only ever matched on team_id (never
         # team__organization_id), so `_row_matches` never reads that attribute off these rows.
         return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
+
+    @cached_property
+    def _cached_access_controls_by_object(self) -> dict[tuple[str, str | None], list[_AccessControl]]:
+        access_controls_by_object: defaultdict[tuple[str, str | None], list[_AccessControl]] = defaultdict(list)
+        for access_control in self._cached_access_controls:
+            access_controls_by_object[(access_control.resource, access_control.resource_id)].append(access_control)
+        return dict(access_controls_by_object)
 
     @property
     def user(self) -> User:
@@ -728,6 +740,12 @@ class UserAccessControl:
         # Team-scoped lookups are served from the single bulk preload (filtered in memory);
         # org-scoped lookups fall through to a targeted query.
         if self._can_serve_from_preload(filters):
+            if set(filters) == {"team_id", "resource", "resource_id"}:
+                # Object and resource lookups are exact matches, so read them from the pool's index
+                # rather than scanning every row.
+                return list(
+                    self._cached_access_controls_by_object.get((filters["resource"], filters["resource_id"]), [])
+                )
             return [ac for ac in self._cached_access_controls if self._row_matches(ac, filters)]
 
         key = json.dumps(filters, sort_keys=True)
@@ -813,7 +831,8 @@ class UserAccessControl:
             return
 
         if all(self._can_serve_from_preload(filters) for filters in filter_groups):
-            self._fill_filters_cache(filter_groups, self._cached_access_controls)
+            # Lookups are answered from the pool, so loading it is all the preload has to do.
+            _ = self._cached_access_controls
             return
 
         q = Q()
@@ -1667,6 +1686,16 @@ class UserAccessControl:
         if not self.access_controls_supported:
             if explicit:
                 return True, None
+            if resource == "project":
+                # Without the entitlement a project is reached through the organization membership
+                # alone (UserTeamPermissions.effective_membership_level). Admins returned above, so
+                # the user is a plain member, not the "admin" that default_access_level names.
+                return True, ResolvedAccess(
+                    access_level="member",
+                    source="org_membership",
+                    source_subject=None,
+                    source_resource=resource,
+                )
             return True, ResolvedAccess(
                 access_level=default_access_level(resource),
                 source="system_default",

@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
 import * as hog from 'lib/hog'
@@ -103,6 +104,40 @@ describe('SQL table rendering', () => {
         fireEvent.click(screen.getByText('USD 0').closest('button')!)
         expect(onInspect).toHaveBeenLastCalledWith({ region: 'EU', value: 0 })
     })
+
+    it.each([false, true])(
+        'shows a column description on keyboard focus without sorting, transpose=%s',
+        async (transpose) => {
+            const node: VisualizationNode = {
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    transpose,
+                    columns: [
+                        { column: 'region', settings: { display: { description: 'Region of the deployment' } } },
+                        { column: 'value' },
+                    ],
+                },
+            }
+            const { props, sourceProps, logic } = mountResult(node, response)
+            render(
+                <BindLogic logic={dataNodeLogic} props={sourceProps}>
+                    <BindLogic logic={dataVisualizationLogic} props={props}>
+                        <Table query={node} uniqueKey={props.key} context={{}} cachedResults={response} />
+                    </BindLogic>
+                </BindLogic>
+            )
+
+            expect(screen.queryByLabelText('Description for value')).not.toBeInTheDocument()
+            const trigger = screen.getByLabelText('Description for region')
+            const user = userEvent.setup()
+            await user.tab()
+            expect(trigger).toHaveFocus()
+            expect(await screen.findByText('Region of the deployment')).toBeVisible()
+            await user.click(trigger)
+            expect(logic.values.hasSortedTable).toBe(false)
+        }
+    )
 
     it('updates conditional cell colors when rules and results change', async () => {
         const rule: ConditionalFormattingRule = {

@@ -201,6 +201,7 @@ class TestLoadFiltersWithoutColumn(BaseTest):
                         "kind": "ExperimentWarehouseNativeExposureConfig",
                         "connection_id": "source",
                         "query": "SELECT 1",
+                        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
                     }
                 },
                 None,

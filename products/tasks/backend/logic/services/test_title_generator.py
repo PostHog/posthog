@@ -131,6 +131,28 @@ class TestTitleGeneratorAIGateway:
         assert mock_build.called is expect_gateway
         assert mock_client_cls.called is not expect_gateway
 
+    @pytest.mark.parametrize(
+        ("distinct_id", "expected_flag_distinct_id"),
+        [
+            ("user-distinct-id", "user-distinct-id"),
+            ("", "random-id"),
+            (None, "random-id"),
+        ],
+    )
+    @patch("products.tasks.backend.logic.services.title_generator.uuid4", return_value="random-id")
+    @patch("products.tasks.backend.logic.services.title_generator.feature_enabled_or_false", return_value=False)
+    @patch("posthog.llm.gateway_client.resolve_ai_gateway_config", return_value=MagicMock())
+    @patch("products.ai_observability.backend.llm.client.Client")
+    def test_flag_buckets_by_caller_distinct_id(
+        self, mock_client_cls, _mock_resolve, mock_flag, _mock_uuid4, distinct_id, expected_flag_distinct_id
+    ):
+        mock_client_cls.return_value.stream.return_value = [StreamChunk(type="text", data={"text": "Direct title"})]
+
+        generate_task_title("Users are experiencing login issues", distinct_id=distinct_id)
+
+        assert mock_flag.call_args.args == ("tasks-title-ai-gateway", expected_flag_distinct_id)
+        mock_client_cls.assert_called_once_with(distinct_id="task-title-generator")
+
     @patch("posthog.llm.gateway_client.build_ai_gateway_anthropic_client")
     @patch("products.tasks.backend.logic.services.title_generator.feature_enabled_or_false", return_value=True)
     @patch("posthog.llm.gateway_client.resolve_ai_gateway_config", return_value=MagicMock())
