@@ -4,23 +4,16 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
-    PlanetScaleMySQLSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
+from products.warehouse_sources.sources.planetscale_mysql._config import PlanetScaleMySQLSourceConfig
+from products.warehouse_sources.sources.planetscale_mysql.planetscale_mysql import PlanetScaleMySQLImplementation
+from products.warehouse_sources.sources.sdk.internals import (
     CONNECT_TIMEOUT_SECONDS,
     METADATA_READ_TIMEOUT_SECONDS,
     WRITE_TIMEOUT_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
-    PlanetScaleMySQLImplementation,
+    MySQLSourceConfig,
 )
 
-_CONNECT_TARGET = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql."
-    "_connect_with_transient_retry"
-)
+_CONNECT_TARGET = "products.warehouse_sources.sources.planetscale_mysql.planetscale_mysql._connect_with_transient_retry"
 
 
 def _config(port: int | str = 3306) -> MySQLSourceConfig:

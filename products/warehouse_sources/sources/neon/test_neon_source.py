@@ -1,15 +1,15 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.neon.source import (
-    _NEON_DATABASE_NOT_FOUND_ERROR,
-    NeonSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+from products.warehouse_sources.sources.neon.source import _NEON_DATABASE_NOT_FOUND_ERROR, NeonSource
+from products.warehouse_sources.sources.sdk.internals import (
     _DATABASE_NOT_FOUND_VALIDATION_ERROR,
     _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    Any_Source_Errors,
+    ClientDeadlineExceededError,
     PostgresSource,
 )
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 
 @pytest.mark.parametrize(
@@ -66,3 +66,12 @@ def test_validate_credentials_points_a_missing_database_at_the_neon_connect_dial
 
     with mock.patch.object(PostgresSource, "validate_credentials", return_value=postgres_result):
         assert NeonSource().validate_credentials(config, team_id=1) == expected
+
+
+def test_the_deadline_error_is_retryable() -> None:
+    source = NeonSource()
+    message = str(ClientDeadlineExceededError(660))
+
+    assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})
+    assert error_message_matches(message, source.get_retryable_errors())
+    assert error_message_matches(message, source.get_retry_exhausted_errors())
