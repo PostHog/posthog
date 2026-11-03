@@ -1470,12 +1470,14 @@ class AlertCreatePagerDutyDestinationSerializer(serializers.Serializer):
         write_only=True,
         help_text="The 32-character integration key of a PagerDuty Events API v2 integration.",
     )
-    pagerduty_severity = serializers.ChoiceField(
+    # A StrEnum in the platform contract, which ENUM_NAME_OVERRIDES names and logs shares.
+    pagerduty_severity = serializers.ChoiceField(  # nosemgrep: choices-need-a-class
         choices=PagerDutySeverity,
         default=DEFAULT_PAGERDUTY_SEVERITY,
         help_text="Severity of the incidents the alert opens.",
     )
-    pagerduty_region = serializers.ChoiceField(
+    # A StrEnum in the platform contract, which ENUM_NAME_OVERRIDES names and logs shares.
+    pagerduty_region = serializers.ChoiceField(  # nosemgrep: choices-need-a-class
         choices=PagerDutyRegion,
         default=DEFAULT_PAGERDUTY_REGION,
         help_text="Region of the PagerDuty account.",
@@ -1494,7 +1496,7 @@ class AlertCreatePagerDutyDestinationSerializer(serializers.Serializer):
 
 class AlertPagerDutyAvailabilityQuerySerializer(serializers.Serializer):
     calculation_interval = serializers.ChoiceField(
-        choices=[interval.value for interval in AlertCalculationInterval],
+        choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         help_text="How often the new alert is checked.",
     )
     investigation_agent_enabled = serializers.BooleanField(
@@ -2001,7 +2003,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: AlertPagerDutyAvailabilitySerializer},
         description="Whether a new alert with these settings could open PagerDuty incidents once it is created.",
     )
-    @action(detail=False, methods=["GET"], url_path="pagerduty-availability", required_scopes=["alert:read"])
+    @action(detail=False, methods=["GET"], url_path="pagerduty_availability", required_scopes=["alert:read"])
     def pagerduty_availability(self, request, *args, **kwargs):
         query = AlertPagerDutyAvailabilityQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)

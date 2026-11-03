@@ -2986,7 +2986,7 @@ class TestAlertDestinations(APIBaseTest):
             AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.PLATFORM)
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/alerts/pagerduty-availability/",
+            f"/api/projects/{self.team.id}/alerts/pagerduty_availability/",
             {"calculation_interval": interval.value, "investigation_agent_enabled": investigation_agent_enabled},
         )
 

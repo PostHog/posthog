@@ -260,8 +260,8 @@ export const getAlertsPagerdutyAvailabilityRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/alerts/pagerduty-availability/?${stringifiedParams}`
-        : `/api/projects/${projectId}/alerts/pagerduty-availability/`
+        ? `/api/projects/${projectId}/alerts/pagerduty_availability/?${stringifiedParams}`
+        : `/api/projects/${projectId}/alerts/pagerduty_availability/`
 }
 
 /**
