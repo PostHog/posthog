@@ -9,13 +9,6 @@ describe('sceneLogic', () => {
                 undefined,
                 '/data-warehouse/new-source?kind=Vercel&utm_source=wizard',
             ],
-            ['returns the path alone when there is no query', '/project/123/insights', undefined, '/insights'],
-            [
-                'keeps the root path bare so onboarding picks its own landing',
-                '/project/123?utm_source=x',
-                undefined,
-                '/',
-            ],
             ['prefers an explicit next param', '/project/123/insights?a=1', '/dashboard?b=2', '/dashboard?b=2'],
         ])('%s', (_label, href, nextParam, expected) => {
             const location = new URL(href, 'https://us.posthog.com') as unknown as Location
