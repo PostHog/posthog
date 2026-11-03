@@ -79,3 +79,29 @@ class TestEventsHealthRollupChecks(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
         self.assertEqual(self._flagged(NoLiveEventsCheck(), []), expected)
+
+    @parameterized.expand(
+        [
+            ("rollup_mcp_only", True, ["$mcp_tool_call"], False),
+            ("events_mcp_only", False, ["$mcp_tool_call"], False),
+            ("events_silent", False, [], True),
+        ]
+    )
+    def test_no_live_events_skips_mcp_only_projects(
+        self, _name: str, from_rollup: bool, events: list[str], expected: bool
+    ) -> None:
+        for event in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="user",
+                timestamp=dt.datetime.now(dt.UTC) - dt.timedelta(days=3),
+            )
+        flush_persons_and_events()
+
+        check = NoLiveEventsCheck()
+        if from_rollup:
+            flagged = self._flagged(check, [])
+        else:
+            flagged = self.team.id in check.detect_from_events([self.team.id])
+        self.assertEqual(flagged, expected)

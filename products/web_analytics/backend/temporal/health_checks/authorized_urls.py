@@ -3,7 +3,7 @@ from django.db.models import Q
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
-from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
+from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
@@ -14,12 +14,14 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 
+from products.web_analytics.backend.temporal.health_checks.mcp_only import mcp_only_team_ids
+
 
 class AuthorizedUrlsCheck(HealthCheck):
     name = "authorized_urls"
     kind = "authorized_urls"
     owner = JobOwners.TEAM_WEB_ANALYTICS
-    policy = DEFAULT_EXECUTION_POLICY
+    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "15 8 * * *"
     active_since_days = 30
     remediation = Remediation(
@@ -68,16 +70,19 @@ class AuthorizedUrlsCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        teams_missing_urls = (
+        teams_missing_urls = list(
             Team.objects.filter(
                 id__in=team_ids,
             )
             .filter(Q(app_urls=[]) | Q(app_urls__isnull=True))
             .values_list("id", flat=True)
         )
+        mcp_only = mcp_only_team_ids(teams_missing_urls)
 
         issues: dict[int, list[HealthCheckResult]] = {}
         for team_id in teams_missing_urls:
+            if team_id in mcp_only:
+                continue
             issues[team_id] = [
                 HealthCheckResult(
                     severity=HealthIssue.Severity.WARNING,

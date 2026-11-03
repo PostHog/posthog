@@ -14,6 +14,7 @@ from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
+from products.web_analytics.backend.temporal.health_checks.mcp_only import mcp_only_team_ids
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 NO_LIVE_EVENTS_LOOKBACK_DAYS = 30
@@ -100,7 +101,7 @@ class NoLiveEventsCheck(RollupHealthCheck):
             params={"since": window.live_since.strftime("%Y-%m-%d %H:%M:%S")},
         )
         live_team_ids = {team_id for (team_id,) in rows}
-        return {team_id: [_no_live_events_result()] for team_id in silent_team_ids if team_id not in live_team_ids}
+        return _without_mcp_only_teams([team_id for team_id in silent_team_ids if team_id not in live_team_ids])
 
     def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(
@@ -109,7 +110,14 @@ class NoLiveEventsCheck(RollupHealthCheck):
             lookback_days=NO_LIVE_EVENTS_LOOKBACK_DAYS,
         )
         teams_with_recent_events = {team_id for team_id, *_ in rows}
-        return {team_id: [_no_live_events_result()] for team_id in set(team_ids) - teams_with_recent_events}
+        return _without_mcp_only_teams([team_id for team_id in team_ids if team_id not in teams_with_recent_events])
+
+
+def _without_mcp_only_teams(silent_team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+    if not silent_team_ids:
+        return {}
+    mcp_only = mcp_only_team_ids(silent_team_ids)
+    return {team_id: [_no_live_events_result()] for team_id in silent_team_ids if team_id not in mcp_only}
 
 
 def _no_live_events_result() -> HealthCheckResult:
