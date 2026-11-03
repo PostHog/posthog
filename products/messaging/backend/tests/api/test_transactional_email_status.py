@@ -157,6 +157,7 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
         [
             ("read_scope", ["hog_flow:read"], status.HTTP_200_OK),
             ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            ("preference_scope", ["messaging_preference:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_project_secret_api_key_needs_the_read_scope(self, _flag, _name, scopes, expected_status):

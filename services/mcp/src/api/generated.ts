@@ -667,6 +667,7 @@ export namespace Schemas {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -790,6 +791,7 @@ export namespace Schemas {
       MarketingAnalytics: 'marketing_analytics',
       McpAnalytics: 'mcp_analytics',
       McpRegistry: 'mcp_registry',
+      MessagingPreference: 'messaging_preference',
       Metrics: 'metrics',
       Notebook: 'notebook',
       OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -913,6 +915,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1159,6 +1162,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1568,6 +1572,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -73125,6 +73130,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion

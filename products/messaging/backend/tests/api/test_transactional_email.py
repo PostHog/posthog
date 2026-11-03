@@ -160,8 +160,16 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("send_with_write_scope", "post", "send/", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_with_read_scope", "post", "send/", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("send_with_preference_scope", "post", "send/", ["messaging_preference:write"], status.HTTP_403_FORBIDDEN),
             ("send_email_with_write_scope", "post", "send_email", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_email_with_read_scope", "post", "send_email", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "send_email_with_preference_scope",
+                "post",
+                "send_email",
+                ["messaging_preference:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             ("retrieve_is_not_a_psak_action", "get", "", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
             (
                 "make_transactional_is_not_a_psak_action",

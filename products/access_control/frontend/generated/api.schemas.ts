@@ -115,6 +115,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `marketing_analytics` - marketing_analytics
  * * `mcp_analytics` - mcp_analytics
  * * `mcp_registry` - mcp_registry
+ * * `messaging_preference` - messaging_preference
  * * `metrics` - metrics
  * * `notebook` - notebook
  * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -237,6 +238,7 @@ export const ScopeObjectEnumApi = {
     MarketingAnalytics: 'marketing_analytics',
     McpAnalytics: 'mcp_analytics',
     McpRegistry: 'mcp_registry',
+    MessagingPreference: 'messaging_preference',
     Metrics: 'metrics',
     Notebook: 'notebook',
     OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -382,6 +384,7 @@ export interface ProjectAccessSourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -547,6 +550,7 @@ export interface AccessControlObjectRuleApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -937,6 +941,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1224,6 +1229,7 @@ export interface ResolvedAccessApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion

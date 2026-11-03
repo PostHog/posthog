@@ -150,6 +150,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'mcp_analytics:write',
     'mcp_registry:read',
     'mcp_registry:write',
+    'messaging_preference:read',
+    'messaging_preference:write',
     'metrics:read',
     'metrics:write',
     'notebook:read',
@@ -263,4 +265,7 @@ export const OAUTH_SCOPES_HIDDEN = [
 // A new scope object mapped to the legacy one it split off (mirrors LEGACY_SCOPE_FALLBACKS
 // in posthog/scopes.py). While old tokens carry only the legacy scope, a held
 // `<legacy>:<action>` satisfies a required `<new>:<action>`.
-export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([['inbox', 'task']])
+export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
+    ['inbox', 'task'],
+    ['messaging_preference', 'hog_flow'],
+])

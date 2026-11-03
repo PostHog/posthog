@@ -55,6 +55,7 @@ export interface projectSecretAPIKeysLogicValues {
     editingKeyValidationErrors: DeepPartialMap<EditingProjectKeyFormValues, ValidationErrorType>
     filteredScopes: {
         disabledActions: APIScopeAction[]
+        info: string | JSX.Element | undefined
         key: string
         label: string
     }[]
@@ -207,6 +208,7 @@ export interface projectSecretAPIKeysLogicMeta {
             user: UserType | null
         ) => {
             disabledActions: APIScopeAction[]
+            info: string | JSX.Element | undefined
             key: string
             label: string
         }[]
@@ -383,7 +385,12 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             (
                 searchTerm: string,
                 user: UserType | null
-            ): { key: string; label: string; disabledActions: APIScopeAction[] }[] => {
+            ): {
+                key: string
+                label: string
+                info: string | JSX.Element | undefined
+                disabledActions: APIScopeAction[]
+            }[] => {
                 const allActions: APIScopeAction[] = ['read', 'write']
                 // llm_gateway:read is staff-only, mirroring the backend.
                 const allowedScopeActions: string[] = [...PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION]
@@ -398,14 +405,18 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     }
                     allowedByKey.get(key)!.add(action)
                 }
-                const scopes = Array.from(allowedByKey.entries()).map(([key, allowed]) => ({
-                    key,
-                    label:
-                        PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ??
-                        API_SCOPES.find((scope) => scope.key === key)?.objectName ??
-                        capitalizeFirstLetter(key.replace(/_/g, ' ')),
-                    disabledActions: allActions.filter((a) => !allowed.has(a)),
-                }))
+                const scopes = Array.from(allowedByKey.entries()).map(([key, allowed]) => {
+                    const apiScope = API_SCOPES.find((scope) => scope.key === key)
+                    return {
+                        key,
+                        label:
+                            PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ??
+                            apiScope?.objectName ??
+                            capitalizeFirstLetter(key.replace(/_/g, ' ')),
+                        info: apiScope?.info,
+                        disabledActions: allActions.filter((a) => !allowed.has(a)),
+                    }
+                })
                 return scopes.filter((scope) => scopeMatchesSearch(scope, searchTerm))
             },
         ],
