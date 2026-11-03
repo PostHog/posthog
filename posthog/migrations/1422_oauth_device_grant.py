@@ -10,7 +10,7 @@ from posthog.migration_helpers import AddConstraintNotValid
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1420_sharing_configuration_publisher_index"),
+        ("posthog", "1421_oauth_supports_step_up"),
     ]
 
     operations = [

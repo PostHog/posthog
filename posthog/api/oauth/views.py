@@ -68,7 +68,7 @@ from posthog.api.oauth.device import (
     device_token_response,
     token_server_kwargs,
 )
-from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
+from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context, is_trusted_posthog_mcp_resource
 from posthog.api.oauth.metadata import (
     Document,
     authorization_server_metadata,
@@ -76,6 +76,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
+from posthog.api.oauth.step_up import resolve_step_up_grant
 from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
@@ -1694,6 +1695,18 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
 
+        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
+        resource = request.query_params.get("resource")
+        step_up_grant = None
+        if application.supports_step_up and resource and is_trusted_posthog_mcp_resource(resource):
+            step_up_grant = resolve_step_up_grant(
+                requested=scopes,
+                application=application,
+                user_id=request.user.id,
+                required=required_resource_scopes,
+            )
+            scopes = step_up_grant.scopes
+
         scope_str = " ".join(scopes)
         if is_read_only_impersonation(request):
             scope_str = downgrade_scopes_to_read_only(scope_str)
@@ -1721,7 +1734,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Check for auto-approval. Skipped when the request omits a required scope:
         # auto-approving would mint a grant below the app's required floor, so fall
         # through to the consent screen, which displays and grants the full required set.
-        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
         if request.query_params.get(
             "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
         ) == "auto" and required_resource_scopes <= set(scope_str.split()):
@@ -1756,6 +1768,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
+        # The consent screen shows these as granted and not removable, and submits them with the rest.
+        already_granted_scopes = step_up_grant.already_granted_scopes if step_up_grant else []
+        if already_granted_scopes and is_read_only_impersonation(request):
+            already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
+
         template_context: dict[str, object] = {
             "oauth_application": {
                 "name": application.name,
@@ -1780,6 +1797,17 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             "oauth_scope_resolution": {
                 "scopes": scope_str.split(),
                 "was_defaulted": scopes_were_defaulted,
+                **({"already_granted_scopes": already_granted_scopes} if already_granted_scopes else {}),
+                **(
+                    {
+                        "earlier_access": {
+                            "scoped_teams": step_up_grant.earlier_access.scoped_teams,
+                            "scoped_organizations": step_up_grant.earlier_access.scoped_organizations,
+                        }
+                    }
+                    if step_up_grant and step_up_grant.earlier_access
+                    else {}
+                ),
             },
         }
 
@@ -1791,7 +1819,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         if scopes_were_defaulted:
-            oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
+            oauth_mcp_consent = build_oauth_mcp_consent_context(
+                request.query_params.get("resource"), scopes=scope_str.split() if step_up_grant else None
+            )
             if oauth_mcp_consent is not None:
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
@@ -2438,6 +2468,7 @@ def _active_access_token_response(
     scoped_organizations: list[str],
     application: OAuthApplication | None,
     sandbox_task_id: uuid.UUID | None = None,
+    supports_step_up: bool = False,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2445,6 +2476,9 @@ def _active_access_token_response(
         "token_type": "access_token",
         "scope": scope,
         "is_impersonated": is_impersonated,
+        # The MCP server reads this to choose between a 403 insufficient_scope challenge and a
+        # tool error when a scope is missing.
+        "supports_step_up": supports_step_up,
         "scoped_teams": scoped_teams,
         "scoped_organizations": scoped_organizations,
         "exp": expires_at,
@@ -2674,6 +2708,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 scoped_organizations=access_token.scoped_organizations or [],
                 application=access_token.application,
                 sandbox_task_id=access_token.sandbox_task_id,
+                supports_step_up=access_token.supports_step_up,
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
