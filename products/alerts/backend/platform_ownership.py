@@ -30,11 +30,12 @@ from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
+    PlatformAlertUpsert,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 
 # What an edit through either API can change on both rows. The cadence is a schedule, which the
-# platform's edit leaves out, so the check carries it onto the copy instead.
+# platform's edit leaves out, so an insight edit writes it onto the copy separately.
 _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
 
 
@@ -50,22 +51,25 @@ def on_created(alert: AlertConfiguration, at: datetime) -> bool:
     )
 
 
-def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
-    """Writes an edit the insight API saved onto the platform's copy.
+def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: bool = False) -> None:
+    """Writes an edit the insight API saved onto the platform's copy. `rescheduled` says the edit
+    moved the alert's own due time, which the copy then follows.
 
-    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a real-time check, and
+    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as one the investigation agent reads, and
     `InvalidPlatformAlertEdit` for one the platform's schema rejects.
     """
     if not can_move(alert):
-        raise PlatformCannotOwn(
-            "The alerts platform runs this alert, and it cannot run real-time checks or the investigation agent yet."
-        )
+        raise PlatformCannotOwn("The alerts platform runs this alert, and it cannot run the investigation agent yet.")
+    upsert = platform_upsert_of(alert)
+    assert upsert is not None
     update_owned_copy(
         team_id=alert.team_id,
         legacy_configuration_id=alert.id,
-        change=_platform_change_of(alert),
+        change=_platform_change_of(upsert),
         snooze_until=alert.snoozed_until,
         snooze_changed=snooze_changed,
+        cadence=upsert,
+        rescheduled=rescheduled,
     )
 
 
@@ -76,14 +80,14 @@ def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
     return alert is not None and on_created(alert, at)
 
 
-def write_moved_alert_edit(*, team_id: int, alert_id: UUID, snooze_changed: bool) -> None:
+def write_moved_alert_edit(*, team_id: int, alert_id: UUID, snooze_changed: bool, rescheduled: bool = False) -> None:
     """Writes an edit the insight API saved in the caller's transaction onto the platform's copy.
 
     Raises like `on_updated`.
     """
     alert = _locked(team_id, alert_id)
     if alert is not None and alert.platform_owned:
-        on_updated(alert, snooze_changed=snooze_changed)
+        on_updated(alert, snooze_changed=snooze_changed, rescheduled=rescheduled)
 
 
 def close_moved_alert_firings(*, team_id: int, alert_id: UUID) -> None:
@@ -118,12 +122,10 @@ def _locked(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
 
 
 def _platform_change_of(
-    alert: AlertConfiguration,
+    upsert: PlatformAlertUpsert,
 ) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
     # Only the settings an insight alert has. The platform's own, such as grouping, keep what the
     # copy stores, so an edit through the insight API never resets them.
-    upsert = platform_upsert_of(alert)
-    assert upsert is not None
     shared = {field: getattr(upsert, field) for field in _EDITED_FIELDS}
     return lambda stored: replace(stored, enabled=upsert.enabled, **shared)
 

@@ -322,23 +322,32 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.alert.refresh_from_db()
         assert (self.alert.snoozed_until, self._copy().snooze_until) == (None, None)
 
-    def test_an_edit_the_platform_cannot_run_is_refused_on_both_rows(self) -> None:
-        # Real-time passes the insight API's own checks on this insight, so only the platform refuses it.
+    @parameterized.expand(
+        [
+            ("to_real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, True),
+            ("threshold", {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 50}}}}, True),
+            ("name_only", {"name": "Renamed"}, False),
+        ]
+    )
+    def test_an_edit_reschedules_the_copy_when_it_reschedules_the_insight_alert(
+        self, _name: str, edit: dict[str, Any], rescheduled: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}
         ]
         self.organization.save()
+        with team_scope(self.team.id):
+            due_before = platform_testing.copy_of(self.alert.id).next_check_at
 
-        response = self.client.patch(
-            f"{self.url}/{self.alert.id}/",
-            {"calculation_interval": AlertCalculationInterval.REAL_TIME.value},
-            format="json",
-        )
+        response = self.client.patch(f"{self.url}/{self.alert.id}/", edit, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "alerts platform" in str(response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         self.alert.refresh_from_db()
-        assert self.alert.calculation_interval == AlertCalculationInterval.DAILY.value
+        with team_scope(self.team.id):
+            due_after = platform_testing.copy_of(self.alert.id).next_check_at
+        assert self.alert.owner == "platform"
+        assert due_after == (self.alert.next_check_at if rescheduled else due_before)
+        assert (due_after != due_before) == rescheduled
 
     @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
     def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:

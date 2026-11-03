@@ -958,6 +958,33 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     )
 
 
+def write_owned_cadence(
+    configuration: PlatformAlertConfiguration, upsert: PlatformAlertUpsert, *, rescheduled: bool
+) -> None:
+    """Writes a changed cadence onto a copy the platform owns, locked by the caller, and makes it due
+    when its source says.
+
+    The source computes that due time when the edit changes the cadence, or when `rescheduled` says
+    the source moved its own due time, as `upsert_configuration` takes it for a copy the source
+    owns. Any other edit keeps the copy's own due time.
+
+    Raises `ValueError` on a cadence `upsert_configuration` would refuse.
+    """
+    if upsert.recurrence_unit is not None:
+        to_recurrence_interval(upsert.recurrence_unit)
+    cadence = {
+        "check_interval_minutes": upsert.check_interval_minutes,
+        "recurrence_unit": upsert.recurrence_unit,
+        "anchor_time": validate_and_normalize_schedule_start_time(upsert.anchor_time),
+    }
+    if not rescheduled and all(getattr(configuration, key) == value for key, value in cadence.items()):
+        return
+    for key, value in cadence.items():
+        setattr(configuration, key, value)
+    configuration.next_check_at = upsert.next_check_at or django_timezone.now()
+    configuration.save(update_fields=[*_CADENCE_FIELDS, "next_check_at", "updated_at"])
+
+
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
 
 
