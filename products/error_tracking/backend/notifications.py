@@ -33,27 +33,36 @@ def dispatch_issue_assigned_realtime(
     *,
     assignment: ErrorTrackingIssueAssignment,
     assignee: dict[str, Any],
-    assigner: User,
+    assigner: User | None,
+    assigned_by: str | None = None,
 ) -> None:
     """Fire one in-app issue_assigned notification for the new assignee.
 
+    - Pass `assigner` for a person, or `assigned_by` (e.g. "An assignment rule") for an automatic assignment.
     - User assignment: skip if assigner == assignee.
     - Role assignment: target the role; resolver excludes the assigner.
     Never raises — caller's email enqueue must succeed independently.
     """
     try:
+        if assigner is not None:
+            actor = assigner.first_name or assigner.email
+        elif assigned_by:
+            actor = assigned_by
+        else:
+            raise ValueError("assigned_by is required when there is no assigner")
         if assignment.team_id is None:
             return
         team = assignment.team
         assert team is not None  # team_id is set, so the FK is non-null (Django stubs disagree)
         issue = assignment.issue
-        title = f"{assigner.first_name or assigner.email} assigned an issue to you"[:100]
+        title = f"{actor} assigned an issue to you"[:100]
+        metadata = {"trigger": "manual" if assigner is not None else "automatic"}
         body = (issue.name or "")[:200]
         fingerprint = get_canonical_fingerprint(team_id=assignment.team_id, issue_id=issue.id)
         source_url = build_issue_permalink_path(project_id=team.project_id, issue_id=issue.id, fingerprint=fingerprint)
 
         if assignee["type"] == "user":
-            if int(assignee["id"]) == assigner.id:
+            if assigner is not None and int(assignee["id"]) == assigner.id:
                 return
             create_notification(
                 NotificationData(
@@ -69,6 +78,7 @@ def dispatch_issue_assigned_realtime(
                     source_url=source_url,
                     source_type=SourceType.ERROR_TRACKING,
                     source_id=str(issue.id),
+                    metadata=metadata,
                 )
             )
         elif assignee["type"] == "role":
@@ -86,7 +96,8 @@ def dispatch_issue_assigned_realtime(
                     source_url=source_url,
                     source_type=SourceType.ERROR_TRACKING,
                     source_id=str(issue.id),
-                    resolver=_AssignerExcludingResolver(assigner_id=assigner.id),
+                    metadata=metadata,
+                    resolver=_AssignerExcludingResolver(assigner_id=assigner.id) if assigner is not None else None,
                 )
             )
     except Exception as e:
