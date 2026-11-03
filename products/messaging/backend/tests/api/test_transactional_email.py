@@ -516,6 +516,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
+            ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
             ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
         ]

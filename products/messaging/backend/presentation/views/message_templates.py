@@ -531,7 +531,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
-        if unknown := next((field for field in sorted(sent) if field not in self.fields), None):
+        unknown = next((field for field in sorted(sent) if field not in self.fields), None)
+        if unknown is not None:
             raise serializers.ValidationError(
                 {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
             )
