@@ -62,7 +62,7 @@ export const getFlutterInstallSteps = (
                                 ]}
                             />
                             <Markdown>
-                                Update the minimum Android SDK version to **21** in `android/app/build.gradle`:
+                                Update the minimum Android SDK version to **23** in `android/app/build.gradle`:
                             </Markdown>
                             <CodeBlock
                                 blocks={[
@@ -102,19 +102,9 @@ export const getFlutterInstallSteps = (
                                     },
                                 ]}
                             />
-                            <Markdown>Update the minimum platform version to iOS 13.0 in your `Podfile`:</Markdown>
-                            <CodeBlock
-                                blocks={[
-                                    {
-                                        language: 'ruby',
-                                        file: 'Podfile',
-                                        code: dedent`
-                                          platform :ios, '13.0'
-                                          # rest of your config
-                                        `,
-                                    },
-                                ]}
-                            />
+                            <Markdown>
+                                Set the minimum deployment target to iOS 15.0 in Xcode (**Runner > General > Minimum Deployments**). PostHog installs through Swift Package Manager, which is on by default from Flutter 3.44. On an older Flutter, run `flutter config --enable-swift-package-manager`.
+                            </Markdown>
                         </Tab.Panel>
                         <Tab.Panel>
                             <Markdown>Add these values in `index.html`:</Markdown>
