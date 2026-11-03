@@ -135,35 +135,60 @@ describe('hog auth login', () => {
         expect(result.requests.filter((request) => request.url.endsWith('/poll/'))).toHaveLength(3)
     })
 
+    const denied = Object.assign(new Error('User canceled'), { code: 'ERR_SECRETS_USER_CANCELED' })
     test.each([
-        ['is unavailable', Object.assign(new Error('no Secret Service'), { code: 'ERR_SECRETS_PLATFORM_ERROR' })],
-        ['is denied', Object.assign(new Error('User canceled'), { code: 'ERR_SECRETS_USER_CANCELED' })],
-    ])('a login saves the key in a private file, and says so, when the keychain %s', async (_name, failure) => {
-        const broken: Secrets = {
-            get: () => Promise.reject(failure),
-            set: () => Promise.reject(failure),
-            delete: () => Promise.reject(failure),
-        }
-        const result = await runHog(['auth', 'login', '--wait'], {
-            env: { CLAUDECODE: '1' },
-            files: { [PENDING_FILE]: PENDING },
-            respond: deviceFlow(0),
-            secrets: () => broken,
-        })
+        [
+            'is unavailable',
+            Object.assign(new Error('no Secret Service'), { code: 'ERR_SECRETS_PLATFORM_ERROR' }),
+            false,
+        ],
+        ['is denied', denied, false],
+        // An item an older hog build saved can ask again even though a new probe item works.
+        ["denies the host's item after the probe passes", denied, true],
+    ])(
+        'a login saves the key in a private file, and says so, when the keychain %s',
+        async (_name, failure, probeWorks) => {
+            const items = new Map<string, string>()
+            const check = (name: string): void => {
+                if (!probeWorks || name.startsWith('https://')) {
+                    throw failure
+                }
+            }
+            const broken: Secrets = {
+                get: async (name) => {
+                    check(name)
+                    return items.get(name) ?? null
+                },
+                set: async (name, value) => {
+                    check(name)
+                    items.set(name, value)
+                },
+                delete: async (name) => {
+                    check(name)
+                    return items.delete(name)
+                },
+            }
+            const result = await runHog(['auth', 'login', '--wait'], {
+                env: { CLAUDECODE: '1' },
+                files: { [PENDING_FILE]: PENDING },
+                respond: deviceFlow(0),
+                secrets: () => broken,
+            })
 
-        expect(result.exitCode).toBe(0)
-        expect(result.json()).toMatchObject({
-            store: 'file',
-            credentialsPath: HOG_CREDENTIALS_FILE,
-            keychainProblem: expect.stringContaining('keychain'),
-        })
-        expect(JSON.parse(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
-            'https://eu.posthog.com': { apiKey: 'phx_secret' },
-        })
-        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
-            logins: { 'https://eu.posthog.com': { store: 'file', projectId: '42' } },
-        })
-    })
+            expect(result.exitCode).toBe(0)
+            expect(result.json()).toMatchObject({
+                store: 'file',
+                credentialsPath: HOG_CREDENTIALS_FILE,
+                keychainProblem: expect.stringContaining('keychain'),
+            })
+            expect(JSON.parse(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
+                'https://eu.posthog.com': { apiKey: 'phx_secret' },
+            })
+            expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+                logins: { 'https://eu.posthog.com': { store: 'file', projectId: '42' } },
+            })
+        }
+    )
 
     test.each([
         [
