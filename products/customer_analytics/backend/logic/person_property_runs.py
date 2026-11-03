@@ -83,7 +83,11 @@ def _find_reconcilable_run(
         if run is not None:
             return run
     triggers = _BACKFILL_TRIGGERS if trigger in _BACKFILL_TRIGGERS else _SYNC_TRIGGERS
-    return runs.filter(status=SyncStatus.RUNNING.value, trigger__in=triggers).order_by("-created_at").first()
+    in_progress = runs.filter(status=SyncStatus.RUNNING.value, trigger__in=triggers)
+    if job_id:
+        # Only a row nobody has claimed yet: another job's running row keeps its own counts.
+        in_progress = in_progress.filter(job_id__isnull=True)
+    return in_progress.order_by("-created_at").first()
 
 
 def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
@@ -134,6 +138,9 @@ def record_sync_run(record: PersonPropertySyncRunRecord) -> None:
                 # can raise these but never lower them.
                 for count in (*_PROGRESS_COUNTS, *_ATTEMPT_TOTALS):
                     fields[count] = Greatest(F(count), fields[count])
+                # A backfill retry re-reads the table, so it can find rows the first attempt never saw.
+                # Deliveries already counted must not outgrow the changed total.
+                fields["changed"] = Greatest(F("changed"), record.changed, F("existing"), record.existing)
                 for attr, value in fields.items():
                     setattr(run, attr, value)
                 run.save()
@@ -212,7 +219,7 @@ def record_sync_progress(progress: PersonPropertySyncProgress) -> None:
                 return
             CustomPropertySyncRun.objects.for_team(progress.team_id).filter(id=run.id).update(
                 rows_read=Greatest(F("rows_read"), progress.rows_read),
-                changed=Greatest(F("changed"), progress.changed),
+                changed=Greatest(F("changed"), progress.changed, F("existing") + progress.existing),
                 existing=F("existing") + progress.existing,
                 produced=F("produced") + progress.produced,
                 skipped_missing_person=Greatest(F("skipped_missing_person"), progress.skipped_missing_person),

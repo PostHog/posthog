@@ -236,6 +236,35 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert (run.rows_read, run.changed) == (10, 8)
         assert (run.existing, run.produced, run.skipped_missing_person) == (7, 7, 3)
 
+    def test_overlapping_jobs_keep_their_progress_in_separate_rows(self):
+        opener = {"status": "running", "finished_at": "", "rows_read": 0, "changed": 0, "existing": 0, "produced": 0}
+        record_sync_run(self._record(job_id="job-a", **opener))
+        record_sync_progress(self._progress(job_id="job-a", changed=4, existing=4, produced=4))
+        record_sync_run(self._record(job_id="job-b", **opener))
+        record_sync_progress(self._progress(job_id="job-b", changed=6, existing=6, produced=6))
+
+        runs = CustomPropertySyncRun.objects.unscoped().filter(source=self.source)
+        assert {(run.job_id, run.changed, run.existing, run.produced) for run in runs} == {
+            ("job-a", 4, 4, 4),
+            ("job-b", 6, 6, 6),
+        }
+
+    def test_changed_never_reads_lower_than_what_was_delivered(self):
+        # A backfill retry re-reads the table and can find rows the interrupted attempt never saw, so its
+        # own changed count can undercount the deliveries added across attempts.
+        opener = {"status": "running", "finished_at": "", "rows_read": 0, "changed": 0, "existing": 0, "produced": 0}
+        record_sync_run(self._record(job_id=None, trigger="backfill", **opener))
+        record_sync_progress(self._progress(job_id=None, trigger="backfill", changed=2, existing=1, produced=1))
+        record_sync_progress(self._progress(job_id=None, trigger="backfill", changed=2, existing=2, produced=2))
+        run = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
+        assert (run.changed, run.existing) == (3, 3)
+
+        record_sync_run(
+            self._record(job_id=None, trigger="backfill", status="completed", changed=2, existing=2, produced=2)
+        )
+        run.refresh_from_db()
+        assert (run.changed, run.existing) == (3, 3)
+
     def test_scheduled_retry_that_finally_succeeds_clears_the_failure(self):
         # A transient failure followed by a successful retry (same job_id) must resolve the row to
         # completed and reset the source's failure streak / last-synced time.
