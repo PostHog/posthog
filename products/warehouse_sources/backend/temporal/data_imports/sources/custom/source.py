@@ -476,12 +476,17 @@ def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
     if isinstance(client, dict):
         _check_paginator_config(client.get("paginator"), "client.paginator")
 
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_paginator = default_endpoint.get("paginator") if isinstance(default_endpoint, dict) else None
+
     for resource in manifest.get("resources") or []:
-        if not isinstance(resource, dict):
-            continue
-        endpoint = resource.get("endpoint")
-        paginator = endpoint.get("paginator") if isinstance(endpoint, dict) else None
-        _check_paginator_config(paginator, f"Resource {resource.get('name')!r}: endpoint.paginator")
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        # The engine replaces the default paginator wholesale when a resource declares its own.
+        if isinstance(endpoint, dict) and "paginator" in endpoint:
+            _check_paginator_config(endpoint["paginator"], f"Resource {resource.get('name')!r}: endpoint.paginator")
+        else:
+            _check_paginator_config(default_paginator, "resource_defaults.endpoint.paginator")
 
 
 def _check_paginator_config(paginator: Any, location: str) -> None:
@@ -1418,7 +1423,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # endpoint.incremental block missing start_param crashes the engine with a bare,
             # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
             _validate_incremental_configs({"resources": engine_resources})
-            _validate_paginator_configs({"client": manifest.get("client"), "resources": engine_resources})
+            _validate_paginator_configs(
+                {
+                    "client": manifest.get("client"),
+                    "resource_defaults": manifest.get("resource_defaults"),
+                    "resources": engine_resources,
+                }
+            )
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.
