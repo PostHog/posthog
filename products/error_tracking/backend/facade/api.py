@@ -145,6 +145,18 @@ def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list
     return [_to_issue_preview(issue) for issue in issues]
 
 
+def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contracts.ErrorTrackingIssueImpact]:
+    """Active issues seen in the last `days` days with their user, session and daily occurrence counts.
+
+    Ordered by first seen, newest first. Runs one ClickHouse query.
+    """
+    from ..logic.issue_impact import (  # noqa: PLC0415 - keeps the HogQL query runners off the django.setup() path
+        list_active_issue_impact as _list_active_issue_impact,
+    )
+
+    return _list_active_issue_impact(team_id=team_id, days=days, limit=limit)
+
+
 def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
     # "New this week" = issue first created within the digest window. Only active issues
     # (not archived/resolved/suppressed) are worth surfacing as a new production error.

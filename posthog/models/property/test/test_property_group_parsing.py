@@ -8,125 +8,15 @@ from unittest.mock import patch
 from posthoganalytics.contexts import get_capture_exception_code_variables_context
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.entity import Entity
 from posthog.models.property import Property, PropertyGroup, PropertyValidationError
-
-
-def _entity(data: dict[str, Any]) -> Entity:
-    return Entity({"id": "$pageview", "type": "events", **data})
+from posthog.models.property.parse import parse_property_group_data
 
 
 @pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
 def test_property_group_multi_level_parsing(encode: Callable[[dict[str, Any]], Any]):
-    entity = _entity(
-        {
-            "properties": encode(
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "attr", "value": "val_1"},
-                                {"key": "attr_2", "value": "val_2"},
-                            ],
-                        },
-                        {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
-                    ],
-                }
-            )
-        }
-    )
-
-    assert entity.property_groups.type == "AND"
-    assert isinstance(entity.property_groups.values[0], PropertyGroup)
-    assert entity.property_groups.values[0].type == "AND"
-    assert isinstance(entity.property_groups.values[0].values[0], Property)
-    assert entity.property_groups.values[0].values[0].key == "attr"
-    assert entity.property_groups.values[0].values[0].value == "val_1"
-    assert isinstance(entity.property_groups.values[0].values[1], Property)
-    assert entity.property_groups.values[0].values[1].key == "attr_2"
-    assert entity.property_groups.values[0].values[1].value == "val_2"
-
-    assert isinstance(entity.property_groups.values[1], PropertyGroup)
-    assert entity.property_groups.values[1].type == "OR"
-    assert isinstance(entity.property_groups.values[1].values[0], Property)
-    assert entity.property_groups.values[1].values[0].key == "attr"
-    assert entity.property_groups.values[1].values[0].value == "val_2"
-
-
-@pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
-def test_property_group_simple_parsing(encode: Callable[[dict[str, Any]], Any]):
-    entity = _entity(
-        {
-            "properties": encode(
-                {
-                    "type": "AND",
-                    "values": [
-                        {"key": "attr", "value": "val_1"},
-                        {"key": "attr_2", "value": "val_2"},
-                    ],
-                }
-            )
-        }
-    )
-
-    assert entity.property_groups.type == "AND"
-    assert isinstance(entity.property_groups.values[0], Property)
-    assert entity.property_groups.values[0].key == "attr"
-    assert entity.property_groups.values[0].value == "val_1"
-    assert isinstance(entity.property_groups.values[1], Property)
-    assert entity.property_groups.values[1].key == "attr_2"
-    assert entity.property_groups.values[1].value == "val_2"
-
-
-def test_property_group_empty_parsing():
-    entity = _entity({"properties": {}})
-
-    assert entity.property_groups.type == "AND"
-    assert entity.property_groups.values == []
-
-
-def test_property_group_invalid_parsing():
-    entity = _entity(
-        {
-            "properties": {
-                "type": "XaND",
-                "values": [
-                    {"key": "attr", "value": "val_1"},
-                    {"key": "attr_2", "value": "val_2"},
-                ],
-            }
-        }
-    )
-
-    with pytest.raises(ValidationError):
-        entity.property_groups  # noqa: B018
-
-
-def test_property_group_includes_unhomogenous_groups():
-    entity = _entity(
-        {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {"type": "or", "values": [{"key": "attr", "value": "val_1"}]},
-                    {"key": "attr", "value": "val_1"},
-                    {"key": "attr_2", "value": "val_2"},
-                    {"type": "OR", "values": []},
-                ],
-            }
-        }
-    )
-
-    with pytest.raises(ValidationError):
-        entity.property_groups  # noqa: B018
-
-
-def test_property_multi_level_to_dict():
-    entity = _entity(
-        {
-            "properties": {
+    property_groups = parse_property_group_data(
+        encode(
+            {
                 "type": "AND",
                 "values": [
                     {
@@ -139,10 +29,102 @@ def test_property_multi_level_to_dict():
                     {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
                 ],
             }
+        )
+    )
+
+    assert property_groups.type == "AND"
+    assert isinstance(property_groups.values[0], PropertyGroup)
+    assert property_groups.values[0].type == "AND"
+    assert isinstance(property_groups.values[0].values[0], Property)
+    assert property_groups.values[0].values[0].key == "attr"
+    assert property_groups.values[0].values[0].value == "val_1"
+    assert isinstance(property_groups.values[0].values[1], Property)
+    assert property_groups.values[0].values[1].key == "attr_2"
+    assert property_groups.values[0].values[1].value == "val_2"
+
+    assert isinstance(property_groups.values[1], PropertyGroup)
+    assert property_groups.values[1].type == "OR"
+    assert isinstance(property_groups.values[1].values[0], Property)
+    assert property_groups.values[1].values[0].key == "attr"
+    assert property_groups.values[1].values[0].value == "val_2"
+
+
+@pytest.mark.parametrize("encode", [lambda data: data, json.dumps], ids=["dict", "json"])
+def test_property_group_simple_parsing(encode: Callable[[dict[str, Any]], Any]):
+    property_groups = parse_property_group_data(
+        encode(
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "attr", "value": "val_1"},
+                    {"key": "attr_2", "value": "val_2"},
+                ],
+            }
+        )
+    )
+
+    assert property_groups.type == "AND"
+    assert isinstance(property_groups.values[0], Property)
+    assert property_groups.values[0].key == "attr"
+    assert property_groups.values[0].value == "val_1"
+    assert isinstance(property_groups.values[1], Property)
+    assert property_groups.values[1].key == "attr_2"
+    assert property_groups.values[1].value == "val_2"
+
+
+def test_property_group_empty_parsing():
+    property_groups = parse_property_group_data({})
+
+    assert property_groups.type == "AND"
+    assert property_groups.values == []
+
+
+def test_property_group_invalid_parsing():
+    data = {
+        "type": "XaND",
+        "values": [
+            {"key": "attr", "value": "val_1"},
+            {"key": "attr_2", "value": "val_2"},
+        ],
+    }
+
+    with pytest.raises(ValidationError):
+        parse_property_group_data(data)
+
+
+def test_property_group_includes_unhomogenous_groups():
+    data = {
+        "type": "AND",
+        "values": [
+            {"type": "or", "values": [{"key": "attr", "value": "val_1"}]},
+            {"key": "attr", "value": "val_1"},
+            {"key": "attr_2", "value": "val_2"},
+            {"type": "OR", "values": []},
+        ],
+    }
+
+    with pytest.raises(ValidationError):
+        parse_property_group_data(data)
+
+
+def test_property_multi_level_to_dict():
+    property_groups = parse_property_group_data(
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "attr", "value": "val_1"},
+                        {"key": "attr_2", "value": "val_2"},
+                    ],
+                },
+                {"type": "OR", "values": [{"key": "attr", "value": "val_2"}]},
+            ],
         }
     )
 
-    assert entity.property_groups.to_dict() == {
+    assert property_groups.to_dict() == {
         "type": "AND",
         "values": [
             {
@@ -161,19 +143,17 @@ def test_property_multi_level_to_dict():
 
 
 def test_property_group_simple_to_dict():
-    entity = _entity(
+    property_groups = parse_property_group_data(
         {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {"key": "attr", "value": "val_1"},
-                    {"key": "attr_2", "value": "val_2"},
-                ],
-            }
+            "type": "AND",
+            "values": [
+                {"key": "attr", "value": "val_1"},
+                {"key": "attr_2", "value": "val_2"},
+            ],
         }
     )
 
-    assert entity.property_groups.to_dict() == {
+    assert property_groups.to_dict() == {
         "type": "AND",
         "values": [
             {"key": "attr", "value": "val_1", "type": "event"},
@@ -247,17 +227,13 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
     # with no visibility at all. It must still be dropped (callers across the codebase
     # rely on best-effort parsing of legacy/malformed data), but the failure must now be
     # reported — regardless of which internal check inside Property.__init__ rejected it.
-    entity = _entity(
-        {
-            "properties": {
-                "type": "AND",
-                "values": [{"key": "attr", "value": "val_1"}, invalid_property],
-            }
-        }
-    )
+    data = {
+        "type": "AND",
+        "values": [{"key": "attr", "value": "val_1"}, invalid_property],
+    }
 
     with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
-        properties = entity.property_groups.values
+        properties = parse_property_group_data(data).values
 
     assert len(properties) == 1
     assert isinstance(properties[0], Property)
@@ -278,10 +254,10 @@ def test_property_group_parsing_reports_non_mapping_property():
     # `Property(**prop_params)` unpacking with TypeError, before __init__ even runs. The
     # grouped-properties path can't reach this: a non-mapping element trips the "cannot
     # contain both PropertyGroup and Property objects" check first.
-    entity = _entity({"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+    data = [{"key": "attr", "value": "val_1"}, "not-a-mapping"]
 
     with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
-        properties = entity.property_groups.values
+        properties = parse_property_group_data(data).values
 
     assert len(properties) == 1
     assert isinstance(properties[0], Property)
@@ -307,12 +283,12 @@ def test_property_group_parsing_disables_code_variable_capture_for_reported_exce
     def fake_capture_exception(error, additional_properties=None):
         observed_context_values.append(get_capture_exception_code_variables_context())
 
-    entity = _entity({"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+    data = [{"key": "attr", "value": "val_1"}, "not-a-mapping"]
 
     with patch(
         "posthog.models.property.parse.capture_exception", side_effect=fake_capture_exception
     ) as mock_capture_exception:
-        _ = entity.property_groups.values
+        _ = parse_property_group_data(data).values
 
     mock_capture_exception.assert_called_once()
     assert observed_context_values == [False]
