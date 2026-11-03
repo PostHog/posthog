@@ -5,10 +5,10 @@ import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
+import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
-import type { OAuthSecret, StoreChoice } from './credential-store/types'
 import { hostKey, hostUrl } from './host'
 import type { LoginRecord } from './settings'
 
