@@ -62,6 +62,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_SHARED,
         name="Other experiments on the same flag",
+        description=(
+            "Looks for other running or draft experiments on the same feature flag. Pausing one, shipping a variant or "
+            "changing the split changes the flag for all of them, and experiments that run at the same time can count "
+            "the same users."
+        ),
         run=flag_shared,
     ),
     HealthCheck(
