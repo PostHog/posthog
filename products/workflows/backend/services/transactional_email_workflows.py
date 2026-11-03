@@ -59,7 +59,6 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
 
 
 def code_email_actions(key: str) -> list[dict]:
-    # The send carries the content and sender, so the step stores none.
     return _actions(
         name=key,
         step_config={"message_category_id": None, "sensitive": False},
