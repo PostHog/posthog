@@ -17,8 +17,6 @@
                 "backend/presentation/**",
                 "backend/temporal/**",
                 "backend/tasks/**",
-                "backend/logic/sql_editor_trino.py",
-                "backend/managed_ingress.py",
                 "backend/models.py",
                 "backend/migrations/**"
             ],
