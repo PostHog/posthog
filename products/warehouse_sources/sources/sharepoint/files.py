@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     FORMAT_ERROR,
     MAX_EXCEL_FILE_BYTES,
     ExcelFileError,
+    FileFormatError,
     SourceResponse,
     frozen,
     iter_file_rows,
@@ -27,7 +28,6 @@ from products.warehouse_sources.sources.sdk import (
     list_worksheets,
     resolve_file_format,
 )
-from products.warehouse_sources.sources.sdk.testing import FileFormatError
 from products.warehouse_sources.sources.sharepoint.settings import (
     ENDPOINTS,
     EXCEL_EXTENSIONS,
