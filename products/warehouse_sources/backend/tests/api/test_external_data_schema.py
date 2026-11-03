@@ -4820,6 +4820,18 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 True,
                 ExternalDataSchema.SyncType.CDC,
             ),
+            (
+                "switch_from_cdc_with_a_legacy_history_table",
+                "both",
+                "both",
+                "datetime",
+                True,
+                "older layout",
+                {"sync_type": "incremental", "cdc_table_mode": "both"},
+                True,
+                ExternalDataSchema.SyncType.CDC,
+                True,
+            ),
         ]
     )
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
@@ -4834,7 +4846,10 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         request_body: dict | None = None,
         source_supports_history: bool = True,
         initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL,
+        legacy_history_table: bool = False,
     ):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
         self.schema.sync_type = initial_sync_type
         self.schema.sync_type_config = {
             "incremental_field": "updated_at",
@@ -4848,6 +4863,14 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             team=self.team, name="orders", format="Parquet", external_data_source=self.source
         )
         self.schema.save()
+        if legacy_history_table:
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=build_table_name(self.source, f"{self.schema.name}_cdc"),
+                format="DeltaS3Wrapper",
+                external_data_source=self.source,
+                options={"history_table": True},
+            )
 
         with (
             mock.patch(
@@ -4900,6 +4923,14 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 ExternalDataSchema.SyncType.INCREMENTAL,
                 "both",
                 True,
+                "public.orders_history",
+                True,
+            ),
+            (
+                "incremental_history_with_the_naming_flag_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                "both",
+                False,
                 "public.orders_history",
                 True,
             ),

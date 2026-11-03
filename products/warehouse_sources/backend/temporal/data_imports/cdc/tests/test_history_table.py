@@ -19,8 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
+    LegacyHistoryTableError,
     history_naming,
     history_tables,
+    incremental_history_naming,
     is_another_schemas_history_table,
     new_history_names_taken,
     pin_history_naming,
@@ -91,6 +93,31 @@ class TestHistoryNaming(BaseTest):
 
         with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
             assert history_naming(self.schema) == pinned
+
+    @parameterized.expand(
+        [
+            ("flag_off", None, None, False),
+            ("pinned_legacy", LEGACY_HISTORY_NAMING, None, True),
+            ("stamped_table", None, ("orders_history", {"history_table": True, "history_naming": "ph_validity"}), True),
+            ("legacy_table", None, ("orders_cdc", {"history_table": True}), True),
+        ]
+    )
+    def test_incremental_history_always_takes_the_new_naming(
+        self, name: str, pinned: HistoryNaming | None, table: tuple[str, dict] | None, flag_on: bool
+    ) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        if pinned is not None:
+            pin_history_naming(self.schema.sync_type_config, pinned)
+        self.schema.save()
+        if table is not None:
+            self._table(*table)
+
+        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
+            if name == "legacy_table":
+                with pytest.raises(LegacyHistoryTableError):
+                    incremental_history_naming(self.schema)
+            else:
+                assert incremental_history_naming(self.schema) == HISTORY_NAMING
 
     def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
         # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming

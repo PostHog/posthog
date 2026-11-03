@@ -588,7 +588,12 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         )
         if stages_history(export_signal.cdc_write_mode, export_signal.sync_type):
             # The staged rows of a history lane become versions only here, and finalize runs again safely.
-            await finalize_history_lane(delta_table_ref, export_signal.primary_keys or [])
+            await finalize_history_lane(
+                delta_table_ref,
+                export_signal.primary_keys or [],
+                run_uuid=export_signal.run_uuid,
+                batch_index=export_signal.batch_index,
+            )
 
         delta_table = await delta_table_ref.get_delta_table()
         if delta_table is None:
@@ -1224,7 +1229,12 @@ def _finalize_run(
             # Versions written past a batch that never loaded would make its rows look older on the re-read.
             _refuse_incomplete_run(run_signal)
             # Before post-load, which registers and publishes the history table this writes.
-            async_to_sync(finalize_history_lane)(delta_table_ref, run_signal.primary_keys or [])
+            async_to_sync(finalize_history_lane)(
+                delta_table_ref,
+                run_signal.primary_keys or [],
+                run_uuid=run_signal.run_uuid,
+                batch_index=run_signal.batch_index,
+            )
             history_table = async_to_sync(delta_table_ref.get_delta_table)()
             if history_table is not None:
                 # The batches went to the staging table, whose columns are not the history table's. Only

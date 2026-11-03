@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
     stage_history_batch,
     stamp_history_batch,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_writer import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
     STAGED_BATCH_COLUMN,
     STAGED_ROW_COLUMN,
 )
@@ -50,7 +50,7 @@ def _response(primary_keys: list[str] | None = None) -> SourceResponse:
 
 def _attach(schema: ExternalDataSchema, response: SourceResponse) -> None:
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.incremental_history.kept_history_naming",
+        "products.warehouse_sources.backend.temporal.data_imports.incremental_history.incremental_history_naming",
         return_value=HISTORY_NAMING,
     ):
         attach_history_lanes(schema, response)
@@ -124,7 +124,7 @@ class TestHistoryLaneWrites:
             patch.object(DeltaTableRef, "_get_credentials", return_value={}),
         ):
             table = DeltaTableRef(resource_name="orders_history", job=MagicMock(), logger=make_logger())
-            assert await finalize_history_lane(table, ["id"]) is None
+            assert await finalize_history_lane(table, ["id"], run_uuid="run", batch_index=0) is None
 
             def _batch(rows: list[tuple[int, datetime]]) -> pa.Table:
                 cursors = pa.array([at for _, at in rows], type=_TS)
@@ -134,7 +134,7 @@ class TestHistoryLaneWrites:
             # The second batch re-reads key 1 inside the lookback window.
             for index, batch in enumerate([_batch([(1, first)]), _batch([(1, first), (2, second)])]):
                 await stage_history_batch(table, batch, primary_keys=["id"], run_uuid="run", batch_index=index)
-            result = await finalize_history_lane(table, ["id"])
+            result = await finalize_history_lane(table, ["id"], run_uuid="run", batch_index=1)
 
         rows = deltalake.DeltaTable(str(tmp_path / "orders_history")).to_pyarrow_table().sort_by("id").to_pylist()
         assert [(r["id"], r["_ph_valid_from"], r["_ph_valid_to"], r["_ph_history_partition"]) for r in rows] == [

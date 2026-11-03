@@ -70,7 +70,10 @@ from products.warehouse_sources.backend.facade.source_inputs import SourceInputs
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
+    HISTORY_NAMING,
     AnySource,
+    HistoryNaming,
+    LegacyHistoryTableError,
     RowFilterValidationError,
     SourceRegistry,
     WebhookSource,
@@ -81,6 +84,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_columns,
     history_naming_unless_taken,
     history_table_name,
+    incremental_history_naming_unless_taken,
     incremental_history_refusal,
     is_another_schemas_history_table,
     is_history_table_mode,
@@ -255,6 +259,14 @@ def _refuse_ineligible_incremental_history(payload: dict[str, Any]) -> None:
         raise ValidationError(refusal)
 
 
+def _incremental_history_naming(instance: ExternalDataSchema) -> HistoryNaming | None:
+    """The naming of the schema's incremental history table, or None when its name is taken."""
+    try:
+        return incremental_history_naming_unless_taken(instance)
+    except LegacyHistoryTableError as e:
+        raise ValidationError(str(e)) from e
+
+
 def _apply_incremental_history_mode(
     instance: ExternalDataSchema, data: dict[str, Any], payload: dict[str, Any], history_mode_before: str | None
 ) -> bool:
@@ -277,6 +289,7 @@ def _apply_incremental_history_mode(
             raise ValidationError(
                 "This source can't keep a history table, because it replaces rows by file instead of merging them by key."
             )
+        _incremental_history_naming(instance)
         _refuse_ineligible_incremental_history(payload)
         payload[INCREMENTAL_HISTORY_KEY] = True
     payload["cdc_table_mode"] = mode
@@ -572,14 +585,16 @@ def _refuse_reserved_columns(
     history = None
     resolved = None
     if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
-        history = resolved = history_naming_unless_taken(instance)
+        history = resolved = (
+            history_naming_unless_taken(instance) if captures else _incremental_history_naming(instance)
+        )
         if history is None and is_history_table_mode(new_mode) and not kept_history:
             raise ValidationError(
                 f"A history table for {instance.name} would share its name with another table of this "
                 "source. Choose the consolidated table only for this table."
             )
         # A taken name leaves only the naming a new history table would get.
-        history = history or new_history_naming(instance.source)
+        history = history or (new_history_naming(instance.source) if captures else HISTORY_NAMING)
     columns = _source_column_names(instance)
 
     def _reserved(mode: str | None) -> frozenset[str]:

@@ -4,7 +4,7 @@ An incremental schema keeps history the way a CDC schema does: its run gets a se
 into the `_history` table, and `cdc_table_mode` chooses the tables (consolidated, history only, or
 both). Each version starts at the row's incremental field value, so a change that does not move the
 cursor makes no version. The lane stages its batches and writes versions once per run, at its final
-batch (see `HistoryWriter`).
+batch (see `history_upsert`).
 """
 
 import functools
@@ -21,25 +21,23 @@ from posthog.ph_client import feature_enabled_or_false
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-    CURRENT_HISTORY_PARTITION,
+    HISTORY_NAMING,
     HistoryNaming,
     companion_resource_name,
     history_columns,
-    history_naming_of,
     reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
-from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    LegacyHistoryTableError,
+    incremental_history_naming,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_writer import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
     HistoryFinalizeResult,
-    HistoryWriter,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
-    execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane, SourceResponse
@@ -49,7 +47,6 @@ INCREMENTAL_HISTORY_FLAG = "dwh-incremental-history"
 # while the consolidated table takes each of them.
 HISTORY_CURSOR_TYPES = frozenset({IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp})
 _STAGING_SUFFIX = "_ph_staging"
-_PENDING_CLOSES_SUFFIX = "_ph_pending_closes"
 _VALID_FROM_TYPE = pa.timestamp("us", tz="UTC")
 
 
@@ -93,9 +90,10 @@ def attach_history_lanes(schema: ExternalDataSchema, source_response: SourceResp
         raise IncrementalHistoryUnavailableError(
             f"{schema.name} keeps a history table, which needs an incremental field"
         )
-    naming = kept_history_naming(schema)
-    if naming is None:
-        raise IncrementalHistoryUnavailableError(f"{schema.name} keeps a history table but writes none")
+    try:
+        naming = incremental_history_naming(schema)
+    except LegacyHistoryTableError as e:
+        raise IncrementalHistoryUnavailableError(str(e)) from e
     history_lane = OutputLane(
         name=companion_resource_name(schema.name, naming),
         cdc_write_mode=SCD2_APPEND_MODE,
@@ -136,24 +134,9 @@ def stages_history(cdc_write_mode: str | None, sync_type: str | None) -> bool:
     return cdc_write_mode == SCD2_APPEND_MODE and sync_type != "cdc"
 
 
-def _staging_ref(table: DeltaTableRef, suffix: str = _STAGING_SUFFIX) -> DeltaTableRef:
-    # The staging tables sit in the schema's folder and are never registered, so no query sees them.
-    return DeltaTableRef(resource_name=f"{table.resource_name}{suffix}", job=table.job, logger=table.logger)
-
-
-def _history_writer(
-    table: DeltaTableRef, staging: DeltaTableRef, primary_keys: Sequence[str], naming: HistoryNaming
-) -> HistoryWriter:
-    return HistoryWriter(
-        table,
-        staging,
-        _staging_ref(table, _PENDING_CLOSES_SUFFIX),
-        primary_keys=primary_keys,
-        valid_from_column=naming.valid_from,
-        valid_to_column=naming.valid_to,
-        partition_column=naming.partition_column,
-        current_partition=CURRENT_HISTORY_PARTITION,
-    )
+def _staging_ref(table: DeltaTableRef) -> DeltaTableRef:
+    # The staging table sits in the schema's folder and is never registered, so no query sees it.
+    return DeltaTableRef(resource_name=f"{table.resource_name}{_STAGING_SUFFIX}", job=table.job, logger=table.logger)
 
 
 async def stage_history_batch(
@@ -161,32 +144,28 @@ async def stage_history_batch(
 ) -> deltalake.DeltaTable:
     """Stage one batch of a history lane, and return the staging table it went to."""
     staging = _staging_ref(table)
-    writer = _history_writer(table, staging, primary_keys, history_naming_of(data.column_names))
-    await writer.append(data, run_uuid=run_uuid, batch_index=batch_index)
+    await history_upsert.stage(
+        staging,
+        data,
+        key_columns=primary_keys,
+        naming=HISTORY_NAMING,
+        run_uuid=run_uuid,
+        batch_index=batch_index,
+    )
     staged = await staging.get_delta_table()
     if staged is None:
         raise ValueError(f"The staging table of {table.resource_name} is missing after an append")
     return staged
 
 
-async def finalize_history_lane(table: DeltaTableRef, primary_keys: Sequence[str]) -> HistoryFinalizeResult | None:
-    """Write the run's staged rows as versions. None when the lane staged nothing."""
-    staging = _staging_ref(table)
-    staged = await staging.get_delta_table()
-    if staged is None:
-        return None
-    naming = history_naming_of(field.name for field in staged.schema().fields)
-    result = await _history_writer(table, staging, primary_keys, naming).finalize()
-    # finalize only tombstones the rows it staged. The files go once they are past the retention
-    # every vacuum of this product keeps, so the staging table does not grow with every run.
-    await execute_with_conflict_retry(
-        staged,
-        lambda: staged.vacuum(
-            retention_hours=int(VACUUM_RETENTION.total_seconds() // 3600),
-            enforce_retention_duration=False,
-            dry_run=False,
-        ),
-        "vacuum_history_staging",
-        staging.logger,
+async def finalize_history_lane(
+    table: DeltaTableRef, primary_keys: Sequence[str], *, run_uuid: str, batch_index: int
+) -> HistoryFinalizeResult | None:
+    """Write the run's staged rows as versions, at the run's final batch. None when the lane staged nothing."""
+    return await history_upsert.finalize(
+        table,
+        _staging_ref(table),
+        key_columns=primary_keys,
+        naming=HISTORY_NAMING,
+        commit_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)},
     )
-    return result

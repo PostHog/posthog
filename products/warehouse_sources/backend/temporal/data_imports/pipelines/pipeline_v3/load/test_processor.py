@@ -869,6 +869,8 @@ class TestHistoryLaneFinalBatch:
                     resource_name="orders_history",
                     total_rows=1,
                     continued_job_ids=(),
+                    run_uuid="run",
+                    batch_index=0,
                 )
                 with pytest.raises(IncompleteRunError) if earlier_batch_unloaded else nullcontext():
                     if case.startswith("final_batch"):

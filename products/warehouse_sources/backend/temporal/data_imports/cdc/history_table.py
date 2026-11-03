@@ -40,6 +40,14 @@ class HistoryTableNameTakenError(Exception):
     """
 
 
+class LegacyHistoryTableError(Exception):
+    """An incremental schema's history table uses the legacy `_cdc` naming.
+
+    Incremental history writes with deltalite's history upsert, which needs the month-partitioned layout of a
+    `_history` table. A legacy table is unpartitioned, so an incremental sync cannot write it.
+    """
+
+
 def not_another_schemas_table(tables: QuerySet[DataWarehouseTable], schema_id: UUID) -> QuerySet[DataWarehouseTable]:
     """Drop tables another schema syncs into.
 
@@ -135,10 +143,30 @@ class SourceHistoryNamings:
         if registered is not None:
             return registered
         naming = pinned_history_naming(schema) or self._naming_for_new_tables()
+        self._refuse_taken_name(schema, naming)
+        return naming
+
+    def incremental_naming(self, schema: ExternalDataSchema) -> HistoryNaming:
+        """The naming of an incremental schema's history table, which is `HISTORY_NAMING` whatever the flag or pin.
+
+        Raises `LegacyHistoryTableError` when the schema's registered history table uses the legacy naming, and
+        `HistoryTableNameTakenError` as `naming` does.
+        """
+        registered = self._registered(schema)
+        if registered == LEGACY_HISTORY_NAMING:
+            raise LegacyHistoryTableError(
+                f"{schema.name} has a history table from change data capture in an older layout, which "
+                "incremental syncs can't write. Keep change data capture for this table, or choose the "
+                "consolidated table only."
+            )
+        if registered is None:
+            self._refuse_taken_name(schema, HISTORY_NAMING)
+        return HISTORY_NAMING
+
+    def _refuse_taken_name(self, schema: ExternalDataSchema, naming: HistoryNaming) -> None:
         new_name = build_table_name(self._source, companion_resource_name(schema.name, naming))
         if self._tables_by_name.get(new_name) or self._synced_schema_ids_by_name.get(new_name, set()) - {schema.id}:
             raise HistoryTableNameTakenError(f"{new_name} is already the name of another table of this source")
-        return naming
 
     def naming_unless_taken(self, schema: ExternalDataSchema) -> HistoryNaming | None:
         try:
@@ -167,6 +195,19 @@ class SourceHistoryNamings:
 def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
     """`SourceHistoryNamings.naming` for one schema."""
     return SourceHistoryNamings(schema.source).naming(schema)
+
+
+def incremental_history_naming(schema: ExternalDataSchema) -> HistoryNaming:
+    """`SourceHistoryNamings.incremental_naming` for one schema."""
+    return SourceHistoryNamings(schema.source).incremental_naming(schema)
+
+
+def incremental_history_naming_unless_taken(schema: ExternalDataSchema) -> HistoryNaming | None:
+    """`incremental_history_naming`, or None when the new name belongs to another table of the source."""
+    try:
+        return incremental_history_naming(schema)
+    except HistoryTableNameTakenError:
+        return None
 
 
 def new_history_names_taken(
@@ -275,5 +316,8 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     """
     if not schema.keeps_history:
         return None
-    naming = registered_history_naming(schema) or pinned_history_naming(schema) or new_history_naming(schema.source)
+    if schema.is_incremental:
+        naming = HISTORY_NAMING
+    else:
+        naming = registered_history_naming(schema) or pinned_history_naming(schema) or new_history_naming(schema.source)
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))
