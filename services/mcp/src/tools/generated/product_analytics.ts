@@ -137,7 +137,12 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
 })
 
+const AssistantDataVisualizationColumnDisplaySettings = z.object({
+    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
+})
+
 const AssistantDataVisualizationColumnSettings = z.object({
+    display: AssistantDataVisualizationColumnDisplaySettings.describe('Display settings for this column.').optional(),
     formatting: AssistantDataVisualizationAxisFormatting.describe(
         'Number-formatting settings for the values in this column.'
     ).optional(),
@@ -146,7 +151,7 @@ const AssistantDataVisualizationColumnSettings = z.object({
 const AssistantDataVisualizationColumn = z.object({
     column: z.string().describe('Name of a column returned by the SQL query.'),
     settings: AssistantDataVisualizationColumnSettings.describe(
-        'Optional number formatting for this column.'
+        'Optional display and number-formatting settings for this column.'
     ).optional(),
 })
 

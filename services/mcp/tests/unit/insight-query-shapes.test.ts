@@ -23,7 +23,7 @@ const acceptedQueries = [
             kind: 'DataVisualizationNode',
             source: { kind: 'HogQLQuery', query: 'select 1 as value' },
             tableSettings: {
-                columns: [{ column: 'value', settings: { display: { label: 'Value', description: 'Value in USD' } } }],
+                columns: [{ column: 'value', settings: { display: { description: 'Value in USD' } } }],
             },
         },
     },

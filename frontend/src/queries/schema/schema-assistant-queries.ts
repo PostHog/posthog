@@ -1892,10 +1892,8 @@ export interface AssistantDataVisualizationAxisDisplaySettings {
     displayType?: 'auto' | 'line' | 'bar' | 'area'
     /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
     trendLine?: boolean
-    /** Label that replaces the column name. */
+    /** Series label in legends and tooltips; replaces the column name. */
     label?: string
-    /** Table column description shown in the header tooltip. */
-    description?: string
     /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
     color?: string
     /**
@@ -1916,8 +1914,8 @@ export interface AssistantDataVisualizationAxisFormatting {
     /** Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`. */
     suffix?: string
     /**
-     * `none`: raw. `number`: thousands separators. `short`: 1.2k.
-     * `percent`: 0–1 ratio × 100 with `%`. Omit a `%` suffix.
+     * `none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M).
+     * `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.
      */
     style?: 'none' | 'number' | 'short' | 'percent'
     /** Number of decimal places to display. */
@@ -1938,16 +1936,23 @@ export interface AssistantDataVisualizationAxis {
     settings?: AssistantDataVisualizationAxisSettings
 }
 
+export interface AssistantDataVisualizationColumnDisplaySettings {
+    /** Table column description shown in the header tooltip. */
+    description?: string
+}
+
 export interface AssistantDataVisualizationColumnSettings {
+    /** Display settings for this column. */
+    display?: AssistantDataVisualizationColumnDisplaySettings
     /** Number-formatting settings for the values in this column. */
     formatting?: AssistantDataVisualizationAxisFormatting
 }
 
-/** A column with number formatting only. Series display settings apply only to Y-axis series. */
+/** A column with a description and number formatting. Series display settings apply only to Y-axis series. */
 export interface AssistantDataVisualizationColumn {
     /** Name of a column returned by the SQL query. */
     column: string
-    /** Optional number formatting for this column. */
+    /** Optional display and number-formatting settings for this column. */
     settings?: AssistantDataVisualizationColumnSettings
 }
 
