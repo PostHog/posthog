@@ -8,6 +8,7 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    _EREMOTEIO,
     TransientObjectStoreError,
     is_invalid_version_race,
     is_missing_scan_file_race,
@@ -43,6 +44,22 @@ class TestIsTransientObjectStoreError:
                 # are exhausted - S3's fixed InternalError message, not a bug in our code.
                 "s3_internal_error_os_error",
                 OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
+            (
+                # delta-rs's own object_store crate (reqwest/hyper) reports a connection the remote
+                # end dropped mid-response this way, already marked "(temporary)" before this
+                # classifier runs - a retry against a fresh connection self-heals it.
+                "connection_closed_before_message_completed",
+                OSError(
+                    "Generic IoError error: Unexpected (temporary) at read, context: { url: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000002.json, "
+                    "called: http_util::Client::send, service: oss, path: "
+                    "_delta_log/00000000000000000002.json, range: 0-3460 } => send http request, source: "
+                    "error sending request for url (https://example-bucket.oss-us-west-1.aliyuncs.com/"
+                    "_delta_log/00000000000000000002.json) => client error (SendRequest) => connection "
+                    "closed before message completed"
+                ),
                 True,
             ),
             (
@@ -90,6 +107,14 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A non-AWS S3-compatible provider's own wording for the same InternalError/500
+                # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
+                # the message needle above only catches AWS's fixed text, so this must match by errno.
+                "s3_compatible_internal_error_non_aws_wording_eremoteio",
+                OSError(_EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
+                True,
+            ),
+            (
                 # A different errno must not be swept up by the fd-exhaustion check.
                 "unrelated_os_error_with_errno",
                 OSError(errno.ENOENT, "No such file or directory"),
@@ -126,6 +151,57 @@ class TestIsTransientObjectStoreError:
                     "AWS Error UNKNOWN (HTTP status 404) during HeadObject operation: No response body."
                 ),
                 False,
+            ),
+            (
+                # A warehouse bucket backed by Aliyun OSS reports its own 500 as this OSS-specific
+                # error shape instead of one of the S3 messages above - matched on the fixed `code`
+                # field since OSS's own InternalError `message` text isn't fixed the way S3's is.
+                "oss_internal_error",
+                OSError(
+                    "Generic Unexpected error: Unexpected (temporary) at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/, "
+                    "response: Parts { status: 500, service: oss } } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E506" }'
+                ),
+                True,
+            ),
+            (
+                # A different OSS error code sharing the same wrapper shape must not be swept up by
+                # the code-field match - only "InternalError" is a transient 5xx.
+                "oss_access_denied_not_transient",
+                OSError(
+                    "Generic Unexpected error: Unexpected at list, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/?list-type=2&prefix=_delta_log/ } => "
+                    'OssError { code: "AccessDenied", message: "Access denied by bucket policy" }'
+                ),
+                False,
+            ),
+            (
+                # Table-level operations (vacuum, optimize, commit) wrap the identical underlying
+                # object-store error in `DeltaError` instead of a bare `OSError` - the same OSS 500
+                # must still classify as transient through that wrapper.
+                "oss_internal_error_wrapped_in_delta_error",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Unexpected (temporary) at commit, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000001.json } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E507" }'
+                ),
+                True,
+            ),
+            (
+                # delta-rs's generic S3 client reaching a non-AWS S3-compatible bucket (e.g. Alibaba
+                # OSS, addressed virtual-hosted per s3_proxy.py) never goes through s3fs/botocore, so a
+                # dropped connection surfaces as a bare OSError with this fixed OS-level message instead
+                # of one of the typed botocore exceptions above.
+                "non_aws_endpoint_connection_timed_out",
+                OSError(
+                    "Generic error: Unexpected (temporary) at stat, context: ... => send http request, "
+                    "source: error sending request: client error (SendRequest): connection error: "
+                    "Connection timed out (os error 110)"
+                ),
+                True,
             ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller

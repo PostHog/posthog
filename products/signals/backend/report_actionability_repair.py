@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -12,16 +13,14 @@ class RepairedBatch:
     cursor: str
 
 
-def repair_latest_actionability(
-    *, team_id: int | None, batch_size: int, after: str | None = None
-) -> Iterator[RepairedBatch]:
-    """Recompute `SignalReport.latest_actionability` and `latest_already_addressed` from the
-    artefact log, one batch of reports at a time, starting after report id `after`.
+@frozen
+class ReportIdBatch:
+    rows: list[tuple[UUID, int]]
+    cursor: str
 
-    The receivers in receivers.py maintain both columns on every artefact write, so this is a
-    repair for rows that drifted, not a routine job. Safe to rerun: each report is recomputed
-    under its row lock and written only when it disagrees with its artefacts.
-    """
+
+def report_id_batches(*, team_id: int | None, batch_size: int, after: str | None = None) -> Iterator[ReportIdBatch]:
+    """Walk report ids in id order, as (id, team id) rows, starting after report id `after`."""
     reports = SignalReport.objects.all()
     if team_id is not None:
         reports = reports.filter(team_id=team_id)
@@ -32,8 +31,22 @@ def repair_latest_actionability(
         if not rows:
             return
         after = str(rows[-1][0])
+        yield ReportIdBatch(rows=rows, cursor=after)
+
+
+def repair_latest_actionability(
+    *, team_id: int | None, batch_size: int, after: str | None = None
+) -> Iterator[RepairedBatch]:
+    """Recompute `SignalReport.latest_actionability` and `latest_already_addressed` from the
+    artefact log, one batch of reports at a time, starting after report id `after`.
+
+    The receivers in receivers.py maintain both columns on every artefact write, so this is a
+    repair for rows that drifted, not a routine job. Safe to rerun: each report is recomputed
+    under its row lock and written only when it disagrees with its artefacts.
+    """
+    for batch in report_id_batches(team_id=team_id, batch_size=batch_size, after=after):
         corrected = sum(
             SignalReport.refresh_latest_actionability(team_id=row_team_id, report_id=report_id)
-            for report_id, row_team_id in rows
+            for report_id, row_team_id in batch.rows
         )
-        yield RepairedBatch(scanned=len(rows), corrected=corrected, cursor=after)
+        yield RepairedBatch(scanned=len(batch.rows), corrected=corrected, cursor=batch.cursor)

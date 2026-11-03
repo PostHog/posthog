@@ -191,6 +191,7 @@ export type {
     ResolveValueFn,
     Series,
     SeriesType,
+    TimeScale,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
@@ -200,7 +201,14 @@ export type {
 export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
-export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export {
+    ChartThemeProvider,
+    themeDefaultsFromCssVars,
+    themeFromCssVars,
+    useChartTheme,
+    useResolvedChartTheme,
+    DEFAULT_CHART_COLORS,
+} from './core/theme'
 export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
@@ -226,6 +234,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
+export { ValueBand } from './overlays/ValueBand'
+export type { ValueBandProps } from './overlays/ValueBand'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'

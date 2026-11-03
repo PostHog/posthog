@@ -1,4 +1,4 @@
-import { CSSProperties, ComponentType, HTMLProps } from 'react'
+import { CSSProperties, ComponentType, HTMLProps, ReactNode } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
@@ -85,6 +85,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
     dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
+    dataTableToolbarClassName?: string
+    dataTableExportIconOnly?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
@@ -103,6 +105,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /** Drawn on top of a trends line or bar chart, as a child of the chart, so it can read the chart's scales. */
+    chartOverlay?: ReactNode
+    /** When a series matches, a trends line or bar chart fades every series that does not. */
+    isSeriesHighlighted?: (result: TrendResult) => boolean
     /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */
     onDisableWebAnalyticsPrecompute?: () => void
     /**

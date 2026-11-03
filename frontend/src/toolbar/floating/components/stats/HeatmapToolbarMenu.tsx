@@ -1,0 +1,418 @@
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
+import { IconMagicWand, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonSnack, LemonSwitch, Link } from '@posthog/lemon-ui'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { IconSync } from 'lib/lemon-ui/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
+import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
+import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
+import { heatmapCaptureLogic } from '~/toolbar/shared/stats/heatmapCaptureLogic'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
+import { urls } from '~/toolbar/shared/urls'
+import { joinWithUiHost } from '~/toolbar/shared/utils'
+
+import { toolbarConfigLogic } from '../../../shared/toolbarConfigLogic'
+
+const HeatmapsJSWarning = (): JSX.Element | null => {
+    const { posthog, uiHost } = useValues(toolbarConfigLogic)
+
+    if (!posthog || posthog?.heatmaps?.isEnabled) {
+        return null
+    }
+
+    return (
+        <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
+            {!posthog.heatmaps ? (
+                <>The version of posthog-js you are using does not support collecting heatmap data.</>
+            ) : !posthog.heatmaps.isEnabled ? (
+                <>
+                    You can enable heatmap collection in your posthog-js configuration or{' '}
+                    <Link
+                        to={joinWithUiHost(uiHost, urls.settings('environment-heatmaps', 'heatmaps'))}
+                        target="_blank"
+                    >
+                        in your project config
+                    </Link>
+                    .
+                </>
+            ) : null}
+        </p>
+    )
+}
+
+const SectionButton = ({
+    children,
+    checked,
+    onChange,
+    loading,
+}: {
+    children: React.ReactNode
+    checked: boolean
+    onChange: (checked: boolean) => void
+    loading?: boolean
+}): JSX.Element => {
+    return (
+        <div className="flex items-center">
+            <LemonButton
+                className="flex-1 -mx-2 p-2"
+                noPadding
+                onClick={() => onChange(!checked)}
+                sideIcon={<LemonSwitch checked={checked} />}
+            >
+                <span className="flex items-center gap-2">
+                    {children}
+
+                    {loading ? <Spinner /> : null}
+                </span>
+            </LemonButton>
+        </div>
+    )
+}
+
+export const HeatmapToolbarMenu = (): JSX.Element => {
+    const { wildcardHref, autoWildcardEnabled, wildcardHrefTooSpecific, wildcardHrefEndsWithSlash } =
+        useValues(currentPageLogic)
+    const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
+
+    const { captureResultLoading, isAuthenticated, captureProgress } = useValues(heatmapCaptureLogic)
+    const { saveToPostHog } = useActions(heatmapCaptureLogic)
+
+    const {
+        matchLinksByHref,
+        countedElements,
+        clickCount,
+        commonFilters,
+        heatmapFilters,
+        canLoadMoreElementStats,
+        loadedElementStatsCount,
+        viewportRange,
+        rawHeatmapLoading,
+        elementStatsLoading,
+        clickmapsEnabled,
+        heatmapFixedPositionMode,
+        heatmapColorPalette,
+        elementsLoading,
+        processingProgress,
+        areaSelectionActive,
+        heatmapAreaFilter,
+        loadingAllElementStats,
+        loadAllPagesLoaded,
+        scrollDepthPosthogJsError,
+    } = useValues(heatmapToolbarMenuLogic)
+    const {
+        setCommonFilters,
+        patchHeatmapFilters,
+        startLoadingAllElementStats,
+        stopLoadingAllElementStats,
+        setMatchLinksByHref,
+        toggleClickmapsEnabled,
+        setHeatmapFixedPositionMode,
+        setHeatmapColorPalette,
+        startAreaSelection,
+        cancelAreaSelection,
+        selectHeatmapAreaFilter,
+    } = useActions(heatmapToolbarMenuLogic)
+    const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
+
+    return (
+        <ToolbarMenu>
+            <ToolbarMenu.Header>
+                <div className="flex gap-1">
+                    <LemonInput className="flex-1" value={wildcardHref} onChange={setWildcardHref} />
+                    <LemonButton
+                        type={autoWildcardEnabled ? 'primary' : 'secondary'}
+                        icon={<IconMagicWand />}
+                        size="medium"
+                        onClick={() => autoWildcardHref()}
+                        tooltip={
+                            <>
+                                You can use the wildcard character <code>*</code> to match any character in the URL. For
+                                example, <code>https://example.com/*</code> will match{' '}
+                                <code>https://example.com/page</code> and <code>https://example.com/page/1</code>.
+                                <br />
+                                Click this button to automatically wildcard where we believe it would make sense
+                            </>
+                        }
+                        sideAction={{
+                            dropdown: {
+                                placement: 'bottom-end',
+                                matchWidth: false,
+                                closeOnClickInside: false,
+                                overlay: (
+                                    <div className="p-2 flex flex-col gap-2 min-w-80">
+                                        <LemonSwitch
+                                            checked={autoWildcardEnabled}
+                                            onChange={setAutoWildcardEnabled}
+                                            label="Auto-wildcard on navigation"
+                                            fullWidth
+                                            bordered
+                                        />
+                                        <div className="text-xs text-muted">
+                                            When enabled, the URL will be automatically wildcarded whenever you navigate
+                                            to a new page.
+                                        </div>
+                                    </div>
+                                ),
+                            },
+                        }}
+                    />
+                </div>
+                {wildcardHrefTooSpecific && (
+                    <p className="text-xs text-secondary mt-1 mb-0">
+                        {wildcardHrefEndsWithSlash ? (
+                            <>
+                                A trailing slash matches only URLs that end there, so deeper pages and query strings
+                                drop out. Use <code>*</code> to include them.
+                            </>
+                        ) : (
+                            <>
+                                This URL is specific, so it matches less data. Use <code>*</code> as a wildcard to match
+                                more.
+                            </>
+                        )}
+                    </p>
+                )}
+
+                <div className="flex flex-row items-center gap-2 py-2 border-b">
+                    <DateFilter
+                        dateFrom={commonFilters.date_from}
+                        dateTo={commonFilters.date_to}
+                        onChange={(fromDate, toDate) => {
+                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                        }}
+                        dateOptions={heatmapDateOptions}
+                    />
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconTarget />}
+                        active={areaSelectionActive}
+                        data-attr="heatmap-area-filter-toggle"
+                        onClick={() => (areaSelectionActive ? cancelAreaSelection() : startAreaSelection())}
+                        tooltip={
+                            <>
+                                Filter the heatmap and clickmap to one part of the page, e.g. the nav or the main
+                                content. Click this, then hover the page and click an area. Press <kbd>↑</kbd> to grow
+                                the selection to a bigger container, <kbd>↓</kbd> to shrink it, and <kbd>Esc</kbd> to
+                                cancel. Heatmap points on fixed or sticky elements are only included when the chosen
+                                area is itself fixed or sticky.
+                            </>
+                        }
+                    >
+                        {areaSelectionActive ? 'Click an area of the page…' : 'Filter to area'}
+                    </LemonButton>
+                </div>
+                {heatmapAreaFilter && !areaSelectionActive ? (
+                    <div className="flex flex-row items-center gap-2 py-2 border-b">
+                        <span className="text-muted text-xs">Filtered to</span>
+                        <LemonSnack
+                            className="font-mono text-xs shrink min-w-0 truncate"
+                            title={
+                                heatmapAreaFilter.selector ??
+                                'No unique selector could be derived for this element, so the clickmap is filtered client-side only and may be limited to the loaded data.'
+                            }
+                            onClose={() => selectHeatmapAreaFilter(null)}
+                        >
+                            {heatmapAreaFilter.selector ?? `<${heatmapAreaFilter.element.tagName.toLowerCase()}>`}
+                        </LemonSnack>
+                    </div>
+                ) : null}
+            </ToolbarMenu.Header>
+            <ToolbarMenu.Body>
+                <div className="border-b p-2">
+                    <SectionButton
+                        onChange={(e) =>
+                            patchHeatmapFilters({
+                                enabled: e,
+                            })
+                        }
+                        loading={rawHeatmapLoading}
+                        checked={!!heatmapFilters.enabled}
+                    >
+                        Heatmaps
+                    </SectionButton>
+
+                    {heatmapFilters.enabled && (
+                        <>
+                            <HeatmapsJSWarning />
+                            <p>
+                                Heatmaps are calculated using additional data sent along with standard events. They are
+                                based off of general pointer interactions and might not be 100% accurate to the page you
+                                are viewing.
+                            </p>
+
+                            <HeatmapsSettings
+                                heatmapFilters={heatmapFilters}
+                                patchHeatmapFilters={patchHeatmapFilters}
+                                viewportRange={viewportRange}
+                                heatmapColorPalette={heatmapColorPalette}
+                                setHeatmapColorPalette={setHeatmapColorPalette}
+                                heatmapFixedPositionMode={heatmapFixedPositionMode}
+                                setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
+                                scrollDepthPosthogJsError={scrollDepthPosthogJsError}
+                            />
+
+                            <div className="pt-2 border-t mt-2">
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    data-attr="heatmap-save-to-posthog"
+                                    loading={captureResultLoading}
+                                    disabledReason={
+                                        !isAuthenticated ? 'Log in to PostHog to save this heatmap' : undefined
+                                    }
+                                    onClick={() => saveToPostHog()}
+                                >
+                                    {captureResultLoading && captureProgress
+                                        ? `Capturing screen widths (${captureProgress.done}/${captureProgress.total})`
+                                        : 'Save to PostHog'}
+                                </LemonButton>
+                                <p className="text-xs text-muted mt-2 mb-0">
+                                    Captures this page at several screen widths and saves them with the heatmap, so you
+                                    can open it in PostHog later. Works even when the page is behind a login.
+                                </p>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div className="p-2">
+                    <SectionButton
+                        onChange={(e) => toggleClickmapsEnabled(e)}
+                        loading={elementStatsLoading || elementsLoading || !!processingProgress}
+                        checked={!!clickmapsEnabled}
+                    >
+                        Clickmaps (autocapture)
+                    </SectionButton>
+
+                    {clickmapsEnabled && (
+                        <>
+                            <p>
+                                Clickmaps are built using Autocapture events. They are more accurate than heatmaps if
+                                the event can be mapped to a specific element found on the page you are viewing but less
+                                data is usually captured.
+                            </p>
+                            <p className="text-xs italic">
+                                Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
+                                interact with the page beneath the clickmap.
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    icon={loadingAllElementStats ? <Spinner textColored /> : <IconSync />}
+                                    type="secondary"
+                                    size="small"
+                                    active={loadingAllElementStats}
+                                    onClick={() => {
+                                        if (loadingAllElementStats) {
+                                            stopLoadingAllElementStats()
+                                            toolbarPosthogJS.capture('toolbar heatmap load all stopped', {
+                                                pages_loaded: loadAllPagesLoaded,
+                                                element_count: loadedElementStatsCount,
+                                            })
+                                            return
+                                        }
+                                        startLoadingAllElementStats()
+                                        toolbarPosthogJS.capture('toolbar heatmap load all started')
+                                    }}
+                                    // a loading button is disabled, and the run needs to stay stoppable
+                                    loading={elementStatsLoading && !loadingAllElementStats}
+                                    tooltip={
+                                        loadingAllElementStats
+                                            ? 'Stop after the page being loaded now. What loaded so far stays on the heatmap.'
+                                            : 'Loads page after page of click data. A long date range or a busy site can take a while, and can need more than one run.'
+                                    }
+                                    disabledReason={
+                                        canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
+                                    }
+                                >
+                                    {loadingAllElementStats ? 'Stop loading' : 'Load all'}
+                                </LemonButton>
+                                <Tooltip
+                                    title={
+                                        <span>
+                                            Matching links by their target URL can exclude clicks from the heatmap if
+                                            the URL is too unique.
+                                        </span>
+                                    }
+                                >
+                                    <LemonSwitch
+                                        className="flex-1"
+                                        checked={matchLinksByHref}
+                                        label="Match links by their target URL"
+                                        onChange={(checked) => setMatchLinksByHref(checked)}
+                                        fullWidth={true}
+                                        bordered={true}
+                                    />
+                                </Tooltip>
+                            </div>
+
+                            <div className="my-2">
+                                Found: {countedElements.length} elements / {clickCount} clicks
+                                {processingProgress ? (
+                                    <span className="text-muted">
+                                        {' '}
+                                        (Processing: {processingProgress.processed.toLocaleString()}/
+                                        {processingProgress.total.toLocaleString()})
+                                    </span>
+                                ) : elementsLoading ? (
+                                    ' (processing...)'
+                                ) : (
+                                    '!'
+                                )}
+                            </div>
+                            {canLoadMoreElementStats && loadedElementStatsCount > 0 && (
+                                <div className="mb-2 text-muted text-xs">
+                                    {elementStatsLoading
+                                        ? `Showing the top ${loadedElementStatsCount.toLocaleString()} element groups by click count — loading the rest automatically…`
+                                        : `Showing the top ${loadedElementStatsCount.toLocaleString()} element groups by click count — load more for the full data range.`}
+                                </div>
+                            )}
+                            <div className="flex flex-col w-full h-full">
+                                {countedElements.length ? (
+                                    countedElements.map(({ element, count }, index) => {
+                                        const text = element.innerText?.trim().substring(0, 255)
+                                        const tagName = element.tagName.toLowerCase()
+                                        return (
+                                            <LemonButton
+                                                key={index}
+                                                size="small"
+                                                fullWidth
+                                                onClick={() => setSelectedElement(element)}
+                                            >
+                                                <div
+                                                    className="flex flex-1 justify-between"
+                                                    key={index}
+                                                    onMouseEnter={() => setHighlightElement(element)}
+                                                    onMouseLeave={() => setHighlightElement(null)}
+                                                >
+                                                    <div>
+                                                        {index + 1}.&nbsp;
+                                                        {text || <code>&lt;{tagName}&gt;</code>}
+                                                    </div>
+                                                    <div>{count} clicks</div>
+                                                </div>
+                                            </LemonButton>
+                                        )
+                                    })
+                                ) : (
+                                    <div className="p-2">No elements found.</div>
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
+            </ToolbarMenu.Body>
+        </ToolbarMenu>
+    )
+}

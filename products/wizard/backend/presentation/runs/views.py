@@ -7,11 +7,12 @@ from django.http import HttpResponse
 from django.http.response import HttpResponseBase
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
@@ -19,7 +20,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions import Conflict
 
 from products.wizard.backend.facade import api as wizard_facade
-from products.wizard.backend.facade.contracts import WizardRunDTO
+from products.wizard.backend.facade.contracts import ListWizardRunsInput, WizardRunDTO
 from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStatus
 from products.wizard.backend.facade.errors import IllegalStatusTransitionError, WizardRunNotFoundError
 from products.wizard.backend.presentation.permissions import WizardRunSessionAuthenticationRequired
@@ -91,8 +92,23 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
         # GET /projects/:projectId/wizard/runs
-        paginator = cast(WizardRunPagination, self.paginator)
-        return paginator.paginate_runs(request, team_id=self.team_id)
+        raw_status = request.query_params.get("status")
+        try:
+            statuses = (
+                tuple(WizardRunStatus(value) for value in raw_status.split(",")) if raw_status is not None else ()
+            )
+        except ValueError as error:
+            raise ValidationError({"status": "Invalid run status."}) from error
+        raw_created_after = request.query_params.get("created_after")
+        created_after = (
+            cast(datetime, serializers.DateTimeField().run_validation(raw_created_after))
+            if raw_created_after is not None
+            else None
+        )
+        filters = ListWizardRunsInput(team_id=self.team_id, statuses=statuses, created_after=created_after)
+        return facade_page_response(
+            self, lambda page: wizard_facade.list_runs(filters, page), serializer_class=WizardRunSerializer
+        )
 
     @extend_schema(
         request=WizardRunCreateRequestSerializer,

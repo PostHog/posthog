@@ -234,6 +234,17 @@ def _health_inputs_latest_calculation(calculation: LatestCalculation) -> dict[st
             }
             for failure in calculation.failures
         ],
+        "hours_of_data": calculation.hours_of_data,
+        "zero_metrics": [
+            {
+                "name": metric.name,
+                "role": metric.role,
+                "exposures": metric.exposures,
+                "ratio_side": metric.ratio_side,
+                "stopped_events": list(metric.stopped_events),
+            }
+            for metric in calculation.zero_metrics
+        ],
     }
 
 
@@ -252,7 +263,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "primary_metric_count": ctx.primary_metric_count,
         "secondary_metric_count": ctx.secondary_metric_count,
         "flag": _health_inputs_flag(ctx.flag) if ctx.flag else None,
-        "flag_last_called_at": inputs.flag_last_called_at,
+        "flag_last_called_at": ctx.flag_last_called_at,
         "flag_called": ctx.flag_called,
         "flag_called_during_run": ctx.flag_called_during_run,
         "flag_called_after_end": ctx.flag_called_after_end,

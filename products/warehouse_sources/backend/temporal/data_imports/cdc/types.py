@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import abc
 import json
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
 
 import pyarrow as pa
+
+from posthog.dataclasses import frozen
 
 ManagementMode = Literal["posthog", "self_managed"]
 
@@ -45,21 +48,41 @@ def decode_job_inputs(job_inputs: Mapping[str, Any] | str | None) -> Mapping[str
 
 
 @dataclass(frozen=True)
-class CDCConfig:
+class CDCConfig(abc.ABC):
     """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
 
-    Holds fields that apply to any change-stream engine (slot/publication-style
-    identifiers, lag thresholds, management policy). Engine adapters return their
-    own subclasses (e.g. ``PostgresCDCConfig``) and add engine-specific fields.
+    Holds fields that apply to any change-stream engine (lag thresholds, management
+    policy). Engine adapters return their own subclasses (e.g. ``PostgresCDCConfig``)
+    and add the engine's stream identifiers.
     """
 
     enabled: bool
-    slot_name: str
-    publication_name: str
     management_mode: ManagementMode
     lag_warning_threshold_mb: int
     lag_critical_threshold_mb: int
     auto_drop_slot: bool
+
+    @property
+    @abc.abstractmethod
+    def stream_name(self) -> str:
+        """Name of the engine-side change stream capture reads (PG: the replication slot), for logs
+        and messages. Empty when the source stores none, which capture refuses to read."""
+
+    @property
+    @abc.abstractmethod
+    def stream_resources_configured(self) -> bool:
+        """Whether the config names every engine-side resource PostHog may drop (PG: a slot and a
+        publication). The orphan sweeper skips a source without them."""
+
+
+@frozen
+class CDCLag:
+    """How far capture is behind the source's change stream."""
+
+    behind_bytes: int
+    # Engine cap on retained backlog in MB (PG: max_slot_wal_keep_size). None when unlimited or
+    # unknown. Past the cap the engine discards the stream itself, so safety nets act below it.
+    retention_cap_mb: int | None
 
 
 class CDCPosition(Protocol):
@@ -112,7 +135,19 @@ class CDCStreamReader(Protocol):
 
     def connect(self) -> None: ...
 
-    def read_changes(self) -> Iterator[ChangeEvent]: ...
+    def read_changes(
+        self, upto_nchanges: int | None = None, on_row: Callable[[], None] | None = None
+    ) -> Iterator[ChangeEvent]:
+        """Yield changes in commit order, stopping at the first transaction boundary at or past
+        ``upto_nchanges`` changes. ``on_row`` runs once per change consumed, including changes that
+        yield no event."""
+        ...
+
+    @property
+    def last_rows_consumed(self) -> int:
+        """Changes consumed by the last ``read_changes`` call. Reaching ``upto_nchanges`` means the
+        stream may hold more."""
+        ...
 
     def confirm_position(self, position: str) -> None: ...
 
@@ -132,6 +167,9 @@ class CDCStreamReader(Protocol):
     def clear_truncated_tables(self) -> None: ...
 
     @property
-    def last_commit_end_lsn(self) -> str | None: ...
+    def last_commit_position(self) -> str | None:
+        """Serialized position just past the last transaction read, including one with no row
+        events (a TRUNCATE alone). Confirming it moves the stream past everything read."""
+        ...
 
     def close(self) -> None: ...
