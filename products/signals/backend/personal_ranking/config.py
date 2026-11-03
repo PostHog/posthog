@@ -9,10 +9,13 @@ The optional `pools` list replaces the default candidate pools, in order. An inv
 and logged. When no entry is valid, the build uses the default pools.
 
 The optional `tick` object holds the levers of the scheduled tick (`tick.py`). Its parse fails closed:
-a missing or malformed object, or one without `"enabled": true`, turns the tick off.
+a missing or malformed object, or one without `"enabled": true`, turns the tick off. An enabled tick raises
+`freshness_minutes` to its `target_interval_minutes`, and limits `max_tick_builds_per_day` to a share of
+`max_builds_per_day`.
 """
 
 import re
+from dataclasses import replace
 from typing import Any, Literal, cast, get_args
 
 import structlog
@@ -109,6 +112,8 @@ class PersonalRankingTickConfig:
 
 
 TICK_DISABLED = PersonalRankingTickConfig()
+# The rest of the shared limit stays free for `refresh` and `focus` requests, which a person is waiting on.
+TICK_SHARE_OF_SHARED_BUILDS = 0.8
 
 _TICK_MAXIMUMS: dict[str, int] = {
     "target_interval_minutes": 1440,
@@ -271,6 +276,11 @@ def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
     )
 
 
+def _fit_tick_to_shared_limit(tick: PersonalRankingTickConfig, max_builds_per_day: int) -> PersonalRankingTickConfig:
+    largest = max(int(max_builds_per_day * TICK_SHARE_OF_SHARED_BUILDS), 1)
+    return replace(tick, max_tick_builds_per_day=min(tick.max_tick_builds_per_day, largest))
+
+
 def default_pools(config: PersonalRankingConfig) -> tuple[CandidatePool, ...]:
     return (
         CandidatePool(name="for_you_recommended", source="for_you_recommended", size=config.for_you_recommended_pool),
@@ -377,13 +387,18 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
         if name not in {"timeout_seconds", "reason_max_chars", "pool_size"}
     }
     max_limit = ints.pop("max_limit")
+    tick = parse_tick_config(payload.get("tick"))
+    if tick.enabled:
+        tick = _fit_tick_to_shared_limit(tick, ints["max_builds_per_day"])
+        # A shorter freshness makes a plain read rebuild a list that the tick checked inside its interval.
+        ints["freshness_minutes"] = max(ints["freshness_minutes"], tick.target_interval_minutes)
     return PersonalRankingConfig(
         enabled=payload.get("enabled") is not False,
         model=_model(payload.get("model")),
         reasoning_effort=_reasoning_effort(payload.get("reasoning_effort")),
         reason_limits=_reason_limits(payload.get("reason_max_chars")),
         pools=_pools(payload.get("pools")),
-        tick=parse_tick_config(payload.get("tick")),
+        tick=tick,
         timeout_seconds=_bounded_number(
             payload.get("timeout_seconds"), DEFAULTS.timeout_seconds, _MAXIMUMS["timeout_seconds"]
         ),

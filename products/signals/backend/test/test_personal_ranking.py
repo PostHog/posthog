@@ -385,6 +385,25 @@ class TestConfig(SimpleTestCase):
                     )
                 ),
             ),
+            (
+                "enabled_tick_raises_freshness_and_leaves_a_shared_reserve",
+                {
+                    "max_builds_per_day": 100,
+                    "tick": {"enabled": True, "target_interval_minutes": 180, "max_tick_builds_per_day": 100},
+                },
+                PersonalRankingConfig(
+                    max_builds_per_day=100,
+                    freshness_minutes=180,
+                    tick=PersonalRankingTickConfig(
+                        enabled=True, target_interval_minutes=180, max_tick_builds_per_day=80
+                    ),
+                ),
+            ),
+            (
+                "disabled_tick_leaves_freshness_alone",
+                {"tick": {"target_interval_minutes": 180}},
+                PersonalRankingConfig(),
+            ),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
