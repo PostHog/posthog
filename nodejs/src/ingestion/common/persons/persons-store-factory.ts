@@ -12,7 +12,6 @@ import { PersonhogPersonsStore } from './personhog-persons-store'
 import { PersonsStore } from './persons-store'
 import { RoutingPersonsStore, assertPersonsStoreModeConfig, parsePersonsStoreMode } from './routing-persons-store'
 
-/** The config the persons store reads, whichever process hosts the pipeline. */
 export type PersonsStoreConfig = Pick<
     IngestionConsumerConfig,
     | 'PERSON_BATCH_WRITING_DB_WRITE_MODE'
@@ -49,21 +48,14 @@ export type PersonsStoreConfig = Pick<
 
 export interface BuiltPersonsStore {
     personsStore: PersonsStore
-    /** Closes the personhog clients the store dials; call after the store's shutdown. A no-op in pg mode. */
+    /** Call after the store's shutdown, since the final flush still needs the clients. A no-op in pg mode. */
     close: () => void
 }
 
-/**
- * One name for every process that hosts the pipeline, so the personhog side
- * reads the same client across the monolith and the processor split.
- */
+/** One name across the monolith and the processor split, so personhog-side metrics read the same client. */
 const PERSONHOG_CLIENT_NAME = 'ingestion-persons-store'
 
-/**
- * Builds the persons store PERSONS_STORE_MODE asks for, deployment-wide: pg
- * (the default) is the Postgres batch store alone; the other modes dial
- * personhog and route through it, shadow keeping pg authoritative.
- */
+/** pg is the Postgres batch store alone; shadow and personhog dial personhog and route through it. */
 export function buildPersonsStore(
     config: PersonsStoreConfig,
     personRepository: PersonRepository,
