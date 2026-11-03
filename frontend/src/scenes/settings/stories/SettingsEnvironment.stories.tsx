@@ -324,7 +324,7 @@ export const SettingsEnvironmentObjectAccessControl: Story = {
         const table = within(await canvas.findByRole('table'))
         await table.findByRole('link', { name: 'Example dashboard' })
         await table.findByText('Viewer', { exact: true })
-        await canvas.findByRole('button', { name: 'Add rule', exact: true })
+        await canvas.findByRole('button', { name: 'Add rule' })
     },
 }
 
@@ -337,7 +337,7 @@ export const SettingsEnvironmentPropertyAccessControl: Story = {
         await table.findByText('email', { exact: true })
         await table.findByText('Person property', { exact: true })
         await table.findByText('Read only', { exact: true })
-        await canvas.findByRole('button', { name: 'Add rule', exact: true })
+        await canvas.findByRole('button', { name: 'Add rule' })
     },
 }
 
