@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.llm.gateway_client import (
+    GatewayNotConfiguredError,
     build_ai_gateway_anthropic_client,
     build_ai_gateway_openai_client,
     trace_id_from_seed,
@@ -568,6 +569,9 @@ def classify_slack_app_model_override(
         # but the model is still the classifier's word, not ours, until checked against
         # the catalogue below.
         reply = SlackAppModelOverride.model_validate(parsed)
+    except GatewayNotConfiguredError:
+        logger.exception("slack_app_model_override_classify_failed")
+        return None
     except (ValidationError, ValueError):
         logger.info("slack_app_model_override_unusable_reply")
         return None
