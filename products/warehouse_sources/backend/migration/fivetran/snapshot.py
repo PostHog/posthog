@@ -82,11 +82,13 @@ MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
 MAX_UPLOADED_SNAPSHOT_BYTES = 50_000_000
 # The item columns these values land in hold 400 characters.
 _MAX_NAME_LENGTH = 400
-_TOO_LARGE = "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
+# Fivetran responses nest a few levels. A deeper upload would make the recursive parsers below overflow the stack.
+_MAX_UPLOAD_DEPTH = 64
 # The parsers trust the vendor's field types. An agent upload can carry any JSON, so it is checked after parsing.
 _DESTINATION_ADAPTER: TypeAdapter[VendorDestination] = TypeAdapter(VendorDestination)
 _CONNECTION_ADAPTER: TypeAdapter[VendorConnection] = TypeAdapter(VendorConnection)
-_READ_ERRORS = (KeyError, TypeError, ValueError, AttributeError)
+# OverflowError comes from `int()` on a JSON number too large for a float, such as `1e309`.
+_READ_ERRORS = (KeyError, TypeError, ValueError, AttributeError, OverflowError)
 
 
 def merge_upload(
@@ -106,8 +108,8 @@ def merge_upload(
     for index, raw in enumerate(destinations):
         raw = _unwrap(raw)
         label = f"Destination {index} ({_label_id(raw)})"
-        if len(json.dumps(raw)) > MAX_UPLOADED_CONNECTION_BYTES:
-            errors.append(f"{label}: {_TOO_LARGE}")
+        if problem := _upload_problem(raw):
+            errors.append(f"{label}: {problem}")
             continue
         try:
             destination = _DESTINATION_ADAPTER.validate_python(
@@ -125,8 +127,8 @@ def merge_upload(
         raw = _unwrap(upload.connection)
         label = f"Connection {index} ({_label_id(raw)})"
         schema_config = _unwrap(upload.schema_config) if upload.schema_config is not None else None
-        if len(json.dumps([raw, schema_config])) > MAX_UPLOADED_CONNECTION_BYTES:
-            errors.append(f"{label}: {_TOO_LARGE}")
+        if problem := _upload_problem([raw, schema_config]):
+            errors.append(f"{label}: {problem}")
             continue
         try:
             parsed = parse_connection(
@@ -156,6 +158,22 @@ def merge_upload(
     return UploadedSnapshot(
         snapshot=snapshot, connection_ids=tuple(dict.fromkeys(connection_ids)), errors=tuple(errors)
     )
+
+
+def _upload_problem(value: Any) -> str | None:
+    """Why one uploaded entry cannot be read at all, checked before anything recurses into it."""
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > _MAX_UPLOAD_DEPTH:
+            return f"it nests deeper than {_MAX_UPLOAD_DEPTH} levels, so it is not a Fivetran response."
+        if isinstance(item, Mapping):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+    if len(json.dumps(value)) > MAX_UPLOADED_CONNECTION_BYTES:
+        return "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
+    return None
 
 
 def _label_id(raw: Mapping[str, Any]) -> str:

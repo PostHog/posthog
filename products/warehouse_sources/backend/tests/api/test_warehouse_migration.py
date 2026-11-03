@@ -34,6 +34,16 @@ def _envelope(data: dict[str, Any]) -> dict[str, Any]:
     return {"code": "Success", "data": data}
 
 
+_FLOAT_OVERFLOW = "float-overflow-placeholder"
+
+
+def _nested(depth: int) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for _ in range(depth):
+        value = {"child": value}
+    return value
+
+
 def _fivetran_connection(connection_id: str, **overrides: Any) -> dict[str, Any]:
     return {
         "id": connection_id,
@@ -322,6 +332,12 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             ("id_longer_than_its_column", False, [{"connection": _fivetran_connection("c" * 401)}]),
             ("migration_with_a_vendor_key", True, [{"connection": _fivetran_connection("conn_a")}]),
             ("migration_over_the_total_cap", False, [{"connection": _fivetran_connection("conn_a")}], 100),
+            ("deeply_nested_config", False, [{"connection": _fivetran_connection("conn_deep", config=_nested(200))}]),
+            (
+                "interval_past_float_range",
+                False,
+                [{"connection": _fivetran_connection("conn_inf", schedule={"interval": _FLOAT_OVERFLOW})}],
+            ),
         ]
     )
     def test_upload_refuses(
@@ -338,8 +354,11 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             credentials={"api_key": "fake-key", "api_secret": "fake-secret"} if has_vendor_key else {},
         )
 
+        # Sent as raw JSON, because the test client cannot encode `1e309`.
+        body = json.dumps({"connections": connections}).replace(f'"{_FLOAT_OVERFLOW}"', "1e309")
         with patch(f"{_SNAPSHOT}.MAX_UPLOADED_SNAPSHOT_BYTES", max_snapshot_bytes):
-            assert self._upload(migration.id, connections=connections).status_code == 400
+            response = self.client.post(f"{self.url}{migration.id}/connections/", body, content_type="application/json")
+        assert response.status_code == 400, response.content
         assert not WarehouseMigrationItem.objects.for_team(self.team.pk).exists()
 
     def test_another_teams_migration_or_a_malformed_id_is_not_found(self) -> None:
