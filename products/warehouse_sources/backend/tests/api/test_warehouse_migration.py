@@ -333,6 +333,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
             ("migration_with_a_vendor_key", True, [{"connection": _fivetran_connection("conn_a")}]),
             ("migration_over_the_total_cap", False, [{"connection": _fivetran_connection("conn_a")}], 100),
             ("deeply_nested_config", False, [{"connection": _fivetran_connection("conn_deep", config=_nested(200))}]),
+            ("nul_character", False, [{"connection": _fivetran_connection("conn_nul", config={"host": "db\x00"})}]),
             (
                 "interval_past_float_range",
                 False,
