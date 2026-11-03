@@ -276,7 +276,7 @@ def resolve_source_intervals(source_nodes: list[Node]) -> tuple[dict[str, timede
     return source_intervals, best_effort
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class FrequencyGraph:
     """The primitives `freshness.py` operates on, extracted from one DAG's Node/Edge rows."""
 
