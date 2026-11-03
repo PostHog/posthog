@@ -224,6 +224,7 @@ from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
     QuerySingleFlight,
+    query_single_flight_skipped,
 )
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import hydrate_response_scan
@@ -2738,7 +2739,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # rules out serving a leader's entry too. An export never stores its result, so its leader
         # would have nothing to hand a follower.
         return (
-            self._query_single_flight_enabled
+            not query_single_flight_skipped()
+            and self._query_single_flight_enabled
             and not self.requires_fresh_calculation()
             and self.limit_context != LimitContext.EXPORT
         )
