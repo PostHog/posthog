@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from hogli_commands.product.checks import CheckContext, WatchedChannelsCheck
+from hogli_commands.product.isolation import compute_isolation_status
+from hogli_commands.product.watched_channels import foreign_receiver_modules, outside_named_modules
+
+_SIGNAL_IMPORTS = "from django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\n"
+
+
+def _write(root: Path, files: dict[str, str]) -> None:
+    for rel, content in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+
+def _write_products(repo_root: Path, mine: dict[str, str]) -> Path:
+    """Two products under repo_root/products: `mine` (label "mine") with the given backend files,
+    and `other` (label "other"), whose model a foreign sender names."""
+    for name in ("mine", "other"):
+        _write(
+            repo_root / "products" / name / "backend",
+            {"__init__.py": "", "apps.py": f'class Config:\n    label = "{name}"\n', "models.py": ""},
+        )
+    product_dir = repo_root / "products" / "mine"
+    _write(product_dir / "backend", mine)
+    return product_dir
+
+
+class TestForeignReceivers:
+    @pytest.mark.parametrize(
+        "source, expected",
+        [
+            ('@receiver(post_save, sender="other.Thing")\ndef on_save(**kwargs): ...\n', {"backend/signals.py"}),
+            (
+                "from products.other.backend.models import Thing\n\n"
+                "@receiver(post_save, sender=Thing)\ndef on_save(**kwargs): ...\n",
+                {"backend/signals.py"},
+            ),
+            (
+                "from posthog.models.user import User\n\n"
+                "@receiver(post_save, sender=User)\ndef on_save(**kwargs): ...\n",
+                {"backend/signals.py"},
+            ),
+            (
+                "from django.conf import settings\n\n"
+                "@receiver(post_save, sender=settings.AUTH_USER_MODEL)\ndef on_save(**kwargs): ...\n",
+                {"backend/signals.py"},
+            ),
+            (
+                'def on_save(**kwargs): ...\n\nfor model in ("mine.Widget",):\n'
+                "    post_save.connect(on_save, sender=model)\n",
+                {"backend/signals.py"},
+            ),
+            ('@receiver(post_save, sender="mine.Widget")\ndef on_save(**kwargs): ...\n', set()),
+            (
+                "from products.mine.backend.models import Widget\n\n"
+                "@receiver(post_save, sender=Widget)\ndef on_save(**kwargs): ...\n",
+                set(),
+            ),
+            (
+                "from .models import Widget\n\n@receiver(post_save, sender=Widget)\ndef on_save(**kwargs): ...\n",
+                set(),
+            ),
+        ],
+        ids=[
+            "string-sender-of-another-product",
+            "imported-model-of-another-product",
+            "imported-core-model",
+            "auth-user-model-setting",
+            "unresolvable-sender-fails-closed",
+            "string-sender-of-own-product",
+            "imported-own-model",
+            "relative-import-of-own-model",
+        ],
+    )
+    def test_sender_resolution(self, tmp_path: Path, source: str, expected: set[str]) -> None:
+        product_dir = _write_products(tmp_path, {"signals.py": _SIGNAL_IMPORTS + source})
+        assert {c.path for c in foreign_receiver_modules(product_dir)} == expected
+
+    def test_connected_function_module_is_held_with_the_connecting_module(self, tmp_path: Path) -> None:
+        product_dir = _write_products(
+            tmp_path,
+            {
+                "handlers.py": "def on_save(**kwargs): ...\n",
+                "apps.py": (
+                    'class Config:\n    label = "mine"\n\n    def ready(self):\n'
+                    "        from django.db.models.signals import post_save\n\n"
+                    "        from . import handlers\n\n"
+                    '        post_save.connect(handlers.on_save, sender="other.Thing")\n'
+                ),
+            },
+        )
+        assert {c.path for c in foreign_receiver_modules(product_dir)} == {"backend/apps.py", "backend/handlers.py"}
+
+
+class TestOutsideTestNames:
+    @pytest.mark.parametrize(
+        "test_path, source, expected",
+        [
+            (
+                "posthog/api/test/test_thing.py",
+                'patch("products.mine.backend.delivery.email.send_email")\n',
+                {"backend/delivery/email.py"},
+            ),
+            (
+                "products/other/backend/tests/test_thing.py",
+                'MODULE = "products.mine.backend.delivery.email"\npatch(f"{MODULE}.send_email")\n',
+                {"backend/delivery/email.py"},
+            ),
+            (
+                "ee/tests/test_thing.py",
+                'patch(\n    "products.mine.backend.delivery."\n    "email.send_email"\n)\n',
+                {"backend/delivery/email.py"},
+            ),
+            (
+                "products/mine/backend/tests/test_thing.py",
+                'patch("products.mine.backend.delivery.email.send_email")\n',
+                set(),
+            ),
+        ],
+        ids=["patch-string", "module-constant-with-f-string", "implicit-concatenation", "test-inside-the-owner"],
+    )
+    def test_resolves_to_the_longest_module_file(
+        self, tmp_path: Path, test_path: str, source: str, expected: set[str]
+    ) -> None:
+        _write_products(tmp_path, {"delivery/__init__.py": "", "delivery/email.py": ""})
+        _write(tmp_path, {test_path: source})
+        assert {c.path for c in outside_named_modules("mine", tmp_path)} == expected
+
+
+class TestWatchedChannelsCheck:
+    @pytest.mark.parametrize(
+        "inputs, narrowed, unwatched",
+        [
+            (["backend/facade/**", "backend/delivery/email.py"], True, []),
+            (["backend/facade/**", "backend/delivery/**"], False, []),
+            (["backend/facade/**"], True, ["backend/delivery/email.py"]),
+            (
+                ["backend/facade/**", "backend/delivery/**", "!backend/delivery/email.py"],
+                False,
+                ["backend/delivery/email.py"],
+            ),
+        ],
+        ids=["listed", "inside-a-listed-directory", "not-listed", "negated"],
+    )
+    def test_patched_module_must_be_in_the_inputs(
+        self, tmp_path: Path, inputs: list[str], narrowed: bool, unwatched: list[str]
+    ) -> None:
+        product_dir = _write_products(tmp_path, {"facade/__init__.py": "", "delivery/email.py": ""})
+        _write(
+            product_dir,
+            {
+                "package.json": json.dumps({"scripts": {"backend:contract-check": "true"}}),
+                "turbo.json": json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}),
+            },
+        )
+        _write(tmp_path, {"posthog/test/test_thing.py": 'patch("products.mine.backend.delivery.email.send")\n'})
+        backend_dir = product_dir / "backend"
+        status = compute_isolation_status(
+            "mine", product_dir, backend_dir, tach_content="", pyproject_text="", repo_root=tmp_path
+        )
+        ctx = CheckContext(
+            name="mine",
+            product_dir=product_dir,
+            backend_dir=backend_dir,
+            has_facade_contracts=False,
+            structure={},
+            detailed=False,
+            _isolation=status,
+        )
+
+        result = WatchedChannelsCheck().run(ctx)
+
+        assert status.has_narrowed_turbo is narrowed
+        assert [issue.split(" ", 1)[0] for issue in result.issues] == unwatched

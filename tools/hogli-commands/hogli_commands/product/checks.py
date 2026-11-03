@@ -37,9 +37,11 @@ from .isolation import (
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    unwatched_modules,
     webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
+from .watched_channels import unwatched_channel_issue
 from .wiring_interfaces import APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS, WiringVerdict
 
 # ---------------------------------------------------------------------------
@@ -1355,6 +1357,33 @@ class OrphanedTestFilesCheck(ProductCheck):
         return result
 
 
+class WatchedChannelsCheck(ProductCheck):
+    """Hold the modules that outside suites run without an import edge in the contract-check inputs.
+
+    watched_channels.py finds them: receivers on a sender the product does not own, and modules that
+    outside tests name by dotted path. Only a product with 'backend:contract-check' skips the suite,
+    so no other product runs this check.
+    """
+
+    label = "watched channels"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and ctx.isolation_status().has_contract_check_script
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        channels = ctx.isolation_status().channel_modules
+        unwatched = unwatched_modules(ctx.product_dir, {c.path for c in channels})
+        result = CheckResult(file=f"products/{ctx.name}/turbo.json")
+        result.issues = [
+            unwatched_channel_issue(path, [c for c in channels if c.path == path]) for path in sorted(unwatched)
+        ]
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -1367,5 +1396,6 @@ CHECKS: list[ProductCheck] = [
     IsolationChainCheck(),
     FacadeShapeCheck(),
     WiringInterfaceCheck(),
+    WatchedChannelsCheck(),
     OrphanedTestFilesCheck(),
 ]
