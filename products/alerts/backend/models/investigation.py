@@ -17,7 +17,7 @@ class InsightAlertInvestigation(TeamScopedRootMixin, UUIDModel):
     claim refused, which is recorded as SKIPPED and spends no budget.
     """
 
-    # As long as the platform's check history that the rows annotate.
+    # As long as the platform's check history the rows annotate (`PLATFORM_ALERT_EVENTS_TTL_DAYS`).
     RETENTION: ClassVar[timedelta] = timedelta(days=90)
 
     class Kind(models.TextChoices):

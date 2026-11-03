@@ -30,16 +30,11 @@ from products.alerts_platform.backend.facade.api import (
     check_page_by_legacy_id,
     checks_with_detail_by_legacy_id,
     last_check_by_legacy_id,
-    released_holds_by_legacy_id,
     runtime_by_legacy_id,
+    source_suppressed_holds_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
-from products.alerts_platform.backend.facade.enums import (
-    HoldRelease,
-    HoldReleasedBy,
-    PlatformAlertOwner,
-    PlatformAlertState,
-)
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 
 # The detail key a detector check that fired on a point stores its dates under.
 FIRED_DATES_KEY: Final = "triggered_dates"
@@ -129,13 +124,9 @@ def moved_alert_check_page(
         .filter(alert_configuration_id=alert_id, evaluation_key__in=keys)
         .select_related("notebook")
     }
-    releases = released_holds_by_legacy_id(team_id=team_id, legacy_configuration_id=alert_id, evaluation_keys=keys)
-    suppressed_holds = {
-        key
-        for key, release in releases.items()
-        # The safety net suppresses only the hold of an alert turned off, which is no verdict of the agent's.
-        if release.action == HoldRelease.SUPPRESS and release.released_by != HoldReleasedBy.SAFETY_NET
-    }
+    suppressed_holds = source_suppressed_holds_by_legacy_id(
+        team_id=team_id, legacy_configuration_id=alert_id, evaluation_keys=keys
+    )
     return MovedAlertCheckPage(
         total=page.total,
         checks=tuple(

@@ -18,7 +18,6 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     HeldDeliveryAddress,
-    HeldDeliveryRelease,
     PlatformAlertOutcome,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
@@ -165,31 +164,26 @@ def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) ->
     )
 
 
-def released_holds_by_legacy_id(
+def source_suppressed_holds_by_legacy_id(
     team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
-) -> dict[str, HeldDeliveryRelease]:
-    """How each named evaluation's hold was released, keyed by evaluation key, for an alert the platform owns.
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose hold its source released with a suppress.
 
-    An evaluation with no hold, or one still held, is left out.
+    A suppress by the safety net is left out: it is the platform's, for a configuration turned off.
     """
     if not evaluation_keys:
-        return {}
-    rows = (
+        return frozenset()
+    return frozenset(
         PlatformAlertDeliveryHold.objects.for_team(team_id)
         .filter(
             configuration__legacy_configuration_id=legacy_configuration_id,
             configuration__owner=PlatformAlertOwner.PLATFORM,
             evaluation_key__in=evaluation_keys,
-            released_at__isnull=False,
+            release_action=HoldRelease.SUPPRESS,
         )
-        .values_list("evaluation_key", "release_action", "released_by")
+        .exclude(released_by=HoldReleasedBy.SAFETY_NET)
+        .values_list("evaluation_key", flat=True)
     )
-    return {
-        key: HeldDeliveryRelease(action=HoldRelease(action), released_by=HoldReleasedBy(released_by))
-        for key, action, released_by in rows
-        # A release always writes both, so a released hold never lacks either.
-        if action is not None and released_by is not None
-    }
 
 
 def prune_holds(now: datetime, *, limit: int) -> int:
