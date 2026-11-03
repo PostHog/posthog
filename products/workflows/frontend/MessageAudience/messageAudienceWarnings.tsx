@@ -4,7 +4,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
