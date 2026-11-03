@@ -94,6 +94,7 @@
     'posthog.tasks.hypercache_verification.verify_and_fix_team_metadata_cache_task',
     'posthog.tasks.integrations.delete_ses_identity_if_unused',
     'posthog.tasks.integrations.push_vercel_secrets',
+    'posthog.tasks.integrations.recover_github_access',
     'posthog.tasks.integrations.refresh_github_branch_cache',
     'posthog.tasks.integrations.refresh_integration',
     'posthog.tasks.integrations.refresh_integrations',
