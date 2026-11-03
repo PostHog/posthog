@@ -26,7 +26,7 @@ from products.workflows.backend.services.ses_events_dlq import (
     inspect_queue,
     sqs_client,
 )
-from products.workflows.backend.services.ses_events_dlq_runs import finish_run, recent_runs, start_run
+from products.workflows.backend.services.ses_events_dlq_runs import ACTIVE_STATUSES, finish_run, recent_runs, start_run
 from products.workflows.backend.tasks.ses_events_dlq import replay_ses_events_dlq_task
 
 logger = structlog.get_logger(__name__)
@@ -85,7 +85,7 @@ def ses_events_dlq_view(request: HttpRequest) -> HttpResponse:
         "title": "SES events dead-letter queues",
         "queues": [_queue_view(queue) for queue in configured_queues()],
         "runs": runs,
-        "has_active_run": any(run["status"] in ("queued", "running") for run in runs),
+        "has_active_run": any(run["status"] in ACTIVE_STATUSES for run in runs),
         "replay_url": reverse(f"admin:{REPLAY_URL_NAME}"),
         "default_limit": ReplayForm.base_fields["limit"].initial,
         "default_max_per_second": ReplayForm.base_fields["max_per_second"].initial,

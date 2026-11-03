@@ -48,6 +48,9 @@ class QueueLockLost(Exception):
     pass
 
 
+ACTIVE_STATUSES = ("queued", "running")
+
+
 def _run_key(run_id: str) -> str:
     return f"workflows:ses_events_dlq:run:{run_id}"
 
@@ -119,8 +122,31 @@ def finish_run(
 def recent_runs() -> list[dict[str, Any]]:
     redis = get_client()
     runs = []
-    for run_id in redis.lrange(RECENT_RUNS_KEY, 0, RECENT_RUNS_KEPT - 1):
-        raw = redis.get(_run_key(run_id.decode() if isinstance(run_id, bytes) else run_id))
-        if raw is not None:
-            runs.append(json.loads(raw))
+    for raw_id in redis.lrange(RECENT_RUNS_KEY, 0, RECENT_RUNS_KEPT - 1):
+        run = _read_run(raw_id.decode() if isinstance(raw_id, bytes) else raw_id)
+        if run is not None:
+            runs.append(run)
     return runs
+
+
+def _read_run(run_id: str) -> dict[str, Any] | None:
+    redis = get_client()
+    raw = redis.get(_run_key(run_id))
+    if raw is None:
+        return None
+    run = json.loads(raw)
+    if run["status"] not in ACTIVE_STATUSES or _owns_lock(run_id, run["queue"]):
+        return run
+    # finish_run writes the run before it frees the lock, so a second read tells a run that just
+    # finished from one whose worker died.
+    raw = redis.get(_run_key(run_id))
+    run = json.loads(raw) if raw is not None else run
+    if run["status"] in ACTIVE_STATUSES:
+        run["status"] = "failed"
+        run["error"] = "The worker stopped before the run finished. Start another run."
+    return run
+
+
+def _owns_lock(run_id: str, queue_name: str) -> bool:
+    owner = get_client().get(_lock_key(queue_name))
+    return owner is not None and (owner.decode() if isinstance(owner, bytes) else owner) == run_id

@@ -129,6 +129,18 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
         assert run["status"] == "failed"
         assert start_run(QUEUE, options, "staff@example.com") is not None
 
+    def test_a_run_whose_worker_died_shows_as_failed_once_its_lock_expires(self) -> None:
+        options = ReplayOptions(dry_run=False, limit=10, max_per_second=5)
+        run_id = start_run(QUEUE, options, "staff@example.com")
+        assert run_id is not None
+        assert recent_runs()[0]["status"] == "queued"
+
+        get_client().delete(f"workflows:ses_events_dlq:lock:{QUEUE.name}")
+
+        [run] = recent_runs()
+        assert run["status"] == "failed"
+        assert "worker stopped" in run["error"]
+
     def test_a_task_that_starts_after_another_run_took_its_queue_reads_nothing(self) -> None:
         options = ReplayOptions(dry_run=False, limit=10, max_per_second=5)
         run_id = start_run(QUEUE, options, "staff@example.com")
