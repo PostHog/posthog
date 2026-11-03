@@ -43,6 +43,7 @@ type BaselineModule = {
 }
 
 /** A logical database of its own, so a run never resets limiter or sampling state that a local consumer or test suite keeps. */
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
 const BENCH_REDIS_URL = 'redis://127.0.0.1:6379/9'
 
 async function clearBenchRedis(): Promise<void> {
