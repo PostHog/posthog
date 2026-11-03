@@ -94,29 +94,6 @@ export function withPrefilledEmail(workflow: HogFlow, email: MessageDraft): HogF
     }
 }
 
-export function withEmailSender(workflow: HogFlow, integrationId: number): { workflow: HogFlow; filled: boolean } {
-    let filled = false
-    const actions = workflow.actions.map((action) => {
-        const config = action.config as Record<string, any>
-        const value = config?.template_id === 'template-email' ? config.inputs?.email?.value : null
-        if (!value || value.from?.integrationId) {
-            return action
-        }
-        filled = true
-        return {
-            ...action,
-            config: {
-                ...config,
-                inputs: {
-                    ...config.inputs,
-                    email: { ...config.inputs.email, value: { ...value, from: { ...value.from, integrationId } } },
-                },
-            },
-        } as HogFlowAction
-    })
-    return { workflow: filled ? { ...workflow, actions } : workflow, filled }
-}
-
 /** The prefilled email step inside the brand's design, or the workflow unchanged when the brand doesn't fit. */
 export function withEmailBrand(workflow: HogFlow, brand: EmailBrand | null): HogFlow {
     if (!brand) {

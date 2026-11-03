@@ -20,7 +20,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -44,7 +43,6 @@ import {
 } from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
-import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -55,6 +53,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import { withFirstRunSender } from './firstRunSender'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -81,13 +80,7 @@ import {
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
-import {
-    prefilledEmailContent,
-    prefilledWorkflow,
-    withEmailBrand,
-    withEmailSender,
-    withPrefilledEmail,
-} from './workflowEmailPrefill'
+import { prefilledEmailContent, prefilledWorkflow, withEmailBrand, withPrefilledEmail } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
 import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
@@ -162,18 +155,10 @@ export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-w
 
 async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     try {
-        const team = teamLogic.findMounted()?.values.currentTeam
-        const sender = resolveDefaultEmailSender(
-            (await api.integrations.list()).results,
-            team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
-        )
-        if (!sender) {
-            return workflow
-        }
-        const result = withEmailSender(workflow, sender.integrationId)
-        if (result.filled) {
+        const result = await withFirstRunSender(workflow)
+        if (result.sender) {
             // pinned: analytics event name
-            posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+            posthog.capture('email sender preselected', { surface: 'workflow', reason: result.sender.reason })
         }
         return result.workflow
     } catch {
