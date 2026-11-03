@@ -203,14 +203,28 @@ describe('EmailTrackingService', () => {
         } as any
         const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
 
-        it('includes distinct_id in the public tracking URLs in dev/test', () => {
-            const out = addTrackingToEmail(
-                '<body><a href="https://example.com">x</a></body>',
-                invocationWithDistinctId,
-                signer
-            )
-            expect(signer.parse(phIdOf(out))?.distinctId).toBe('leaky-id')
-        })
+        it.each([
+            { captureEngagement: undefined, distinctId: 'leaky-id' },
+            { captureEngagement: true, distinctId: 'leaky-id' },
+            { captureEngagement: false, distinctId: undefined },
+        ])(
+            'mints the pixel and redirect codes in dev/test with the distinct_id the send choice $captureEngagement allows',
+            ({ captureEngagement, distinctId }) => {
+                const out = addTrackingToEmail(
+                    '<body><a href="https://example.com">x</a></body>',
+                    {
+                        ...invocationWithDistinctId,
+                        hogFunction: { metadata: { capture_engagement: captureEngagement } },
+                    },
+                    signer
+                )
+                const codes = [...out.matchAll(/ph_id=([A-Za-z0-9_.-]+)/g)].map((match) => signer.parse(match[1]))
+                expect(codes).toHaveLength(2)
+                for (const code of codes) {
+                    expect(code).toMatchObject({ functionId: 'fn-1', invocationId: 'inv-1', distinctId })
+                }
+            }
+        )
 
         it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
             const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)
@@ -470,7 +484,6 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId?: string
                 distinctId?: string
                 captureEngagement?: boolean
-                // A code a real send put in its header, used as is instead of minting one here.
                 headerCode?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
@@ -658,8 +671,6 @@ describe('EmailTrackingService', () => {
                 }
             )
 
-            // The header code comes from a real send, so it has the layout production mints, not one
-            // this file picks for the reader under test.
             it.each([
                 { captureEngagement: true, captured: 1 },
                 { captureEngagement: false, captured: 0 },

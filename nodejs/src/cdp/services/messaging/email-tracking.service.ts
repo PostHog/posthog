@@ -134,8 +134,6 @@ export const resolveEmailCaptureChoice = (
     return typeof choice === 'boolean' ? choice : undefined
 }
 
-// The distinct_id to put in a tracking code. Every reader skips engagement capture for a code
-// without one, so leaving it out honors an opt-out on readers that cannot parse the capture choice.
 export const resolveEmailTrackingDistinctId = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
 ): string | undefined => {
