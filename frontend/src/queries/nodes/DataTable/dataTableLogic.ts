@@ -32,7 +32,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isDataTableNode, isEventsQuery, isHogQLAggregation } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -293,9 +293,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 if (orderBy) {
                     return orderBy
                 }
-                // The column configurator can save `orderBy: undefined`, and the events query runner
-                // then sorts by timestamp DESC, so treat an unset value like a missing key.
-                return isEventsQuery(query.source) ? ['timestamp DESC'] : null
+                if (!isEventsQuery(query.source)) {
+                    return null
+                }
+                // An unset orderBy (the column configurator saves `orderBy: undefined`) gets the events
+                // query runner's default. That default is timestamp DESC only for a select with a
+                // timestamp column and no aggregation, so any other select gets no date separators.
+                const { select } = query.source
+                return select.includes('timestamp') && !select.some(isHogQLAggregation) ? ['timestamp DESC'] : null
             },
             { resultEqualityCheck: objectsEqual },
         ],

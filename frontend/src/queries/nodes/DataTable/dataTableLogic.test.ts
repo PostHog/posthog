@@ -122,6 +122,15 @@ describe('dataTableLogic', () => {
         dataTableLogic({
             dataKey: testUniqueKey,
             vizKey: testUniqueKey,
+            query: getDataTableQuery({ select: ['timestamp', 'count()'] }),
+        })
+
+        await expectLogic(logic).delay(0).toMatchValues({ orderBy: null })
+
+        // change props
+        dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: {
                 kind: NodeKind.DataTableNode,
                 source: {
