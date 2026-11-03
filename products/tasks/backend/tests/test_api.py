@@ -5100,6 +5100,32 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
         mock_workflow.assert_not_called()
 
+    @parameterized.expand([("user_integration",), ("team_integration_only",)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_attaches_no_github_to_refused_repo_less_task(self, available, mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        if available == "user_integration":
+            _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.origin_product = Task.OriginProduct.WORKFLOW
+        task.save(update_fields=["origin_product"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task.refresh_from_db()
+        self.assertIsNone(task.github_integration_id)
+        self.assertIsNone(task.github_user_integration_id)
+        mock_workflow.assert_not_called()
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_cannot_start_a_product_private_account_audit(self, mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})

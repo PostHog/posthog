@@ -6390,7 +6390,9 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
-    if task.origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+    if not Task._github_resolution_allowed(
+        task.origin_product, has_repository=bool(task.repositories or task.repository)
+    ):
         return None, None
 
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
