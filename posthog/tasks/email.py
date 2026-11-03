@@ -24,10 +24,12 @@ from posthog.dataclasses import frozen
 from posthog.email import (
     EMAIL_TASK_KWARGS,
     EmailMessage,
+    EmailRecipientUndeliverableError,
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
     single_line,
+    was_recipient_undeliverable,
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
@@ -734,6 +736,8 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     )
     message.add_user_recipient(user)
     message.send(send_async=False)
+    if was_recipient_undeliverable(message.campaign_key, user.email):
+        raise EmailRecipientUndeliverableError(f"login code refused for user {user.pk}")
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",

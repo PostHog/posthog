@@ -57,7 +57,7 @@ from posthog.api.email_verification import email_verification_code_verifier, is_
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
-from posthog.email import is_email_available
+from posthog.email import EmailRecipientUndeliverableError, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
@@ -254,6 +254,13 @@ class TwoFactorRequired(APIException):
     default_code = "2fa_required"
 
 
+LOGIN_CODE_UNDELIVERABLE_CODE = "login_code_undeliverable"
+LOGIN_CODE_UNDELIVERABLE_ERROR = (
+    "We can't deliver email to your address, so we can't send you a login code. "
+    "Contact support to get back into your account."
+)
+
+
 class CodeBasedVerificationRequired(APIException):
     status_code = 401
     default_detail = "Code-based verification is required."
@@ -448,9 +455,14 @@ class LoginSerializer(serializers.Serializer):
             else:
                 # Code-based verification - skip if this is a reauth (user already authenticated)
                 if not was_authenticated_before_login_attempt:
-                    code_based_verification_sent = code_based_verifier.create_and_send_code_based_verification(
-                        request, user
-                    )
+                    try:
+                        code_based_verification_sent = code_based_verifier.create_and_send_code_based_verification(
+                            request, user
+                        )
+                    except EmailRecipientUndeliverableError:
+                        raise serializers.ValidationError(
+                            LOGIN_CODE_UNDELIVERABLE_ERROR, code=LOGIN_CODE_UNDELIVERABLE_CODE
+                        )
                     if code_based_verification_sent:
                         # Increment the resend throttle counter so the initial send counts towards the limit
                         resend_throttle = CodeBasedVerificationResendThrottle()
@@ -1237,7 +1249,13 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True):
+        try:
+            sent = code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=True)
+        except EmailRecipientUndeliverableError:
+            raise serializers.ValidationError(
+                {"detail": LOGIN_CODE_UNDELIVERABLE_ERROR}, code=LOGIN_CODE_UNDELIVERABLE_CODE
+            )
+        if not sent:
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",

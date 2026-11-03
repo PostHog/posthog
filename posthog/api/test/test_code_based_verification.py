@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
+from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 
@@ -123,6 +124,25 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
         response = self.client.post(VERIFY_URL, {"code": "123456"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "no_pending_verification")
+
+    @parameterized.expand([("login",), ("resend",)])
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_refused_address_gets_an_error_and_no_login(self, step: str) -> None:
+        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen, enable_code_sending() as mock_send:
+            if step == "resend":
+                self._trigger(mock_send)
+                frozen.move_to("2024-01-01T10:01:01")
+            mock_send.side_effect = EmailRecipientUndeliverableError("refused")
+            if step == "login":
+                response = self.client.post(
+                    "/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+                )
+            else:
+                response = self.client.post(RESEND_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "login_code_undeliverable")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_totp_user_gets_2fa_not_code_based_verification(self):

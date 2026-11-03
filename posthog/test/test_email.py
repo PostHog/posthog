@@ -38,6 +38,7 @@ from posthog.email import (
     get_email_team_and_org_context,
     get_workflows_template_id,
     sanitize_email_properties,
+    was_recipient_undeliverable,
 )
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
@@ -684,6 +685,10 @@ class TestEmail(BaseTest):
         self.assertEqual([c.kwargs["event"] for c in mock_capture.call_args_list], expected_events)
         self.assertTrue(
             all(c.kwargs["properties"]["template_name"] == "2fa_enabled" for c in mock_capture.call_args_list)
+        )
+        self.assertEqual(
+            was_recipient_undeliverable("routing_campaign", "test@posthog.com"),
+            expected_events == ["transactional email workflows rejected"],
         )
         record = MessagingRecord.objects.filter(campaign_key="routing_campaign").first()
         if sent_by is None:

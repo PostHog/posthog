@@ -226,6 +226,9 @@ WORKFLOWS_PIN_TTL_SECONDS = 24 * 60 * 60
 # provider would bounce it, so the email is dropped. It is not retried and Customer.io does not send it.
 WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable", "recipient_suppressed"})
 
+# Long enough for the synchronous caller of the send to read the refusal.
+WORKFLOWS_UNDELIVERABLE_MARKER_TTL_SECONDS = 10 * 60
+
 # 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
 # the workflow.
 WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused"})
@@ -444,6 +447,24 @@ def _pin_to_workflows(idempotency_key: str, template_id: str) -> None:
         logger.warning("email_workflows_pin_write_failed", error=str(err))
 
 
+def _mark_undeliverable(idempotency_key: str) -> None:
+    try:
+        cache.set(
+            f"email_workflows_undeliverable:{idempotency_key}", True, timeout=WORKFLOWS_UNDELIVERABLE_MARKER_TTL_SECONDS
+        )
+    except Exception as err:
+        logger.warning("email_workflows_undeliverable_write_failed", error=str(err))
+
+
+def was_recipient_undeliverable(campaign_key: str, raw_email: str) -> bool:
+    """Whether Workflows refused this campaign for this recipient because the address cannot receive email."""
+    try:
+        return bool(cache.get(f"email_workflows_undeliverable:{_workflows_idempotency_key(campaign_key, raw_email)}"))
+    except Exception as err:
+        logger.warning("email_workflows_undeliverable_read_failed", error=str(err))
+        return False
+
+
 def _send_one_via_workflows(
     dest: dict[str, str], campaign_key: str, template_id: str, properties: dict
 ) -> dict[str, Any]:
@@ -533,6 +554,7 @@ def _send_one(
                 # means that no earlier attempt queued the email. The pin keeps a retry of the batch on Workflows, so a
                 # flag change cannot send this recipient through Customer.io, where the email would hard bounce.
                 _pin_to_workflows(idempotency_key, workflows_template_id)
+                _mark_undeliverable(idempotency_key)
                 logger.info("email_workflows_recipient_undeliverable", template_name=template_name)
                 _capture_email_event(
                     capture,
@@ -760,6 +782,10 @@ def _send_via_smtp(
 
 class EmailDeliveryError(Exception):
     """A synchronous send returned without the provider accepting the email."""
+
+
+class EmailRecipientUndeliverableError(EmailDeliveryError):
+    """The send API refused the recipient because the address cannot receive email, for example after a hard bounce."""
 
 
 def was_email_delivered(campaign_key: str, email: str) -> bool:
