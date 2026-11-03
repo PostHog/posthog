@@ -56,7 +56,6 @@ export type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functi
     // been republished — so the sending version has to travel with the message rather than being
     // looked up on arrival. Absent for hog function sends, which have no version.
     workflowVersion?: number
-    captureEngagement?: boolean
 }
 
 export type TrackingCodeFormat = 'signed' | 'unsigned'
@@ -85,7 +84,6 @@ export type ParsedTrackingCode = {
     isTest: boolean
     distinctId?: string
     workflowVersion?: number
-    captureEngagement?: boolean
     format: TrackingCodeFormat
 }
 
@@ -96,12 +94,6 @@ export type ParsedTrackingCode = {
 // layout and no version. It can't collide with a real payload because segment 0 is a UUID.
 const VERSIONED_PAYLOAD_MARKER = 'v2'
 
-const CAPTURE_CHOICE_PAYLOAD_MARKER = 'v3'
-
-function parseCaptureChoice(segment: string | undefined): boolean | undefined {
-    return segment === '1' ? true : segment === '0' ? false : undefined
-}
-
 const EMIT_VERSIONED_PAYLOAD = true
 
 // The redirect signature binds the destination to the tracking code, so a link cannot be edited to
@@ -109,8 +101,6 @@ const EMIT_VERSIONED_PAYLOAD = true
 // leading `[` keeps this payload apart from tracking-code payloads, which are bare base64url.
 const redirectSignaturePayload = (trackingCode: string, targetUrl: string): string =>
     JSON.stringify(['redirect', trackingCode, targetUrl])
-
-const EVERY_TRACKING_DEPLOYMENT_PARSES_CAPTURE_CHOICE = false
 
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured
@@ -169,19 +159,17 @@ export class EmailTrackingCodeSigner {
         try {
             const decoded = fromBase64UrlSafe(payloadB64)
             const segments = decoded.split(':')
-            const carriesCaptureChoice = segments[0] === CAPTURE_CHOICE_PAYLOAD_MARKER
-            const isVersioned = carriesCaptureChoice || segments[0] === VERSIONED_PAYLOAD_MARKER
+            const isVersioned = segments[0] === VERSIONED_PAYLOAD_MARKER
             const fields = isVersioned ? segments.slice(1) : segments
             // distinctId is the trailing segment and may itself contain colons, so rejoin everything past it.
             const [functionId, invocationId, teamId, actionId, parentRunId, isTest] = fields
-            const distinctIdParts = fields.slice(carriesCaptureChoice ? 8 : isVersioned ? 7 : 6)
+            const distinctIdParts = fields.slice(isVersioned ? 7 : 6)
             if (!functionId || !invocationId) {
                 return null
             }
             // Signed-only for the same reason as distinct_id below: `generate` always signs, and the
             // unsigned tag carrier never mints a version, so a version on an unsigned code is forged.
             const workflowVersion = isVersioned && format === 'signed' ? Number.parseInt(fields[6], 10) : Number.NaN
-            const signedCaptureChoice = format === 'signed' ? parseCaptureChoice(fields[7]) : undefined
             return {
                 functionId,
                 invocationId,
@@ -192,7 +180,6 @@ export class EmailTrackingCodeSigner {
                 // Empty for hog function sends, which have no version.
                 workflowVersion:
                     Number.isInteger(workflowVersion) && workflowVersion >= 1 ? workflowVersion : undefined,
-                captureEngagement: carriesCaptureChoice ? signedCaptureChoice : undefined,
                 // Only trust distinct_id from a signed code — the HMAC is its integrity guarantee. The
                 // legitimate unsigned tag never carries a distinct_id, so an unsigned code with one is
                 // forged; honoring it would let a crafted ph_id inject engagement events for any team.
@@ -210,12 +197,7 @@ export class EmailTrackingCodeSigner {
     // Full tracking code, HMAC-signed when a signing key is configured. Rides in the custom MIME
     // header and the pixel/link URLs — carriers with no length cap — and the signature lets the
     // public tracking endpoint reject forged `ph_id` values.
-    generate(
-        invocation: TrackingInvocation,
-        isTest = false,
-        emitVersionedPayload = EMIT_VERSIONED_PAYLOAD,
-        emitCaptureChoice = EVERY_TRACKING_DEPLOYMENT_PARSES_CAPTURE_CHOICE
-    ): string {
+    generate(invocation: TrackingInvocation, isTest = false, emitVersionedPayload = EMIT_VERSIONED_PAYLOAD): string {
         const actionId = invocation.state?.actionId ?? ''
         const parentRunId = invocation.parentRunId ?? ''
         const distinctId = invocation.distinctId ?? ''
@@ -232,17 +214,9 @@ export class EmailTrackingCodeSigner {
             isTest ? '1' : '',
         ]
         const payload = toBase64UrlSafe(
-            emitCaptureChoice && typeof invocation.captureEngagement === 'boolean'
-                ? [
-                      CAPTURE_CHOICE_PAYLOAD_MARKER,
-                      ...fields,
-                      workflowVersion,
-                      invocation.captureEngagement ? '1' : '0',
-                      distinctId,
-                  ].join(':')
-                : emitVersionedPayload
-                  ? [VERSIONED_PAYLOAD_MARKER, ...fields, workflowVersion, distinctId].join(':')
-                  : [...fields, distinctId].join(':')
+            emitVersionedPayload
+                ? [VERSIONED_PAYLOAD_MARKER, ...fields, workflowVersion, distinctId].join(':')
+                : [...fields, distinctId].join(':')
         )
         if (this.signingKeys.length === 0) {
             // Fail closed (#62624): a deployment with no signing key must never mint unsigned tracking
