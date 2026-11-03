@@ -8,7 +8,7 @@ import {
     PeriodicExportingMetricReader,
 } from '@opentelemetry/sdk-metrics'
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
+import { CODES, Message } from 'node-rdkafka'
 
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
@@ -61,6 +61,9 @@ import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 import { LogsTransformerService } from './transformations/logs-transformer.service'
+
+const LibrdKafkaError = require('node-rdkafka/lib/error')
+const { err2str } = require('node-rdkafka/librdkafka') as { err2str: (code: number) => string }
 
 // What capture-logs forwards for a producer that signed just before the request arrived. Both times come
 // from `Date.now()`, which these tests pin, because a bare `new Date()` still reads the real clock.
@@ -603,7 +606,12 @@ describe('LogsIngestionConsumer', () => {
     })
 
     describe('error handling', () => {
-        it('should send failed messages to DLQ', async () => {
+        const kafkaDeliveryError = (code: number): Error => LibrdKafkaError.create(new Error(err2str(code)))
+
+        it.each([
+            ['a processing error', () => new Error('Producer error')],
+            ['a Kafka error that a replay cannot fix', () => kafkaDeliveryError(CODES.ERRORS.ERR_INVALID_RECORD)],
+        ])('should send failed messages to DLQ on %s', async (_, makeError) => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
                 token: team.api_token,
@@ -617,7 +625,7 @@ describe('LogsIngestionConsumer', () => {
             const queueSpy = jest.fn().mockImplementation((topicMessages) => {
                 const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
                 if (t === 'clickhouse_logs_test') {
-                    throw new Error('Producer error')
+                    throw makeError()
                 }
                 return passthrough(topicMessages)
             })
@@ -684,7 +692,15 @@ describe('LogsIngestionConsumer', () => {
             }
         })
 
-        it('should fail the batch instead of DLQing when a dependency is unavailable', async () => {
+        it.each([
+            [
+                'a dependency is unavailable',
+                () => new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down')),
+            ],
+            ['a delivery times out', () => kafkaDeliveryError(CODES.ERRORS.ERR__MSG_TIMED_OUT)],
+            ['the producer queue is full', () => LibrdKafkaError.create(CODES.ERRORS.ERR__QUEUE_FULL)],
+            ['the topic rejects authorization', () => kafkaDeliveryError(CODES.ERRORS.ERR_TOPIC_AUTHORIZATION_FAILED)],
+        ])('should fail the batch instead of DLQing when %s', async (_, makeError) => {
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
                 token: team.api_token,
@@ -695,7 +711,7 @@ describe('LogsIngestionConsumer', () => {
             mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
                 const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
                 if (t === KAFKA_LOGS_CLICKHOUSE) {
-                    throw new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down'))
+                    throw makeError()
                 }
                 return passthrough(topicMessages)
             })
@@ -703,9 +719,7 @@ describe('LogsIngestionConsumer', () => {
             try {
                 // The message is good data that succeeds on redelivery. Quarantining it would
                 // move it out of the source topic for an outage that was not its fault.
-                await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow(
-                    'broker down'
-                )
+                await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow()
                 expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)).toHaveLength(0)
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
@@ -1090,7 +1104,9 @@ describe('LogsIngestionConsumer', () => {
                 },
                 {
                     samplingRulesCache: dropEverything as SamplingRulesCache,
-                    internalSourcePolicies: { hog_flow: { billed, teamRules: false } },
+                    internalSourcePolicies: {
+                        hog_flow: { billed, teamRules: false, serviceName: 'posthog-internal-workflows' },
+                    },
                 }
             )
             // A quota limit drops every billed batch, so it applies only to the rows that test the internal bypass.
