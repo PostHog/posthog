@@ -42,6 +42,14 @@ export const manifest: ProductManifest = {
         '/error-tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     },
     redirects: {
+        '/error-tracking/configuration': (_params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+        '/error-tracking/configuration/:tab': (params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+        '/error-tracking/settings': (_params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+        '/error-tracking/settings/:tab': (params, searchParams, hashParams) =>
+            configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
         // The fingerprints scene became a modal on the issue page. Keep old links working.
         '/error_tracking/:id/fingerprints': (params) =>
             combineUrl(`/error-tracking/${params.id}`, { manageFingerprints: 'true' }).url,

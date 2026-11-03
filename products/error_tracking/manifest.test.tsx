@@ -60,6 +60,12 @@ describe('error tracking routes', () => {
     // Legacy settings links (from docs, bookmarks, and old onboarding) used to dead-end on a blank
     // issue page. Each must now land on its tab in the configuration panel.
     it.each([
+        ['/error-tracking/configuration', {}, {}, undefined],
+        ['/error-tracking/settings', {}, {}, undefined],
+        ['/error-tracking/configuration/:tab', { tab: 'symbol_sets' }, {}, 'error-tracking-symbol-sets'],
+        ['/error-tracking/settings/:tab', { tab: 'symbol-sets' }, {}, 'error-tracking-symbol-sets'],
+        ['/error-tracking/configuration', {}, { tab: 'alerting' }, 'error-tracking-alerting'],
+        ['/error-tracking/settings', {}, { tab: 'symbol_sets' }, 'error-tracking-symbol-sets'],
         ['/error_tracking/symbol_sets', {}, {}, 'error-tracking-symbol-sets'],
         ['/error_tracking/symbol-sets', {}, {}, 'error-tracking-symbol-sets'],
         ['/error_tracking/configuration/:tab', { tab: 'symbol_sets' }, {}, 'error-tracking-symbol-sets'],
@@ -69,10 +75,16 @@ describe('error tracking routes', () => {
         ['/error_tracking/settings', {}, { tab: 'symbol_sets' }, 'error-tracking-symbol-sets'],
     ])('redirects %s to the configuration tab with the right setting', (path, params, searchParams, settingId) => {
         const redirect = manifest.redirects![path] as RedirectFn
-        const url = redirect(params as Record<string, string>, searchParams as Record<string, string>, {})
+        const url = redirect(
+            params as Record<string, string>,
+            { ...searchParams, dateRange: '7d' } as Record<string, string>,
+            { foo: 'bar' }
+        )
+        const parsedUrl = new URL(url, 'https://example.com')
 
-        expect(url).toMatch(/^\/error-tracking\?/)
-        expect(url).toContain('activeTab=configuration')
-        expect(url).toContain(`selectedSetting=${settingId}`)
+        expect(parsedUrl.pathname).toBe('/error-tracking')
+        expect(Object.fromEntries(parsedUrl.searchParams)).toEqual({ activeTab: 'configuration', dateRange: '7d' })
+        expect(new URLSearchParams(parsedUrl.hash.slice(1)).get('foo')).toBe('bar')
+        expect(new URLSearchParams(parsedUrl.hash.slice(1)).get('selectedSetting')).toBe(settingId ?? null)
     })
 })
