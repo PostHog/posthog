@@ -21,8 +21,9 @@ from products.warehouse_sources.backend.migration.apply import (
     build_planned_schemas,
     with_table_overrides,
 )
+from products.warehouse_sources.backend.migration.capabilities import source_capabilities
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
-from products.warehouse_sources.backend.migration.types import ItemProposal
+from products.warehouse_sources.backend.migration.types import ItemProposal, VendorSnapshot, VendorTable
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
 from products.warehouse_sources.backend.models.warehouse_migration import (
     WarehouseMigration as _WarehouseMigration,
@@ -188,10 +189,14 @@ def claim_migration_item(
             updated_at=now,
         )
         return None
+    caveats = list(item.caveats)
     try:
         proposal = with_table_overrides(
             proposal,
             [TableOverride(vendor_table=o.vendor_table, posthog_table=o.posthog_table) for o in table_overrides],
+            vendor_tables=_vendor_tables(item) if table_overrides else None,
+            caps=source_capabilities(proposal.source_type),
+            caveats=caveats,
         )
     except TableOverrideError as error:
         raise contracts.WarehouseMigrationTableOverrideError(str(error)) from error
@@ -202,7 +207,7 @@ def claim_migration_item(
         return None
     claimed = contracts.ClaimedWarehouseMigrationItem(
         id=item.id,
-        caveats=list(item.caveats),
+        caveats=caveats,
         source_type=proposal.source_type,
         prefix=prefix,
         description=_source_description(item),
@@ -216,11 +221,41 @@ def claim_migration_item(
         return claimed
     if not leftover.has_tables:
         message = _empty_leftover_error(leftover)
-        _set_failed(team_id, item.id, message)
+        # Back to the earlier claim, so the next attempt finds this source again until the user deletes it.
+        items.update(
+            status=_WarehouseMigrationItem.Status.FAILED,
+            error=message,
+            claimed_at=item.claimed_at,
+            claimed_prefix=item.claimed_prefix,
+            updated_at=timezone.now(),
+        )
         raise contracts.WarehouseMigrationEmptySourceError(message)
     caveats = [*item.caveats, _LEFTOVER_CAVEAT]
     finish_migration_item(team_id, item.id, source_id=leftover.id, caveats=caveats)
     return dataclasses.replace(claimed, caveats=caveats, recovered_source_id=leftover.id)
+
+
+def _vendor_tables(item: _WarehouseMigrationItem) -> dict[str, VendorTable]:
+    """The item's enabled Fivetran tables by name, from the snapshot of the latest crawl."""
+    snapshot = (
+        _WarehouseMigration.objects.for_team(item.team_id)
+        .filter(id=item.migration_id)
+        .values_list("snapshot", flat=True)
+        .first()
+    )
+    if not snapshot:
+        return {}
+    try:
+        connections = VendorSnapshot.from_json(snapshot).connections
+    except ValidationError:
+        return {}
+    tables: dict[str, VendorTable] = {}
+    for connection in connections:
+        if connection.id == item.vendor_connection_id:
+            for table in connection.tables:
+                if table.enabled:
+                    tables.setdefault(table.name, table)
+    return tables
 
 
 _LEFTOVER_CAVEAT = "An earlier attempt created this source but did not finish. Check its tables and sync schedule."

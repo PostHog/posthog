@@ -12,6 +12,10 @@ import requests
 import requests_mock
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models.user import User
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema, TablePair
@@ -500,3 +504,33 @@ class TestApplyMigrationItem(APIBaseTest):
             assert response.status_code == 400
             assert "Delete that source" in response.json()["message"]
             assert self.item.status == WarehouseMigrationItem.Status.FAILED
+            # A retry under another prefix still finds the empty source instead of creating a second one.
+            retry = self._apply(self._credential(), prefix="stripe_retry")
+            assert retry.status_code == 400 and "Delete that source" in retry.json()["message"]
+            assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+
+    def test_access_to_one_source_is_not_enough_to_apply(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        membership = self.organization.memberships.get(user=member)
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="own", connection_id="own-conn", source_type=ExternalDataSourceType.STRIPE
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="external_data_source", resource_id=None, access_level="none"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+        assert self._apply(self._credential(user=member)).status_code == 403
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.PENDING

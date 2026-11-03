@@ -383,6 +383,13 @@ def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats
     return disabled
 
 
+def plan_table_restrictions(
+    table: VendorTable, posthog_name: str, caps: SourceCapabilities, caveats: list[str]
+) -> tuple[tuple[str, ...], tuple[ProposedRowFilter, ...]]:
+    """The column exclusions and row filters PostHog keeps when it syncs `table` as `posthog_name`."""
+    return _plan_disabled_columns(table, caps, caveats), _plan_row_filters(table, posthog_name, caps, caveats)
+
+
 def _plan_row_filters(
     table: VendorTable, posthog_name: str, caps: SourceCapabilities, caveats: list[str]
 ) -> tuple[ProposedRowFilter, ...]:
