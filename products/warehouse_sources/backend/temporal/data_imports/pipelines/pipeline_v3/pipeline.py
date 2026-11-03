@@ -86,7 +86,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     reconcile_batch_to_accumulated_schema,
     source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import (
+    async_iterate,
+    run_in_source_executor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
@@ -998,7 +1001,10 @@ class PipelineV3(Generic[ResumableData]):
             ):
                 await self._record_table_rebuild(self._run_uuid)
 
-            items = self._resource.items()
+            # A source can do blocking work when it builds its items, such as the DNS lookup of a
+            # host check. The source thread pool keeps that work off the event loop, as iteration
+            # already is, without tying up the default executor.
+            items = await run_in_source_executor(self._resource.items)
             safe_point_scope = self._activate_safe_point(items)
             source_items = self._source_items(items, source_type)
             awaiting_source = True

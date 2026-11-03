@@ -2519,7 +2519,7 @@ export interface SignalReportListApi {
     /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
-     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+     * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
      * @nullable
      */
     readonly inbox_merge_key: number | null
@@ -2537,6 +2537,11 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranker?: string | null
+    /**
+     * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+     * @nullable
+     */
+    ranking_pill?: boolean | null
 }
 
 /**
@@ -5625,6 +5630,14 @@ export const SignalReportCheckStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+export type MonitoringMetricConfigPurposeEnumApi =
+    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
+
+export const MonitoringMetricConfigPurposeEnumApi = {
+    Expectation: 'expectation',
+    MinimumEvidence: 'minimum_evidence',
+} as const
+
 export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
 
 export const ThresholdScalingEnumApi = {
@@ -5633,6 +5646,8 @@ export const ThresholdScalingEnumApi = {
 } as const
 
 export interface MonitoringMetricConfigApi {
+    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+    purpose?: MonitoringMetricConfigPurposeEnumApi
     /**
      * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
      * @maximum 527040
@@ -10534,34 +10549,6 @@ export interface CreateReportCheckRequestApi {
 }
 
 /**
- * What one scout spent in the window, and what it produced for that spend.
- */
-export interface ScoutCostApi {
-    /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
-    skill_name: string
-    /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
-    spend_usd: number
-    /** Runs the scout started in the window. */
-    run_count: number
-    /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
-    priced_run_count: number
-    /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
-    reports_touched: number
-}
-
-/**
- * Model spend and output per scout over a window.
- */
-export interface ScoutCostsApi {
-    /** Window the rows describe, in days. */
-    window_days: number
-    /** One row per scout that started at least one run on this project in the window. */
-    scouts: ScoutCostApi[]
-    /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
-    available: boolean
-}
-
-/**
  * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
  * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
  * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
@@ -10595,29 +10582,6 @@ export interface FleetFindingsSummaryApi {
      * @nullable
      */
     latest_at: string | null
-}
-
-/**
- * What one scout run spent on model calls.
- */
-export interface ScoutRunTokenCostApi {
-    /** UUID of the `SignalScoutRun` this cost belongs to. */
-    run_id: string
-    /**
-     * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
-     * @nullable
-     */
-    token_cost_usd: number | null
-}
-
-/**
- * Model spend for a batch of scout runs.
- */
-export interface ScoutRunTokenCostsApi {
-    /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
-    costs: ScoutRunTokenCostApi[]
-    /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
-    available: boolean
 }
 
 /**
@@ -11196,7 +11160,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
      */
     sort?: string
     /**
@@ -11670,15 +11634,6 @@ export type SignalsScoutReportChecksListParams = {
      * The report whose checks to list.
      */
     report_id: string
-}
-
-export type SignalsScoutRunsCostsParams = {
-    /**
-     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
-     * @minimum 7
-     * @maximum 7
-     */
-    window_days?: number
 }
 
 export type SignalsScoutRunsRecentEmissionsParams = {

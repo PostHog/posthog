@@ -11,6 +11,7 @@ No business logic here — that lives behind ``facade/api.py``.
 
 from dataclasses import fields
 from typing import Any, cast
+from uuid import UUID
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -27,10 +28,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
-from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -90,39 +90,6 @@ from .serializers import (
 logger = structlog.get_logger(__name__)
 
 
-class FacadePathParamSchema(PostHogAutoSchema):
-    """Types a facade-backed viewset's UUID path parameters.
-
-    drf-spectacular reads a path parameter's type off the viewset's ``queryset`` model. These
-    viewsets reach their data through the facade and declare no queryset, so each id is spelled
-    out here instead. Declaring them through ``@extend_schema`` would not work: that appends the
-    parameter to every operation in the viewset, including the collection routes whose path has
-    no id in it. This hook only ever sees variables the path actually contains.
-    """
-
-    def _resolve_path_parameters(self, variables: Any) -> Any:
-        declared = getattr(self.view, "uuid_path_parameters", {})
-        resolved = []
-        for parameter in super()._resolve_path_parameters(variables):
-            description = declared.get(parameter["name"])
-            if parameter["name"] not in declared:
-                resolved.append(parameter)
-                continue
-            # Rebuilt rather than mutated, so the keys keep the order drf-spectacular emits.
-            rebuilt: dict[str, Any] = {}
-            for key, value in parameter.items():
-                if key == "schema":
-                    rebuilt["schema"] = {"type": "string", "format": "uuid"}
-                    if description:
-                        rebuilt["description"] = description
-                elif key == "description" and description:
-                    continue
-                else:
-                    rebuilt[key] = value
-            resolved.append(rebuilt)
-        return resolved
-
-
 class AutoresearchAccessPermission(BasePermission):
     """Gate the autoresearch product behind the `autoresearch` feature flag."""
 
@@ -139,13 +106,12 @@ class ArtifactStorageUnavailableError(APIException):
     default_code = "artifact_storage_unavailable"
 
 
-def _parent_pipeline_id(view: Any) -> str | None:
+def _parent_pipeline_id(view: Any) -> UUID | None:
     """The pipeline this nested route is scoped to, or None on the unscoped collection route."""
-    pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
-    return str(pipeline_id) if pipeline_id else None
+    return view.kwargs.get("parent_lookup_pipeline_id")
 
 
-def _require_parent_pipeline_id(view: Any) -> str:
+def _require_parent_pipeline_id(view: Any) -> UUID:
     """The pipeline id for a route that cannot act without one."""
     pipeline_id = _parent_pipeline_id(view)
     if pipeline_id is None:
@@ -194,8 +160,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     users daily and emits autoresearch_prediction events.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch pipeline.")
+    }
     scope_object = "autoresearch"
     # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
     scope_object_read_actions = [
@@ -724,8 +691,10 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
     the daily inference workflow compiles to score users.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch model."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
@@ -757,8 +726,10 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     List and retrieve inference and validation runs for a pipeline.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch run."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
@@ -793,8 +764,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     score, and the summary of the run once it completes.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch training run."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact", "history"]
     scope_object_write_actions = [
@@ -1169,8 +1142,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     search constraint, or dismiss it with rationale.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch suggestion.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch suggestion."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "respond"]

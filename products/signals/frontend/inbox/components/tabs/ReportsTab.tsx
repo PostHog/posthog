@@ -57,6 +57,7 @@ interface SectionListState {
     pageLoadFailed: boolean
     reportsResponseLoading: boolean
     hasMore: boolean
+    loadedRankingPill: boolean
 }
 
 /**
@@ -74,6 +75,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         count,
@@ -84,6 +86,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         pageLoadFailed,
         reportsResponseLoading,
         hasMore,
+        loadedRankingPill,
     }
 }
 
@@ -169,12 +172,14 @@ const ReportRow = memo(function ReportRow({
     report,
     sectionKey,
     rankingSortField,
+    rankingPill,
     timestampField,
     hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
+    rankingPill: boolean
     timestampField: 'created_at' | 'updated_at'
     hideOwnClaim: boolean
 }): JSX.Element {
@@ -184,6 +189,7 @@ const ReportRow = memo(function ReportRow({
                 report={report}
                 selectable
                 rankingSortField={rankingSortField}
+                rankingPill={rankingPill}
                 timestampField={timestampField}
                 hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
@@ -254,6 +260,9 @@ export function ReportsTab(): JSX.Element {
         SignalReport[]
     >
     const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
+    // Every state's request comes from one flag arm, so any loaded response can say whether to show pills.
+    const rankingPill =
+        activeSortField === 'recommended' && selectedSections.some((key) => sections[key].loadedRankingPill)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)
@@ -412,6 +421,7 @@ export function ReportsTab(): JSX.Element {
                                 report={report}
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
+                                rankingPill={rankingPill}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />

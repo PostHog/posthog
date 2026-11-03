@@ -223,6 +223,13 @@ export function noReadsLabel(windowDays: number): string {
     return `No reads recorded in ${windowDays} days`
 }
 
+export function deleteDisabledReason(evidence: WarehouseSuggestionEvidenceApi, windowDays: number): string | undefined {
+    if ((evidence.days_with_data ?? 0) >= windowDays) {
+        return undefined
+    }
+    return `Some of the last ${windowDays} days have no read data, so a view read only on those days would look unread. Mark it deprecated instead.`
+}
+
 export function refreshCostLabel(
     payload: Pick<WarehouseSuggestionDeprecatePayloadApi, 'refresh_seconds_per_month' | 'refresh_bytes_per_month'>
 ): string {
