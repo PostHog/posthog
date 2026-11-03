@@ -23,19 +23,45 @@ class TestCreateEvaluationTool(BaseTest):
 
     @parameterized.expand(
         [
-            ("hog", {"evaluation_type": "hog", "source": "return true;"}, {"source": "return true;"}),
-            ("sentiment", {"evaluation_type": "sentiment"}, {"source": "user_messages"}),
+            (
+                "hog",
+                {"evaluation_type": "hog", "source": "return true;"},
+                {"source": "return true;"},
+                {"allows_na": True},
+                {},
+            ),
+            (
+                "hog_trace_with_window",
+                {
+                    "evaluation_type": "hog",
+                    "source": "return true;",
+                    "target": "trace",
+                    "target_config": {"window_seconds": 120},
+                },
+                {"source": "return true;"},
+                {"allows_na": True},
+                {"window_seconds": 120},
+            ),
+            ("sentiment", {"evaluation_type": "sentiment"}, {"source": "user_messages"}, {}, {}),
         ]
     )
     @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     def test_creates_disabled_evaluation_tagged_as_posthog_ai(
-        self, _name: str, args: dict[str, Any], expected_config: dict[str, Any], mock_report
+        self,
+        _name: str,
+        args: dict[str, Any],
+        expected_config: dict[str, Any],
+        expected_output_config: dict[str, Any],
+        expected_target_config: dict[str, Any],
+        mock_report,
     ) -> None:
         content, artifact = self._run(name="Check", rollout_percentage=10, **args)
 
         evaluation = Evaluation.objects.get(id=artifact["evaluation_id"])
         assert evaluation.enabled is False
         assert expected_config.items() <= evaluation.evaluation_config.items()
+        assert expected_output_config.items() <= evaluation.output_config.items()
+        assert expected_target_config.items() <= (evaluation.target_config or {}).items()
         assert evaluation.conditions[0]["rollout_percentage"] == 10
         assert f"/ai-evals/evaluations/{evaluation.id}" in content
         assert mock_report.call_args.args[1] == "llma evaluation created"
@@ -70,6 +96,7 @@ class TestCreateEvaluationTool(BaseTest):
             ("hog_without_source", {"evaluation_type": "hog"}),
             ("judge_without_prompt", {"evaluation_type": "llm_judge"}),
             ("sentiment_on_trace", {"evaluation_type": "sentiment", "target": "trace"}),
+            ("hog_that_fails_to_compile", {"evaluation_type": "hog", "source": "return (;"}),
         ]
     )
     def test_rejects_invalid_evaluations_without_saving(self, _name: str, args: dict[str, Any]) -> None:

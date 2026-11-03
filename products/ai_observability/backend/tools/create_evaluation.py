@@ -4,6 +4,7 @@ from typing import Any, Literal
 from django.http import HttpRequest
 
 from pydantic import BaseModel, Field
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.schema import AssistantTool
@@ -26,6 +27,7 @@ TOOL_DESCRIPTION = """Create an online evaluation for this project. It is always
 
 # Before calling it
 - For `hog`, test the exact `source` with `run_hog_eval_test` first, using the same `target`, `output_type` and `output_config`.
+  For a trace or session target, pass the `window_seconds` or `quiet_period_seconds` you tested in `target_config`.
 - For `llm_judge`, write `prompt` as instructions to a judge that sees the input and output. You cannot test a judge here.
 - For `sentiment`, no prompt or source is needed. It only supports the `generation` target.
 
@@ -55,6 +57,10 @@ class CreateEvaluationArgs(BaseModel):
     target: Literal["generation", "trace", "session"] = Field(
         default="generation", description="What one evaluation run scores"
     )
+    target_config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Timing for trace and session targets: {window_seconds} for a trace, {quiet_period_seconds} for a session. Omit for defaults.",
+    )
     rollout_percentage: float = Field(
         default=100,
         gt=0,
@@ -81,6 +87,7 @@ class CreateEvaluationTool(MaxTool):
         output_type: Literal["boolean", "numeric", "categorical"] = "boolean",
         output_config: dict[str, Any] | None = None,
         target: Literal["generation", "trace", "session"] = "generation",
+        target_config: dict[str, Any] | None = None,
         rollout_percentage: float = 100,
     ) -> tuple[str, dict[str, Any]]:
         return await database_sync_to_async(self._create)(
@@ -92,6 +99,7 @@ class CreateEvaluationTool(MaxTool):
             output_type=output_type,
             output_config=output_config or {},
             target=target,
+            target_config=target_config or {},
             rollout_percentage=rollout_percentage,
         )
 
@@ -106,11 +114,15 @@ class CreateEvaluationTool(MaxTool):
         output_type: str,
         output_config: dict[str, Any],
         target: str,
+        target_config: dict[str, Any],
         rollout_percentage: float,
     ) -> tuple[str, dict[str, Any]]:
         if evaluation_type == "sentiment":
             # Sentiment has its own fixed output; the boolean/numeric/categorical arguments do not apply.
             output_type, output_config = "sentiment", {}
+        elif evaluation_type == "hog" and output_type == "boolean":
+            # Match run_hog_eval_test, which allows N/A by default, so a check that previewed fine saves the same way.
+            output_config = {"allows_na": True, **output_config}
         data: dict[str, Any] = {
             "name": name,
             "description": description,
@@ -120,6 +132,7 @@ class CreateEvaluationTool(MaxTool):
             "output_type": output_type,
             "output_config": output_config,
             "target": target,
+            "target_config": target_config,
             "conditions": [{"id": str(uuid.uuid4()), "rollout_percentage": rollout_percentage, "properties": []}],
         }
         has_key = True
@@ -131,7 +144,11 @@ class CreateEvaluationTool(MaxTool):
         )
         if not serializer.is_valid():
             raise MaxToolRetryableError(f"The evaluation is invalid: {serializer.errors}")
-        evaluation = save_new_evaluation(serializer, user=self._user, team=self._team, source="posthog_ai")
+        try:
+            evaluation = save_new_evaluation(serializer, user=self._user, team=self._team, source="posthog_ai")
+        except ValidationError as e:
+            # Evaluation.save() compiles Hog and can still reject what the serializer accepted.
+            raise MaxToolRetryableError(f"The evaluation is invalid: {e.detail}")
 
         url = f"/project/{self._team.id}/ai-evals/evaluations/{evaluation.id}"
         lines = [f"Created the evaluation, disabled. Review and enable it here: {url}"]
