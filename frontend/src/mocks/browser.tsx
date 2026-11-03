@@ -1,4 +1,5 @@
 import type { Decorator } from '@storybook/react'
+import { http, passthrough } from 'msw'
 import { setupWorker } from 'msw/browser'
 
 import { handlers, toPaginatedResponse } from '~/mocks/handlers'
@@ -18,8 +19,19 @@ const storybookDefaultMocks: Mocks = {
     },
 }
 
+// The service worker sends every request of the page to MSW, including each JS chunk, stylesheet and
+// font. MSW checks a request against the handlers in order, and each check normalizes the URL and
+// compiles the path pattern. A story loads hundreds of assets, so checking each one against every API
+// handler was most of the main-thread work of a story. This handler matches assets with one regular
+// expression and passes them to the network. API paths never match it, and story mocks added with
+// `worker.use()` still come first.
+const STATIC_ASSET_URL =
+    /^https?:\/\/[^/]+\/(?!api\/)(?:(?:assets|static|sb-[\w-]+|@fs|@id|@vite|node_modules)\/.*|[^?#]*\.(?:m?js|jsx|tsx?|css|scss|less|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|ico|map|wasm))$/
+const staticAssetPassthrough = http.get(STATIC_ASSET_URL, () => passthrough())
+
 // Default handlers ensure no request is unhandled by msw. Handlers listed first take precedence.
 export const worker: ReturnType<typeof setupWorker> = setupWorker(
+    staticAssetPassthrough,
     ...mocksToHandlers(storybookDefaultMocks),
     ...handlers
 )
