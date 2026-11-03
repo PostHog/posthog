@@ -5695,6 +5695,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.triggerDashboardUpdate({
                 groups: { ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } },
             })
+            posthog.capture('dashboard tile group renamed', {
+                dashboard_id: props.id,
+                group_display: values.tileGroupDisplay,
+                cleared: !title.trim(),
+            })
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
