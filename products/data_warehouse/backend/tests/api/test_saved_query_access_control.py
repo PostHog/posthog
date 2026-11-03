@@ -11,6 +11,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
@@ -571,6 +572,52 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
 
     def _base(self) -> str:
         return f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}"
+
+    @parameterized.expand(
+        [
+            ("create", "partial"),
+            ("edit", "partial"),
+            ("schedule", "partial"),
+            ("materialize", "partial"),
+            ("create", "grants_only"),
+            ("create", "viewer"),
+        ]
+    )
+    def test_system_sources_require_access_to_all_rows(self, action: str, source_access: str) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Restricted", created_by=self.user)
+        if source_access == "grants_only":
+            self._create_project_default(resource="dashboard", access_level="none")
+            self._create_access_control(
+                self.editor_user, resource="dashboard", resource_id=str(dashboard.id), access_level="viewer"
+            )
+        elif source_access == "partial":
+            self._create_access_control(
+                self.editor_user, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+            )
+        else:
+            self._create_access_control(self.editor_user, resource="dashboard", access_level="viewer")
+        query = {"kind": "HogQLQuery", "query": "SELECT id AS id FROM system.dashboards"}
+        self.view.query = query
+        self.view.save(update_fields=["query"])
+
+        if action == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/warehouse_saved_queries/",
+                {"name": "dashboard_model", "query": query, "soft_update": True},
+                format="json",
+            )
+        elif action == "edit":
+            response = self.client.patch(f"{self._base()}/", {"query": query, "soft_update": True}, format="json")
+        elif action == "schedule":
+            response = self.client.patch(f"{self._base()}/", {"sync_frequency": "24hour"}, format="json")
+        else:
+            response = self.client.post(f"{self._base()}/materialize/")
+
+        expected_status = status.HTTP_201_CREATED if source_access == "viewer" else status.HTTP_403_FORBIDDEN
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if source_access != "viewer":
+            self.view.refresh_from_db()
+            self.assertFalse(self.view.is_materialized)
 
     def test_materialize_denied_when_the_query_reads_a_denied_table(self):
         response = self.client.post(f"{self._base()}/materialize/")

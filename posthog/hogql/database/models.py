@@ -42,6 +42,7 @@ def _slim_pickle_setstate(model: BaseModel, state: dict[Any, Any]) -> None:
 
 class FieldOrTable(BaseModel):
     hidden: bool = False
+    modeling_allowed: bool = True
     # Optional human/agent-facing description of this table or column. Surfaced through the
     # `system.information_schema` tables so agents can discover and disambiguate the schema.
     description: Optional[str] = None
@@ -241,6 +242,8 @@ class FieldTraverser(FieldOrTable):
 
 
 class Table(FieldOrTable):
+    is_materialized_view: bool = False
+    modeling_source_fields: list[str] | None = None
     name: str | None = None
     fields: dict[str, FieldOrTable]
     top_level_settings: Optional[HogQLQuerySettings] = None

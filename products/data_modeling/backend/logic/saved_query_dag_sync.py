@@ -14,7 +14,6 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.facade.contracts import Dependent
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.saved_query_reads import saved_query_node_ids
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
@@ -292,7 +291,7 @@ def lineage_database(team: "Team") -> Database:
     return Database.create_for(
         team=team,
         bypass_warehouse_access_control=True,
-        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        for_data_modeling=True,
     )
 
 
@@ -627,19 +626,39 @@ def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
     )
 
 
-def link_table_if_materializing(team_id: int, saved_query_id: UUID | str, table_id: UUID) -> bool:
+def link_table_if_materializing(
+    team_id: int,
+    saved_query_id: UUID | str,
+    table_id: UUID,
+    *,
+    modeling_source_fields: list[str] | None = None,
+    incremental: bool = False,
+) -> bool:
     """Link a published table to the saved query, unless the query stopped asking to materialize."""
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     saved_query = DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
     with transaction.atomic():
-        intent = saved_query.select_for_update().values_list("is_materialized", "origin").first()
+        intent = (
+            saved_query.select_for_update()
+            .values_list("is_materialized", "origin", "materialized_source_fields")
+            .first()
+        )
         if intent is None:
             return False
-        is_materialized, origin = intent
+        is_materialized, origin, previous_fields = intent
         if not is_materialized and origin != DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET:
             return False
-        saved_query.update(table_id=table_id, updated_at=timezone.now())
+        if incremental:
+            # Older rows remain in the table, so their source fields remain part of its access policy.
+            modeling_source_fields = (
+                sorted(set(previous_fields) | set(modeling_source_fields))
+                if previous_fields is not None and modeling_source_fields is not None
+                else None
+            )
+        saved_query.update(
+            table_id=table_id, materialized_source_fields=modeling_source_fields, updated_at=timezone.now()
+        )
     return True
 
 

@@ -6,7 +6,6 @@ from unittest import mock
 
 from posthog.hogql.database.database import Database
 
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.metric_dag_sync import (
     delete_metric_node,
     mark_metric_node_degraded,
@@ -75,7 +74,7 @@ class TestSyncMetricToDag(BaseTest):
         database = Database.create_for(
             team=self.team,
             bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            for_data_modeling=True,
         )
         saved_query.name = "accounts_view_v2"
         saved_query.save()

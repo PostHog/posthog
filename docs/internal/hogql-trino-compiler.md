@@ -259,6 +259,8 @@ The result admin can retry selected failed or stale rows. A retry creates a new 
 The `managed-warehouse-data-modeling-shadow` flag enables shadow materialization through Trino.
 It requires a provisioned managed warehouse and a ready Trino target.
 Each dispatched shadow activity compiles the current saved query's HogQL in Django expansion mode and executes the generated Trino SQL with bound parameters.
+The trusted compilation sets `for_data_modeling=True` to resolve registered system tables without a table-name allowlist.
+Schema fields with `modeling_allowed=False` remain unavailable to that compilation.
 Compilation uses current source bindings, saved-query dependencies, filters, and variables; endpoint queries are prepared before compilation.
 Saved translation results remain diagnostic records and are not prerequisites or execution inputs for shadow jobs.
 Compilation failures fail the modeling job, without connecting to Trino or falling back to DuckDB.

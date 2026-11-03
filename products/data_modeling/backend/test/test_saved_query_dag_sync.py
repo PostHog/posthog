@@ -9,13 +9,13 @@ from parameterized import parameterized
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
     HasDependentsError,
     blocked_lineage_node_id,
     delete_node_from_dag,
     describe_dependents,
     get_dependent_saved_queries,
+    link_table_if_materializing,
     sync_saved_query_to_dag,
     update_node_type,
 )
@@ -37,11 +37,12 @@ class TestSyncSavedQueryToDag(BaseTest):
             ),
             ("ticket_summary", "SELECT id, tags.names, assignee.role_name FROM system.support_tickets"),
             ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
+            ("source_sync_jobs", "SELECT id, pipeline_id, status FROM system.source_sync_jobs"),
+            ("data_warehouse_sources", "SELECT id, source_type FROM system.data_warehouse_sources"),
+            ("source_schemas", "SELECT id, name FROM system.source_schemas"),
         ]
     )
-    def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(
-        self, name: str, query: str
-    ) -> None:
+    def test_saved_query_resolution_requires_data_modeling_context(self, name: str, query: str) -> None:
         saved_query = DataWarehouseSavedQuery(
             name=name,
             team=self.team,
@@ -54,9 +55,36 @@ class TestSyncSavedQueryToDag(BaseTest):
         data_modeling_database = Database.create_for(
             team=self.team,
             bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            for_data_modeling=True,
         )
         assert saved_query.get_s3_tables(database=data_modeling_database) == []
+
+    @parameterized.expand(
+        [
+            ("full", False, ["old"], ["new"], ["new"]),
+            ("incremental", True, ["old"], ["new"], ["new", "old"]),
+            ("legacy_incremental", True, None, ["new"], None),
+        ]
+    )
+    def test_published_table_keeps_the_source_fields_of_retained_rows(
+        self, _name: str, incremental: bool, previous: list[str] | None, current: list[str], expected: list[str] | None
+    ) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="published_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            is_materialized=True,
+            materialized_source_fields=previous,
+        )
+        table = DataWarehouseTable.objects.create(team=self.team, name="published_view", format="Delta")
+
+        assert link_table_if_materializing(
+            self.team.pk, saved_query.pk, table.pk, modeling_source_fields=current, incremental=incremental
+        )
+
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.materialized_source_fields, expected)
+        self.assertEqual(saved_query.table_id, table.pk)
 
     def test_sync_creates_dag_model(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

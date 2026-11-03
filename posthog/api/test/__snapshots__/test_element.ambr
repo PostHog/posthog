@@ -496,6 +496,7 @@
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."materialized_source_fields",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
          "posthog_datawarehousesavedquery"."folder_id",

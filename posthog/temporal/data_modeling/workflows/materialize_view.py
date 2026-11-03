@@ -344,6 +344,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     file_uris=materialize_result.file_uris,
                     row_count=materialize_result.row_count,
                     incremental=materialize_result.incremental,
+                    modeling_source_fields=materialize_result.modeling_source_fields,
                 )
                 if quality_audit == QUALITY_AUDIT_GATE:
                     stage_result: StageQueryableFilesResult = await temporalio.workflow.execute_activity(

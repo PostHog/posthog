@@ -99,7 +99,7 @@ def _get_node(team_id: int, node_id: UUID | str) -> Node:
 def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> None:
     # A run materializes every node it touches, so it needs the same edit and data access checks as
     # enabling materialization for each view.
-    database = Database.create_for(team_id=node.team_id, user=user)
+    database = Database.create_for(team_id=node.team_id, user=user, for_data_modeling=True)
     access_control = UserAccessControl(user=user, team=node.team)
     saved_queries = DataWarehouseSavedQuery.objects.filter(
         team_id=node.team_id,
@@ -108,7 +108,7 @@ def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> No
     for saved_query in saved_queries:
         if not access_control.check_access_level_for_object(saved_query, "editor"):
             raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
-        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database)
+        assert_user_can_read_query(saved_query.query, node.team_id, user, database=database, for_data_modeling=True)
 
 
 def _related_node_ids(

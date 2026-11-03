@@ -15,7 +15,6 @@ from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
@@ -121,7 +120,7 @@ def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite |
         query,
         team=team,
         bypass_warehouse_access_control=True,
-        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        for_data_modeling=True,
         expansion_mode=TrinoExpansionMode.DJANGO,
         select_transform=select_transform,
         preserve_clickhouse_output_names=True,

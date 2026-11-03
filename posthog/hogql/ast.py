@@ -10,6 +10,7 @@ import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql.base import AST, CTE, ConstantType, Expr, Type, UnknownType
 from posthog.hogql.constants import ConstantDataType, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_modeling import validate_modeling_field
 from posthog.hogql.database.models import (
     DatabaseField,
     ExpressionField,
@@ -238,6 +239,7 @@ class BaseTableType(Type):
             return AsteriskType(table_type=self)
         if self.has_child(name, context):
             field = self.resolve_database_table(context).get_field(name)
+            validate_modeling_field(self.resolve_database_table(context), name, context)
             if isinstance(field, LazyJoin):
                 return LazyJoinType(table_type=self, field=name, lazy_join=field)
             if isinstance(field, LazyTable):

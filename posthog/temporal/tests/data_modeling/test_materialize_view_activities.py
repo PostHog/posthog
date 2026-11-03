@@ -20,6 +20,8 @@ import pyarrow.parquet as pq
 from temporalio.exceptions import ApplicationError
 from trino.exceptions import TrinoUserError
 
+from posthog.hogql.data_modeling import ModelingSourceFields, modeling_field_key
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
@@ -1670,9 +1672,9 @@ class TestPrepareQueryableTableActivity:
             format="Delta",
         )
 
-        def link_then_revert(team_id, saved_query_id, table_id):
+        def link_then_revert(team_id, saved_query_id, table_id, **kwargs):
             loaded_before_the_link = DataWarehouseSavedQuery.objects.get(id=asaved_query.id)
-            linked = link_table_if_materializing(team_id, saved_query_id, table_id)
+            linked = link_table_if_materializing(team_id, saved_query_id, table_id, **kwargs)
             loaded_before_the_link.revert_materialization()
             return linked
 
@@ -2217,10 +2219,15 @@ class TestHogqlTableModifiers:
                 event AS `{log_comment}`, uuid AS `{{hogql_val_0}}`
             FROM events
         """
+        sources = ModelingSourceFields()
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", get_test_client
         ):
-            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), modeling_sources=sources)]
+
+        assert sources.known
+        assert modeling_field_key(EventsTable(), "event") in sources.fields
+        assert modeling_field_key(EventsTable(), "uuid") in sources.fields
 
         rows = [row for table, _ in batches for row in table.to_pylist()]
         assert len(rows) == len(events)
