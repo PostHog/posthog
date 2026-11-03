@@ -10,7 +10,7 @@ EDITOR_ASSIST_DURATION_SECONDS = Histogram(
 HOGQL_DATABASE_BUILD_DURATION_SECONDS = Histogram(
     "hogql_database_build_duration_seconds",
     "Duration of HogQL database construction phases",
-    labelnames=["phase"],
+    labelnames=["phase", "trigger"],
     buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5),
 )
 
