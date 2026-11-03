@@ -490,7 +490,11 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
 # APIScopePermission applies this and records each use, so the entry can go when no caller needs it.
 # Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
 # legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
-LEGACY_SCOPE_FALLBACKS: dict[str, str] = {"inbox": "task", "messaging_preference": "hog_flow"}
+LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
+    "inbox": "task",
+    # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
+    "messaging_preference": "hog_flow",
+}
 
 
 def scopes_covered_by_legacy_fallback(held_scopes: Iterable[str], missing_scopes: Iterable[str]) -> dict[str, str]:

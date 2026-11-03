@@ -11,16 +11,13 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
-from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
-from posthog.scopes import scopes_not_covered
 
 from products.messaging.backend.facade.preferences import TopicsNotFound, set_preferences
 from products.messaging.backend.presentation.views.message_templates import require_transactional_email_api
 
 logger = structlog.get_logger(__name__)
-
-PREFERENCE_WRITE_SCOPE = "messaging_preference:write"
 
 
 class SetPreferencesSerializer(serializers.Serializer):
@@ -86,7 +83,7 @@ class TopicPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
 
 
 class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    # LEGACY_SCOPE_FALLBACKS lets `hog_flow:write` satisfy this scope, for keys made before it existed.
+    # LEGACY_SCOPE_FALLBACKS lets `hog_flow:write` satisfy this scope too, with no end date.
     scope_object = "messaging_preference"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
@@ -159,5 +156,4 @@ class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             logger.warning("Failed to capture messaging preferences api event", error=str(e))
 
     def _authorized_by(self, request: ValidatedRequest) -> str:
-        held = get_authenticator_scopes(request.successful_authenticator) or []
-        return "hog_flow" if scopes_not_covered(held, [PREFERENCE_WRITE_SCOPE]) else "messaging_preference"
+        return legacy_scope_object_used(request, f"{self.scope_object}:write") or self.scope_object

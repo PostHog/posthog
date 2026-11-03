@@ -754,6 +754,15 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
+    """The legacy scope object that satisfied `required_scope` through LEGACY_SCOPE_FALLBACKS, or
+    None when the request's token holds `required_scope` itself."""
+    held = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
+    covered = scopes_covered_by_legacy_fallback(held, scopes_not_covered(held, [required_scope]))
+    legacy_scope = covered.get(required_scope)
+    return legacy_scope.split(":", 1)[0] if legacy_scope else None
+
+
 def scopes_caller_lacks(request: Request | None, scopes: Iterable[str]) -> list[str]:
     """The given scopes that the request's token does not cover, sorted. Empty for session auth and
     `*` keys, which carry the user's full authority."""
