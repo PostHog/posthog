@@ -46,7 +46,7 @@ const FEEDBACK_LOADING: FeedbackModeState = { status: 'loading' }
 
 export type TraceViewProps =
     | { status: 'loading' }
-    | { status: 'error'; errorMessage: string; backLink: LabeledLink }
+    | { status: 'error'; errorMessage: string; backLink: LabeledLink | null }
     | ({ status: 'ready' } & TraceViewReadyProps)
 
 export function TraceView(props: TraceViewProps): JSX.Element {

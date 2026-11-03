@@ -472,15 +472,17 @@ META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 # scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
 
-# Meta error code 100 with one of these subcodes: Meta validates a creative again when it serves the
-# creative-backed fields of an ad or an ad creative, and refuses one it can no longer render.
+# Meta error code 100 with one of these subcodes: Meta refuses to serve a field it cannot compute
+# for one row of a page, rejecting the whole page unless we ask again without it.
 #   2446211: an Advantage+ ("degrees of freedom") creative whose asset feed spec no longer matches
 #            its object story spec.
 #   1443048: a creative whose object story spec is malformed, for example one with no Page.
+#   1885649: an adset's budget fields, when the adset belongs to a Campaign Budget Optimization
+#            campaign and so carries no budget of its own — the campaign does instead.
 # Meta refuses the whole page for one such row, so without a fallback every sync of the table stops
 # at that row. The schema's `refusable_fields` name the fields to drop from the page request and then
 # read again per row (see `_restore_refusable_fields`).
-META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
+META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048, 1885649})
 
 # Meta's batch endpoint (see `_fetch_refusable_fields`) accepts at most 50 subrequests per call.
 # https://developers.facebook.com/docs/graph-api/batch-requests
@@ -813,19 +815,23 @@ def _is_transient_batch_subresponse_error(sub_response: typing.Any, error: typin
     )
 
 
-def _fetch_refusable_fields(
+def _fetch_fields_for_nodes(
     node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
-) -> dict[str, dict]:
-    """Read ``fields`` for each node in ``ids``, keyed by id, skipping a node Meta refuses to serve.
+) -> tuple[dict[str, dict], list[str]]:
+    """Read ``fields`` together for each node in ``ids``, keyed by id.
 
     Uses Meta's batch endpoint (``POST`` with a ``batch`` parameter,
     https://developers.facebook.com/docs/graph-api/batch-requests) rather than the root multi-id
     lookup (``GET /?ids=...``), which Meta deprecated in v26.0+. Each subrequest carries its own
     status, so one refused node doesn't need the rest of its batch retried or bisected, and up to
     ``META_BATCH_MAX_SUBREQUESTS`` ids are read per request rather than one request per id.
+
+    Returns the successful nodes plus the ids Meta refused the combined ``fields`` request for, so
+    the caller can retry those narrower (see ``_fetch_refusable_fields``).
     """
     fields_param = ",".join(fields)
     nodes: dict[str, dict] = {}
+    refused_ids: list[str] = []
     for start in range(0, len(ids), META_BATCH_MAX_SUBREQUESTS):
         chunk = ids[start : start + META_BATCH_MAX_SUBREQUESTS]
         data = {
@@ -883,16 +889,41 @@ def _fetch_refusable_fields(
             if sub_response.get("code") == 200 and isinstance(body, dict):
                 nodes[node_id] = body
             elif _is_refused_batch_subresponse(error):
-                logger.warning("meta_ads_refused_fields_for_node", node_id=node_id, fields=fields)
+                refused_ids.append(node_id)
             else:
                 raise Exception(f"Meta API request failed: node lookup error - {json.dumps(error or body)}")
+    return nodes, refused_ids
+
+
+def _fetch_refusable_fields(
+    node_lookup_url: str, ids: list[str], fields: tuple[str, ...], access_token: str
+) -> dict[str, dict]:
+    """Read ``fields`` for each node in ``ids``, keyed by id, skipping a field Meta refuses to serve.
+
+    A node refused for the combined ``fields`` request is retried with each field requested on its
+    own. Meta can refuse one field of several for reasons specific to that field alone (e.g. an
+    adset's budget under Campaign Budget Optimization) while happily serving the rest, so asking only
+    once for all of them together would otherwise blank sibling fields Meta never actually refused.
+    """
+    nodes, refused_ids = _fetch_fields_for_nodes(node_lookup_url, ids, fields, access_token)
+    if not refused_ids:
+        return nodes
+    if len(fields) == 1:
+        logger.warning("meta_ads_refused_fields_for_node", node_ids=refused_ids, fields=fields)
+        return nodes
+    for field in fields:
+        field_nodes, still_refused = _fetch_fields_for_nodes(node_lookup_url, refused_ids, (field,), access_token)
+        for node_id, body in field_nodes.items():
+            nodes.setdefault(node_id, {}).update(body)
+        if still_refused:
+            logger.warning("meta_ads_refused_fields_for_node", node_ids=still_refused, fields=(field,))
     return nodes
 
 
 def _restore_refusable_fields(
     rows: list[dict], node_lookup_url: str, fields: tuple[str, ...], access_token: str
 ) -> list[dict]:
-    """Add ``fields`` back to rows fetched without them, as ``None`` for a row Meta refuses them for."""
+    """Add ``fields`` back to rows fetched without them, as ``None`` for a field Meta refuses for that row."""
     ids = [str(row["id"]) for row in rows if row.get("id")]
     nodes = _fetch_refusable_fields(node_lookup_url, ids, fields, access_token)
     return [{**row, **{field: nodes.get(str(row.get("id")), {}).get(field) for field in fields}} for row in rows]
