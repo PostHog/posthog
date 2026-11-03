@@ -15,7 +15,7 @@ export type ToolbarButtonProps = {
     children: React.ReactNode
     onClick?: () => void
     title?: string
-    titleMinimized?: JSX.Element | string
+    titleMinimized?: string
     menuId?: MenuState
     flex?: boolean
 }
@@ -29,6 +29,7 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
 
     const active = visibleMenu === menuId
     const theTitle = title ?? (menuId ? capitalizeFirstLetter(menuId) : undefined)
+    const label = (minimized && titleMinimized) || theTitle
 
     // We want to delay the cancel of dragging as there is a slight race with the click handler
     const delayedIsDragging = React.useRef<boolean>(false)
@@ -52,7 +53,7 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
 
         onClick?.()
         if (menuId) {
-            visibleMenu === menuId ? setVisibleMenu('none') : setVisibleMenu(menuId)
+            setVisibleMenu(visibleMenu === menuId ? 'none' : menuId)
         }
     }
 
@@ -61,17 +62,13 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
             className={clsx('ToolbarButton', active && 'ToolbarButton--active', flex && 'ToolbarButton--flex')}
             ref={ref}
         >
-            <button className="ToolbarButton__button" aria-label={theTitle} {...props} onClick={_onClick}>
+            <button className="ToolbarButton__button" aria-label={label} {...props} onClick={_onClick}>
                 {children}
             </button>
         </div>
     )
 
-    return ((minimized && titleMinimized) || theTitle) && !isDragging ? (
-        <Tooltip title={minimized ? titleMinimized : theTitle}>{theButton}</Tooltip>
-    ) : (
-        theButton
-    )
+    return label && !isDragging ? <Tooltip title={label}>{theButton}</Tooltip> : theButton
 })
 
 ToolbarButton.displayName = 'ToolbarButton'
