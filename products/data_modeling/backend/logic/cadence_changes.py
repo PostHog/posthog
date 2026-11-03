@@ -1,23 +1,21 @@
 """Shared bookkeeping for writes to a saved query's cadence, used by every surface that makes one."""
 
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.models.activity_logging.activity_log import Change
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
-def clear_legacy_sync_interval(saved_query: DataWarehouseSavedQuery) -> None:
+def clear_legacy_sync_interval(team_id: int, saved_query_id: UUID) -> None:
     """Drop the saved query's own interval, which the node target replaces on tiered teams.
 
     The node target is the only store of frequency intent. A stale interval left in the column would
-    answer for a cadence the user just set or cleared, so a cadence write clears it, on the passed
-    instance too so the response the caller serializes agrees.
+    answer for a cadence the user just set or cleared, so every cadence write clears it. A caller
+    holding the row must also clear its in-memory copy before serializing it.
     """
-    if saved_query.sync_frequency_interval is None:
-        return
-    DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk).update(sync_frequency_interval=None)
-    saved_query.sync_frequency_interval = None
+    DataWarehouseSavedQuery.objects.filter(team_id=team_id, pk=saved_query_id).update(sync_frequency_interval=None)
 
 
 def cadence_changes(

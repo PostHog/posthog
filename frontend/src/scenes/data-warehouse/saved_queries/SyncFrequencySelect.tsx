@@ -369,7 +369,7 @@ export function buildOptions(
     }: {
         canPin?: boolean
         pinned?: boolean
-        pinBlockedBy?: Partial<Record<string, { name: string | null }>>
+        pinBlockedBy?: Partial<Record<string, NodePinBlockerApi>>
         pinDelays?: Partial<Record<string, { name: string }[]>>
         unpinnedBy?: CadencePin['unpinnedBy']
     } = {}

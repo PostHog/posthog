@@ -397,7 +397,8 @@ def _write_cadence(
         # The cadence was cleared between the read above and the write, so there is nothing to pin.
         raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
     if frequency is not None:
-        clear_legacy_sync_interval(saved_query)
+        clear_legacy_sync_interval(saved_query.team_id, saved_query.pk)
+        saved_query.sync_frequency_interval = None
     node.refresh_from_db(fields=["properties"])
     _log_cadence_change(
         request,
