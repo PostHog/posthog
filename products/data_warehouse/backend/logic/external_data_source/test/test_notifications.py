@@ -6,7 +6,15 @@ import pytest
 from unittest.mock import patch
 
 from posthog.models import Organization, Team
+from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.facade.api import create_configuration
+from products.alerts_platform.backend.facade.contracts import (
+    Grouping,
+    GroupingMode,
+    PlatformAlertConfigurationEdit,
+    SourceKind,
+)
 from products.data_warehouse.backend.logic.external_data_source.notifications import (
     MAX_SCHEMAS_PER_DIGEST_EMAIL,
     get_team_ids_with_recent_sync_failures,
@@ -26,6 +34,7 @@ pytestmark = [
 SENDER_PATH = (
     "products.data_warehouse.backend.logic.external_data_source.notifications.send_external_data_failure_digest"
 )
+FLAG_PATH = "products.warehouse_sources.backend.sync_alerts.default_alert.posthog_feature_flag_enabled"
 
 
 def _create_team_and_source() -> tuple[Team, ExternalDataSource]:
@@ -271,6 +280,50 @@ class TestNotifyExternalDataSyncFailures:
 
         schema.refresh_from_db()
         assert schema.last_error_notified_at is None
+
+    @pytest.mark.parametrize(
+        "flag_on,email_project_members,scoped,enabled,expected_sent",
+        [
+            pytest.param(True, True, False, True, False, id="an_alert_emails_members_about_every_source"),
+            pytest.param(False, True, False, True, True, id="flag_off"),
+            pytest.param(True, False, False, True, True, id="the_alert_does_not_email"),
+            pytest.param(True, True, True, True, True, id="the_alert_watches_one_source"),
+            pytest.param(True, True, False, False, True, id="the_alert_is_disabled"),
+        ],
+    )
+    def test_skips_the_digest_only_when_an_alert_emails_members_about_every_source(
+        self, flag_on: bool, email_project_members: bool, scoped: bool, enabled: bool, expected_sent: bool
+    ) -> None:
+        team, source = _create_team_and_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Charge", team=team, source=source, status=ExternalDataSchema.Status.FAILED, latest_error="boom"
+        )
+        with team_scope(team.pk):
+            create_configuration(
+                team_id=team.pk,
+                source_kind=SourceKind.WAREHOUSE_SOURCE,
+                edit=PlatformAlertConfigurationEdit(
+                    name="Sync failures",
+                    enabled=enabled,
+                    source_config={
+                        "group_by": "source",
+                        "email_project_members": email_project_members,
+                        "source_ids": [str(source.pk)] if scoped else [],
+                    },
+                    grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("source_id",)),
+                    schedule_restriction=None,
+                    evaluation_periods=1,
+                    datapoints_to_alarm=1,
+                    cooldown_minutes=0,
+                ),
+                created_by_id=None,
+            )
+
+        with patch(FLAG_PATH, return_value=flag_on), patch(SENDER_PATH, return_value=True) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        schema.refresh_from_db()
+        assert (mock_sender.called, schema.last_error_notified_at is not None) == (expected_sent, expected_sent)
 
     def test_excludes_schemas_of_deleted_source(self):
         team, source = _create_team_and_source()
