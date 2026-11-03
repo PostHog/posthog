@@ -600,8 +600,8 @@ def has_preserved_credentials(
     ServiceNow, Stripe and Snowflake keep their credentials. Used to force credential
     re-entry when the connection target changes, so a redirected host can't receive a
     preserved secret. A secret only counts as preserved when it would survive the merge:
-    an absent container carries the whole existing block over, a same-selection container
-    preserves any field the update omits, and a selection switch replaces the block wholesale.
+    an absent container carries the whole existing block over, a container with the same or no
+    selection preserves any field the update omits, and a selection switch replaces the block wholesale.
 
     Switch groups merge the same way, so callers pass their names too. A switch group carries
     no `selection`, which reads as unchanged and lands on the omitted-field check — the branch
@@ -621,7 +621,9 @@ def has_preserved_credentials(
             if any(existing_container.get(key) for key in sensitive_fields):
                 return True
             continue
-        if existing_container.get("selection") != incoming_container.get("selection"):
+        if existing_container.get("selection") != incoming_container.get(
+            "selection", existing_container.get("selection")
+        ):
             continue
         if any(existing_container.get(key) and not incoming_container.get(key) for key in sensitive_fields):
             return True

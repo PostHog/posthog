@@ -25,6 +25,7 @@ AWS_AUTH_FIELD_NAME = "aws_auth"
 AWS_FLAT_STORED_SELECTS = frozenset({AWS_AUTH_FIELD_NAME})
 
 MISSING_ACCESS_KEYS_ERROR = "Enter both an AWS access key ID and a secret access key."
+UNKNOWN_AUTH_ERROR = "Choose how PostHog connects to AWS: with access keys or with an IAM role."
 MISSING_ROLE_ERROR = "Select an AWS connection that holds your IAM role."
 ROLE_NOT_FOUND_ERROR = "The AWS connection for this source no longer exists. Select another one."
 KEY_CONNECTION_FOR_ROLE_ERROR = (
@@ -45,6 +46,7 @@ ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR = "Your IAM role does not require an externa
 # them and the sync retries.
 AWS_AUTH_NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     MISSING_ACCESS_KEYS_ERROR: None,
+    UNKNOWN_AUTH_ERROR: None,
     MISSING_ROLE_ERROR: None,
     ROLE_NOT_FOUND_ERROR: None,
     KEY_CONNECTION_FOR_ROLE_ERROR: None,
@@ -152,11 +154,13 @@ def resolve_aws_credentials(auth: AwsAuth, team_id: int) -> Credentials:
     A role gives refreshable credentials. The second hop of the role chain caps a session at one
     hour, so botocore assumes the role again when the credentials are about to expire.
     """
-    if auth.selection != "role":
+    if auth.selection == "access_keys":
         if not auth.aws_access_key_id or not auth.aws_secret_access_key:
             raise AwsAuthError(MISSING_ACCESS_KEYS_ERROR)
         return Credentials(auth.aws_access_key_id, auth.aws_secret_access_key, auth.aws_session_token or None)
 
+    if auth.selection != "role":
+        raise AwsAuthError(UNKNOWN_AUTH_ERROR)
     if not auth.aws_integration_id:
         raise AwsAuthError(MISSING_ROLE_ERROR)
     return _integration_credentials(auth.aws_integration_id, team_id)
@@ -202,7 +206,8 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
     )
 
     expires_at: dt.datetime | None = None
-    last_failure: tuple[float, str] | None = None
+    current: dict[str, str] | None = None
+    last_failure: float | None = None
 
     def assume() -> dict[str, str]:
         nonlocal expires_at
@@ -237,25 +242,26 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
         }
 
     def fetch() -> dict[str, str]:
-        nonlocal last_failure
+        nonlocal current, last_failure
         # botocore tries a refresh on every signed request from 15 minutes before expiry, and keeps
-        # the current credentials if it fails before the last 10 minutes. A failed refresh repeats the
-        # same failure for a minute, so that an STS outage or a changed trust policy does not add an
-        # STS round trip to every request.
+        # the current credentials if it fails before the last 10 minutes. After a failed refresh the
+        # current credentials come back for a minute without an STS call, so that an STS outage or a
+        # changed trust policy does not add an STS round trip and a logged traceback to every request.
         if (
-            last_failure is not None
-            and time.monotonic() - last_failure[0] < _REFRESH_BACKOFF_SECONDS
+            current is not None
+            and last_failure is not None
+            and time.monotonic() - last_failure < _REFRESH_BACKOFF_SECONDS
             and expires_at is not None
             and expires_at - dt.datetime.now(dt.UTC) > _MANDATORY_REFRESH_WINDOW
         ):
-            raise AwsAuthError(last_failure[1])
+            return current
         try:
-            metadata = assume()
-        except AwsAuthError as error:
-            last_failure = (time.monotonic(), str(error))
+            current = assume()
+        except AwsAuthError:
+            last_failure = time.monotonic()
             raise
         last_failure = None
-        return metadata
+        return current
 
     return RefreshableCredentials.create_from_metadata(fetch(), refresh_using=fetch, method="sts-assume-role")
 

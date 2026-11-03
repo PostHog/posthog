@@ -92,6 +92,12 @@ class TestResolveAwsCredentials(BaseTest):
             resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
         assume.assert_not_called()
 
+    def test_unknown_selection_is_refused_even_with_keys(self) -> None:
+        auth = Auth(selection="Role", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="example-secret")
+
+        with self.assertRaises(AwsAuthError):
+            resolve_aws_credentials(auth, self.team.id)
+
     @parameterized.expand(["other_team", "s3_compatible", "github", "deleted"])
     def test_connection_the_source_cannot_use_is_not_found(self, case: str) -> None:
         if case == "other_team":
@@ -181,7 +187,8 @@ class TestResolveAwsCredentials(BaseTest):
         with patch(ASSUME_ROLE, assume):
             credentials = resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
             first = credentials.get_frozen_credentials()
-            second = credentials.get_frozen_credentials()
+            with self.assertNoLogs("botocore.credentials", level="WARNING"):
+                second = credentials.get_frozen_credentials()
 
         assert first.access_key == second.access_key == "ASIAFIRST"
         assert assume.call_count == 2

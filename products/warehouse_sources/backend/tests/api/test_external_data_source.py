@@ -3450,6 +3450,14 @@ class TestExternalDataSource(APIBaseTest):
                 "rotated-secret",
                 True,
             ),
+            # An API client rotates one secret in the container and leaves out the selection.
+            (
+                "nested_partial_rotation",
+                {"aws_auth": {"aws_secret_access_key": "rotated-secret"}},
+                "AKIAEXAMPLE",
+                "rotated-secret",
+                True,
+            ),
             # The settings form edits the container and echoes the unchanged top-level copy.
             (
                 "form_edit_with_echoed_copy",
@@ -15837,6 +15845,41 @@ class TestSourceUpdateCredentialsRow(APIBaseTest):
         row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, int(self._reference(first)))
         assert row.sensitive_config["fields"]["password"] == "fake-rotated"
         assert self._reference(second) == self._reference(first)
+
+    @patch(
+        "products.warehouse_sources.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_resubmitting_keys_stored_before_the_auth_select_needs_no_confirmation(
+        self, _validate_aws: MagicMock, _validate: MagicMock
+    ) -> None:
+        inputs = {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "example-secret", "region": "eu-west-1"}
+        first = SourceInputsStore.create(
+            inputs=inputs,
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="AwsConfig",
+            created_by=self.user,
+        )
+        other = SourceInputsStore.create(
+            inputs=inputs,
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="AwsConfig",
+            created_by=self.user,
+        )
+        ExternalDataSource.objects.filter(pk=other.pk).update(credentials_integration_id=self._reference(first))
+        returned = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{first.pk}").json()
+
+        response = self._patch(first, returned["job_inputs"])
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_an_edit_keeps_the_stored_reference(self, _validate: MagicMock) -> None:
         source = self._create(self.INPUTS)

@@ -570,7 +570,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
             if not (isinstance(existing_container, dict) and isinstance(incoming_container, dict)):
                 continue
-            selection_changed = existing_container.get("selection") != incoming_container.get("selection")
+            # A container without `selection` edits fields of the stored branch.
+            selection_changed = existing_container.get("selection") != incoming_container.get(
+                "selection", existing_container.get("selection")
+            )
             if selection_changed:
                 # Selection switched (e.g. password→keypair) — use only incoming, don't carry over old secrets
                 new_job_inputs[container_key] = incoming_container
