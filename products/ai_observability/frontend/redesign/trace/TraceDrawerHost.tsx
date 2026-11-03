@@ -9,10 +9,11 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DetailPanel, isDetailPanelFullWidth } from '../shared/components/DetailPanel'
 import { TraceViewContainer } from './adapter/TraceViewContainer'
 import { TraceDrawerToolbar } from './components/TraceDrawerToolbar'
+import type { TraceDrawerListId } from './traceDrawerLists'
 import { traceDrawerLogic } from './traceDrawerLogic'
 
 export interface TraceDrawerHostProps {
-    listId: string
+    listId: TraceDrawerListId
 }
 
 export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element | null {

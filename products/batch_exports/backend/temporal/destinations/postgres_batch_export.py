@@ -85,6 +85,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on errors that are related to database operation.
     # For example: unexpected disconnect, database or other object not found.
     "OperationalError",

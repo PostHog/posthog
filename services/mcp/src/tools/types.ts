@@ -127,6 +127,8 @@ export type Env = {
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
     POSTHOG_MCP_SKILLS_SHA256?: string | undefined
+    /** `off` serves the product skills archive without the context-mill omnibus overlay. */
+    POSTHOG_MCP_OMNIBUS_SKILLS?: string | undefined
     POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
