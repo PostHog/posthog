@@ -531,15 +531,22 @@ describe('EmailTrackingService', () => {
             }
 
             it.each([
-                ['on the replica', false],
-                ['only on the primary, during replica lag', true],
-            ])('writes a hog_flow log entry for a bounce that resolves to a flow %s', async (_, lagging) => {
+                ['on the replica', false, false],
+                ['only on the primary, during replica lag', true, false],
+                ['on the replica, while the hog function lookup fails', false, true],
+                ['only on the primary, while the hog function lookup fails', true, true],
+            ])('writes a hog_flow log entry for a bounce that resolves to a flow %s', async (_, lagging, fail) => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
                     new FixtureHogFlowBuilder().withTeamId(team.id).build()
                 )
                 if (lagging) {
                     hideHogFlowsFromReplica(hub.postgres, [hogFlow.id])
+                }
+                if (fail) {
+                    jest.spyOn(api['emailTrackingService']['hogFunctionManager'], 'getHogFunctions').mockRejectedValue(
+                        new Error('hog function lookup failed')
+                    )
                 }
 
                 const res = await postBounce({ functionId: hogFlow.id })

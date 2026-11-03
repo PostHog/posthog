@@ -6,6 +6,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    HogFunctionType,
     LogEntry,
     LogEntryLevel,
     MinimalAppMetric,
@@ -627,10 +628,19 @@ export class EmailTrackingService {
     private async getFeedbackHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
         const [onReplica, hogFunctions] = await Promise.all([
             this.hogFlowManager.getHogFlows(ids),
-            this.hogFunctionManager.getHogFunctions(ids),
+            this.hogFunctionManager.getHogFunctions(ids).catch((error): Record<string, HogFunctionType | null> => {
+                logger.warn('[EmailTrackingService] Failed to load hog functions', { error })
+                return {}
+            }),
         ])
         const unknown = ids.filter((id) => !onReplica[id] && !hogFunctions[id])
-        const onPrimary = unknown.length > 0 ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(unknown) : {}
+        const onPrimary: Record<HogFlow['id'], HogFlow | null> =
+            unknown.length > 0
+                ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(unknown).catch((error) => {
+                      logger.warn('[EmailTrackingService] Failed to load hog flows from the primary', { error })
+                      return {}
+                  })
+                : {}
         return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
     }
 
