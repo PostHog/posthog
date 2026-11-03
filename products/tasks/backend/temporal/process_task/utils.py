@@ -51,7 +51,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskTransientError,
 )
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile
+from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, TaskProfile
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.desktop_gateway_token import (
@@ -77,6 +77,7 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.metrics import observe_mcp_exclude_tools_dropped
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
@@ -851,7 +852,6 @@ POSTHOG_MCP_DESCRIPTION = (
 )
 
 _MCP_EXCLUDE_TOOL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_MAX_MCP_EXCLUDE_TOOLS = 32
 
 
 def _unique_mcp_exclude_tools(names: Iterable[str]) -> list[str]:
@@ -869,7 +869,7 @@ def _unique_mcp_exclude_tools(names: Iterable[str]) -> list[str]:
 def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
     if not names:
         return []
-    return _unique_mcp_exclude_tools(names)[:_MAX_MCP_EXCLUDE_TOOLS]
+    return _unique_mcp_exclude_tools(names)[:MAX_MCP_EXCLUDE_TOOLS]
 
 
 def _mcp_exclude_tool_names_in_state(state: dict[str, Any] | None) -> list[str]:
@@ -888,13 +888,14 @@ def mcp_exclude_tools_for_task(task: Task, state: dict[str, Any] | None) -> list
     if profile is None:
         return mcp_exclude_tools_from_state(state)
     excluded = _unique_mcp_exclude_tools([*profile.mcp_exclude_tools, *_mcp_exclude_tool_names_in_state(state)])
-    if len(excluded) > _MAX_MCP_EXCLUDE_TOOLS:
-        raise ProcessTaskFatalError(
-            "The task hides more MCP tools than the sandbox can hide",
-            {"task_id": str(task.id), "excluded_tool_count": len(excluded)},
-            cause=ValueError(f"{len(excluded)} hidden MCP tools exceed the limit of {_MAX_MCP_EXCLUDE_TOOLS}"),
+    dropped = excluded[MAX_MCP_EXCLUDE_TOOLS:]
+    if dropped:
+        logger.warning(
+            "task_mcp_exclude_tools_dropped",
+            extra={"task_id": str(task.id), "profile": profile.key, "dropped_tools": dropped},
         )
-    return excluded
+        observe_mcp_exclude_tools_dropped(profile=profile.key, count=len(dropped))
+    return excluded[:MAX_MCP_EXCLUDE_TOOLS]
 
 
 def get_sandbox_ph_mcp_configs(

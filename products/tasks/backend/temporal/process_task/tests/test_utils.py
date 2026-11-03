@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, call, patch
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration, Organization, Team
@@ -16,7 +17,7 @@ from posthog.models.user_integration import UserGitHubIntegration, UserIntegrati
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
-from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
 from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
@@ -446,24 +447,26 @@ class TestMcpExcludeTools(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("profile_and_run_fill_the_cap", 31, 1, False),
-            ("run_overflows_the_cap", 31, 2, True),
-            ("profile_overflows_the_cap", 33, 0, True),
+            ("profile_and_run_fill_the_cap", 31, 1, 0),
+            ("run_overflows_the_cap", 31, 2, 1),
+            ("run_alone_overflows_the_cap", 0, 34, 2),
         ]
     )
-    def test_mcp_exclude_tools_for_task_refuses_tools_past_the_cap(
-        self, _name: str, profile_count: int, run_count: int, refused: bool
+    def test_mcp_exclude_tools_for_task_drops_run_tools_past_the_cap(
+        self, _name: str, profile_count: int, run_count: int, dropped: int
     ) -> None:
+        profile_tools = tuple(f"profile-{i}" for i in range(profile_count))
+        run_tools = [f"run-{i}" for i in range(run_count)]
         task = MagicMock()
-        task.stored_profile = replace(
-            BUSINESS_KNOWLEDGE, mcp_exclude_tools=tuple(f"profile-{i}" for i in range(profile_count))
-        )
-        state = {"mcp_exclude_tools": [f"run-{i}" for i in range(run_count)]}
-        if refused:
-            with self.assertRaises(ProcessTaskFatalError):
-                mcp_exclude_tools_for_task(task, state)
-        else:
-            assert len(mcp_exclude_tools_for_task(task, state)) == profile_count + run_count
+        task.stored_profile = replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        labels = {"profile": BUSINESS_KNOWLEDGE.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_dropped_total", labels) or 0
+
+        excluded = mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools})
+
+        after = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_dropped_total", labels) or 0
+        assert excluded == [*profile_tools, *run_tools][:32]
+        assert after - before == dropped
 
 
 class TestMcpServerConfigToDict(SimpleTestCase):

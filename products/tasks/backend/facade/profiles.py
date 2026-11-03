@@ -303,10 +303,14 @@ _ORIGIN_SCOPED_FIELDS = (
     "warm",
 )
 
+MAX_MCP_EXCLUDE_TOOLS = 32
+
 _profiles: dict[str, TaskProfile] = {}
 
 
 def register_task_profile(profile: TaskProfile) -> None:
+    if len(profile.mcp_exclude_tools) > MAX_MCP_EXCLUDE_TOOLS:
+        raise TaskProfileError(f"Task profile {profile.key!r} hides more than {MAX_MCP_EXCLUDE_TOOLS} MCP tools")
     existing = _profiles.get(profile.key)
     if existing is not None and existing != profile:
         raise TaskProfileError(f"Task profile {profile.key!r} is already registered with different values")
