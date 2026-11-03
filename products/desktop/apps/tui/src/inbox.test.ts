@@ -82,6 +82,11 @@ describe("feedChat", () => {
       "prompt",
     ],
     [
+      "a question already read does not",
+      { activity_kind: "awaiting_input", is_unread: false },
+      null,
+    ],
+    [
       "a thread message is not a finished turn",
       { activity_kind: "message" },
       null,

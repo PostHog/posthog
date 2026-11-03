@@ -58,7 +58,8 @@ export function feedChat(
   const at = Date.parse(row.activity_at);
   return {
     working,
-    prompted: prompted || row.activity_kind === "awaiting_input",
+    prompted:
+      prompted || (row.activity_kind === "awaiting_input" && row.is_unread),
     failed,
     turnEndedAt: row.is_unread && !Number.isNaN(at) ? at : null,
   };
