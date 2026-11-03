@@ -10,7 +10,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import { MCP_ANALYTICS_DOCS_URL, MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
 import { MCPAnalyticsSetupActions } from './MCPAnalyticsSetupActions'
-import { MCPSetupDoorActions } from './MCPSetupDoorActions'
+import { MCPSetupCard } from './MCPSetupCard'
+import { MCPSetupSidebar } from './MCPSetupSidebar'
 import { MCPToolCallPreview } from './MCPToolCallPreview'
 
 const HedgehogPuzzle = pngHoggie(puzzlePng)
@@ -45,14 +46,12 @@ export const mcpAnalyticsEmptyState: SceneProductEmptyState = {
         statusIndicator: <MCPListeningIndicator />,
         featureFlagOverrides: {
             [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: {
-                text: {
-                    'needs-setup': {
-                        hint: "Run Wizard in your MCP server's repository. The setup agent installs analytics for you:",
-                    },
-                },
-                SetupActions: MCPSetupDoorActions,
-                // The door renders the indicator itself, above the demo card.
+                SetupActions: undefined,
+                SetupCard: MCPSetupCard,
+                // The setup card renders the indicator itself, as its footer.
                 statusIndicator: undefined,
+                previewLabel: undefined,
+                Preview: MCPSetupSidebar,
             },
         },
     },
