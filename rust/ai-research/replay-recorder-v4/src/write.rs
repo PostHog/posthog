@@ -10,7 +10,6 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use metrics::counter;
-use posthog_replay_anonymizer::v4_image_refs::ImageDecline;
 use rand::Rng;
 use replay_core_v4::bytescan::write_json_string;
 use replay_core_v4::envelope::{seal_frame, seal_json_envelope, Codec, Context, Version};
@@ -22,6 +21,7 @@ use replay_core_v4::refs::url_fingerprint;
 use replay_core_v4::scan::cv::extract_event_images;
 use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
+use replay_core_v4::v4_image_refs::ImageDecline;
 
 use tokio::sync::Semaphore;
 
@@ -1000,9 +1000,7 @@ mod tests {
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": split_face}, "childNodes": [], "id": 4}),
         ];
-        use posthog_replay_anonymizer::v4_image_refs::{
-            FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
-        };
+        use replay_core_v4::v4_image_refs::{FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER};
         for (nodes, named, marker, other_marker) in [
             (
                 images,
@@ -1564,7 +1562,7 @@ mod tests {
             keys.sessions.insert(id, key);
         }
         keys.team_months.insert(7, [6; 32]);
-        let old_ref = posthog_replay_anonymizer::v4_image_refs::image_ref(
+        let old_ref = replay_core_v4::v4_image_refs::image_ref(
             7,
             "2026-10",
             &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),
