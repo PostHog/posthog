@@ -2,6 +2,7 @@ import { SearchItem } from 'lib/components/Search/searchItems'
 
 import { buildRankedResults } from './commandKRankedResults'
 import type { CommandKSection } from './commandKSections'
+import { RESULTS_LIMIT } from './commandKSources'
 
 const result = (
     id: string,
@@ -352,21 +353,48 @@ describe('buildRankedResults', () => {
             unifiedRanking: true,
             expected: ['Results: Metrics, Data catalog'],
         },
-    ])('$name', ({ query, results, products, persons = [], accounts = [], unifiedRanking = false, expected }) => {
-        expect(
-            summary(
-                buildRankedResults({
-                    query,
-                    highlightWords: query.split(' '),
-                    results,
-                    products,
-                    persons,
-                    accounts,
-                    state: 'ready',
-                    scoped: false,
-                    unifiedRanking,
-                })
-            )
-        ).toEqual(expected)
-    })
+        {
+            name: 'a broad query that matches one type only renders a bounded flat list',
+            query: 'project settings',
+            results: [],
+            products: [],
+            settings: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) => ({
+                id: `settings-${n}`,
+                name: `Project settings ${n}`,
+                category: 'settings',
+            })),
+            expected: [
+                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Project settings ${n}`).join(', ')}`,
+            ],
+        },
+    ])(
+        '$name',
+        ({
+            query,
+            results,
+            products,
+            persons = [],
+            accounts = [],
+            settings = [],
+            unifiedRanking = false,
+            expected,
+        }) => {
+            expect(
+                summary(
+                    buildRankedResults({
+                        query,
+                        highlightWords: query.split(' '),
+                        results,
+                        products,
+                        persons,
+                        accounts,
+                        settings,
+                        state: 'ready',
+                        scoped: false,
+                        unifiedRanking,
+                    })
+                )
+            ).toEqual(expected)
+        }
+    )
 })

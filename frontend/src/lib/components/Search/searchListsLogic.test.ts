@@ -97,9 +97,22 @@ describe('searchListsLogic', () => {
         ['project general', 'settings-project-details', true],
         ['2fa', 'settings-user-profile-2fa', true],
         ['rename project', 'settings-project-customization-display-name', false],
+        ['desktop images', 'settings-project-ai-cloud-environments-ai-cloud-custom-images', false],
     ])('finds the setting row %s', (query, id, ranked) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
         const component = {} as JSX.Element
         logic.actions.setSettingsSections([
+            {
+                id: 'environment-ai-cloud-environments',
+                level: 'environment',
+                title: 'Cloud environments',
+                flag: 'TODAY_RAIL_NAV',
+                keywords: ['desktop'],
+                settings: [
+                    { id: 'ai-cloud-environments', title: 'Environments', component },
+                    { id: 'ai-cloud-custom-images', title: 'Custom images', keywords: ['dependencies'], component },
+                ],
+            },
             {
                 id: 'environment-details',
                 level: 'environment',

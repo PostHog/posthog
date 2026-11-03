@@ -126,7 +126,7 @@ Results for a search with words follow ordered tie-breaking rules: words matched
 - **Best matches** comes first: the three best results of different types.
 - The other results follow in groups by type, each with its total count and up to three rows. A group ends with a **See all N <types>** row that adds the `is:` chip and keeps the words. A one-word search that starts a type name (`dash`, `flag`) moves that type's group up.
 - Results with the same name show as one row with a "+N with this name" badge.
-- A short list (8 or fewer) or a list of one type shows flat, under one **Results** header.
+- A short list (8 or fewer) or a list of one type shows flat, under one **Results** header, with at most 20 rows.
 - With an `is:` chip, results show as one flat list. The creator shows on rows that share a name.
 - Rows show the folder (when not Unfiled) and "viewed 3 days ago" when the person opened the item, otherwise "created 2 mos ago". Type labels show only in Best matches, where types mix.
 

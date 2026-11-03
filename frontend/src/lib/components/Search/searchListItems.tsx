@@ -426,8 +426,10 @@ const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: st
                 { level: section.level, sectionId: section.id, settingId: setting.id },
                 {
                     parentName: `${levelName} › ${title}`,
-                    searchKeywords: [context, sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
-                    hiddenSearchText: [context, ...settingTerms(setting)].filter(Boolean).join(' '),
+                    searchKeywords: [sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
+                    hiddenSearchText: [context, ...(section.keywords ?? []), ...settingTerms(setting)]
+                        .filter(Boolean)
+                        .join(' '),
                 }
             )
         ),

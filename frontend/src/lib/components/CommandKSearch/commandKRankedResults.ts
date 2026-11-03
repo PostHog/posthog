@@ -16,6 +16,7 @@ import {
     tokenTypos,
 } from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
+import { RESULTS_LIMIT } from './commandKSources'
 
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
@@ -342,9 +343,18 @@ export function buildRankedResults({
             {
                 key: 'best-matches',
                 label: 'Results',
-                rows: pool.map((entry) =>
-                    itemRow('flat', entry.item, highlightWords, entry.duplicates, entry.duplicates > 0, groupCount > 1)
-                ),
+                rows: pool
+                    .slice(0, RESULTS_LIMIT)
+                    .map((entry) =>
+                        itemRow(
+                            'flat',
+                            entry.item,
+                            highlightWords,
+                            entry.duplicates,
+                            entry.duplicates > 0,
+                            groupCount > 1
+                        )
+                    ),
                 state,
             },
         ]
