@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { organizationLogic } from 'scenes/organizationLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -121,6 +123,26 @@ describe('aiCreditsLogic', () => {
 
         expect(purchaseKeys).toHaveLength(3)
         expect(purchaseKeys[2]).not.toEqual(purchaseKeys[1])
+    })
+
+    it('pays for the organization the page loaded for after this tab loads another one', async () => {
+        const purchaseOrganizations: string[] = []
+        useMocks({
+            post: {
+                '/api/billing/ai_credits/purchase/': async ({ request }) => {
+                    purchaseOrganizations.push(((await request.json()) as { organization_id: string }).organization_id)
+                    return [200, { status: 'paid', total_usd: QUOTE.total_usd }]
+                },
+            },
+        })
+        organizationLogic.actions.loadCurrentOrganizationSuccess({ ...MOCK_DEFAULT_ORGANIZATION, id: 'another-org' })
+
+        logic.actions.openAddFundsModal()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.submitAddFundsForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(purchaseOrganizations).toEqual([MOCK_DEFAULT_ORGANIZATION.id])
     })
 
     it('drops the failure of a quote that a newer quote replaced', async () => {
