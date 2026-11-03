@@ -3,6 +3,7 @@ import { http, passthrough } from 'msw'
 import { setupWorker } from 'msw/browser'
 
 import { handlers, toPaginatedResponse } from '~/mocks/handlers'
+import { routeHandlers } from '~/mocks/routeHandlers'
 import { HTTP_METHODS, MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 import type { AppContext } from '~/types'
 
@@ -33,8 +34,7 @@ const staticAssetPassthrough = http.get(STATIC_ASSET_URL, () => passthrough())
 // Default handlers ensure no request is unhandled by msw. Handlers listed first take precedence.
 export const worker: ReturnType<typeof setupWorker> = setupWorker(
     staticAssetPassthrough,
-    ...mocksToHandlers(storybookDefaultMocks),
-    ...handlers
+    routeHandlers([...mocksToHandlers(storybookDefaultMocks), ...handlers])
 )
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(staticAssetPassthrough, ...mocksToHandlers(mocks))
