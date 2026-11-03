@@ -153,7 +153,9 @@ tools:
             body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes
             out as typed. When the user points you at a local file, such as an HTML email in their repository, read the
             file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a
-            domain the project verified; sender_not_verified means nothing was sent. Sending takes two calls: prepare
+            domain the project verified; sender_not_verified means nothing was sent. Leave from out to send from the
+            project's default sender; sender_required means the project has several senders and no default, so ask the
+            user which address to send from. Sending takes two calls: prepare
             checks the email and returns a message for the user, and execute sends it only after the user replies with
             the literal word 'confirm'. Each execute call sends an email, so never repeat one that succeeded. A 503, a
             timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do not
