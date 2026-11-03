@@ -50,9 +50,12 @@ export function TransactionalEmailResults(): JSX.Element {
                     min={1}
                     max={30}
                     value={resultsQuery.windowDays}
-                    onChange={(windowDays) =>
-                        setResultsQuery({ windowDays: Math.min(Math.max(Math.round(windowDays ?? 1), 1), 30) })
-                    }
+                    onChange={(windowDays) => {
+                        // Clearing the field gives NaN, which the API rejects.
+                        if (windowDays !== undefined && Number.isFinite(windowDays)) {
+                            setResultsQuery({ windowDays: Math.min(Math.max(Math.round(windowDays), 1), 30) })
+                        }
+                    }}
                     className="w-16"
                     data-attr="transactional-email-results-window"
                 />

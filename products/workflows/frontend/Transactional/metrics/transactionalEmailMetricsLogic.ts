@@ -180,9 +180,7 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
             null as TransactionalEmailStatsRowApi[] | null,
             {
                 loadTemplateStats: async (_: void, breakpoint) => {
-                    const stats = await fetchStats(values.currentProjectId, 'template', values.hours)
-                    breakpoint()
-                    return stats
+                    return await latest(fetchStats(values.currentProjectId, 'template', values.hours), breakpoint)
                 },
             },
         ],
@@ -190,9 +188,7 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
             null as TransactionalEmailStatsRowApi[] | null,
             {
                 loadDomainStats: async (_: void, breakpoint) => {
-                    const stats = await fetchStats(values.currentProjectId, 'sending_domain', values.hours)
-                    breakpoint()
-                    return stats
+                    return await latest(fetchStats(values.currentProjectId, 'sending_domain', values.hours), breakpoint)
                 },
             },
         ],
@@ -205,15 +201,16 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
                         return null
                     }
                     await breakpoint(300)
-                    const response = await transactionalEmailLogResultsRetrieve(String(values.currentProjectId), {
-                        workflow_id: workflowId,
-                        event,
-                        window_days: windowDays,
-                        revenue_property: revenueProperty ?? undefined,
-                        date_from: dayjs().subtract(values.hours, 'hour').toISOString(),
-                    })
-                    breakpoint()
-                    return response
+                    return await latest(
+                        transactionalEmailLogResultsRetrieve(String(values.currentProjectId), {
+                            workflow_id: workflowId,
+                            event,
+                            window_days: windowDays,
+                            revenue_property: revenueProperty ?? undefined,
+                            date_from: dayjs().subtract(values.hours, 'hour').toISOString(),
+                        }),
+                        breakpoint
+                    )
                 },
             },
         ],
@@ -268,4 +265,13 @@ async function fetchStats(
         date_from: dayjs().subtract(hours, 'hour').toISOString(),
     })
     return [...response.results]
+}
+
+/** Checks the breakpoint whether the request succeeded or failed, so a superseded failure can't replace newer results. */
+async function latest<T>(request: Promise<T>, breakpoint: () => void): Promise<T> {
+    try {
+        return await request
+    } finally {
+        breakpoint()
+    }
 }
