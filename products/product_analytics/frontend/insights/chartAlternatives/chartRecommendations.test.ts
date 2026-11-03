@@ -1,8 +1,9 @@
+import { getChartDisplayOptions } from 'lib/components/ChartFilter/chartDisplayOptions'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
-import { getChartDisplayOptions } from './chartDisplayOptions'
 import { getChartAlternatives } from './chartRecommendations'
 
 function makeTrendsQuery(overrides: Partial<TrendsQuery> = {}): TrendsQuery {

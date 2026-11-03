@@ -6,7 +6,7 @@ import path from 'path'
 // toolbar-esbuild-meta.json (config name 'Toolbar'); the loader (dist/toolbar.js)
 // is built separately and is not part of the metafile.
 
-export const TOOLBAR_ENTRY_POINT = 'src/toolbar/index.tsx'
+export const TOOLBAR_ENTRY_POINT = 'src/toolbar/floating/index.tsx'
 
 export function readToolbarMetafile() {
     const metafilePath = path.resolve(process.cwd(), 'toolbar-esbuild-meta.json')

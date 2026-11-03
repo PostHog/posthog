@@ -367,6 +367,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "partition_mode": "datetime",
         "partition_format": "week",
         "partition_keys": ["created_time"],
+        # An adset's targeting spec can be large enough that Meta refuses even the smallest page.
+        "refusable_fields": ("targeting", "promoted_object"),
     },
     MetaAdsResource.AdsetStats: {
         "primary_keys": ["adset_id", "account_id", "date_start"],

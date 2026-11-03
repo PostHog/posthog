@@ -1,9 +1,10 @@
 import { convertPropertiesToPropertyGroup, isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { hogql } from 'lib/utils/hogql'
 import { FEATURE_FLAG_CALLED_EVENT, storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     CyclotronJobFilterPropertyFilter,
     CyclotronJobInvocationGlobals,

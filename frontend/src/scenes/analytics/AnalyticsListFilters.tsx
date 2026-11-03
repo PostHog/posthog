@@ -4,9 +4,9 @@ import { IconTrends } from '@posthog/icons'
 import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { tagsModel } from '~/models/tagsModel'
 
 import { AnalyticsDisplayMenu } from './AnalyticsDisplayMenu'

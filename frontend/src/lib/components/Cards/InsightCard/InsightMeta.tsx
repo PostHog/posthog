@@ -33,8 +33,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { reportDashboardInsightMetaUpdated } from 'scenes/dashboard/dashboardEvents'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -51,13 +49,13 @@ import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTool
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -77,6 +75,8 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'

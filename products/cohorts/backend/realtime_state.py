@@ -17,7 +17,7 @@ filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, TypeGuard
 from uuid import UUID
@@ -42,7 +42,7 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_serving_team
 
 logger = structlog.get_logger(__name__)
 
@@ -149,7 +149,7 @@ def _required_backfill_kinds(cohort: Cohort) -> set[str]:
     return set(cohort._required_backfill_stamps())
 
 
-def _percent_complete(chunks: dict[str, Any] | None) -> int | None:
+def _percent_complete(chunks: Mapping[str, Any] | None) -> int | None:
     """Scan progress as a whole percent, or None while the run has planned no chunks.
 
     Rounded down, so 100 means every chunk is confirmed rather than 199 of 200.
@@ -230,7 +230,7 @@ def _queued_triggers(pairs: Sequence[tuple[int, str]]) -> dict[tuple[int, str], 
     }
 
 
-def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, dict[str, Any]]:
+def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, Mapping[str, Any]]:
     if not run_ids:
         return {}
     tallies = (
@@ -401,25 +401,33 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
 def has_realtime_state(cohort: Cohort) -> bool:
     """Whether this cohort can have a flag targeting state at all.
 
-    False on a team that does not run the pipeline, because its flags can never read realtime
-    membership, and for a cohort whose criteria are neither event-based nor person properties: a
-    cohort reference alone leaves the realtime evaluator no leaf to key membership on, and nothing
-    in the flag API turns on it either. Neither has anything to say, so neither pays for the run
-    lookups, or the rollout flag evaluation, that saying it costs.
+    False on a team below the `serving` level, because its flags never read realtime membership
+    and its users must not see the pipeline. False for a cohort whose criteria are neither
+    event-based nor person properties: a cohort reference alone leaves the realtime evaluator no
+    leaf to key membership on, and nothing in the flag API turns on it either. Neither has anything
+    to say, so neither pays for the run lookups, or the rollout flag evaluation, that saying it costs.
 
-    In-memory only: the allowlist is a parsed setting and the criteria come off the cohort row.
+    The criteria come off the cohort row, and the team's level from a per-process snapshot.
     """
-    if cohort.pk is None or not is_realtime_cohort_team(cohort.team_id):
-        return False
-    return _has_event_criteria(cohort) or _has_person_criteria(cohort)
+    return bool(cohorts_with_realtime_state([cohort]))
+
+
+def cohorts_with_realtime_state(cohorts: Sequence[Cohort]) -> list[Cohort]:
+    """The cohorts ``has_realtime_state`` admits, reading each team's level once per call."""
+    saved = [cohort for cohort in cohorts if cohort.pk is not None]
+    serving_teams = {team_id for team_id in {cohort.team_id for cohort in saved} if is_serving_team(team_id)}
+    return [
+        cohort
+        for cohort in saved
+        if cohort.team_id in serving_teams and (_has_event_criteria(cohort) or _has_person_criteria(cohort))
+    ]
 
 
 def resolve_realtime_readiness(cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     """One readiness per cohort id, for the cohorts ``has_realtime_state`` admits."""
     by_team: dict[int, list[Cohort]] = defaultdict(list)
-    for cohort in cohorts:
-        if has_realtime_state(cohort):
-            by_team[cohort.team_id].append(cohort)
+    for cohort in cohorts_with_realtime_state(cohorts):
+        by_team[cohort.team_id].append(cohort)
 
     readiness: dict[int, CohortRealtimeReadiness] = {}
     for team_id, team_cohorts in by_team.items():

@@ -13,6 +13,7 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
     MakeTransactionalApi,
@@ -61,12 +62,31 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `hog_flow:read` scope.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`
 }
 
 /**
- * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient from the template named in `template_id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (

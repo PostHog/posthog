@@ -73,6 +73,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
+from products.signals.backend.facade.source_scouts import SOURCE_TEMPLATE_METADATA_KEYS
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -112,7 +113,6 @@ from products.signals.backend.scout_harness.precheck import (
     resolve_effective_precheck,
     scout_skill_is_canonical,
 )
-from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
     ScoutRunRejectionKind,
@@ -120,7 +120,6 @@ from products.signals.backend.scout_harness.run_gates import (
     check_run_in_flight,
     check_spend_gates,
 )
-from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
@@ -150,8 +149,6 @@ from products.signals.backend.scout_harness.serializers import (
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
     ScoutCheckSummarySerializer,
-    ScoutCostsQuerySerializer,
-    ScoutCostsSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutFleetSyncQuerySerializer,
     ScoutMemberSerializer,
@@ -162,7 +159,6 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutNotesQuerySerializer,
     ScoutOrigin,
     ScoutRunIdsBatchRequestSerializer,
-    ScoutRunTokenCostsSerializer,
     ScoutToolCatalogueSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
@@ -637,6 +633,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
 
+    def get_serializer_context(self) -> dict[str, object]:
+        context = super().get_serializer_context()
+        context["may_read_reports"] = _may_read_reports(self.request, self.team.parent_team or self.team)
+        return context
+
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         team_id = _canonical_team_id(self)
@@ -666,7 +667,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "edit_report",
                 "emissions_batch",
                 "emission_reports_batch",
-                "token_costs",
             }:
                 with trial_state_errors():
                     private.invalidate("The scout requested a write that private trials do not support.")
@@ -730,7 +730,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_version=skill_version,
                 limit=limit,
             )
-        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        return Response(
+            SignalScoutRunSummarySerializer(
+                [row.as_dict() for row in rows], many=True, context=self.get_serializer_context()
+            ).data
+        )
 
     @validated_request(
         query_serializer=RecentRunsPerScoutQuerySerializer,
@@ -772,6 +776,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def recent_per_scout(self, request: Request, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
+        serializer_context = self.get_serializer_context()
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
@@ -794,17 +799,26 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
-            return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            return Response(
+                SignalScoutRunSummarySerializer(
+                    [row.as_dict() for row in rows], many=True, context=serializer_context
+                ).data
+            )
         # The inbox polls this every minute. A browser revalidates a `no-cache` body with
         # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
-        etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
+        report_access = int(bool(serializer_context["may_read_reports"]))
+        etag = f'"{report_access}:{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
         conditional = get_conditional_response(request._request, etag=etag)
         if conditional is not None:
             # 304 for a matching If-None-Match, 412 for a failed If-Match.
             response = Response(status=conditional.status_code)
         else:
             rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
-            response = Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            response = Response(
+                SignalScoutRunSummarySerializer(
+                    [row.as_dict() for row in rows], many=True, context=serializer_context
+                ).data
+            )
         response["ETag"] = etag
         response["Cache-Control"] = "private, no-cache"
         return response
@@ -860,7 +874,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if saved is not None:
             for row in saved.context.recent_runs:
                 if row.get("run_id") == str(run_id):
-                    return Response(SignalScoutRunDetailSerializer(row).data)
+                    return Response(SignalScoutRunDetailSerializer(row, context=self.get_serializer_context()).data)
         detail = get_run(team_id=_canonical_team_id(self), run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
@@ -870,7 +884,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reports = private.reports()
             body["emitted_report_ids"] = [report.id for report in reports if report.source_report_id is None]
             body["edited_report_ids"] = [report.id for report in reports if report.source_report_id is not None]
-        return Response(SignalScoutRunDetailSerializer(body).data)
+        return Response(SignalScoutRunDetailSerializer(body, context=self.get_serializer_context()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -1079,90 +1093,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id, canonical_team, emissions, log_context={"run_count": len(run_ids)}
         )
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
-
-    @validated_request(
-        request_serializer=ScoutRunIdsBatchRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=ScoutRunTokenCostsSerializer,
-                description="Model spend for each requested run that exists on this project.",
-            ),
-            403: OpenApiResponse(description="Caller is not PostHog staff."),
-        },
-        summary="Get the model spend of many runs at once",
-        description=(
-            "Return what each requested `SignalScoutRun` spent on model calls, summed from the "
-            "`$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: "
-            "a settled run's total is final, a run still in progress reports what it has spent so far. "
-            "`available` is false where the internal AI observability project holding those events can't "
-            "be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal "
-            "operating number, and the events sit outside the project in the path. Strictly team-scoped — "
-            "run ids belonging to another project contribute no rows."
-        ),
-        operation_id="signals_scout_runs_token_costs",
-    )
-    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="token-costs",
-        required_scopes=["signal_scout:read"],
-        pagination_class=None,
-    )
-    def token_costs(self, request: Request, **kwargs) -> Response:
-        if not cast(User, request.user).is_staff:
-            raise exceptions.PermissionDenied("Only PostHog staff can read scout run costs.")
-        costs = scout_run_token_costs(team_id=_canonical_team_id(self), run_ids=request.validated_data["run_ids"])
-        return Response(
-            ScoutRunTokenCostsSerializer(
-                {
-                    "costs": [dataclasses.asdict(cost) for cost in costs.costs],
-                    "available": costs.available,
-                }
-            ).data
-        )
-
-    @validated_request(
-        query_serializer=ScoutCostsQuerySerializer,
-        responses={
-            200: OpenApiResponse(
-                response=ScoutCostsSerializer,
-                description="Model spend and output per scout over the window.",
-            ),
-            403: OpenApiResponse(description="Caller is not PostHog staff."),
-        },
-        summary="Get what each scout spent over a window",
-        description=(
-            "Return what every scout on this project spent on model calls over the last `window_days`, "
-            "with how many runs it started, how many of those had spend attributed, and how many inbox "
-            "reports it filed or added to. Cost per day, per run, and per report are derived from those "
-            "numbers by the caller, so the endpoint stays a fact table and the definitions live in one "
-            "place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and "
-            "joined to the run rows by task run id, because a team-authored scout's generations all "
-            "carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the "
-            "window's trailing edge moves and the newest runs may still be settling, so this is a "
-            "roughly current number, not a live one. `available` is false where the internal AI "
-            "observability project holding those events can't be read, so an unknown spend never reads "
-            "as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped."
-        ),
-        operation_id="signals_scout_runs_costs",
-    )
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="costs",
-        required_scopes=["signal_scout:read"],
-        pagination_class=None,
-    )
-    def costs(self, request: Request, **kwargs) -> Response:
-        if not cast(User, request.user).is_staff:
-            raise exceptions.PermissionDenied("Only PostHog staff can read scout costs.")
-        validated = getattr(request, "validated_query_data", {}) or {}
-        costs = scout_costs(
-            team_id=_canonical_team_id(self),
-            window_days=validated.get("window_days") or SCOUT_COST_WINDOW_DAYS,
-        )
-        return Response(ScoutCostsSerializer(dataclasses.asdict(costs)).data)
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,
@@ -2747,8 +2677,8 @@ def _upsert_scout_config(
         skill_name=skill_name,
         defaults={
             **defaults,
-            "created_by": request.user,
-            "enabled_by": request.user if tunables.get("enabled", True) else None,
+            "created_by": cast(User, request.user),
+            "enabled_by": cast(User, request.user) if tunables.get("enabled", True) else None,
         },
     )
     if created or not tunables:
@@ -2998,7 +2928,8 @@ def _skill_matches_scout_definition(
         and skill.category == "scout"
         and skill.license == ""
         and skill.compatibility == ""
-        and skill.metadata == {}
+        # A source product's template record is server-owned, so a retried create still matches.
+        and {k: v for k, v in (skill.metadata or {}).items() if k not in SOURCE_TEMPLATE_METADATA_KEYS} == {}
         and set(skill.allowed_tools or []) == REPORT_CHANNEL_TOOLS
         and stored_files == requested_files
     )

@@ -8,13 +8,29 @@
     },
     "type": "module",
     "scripts": {
-        "hog": "bun src/index.ts",
-        "compile": "bun build --compile src/index.ts --outfile dist/hog",
+        "hog": "bun --no-env-file src/index.ts",
+        "compile": "pnpm run build:mcp && bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
         "typecheck": "tsc --noEmit",
-        "unit": "bun test"
+        "unit": "bun test",
+        "schema": "bun scripts/write-schema.ts",
+        "build:mcp": "pnpm --filter @posthog/mcp build:cli:library"
+    },
+    "dependencies": {
+        "@clack/prompts": "1.8.1",
+        "@posthog/mcp": "workspace:*",
+        "cli-table3": "0.6.5",
+        "commander": "15.0.0",
+        "diff": "8.0.4",
+        "pako": "2.1.0",
+        "yaml": "2.9.0",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@types/bun": "1.3.14",
+        "@types/pako": "2.0.4",
         "typescript": "catalog:"
+    },
+    "engines": {
+        "bun": ">=1.3.3"
     }
 }

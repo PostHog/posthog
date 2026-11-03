@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any
 
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import bump_stuck_counter_activity
+
 from products.replay_vision.backend.temporal.activities import (
     advance_backfill_cursor_activity,
     advance_scanner_watermark_activity,
@@ -49,6 +51,7 @@ from products.replay_vision.backend.temporal.activities.benchmark import (
     snapshot_benchmark_labels_activity,
     write_benchmark_manifest_activity,
 )
+from products.replay_vision.backend.temporal.activities.rebuild_highlight_feeds import rebuild_highlight_feeds_activity
 from products.replay_vision.backend.temporal.activities.refresh_learned_rules import (
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
@@ -60,10 +63,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
-from products.replay_vision.backend.temporal.jev_watch_rank import (
-    ReplayVisionJevWatchRankWorkflow,
-    judge_watch_ranks_activity,
-)
+from products.replay_vision.backend.temporal.highlight_rebuild import RebuildHighlightFeedsWorkflow
 from products.replay_vision.backend.temporal.learned_rules import RefreshLearnedRulesWorkflow
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
@@ -87,12 +87,14 @@ WORKFLOWS = [
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     RefreshLearnedRulesWorkflow,
+    RebuildHighlightFeedsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
-    ReplayVisionJevWatchRankWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
+    # ApplyScannerWorkflow bumps the rasterizer's stuck counter on this queue when a render times out.
+    bump_stuck_counter_activity,
     discover_due_vision_alerts_activity,
     evaluate_vision_alert_batch_activity,
     drain_vision_alert_matches_activity,
@@ -137,9 +139,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     start_launched_scanners_activity,
     complete_observation_requests_activity,
     sweep_gemini_files_activity,
-    judge_watch_ranks_activity,
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
+    rebuild_highlight_feeds_activity,
     snapshot_benchmark_labels_activity,
     load_benchmark_cases_activity,
     prepare_benchmark_case_activity,

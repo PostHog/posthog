@@ -7,7 +7,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_JWKS_URI, ProvisioningTestBase, provisioning_config
 
 TOKEN_URL = "/api/agentic/oauth/token"
 
@@ -26,7 +26,7 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
             "code_challenge_method": "S256",
             "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
         }
-        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=account_request)
+        res = self._post_as_partner("/api/agentic/provisioning/account_requests", data=account_request)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
         auth_code = res.json()["oauth"]["code"]
@@ -38,7 +38,7 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
                 "grant_type": "authorization_code",
                 "code": auth_code,
                 "code_verifier": verifier,
-                **self._client_credentials(),
+                **self._client_auth(),
             },
         )
         assert res.status_code == 200
@@ -107,7 +107,7 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
         # 7. Refresh the token
         res = self._post_api(
             TOKEN_URL,
-            {"grant_type": "refresh_token", "refresh_token": refresh_token, **self._client_credentials()},
+            {"grant_type": "refresh_token", "refresh_token": refresh_token, **self._client_auth()},
         )
         assert res.status_code == 200
         new_access_token = res.json()["access_token"]
@@ -124,11 +124,12 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
 
     def test_pkce_existing_user_consent_e2e(self):
         """E2E: PKCE partner with existing user goes through browser consent flow."""
-        OAuthApplication.objects.create(
+        partner = OAuthApplication.objects.create(
             client_id="pkce-e2e-partner",
             name="PKCE E2E Partner",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
@@ -158,7 +159,7 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
             "code_challenge_method": "S256",
             "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
         }
-        res = self._post_api("/api/agentic/provisioning/account_requests", account_request)
+        res = self._post_as_partner("/api/agentic/provisioning/account_requests", account_request, partner=partner)
         assert res.status_code == 200
         data = res.json()
         assert data["type"] == "requires_auth"
@@ -184,8 +185,10 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
         auth_code = parse_qs(parsed_callback.query)["code"][0]
 
         # 4. Partner exchanges auth code for tokens using PKCE
-        res = self._post_api(
-            TOKEN_URL, {"grant_type": "authorization_code", "code": auth_code, "code_verifier": verifier}
+        res = self._post_as_partner(
+            TOKEN_URL,
+            {"grant_type": "authorization_code", "code": auth_code, "code_verifier": verifier},
+            partner=partner,
         )
         assert res.status_code == 200
         token_data = res.json()

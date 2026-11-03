@@ -266,6 +266,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "mongodb"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {

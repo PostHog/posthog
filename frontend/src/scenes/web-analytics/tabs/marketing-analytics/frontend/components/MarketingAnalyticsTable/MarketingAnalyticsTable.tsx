@@ -85,7 +85,7 @@ export const MarketingAnalyticsTable = ({
         () => conversionRecordingsTableQuery(query, !!hasConversionRecordings && !isSharedView()),
         [query, hasConversionRecordings]
     )
-    const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(
+    const { notReady: precomputeNotReady, latestDayComputedAt } = useMarketingAnalyticsPrecompute(
         tableQuery.source,
         insightProps
     )
@@ -230,8 +230,8 @@ export const MarketingAnalyticsTable = ({
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <MarketingAnalyticsFreshness computedAt={computedAt} />
+                    <div className="flex flex-wrap items-center gap-2">
+                        <MarketingAnalyticsFreshness latestDayComputedAt={latestDayComputedAt} />
                         <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
                             Configure columns
                         </LemonButton>
