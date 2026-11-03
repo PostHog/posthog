@@ -4,12 +4,11 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
-import { PersonalAPIKey } from '@/posthog/access-key'
+import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
 import { trimHost } from '@/posthog/host'
 import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
-import type { OAuthLogin } from '@/posthog/oauth'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
@@ -37,8 +36,8 @@ type LoginResult =
           store: StoreChoice
           credentialsPath: string | null
           keychainProblem: string | null
-          // What the login may do. For a pasted personal API key, PostHog's key lookup says.
-          scopes: string[]
+          // What the login may do, as PostHog reports it.
+          scopes: string[] | null
           // ISO 8601, for an OAuth login. hog renews the token before then.
           expiresAt: string | null
           next: string
@@ -48,14 +47,14 @@ function isTruthy(value: string | undefined): boolean {
     return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
 }
 
-function nextCommand(scopes: readonly string[]): string {
-    const canQuery = scopes.some((scope) => scope === '*' || scope.startsWith('query:'))
+function nextCommand(scopes: readonly string[] | null): string {
+    const canQuery = scopes?.some((scope) => scope === '*' || scope.startsWith('query:')) ?? false
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-function loggedInResult(loggedIn: LoggedIn, scopes: string[]): LoginResult {
+function loggedInResult(loggedIn: LoggedIn): LoginResult {
     const { host, projectId, store, credentialsPath, keychainProblem, status } = loggedIn
-    const { expiresAt } = status
+    const { scopes, expiresAt } = status
     return {
         status: 'logged_in',
         host,
@@ -69,8 +68,8 @@ function loggedInResult(loggedIn: LoggedIn, scopes: string[]): LoginResult {
     }
 }
 
-async function finish(ctx: Context, login: OAuthLogin): Promise<LoginResult> {
-    return loggedInResult(await saveLogin(ctx.runtime, login), login.scopes)
+async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
+    return loggedInResult(await saveLogin(ctx.runtime, key))
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
@@ -78,15 +77,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
     const key = new PersonalAPIKey({ host: trimHost(host), projectId, apiKey })
-    const found = await key.lookup(ctx.runtime.fetch)
-    if (!found) {
-        throw new HogError(
-            'invalid_credentials',
-            'PostHog rejected the personal API key.',
-            'Check that you pasted the whole key, or create a new one in PostHog under Settings > Personal API keys.'
-        )
-    }
-    return loggedInResult(await saveLogin(ctx.runtime, key), found.scopes)
+    return finish(ctx, key)
 }
 
 export default defineCommand({
