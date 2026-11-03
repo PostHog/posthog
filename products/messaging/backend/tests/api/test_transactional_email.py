@@ -538,6 +538,43 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["attr"] == "subject"
         mock_post.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("the_only_verified_sender", ["verified"], status.HTTP_202_ACCEPTED, None),
+            (
+                "one_of_several_verified_senders",
+                ["verified", "verified"],
+                status.HTTP_400_BAD_REQUEST,
+                "sender_required",
+            ),
+            ("no_verified_sender", ["unverified"], status.HTTP_400_BAD_REQUEST, "sender_not_verified"),
+        ]
+    )
+    def test_a_code_send_without_from_and_without_a_default_sends_from(
+        self, mock_post, _flag, _capture, _name, senders, expected_status, code
+    ):
+        self._cdp_accepts(mock_post)
+        Integration.objects.filter(id=self.sender.id).delete()
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=None)
+        created = [
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=f"sender-{index}@example.com",
+                config={"verified": state == "verified"},
+            )
+            for index, state in enumerate(senders)
+        ]
+
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if code is None:
+            assert mock_post.call_args.kwargs["json"]["send"]["from"] == {"integrationId": created[0].id}
+        else:
+            assert response.json()["code"] == code
+            mock_post.assert_not_called()
+
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
         response = self._psak_client(["hog_flow:write"]).post(
             self.send_email_url, self._code_send(**{"from": "security@example.org"}), format="json"

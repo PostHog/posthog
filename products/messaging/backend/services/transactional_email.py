@@ -37,6 +37,7 @@ from products.messaging.backend.facade.contracts import (
     RecipientSuppressed,
     RecipientUnreachable,
     SenderNotVerified,
+    SenderRequired,
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
@@ -54,6 +55,7 @@ from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     code_send_sender,
     create_code_email_workflow,
@@ -525,10 +527,14 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
     name, email = parseaddr(address) if address else ("", "")
     try:
         sender = code_send_sender(team_id=team_id, email=email or None, name=name or None)
+    except TransactionalEmailSenderRequired as e:
+        raise SenderRequired(
+            "This project has more than one verified sender and no default sender. Send `from` to choose one."
+        ) from e
     except TransactionalEmailSenderUnavailable as e:
         if address:
             raise SenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
-        raise SenderNotVerified("The project has no verified default email sender.") from e
+        raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
     return {"integrationId": sender.integration_id, "email": sender.email, "name": sender.name}
 
 

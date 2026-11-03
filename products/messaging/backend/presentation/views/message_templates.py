@@ -82,6 +82,7 @@ from products.messaging.backend.facade.transactional_email import (
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
@@ -404,7 +405,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
-EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 
 
 DISTINCT_ID_HELP_TEXT = (
@@ -479,7 +479,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender.",
+        "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(),
