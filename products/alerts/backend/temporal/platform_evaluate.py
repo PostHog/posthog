@@ -378,11 +378,12 @@ def claim_platform_insight_investigations_activity(inputs: ClaimInsightInvestiga
 
 @activity.defn
 @close_db_connections
-def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsInputs) -> None:
+def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsInputs) -> list[AlertDeliveryRequest]:
     """Runs the metrics investigations a claim granted, apart from the claim, so their queries never
-    hold back an agent's start."""
+    hold back an agent's start. Releases each run's held firing, and returns the deliveries to start."""
     from products.alerts.backend.platform_investigation import (
         fail_unstarted_metrics_investigation,  # noqa: PLC0415
+        release_metrics_firing,  # noqa: PLC0415
         run_metrics_investigation,  # noqa: PLC0415
     )
     from products.alerts.backend.platform_source_cycle import ClickHouseQuerySlot  # noqa: PLC0415
@@ -390,14 +391,18 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
     # Stops starting runs before the activity's own timeout, because Temporal does not stop a sync
     # loop that outlives it. A run already started finishes its own queries.
     deadline = time.monotonic() + (METRICS_INVESTIGATION_START_TO_CLOSE - METRICS_INVESTIGATION_MARGIN).total_seconds()
+    released: list[AlertDeliveryRequest] = []
     for run in inputs.runs:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             fail_unstarted_metrics_investigation(run)
-            continue
-        # The slot wait counts against the same deadline, so a full ClickHouse budget cannot use up the activity.
-        slot = ClickHouseQuerySlot(f"metrics-investigation:{run.investigation_id}", wait_seconds=remaining)
-        run_metrics_investigation(run, query_slot=slot)
+        else:
+            # The slot wait counts against the same deadline, so a full ClickHouse budget cannot use up the activity.
+            slot = ClickHouseQuerySlot(f"metrics-investigation:{run.investigation_id}", wait_seconds=remaining)
+            run_metrics_investigation(run, query_slot=slot)
+        if request := release_metrics_firing(run):
+            released.append(request)
+    return released
 
 
 @activity.defn
@@ -818,37 +823,19 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         )
         # Started only after the record, because a delivery reads the history row the record writes.
         recorded = {str(outcome.configuration_id) for outcome in chunk}
-        starting = [delivery for delivery in deliveries if delivery.configuration_id in recorded]
+        await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
-        explained = {
-            str(outcome.configuration_id)
-            for outcome in investigated
-            if (requested := requested_investigation(outcome)) is not None and requested.metrics
-        }
-        after_metrics: list[AlertDeliveryRequest] = []
-        if explained and workflow.patched(_PATCH_METRICS_INVESTIGATIONS):
-            # As the insight stack: a metrics firing's message carries its investigation, so it waits for it.
-            after_metrics = [delivery for delivery in starting if delivery.configuration_id in explained]
-            starting = [delivery for delivery in starting if delivery.configuration_id not in explained]
-        await start_deliveries(starting)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
-            self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated, after_metrics)))
-        elif after_metrics:
-            await start_deliveries(after_metrics)
+            self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated)))
 
-    async def _investigate(
-        self,
-        inputs: SourceEvaluationInputs,
-        outcomes: tuple[PlatformAlertOutcome, ...],
-        after_metrics: list[AlertDeliveryRequest],
-    ) -> None:
+    async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
         claims = await self._claim_investigations(inputs, outcomes)
         await asyncio.gather(*(self._start_investigation(start) for start in claims.starts))
         await start_deliveries(list(claims.deliveries))
         if workflow.patched(_PATCH_METRICS_INVESTIGATIONS) and claims.metrics:
             try:
-                await workflow.execute_activity(
+                released = await workflow.execute_activity(
                     run_platform_metrics_investigations_activity,
                     MetricsInvestigationsInputs(runs=claims.metrics),
                     start_to_close_timeout=METRICS_INVESTIGATION_START_TO_CLOSE,
@@ -856,10 +843,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             except ActivityError:
-                # The firing goes out without it, and the rows stay in flight until the horizon passes.
+                # The held firings go out at their hold's deadline, and the rows stay in flight until the horizon passes.
                 workflow.logger.warning("Could not run the metrics investigations of platform insight firings")
-        # Also when no run was granted or the run failed, so a firing never waits on its explanation forever.
-        await start_deliveries(after_metrics)
+            else:
+                await start_deliveries(released)
 
     async def _claim_investigations(
         self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]
