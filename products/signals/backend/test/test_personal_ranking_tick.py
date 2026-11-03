@@ -28,6 +28,7 @@ from products.signals.backend.models import (
     PersonalInboxRanking,
     SignalReport,
     SignalReportAssignment,
+    SignalSourceConfig,
     UserActivitySummary,
     UserActivitySummaryQueueState,
 )
@@ -61,6 +62,7 @@ class _TickTest(BaseTest):
         self.tick: dict[str, Any] = {"enabled": True, "organization_ids": [str(self.organization.id)]}
         self.payload: dict[str, Any] = {}
         self.source_team_ids: set[int] = set()
+        self.activity_summary_config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
         for target, value in (
             (
                 "products.signals.backend.personal_ranking.config.read_flag_payload",
@@ -68,7 +70,7 @@ class _TickTest(BaseTest):
             ),
             (
                 f"{_TICK}.read_activity_summary_config",
-                MagicMock(return_value=ActivitySummaryConfig(enabled=True, enroll_all_approved=True)),
+                MagicMock(side_effect=lambda: self.activity_summary_config),
             ),
             (f"{_TICK}.team_ids_with_enabled_source", MagicMock(side_effect=lambda: self.source_team_ids)),
             (f"{_TICK}.has_enabled_source", MagicMock(side_effect=lambda team_id: team_id in self.source_team_ids)),
@@ -117,6 +119,13 @@ class TestTickEnrollment(_TickTest):
             ("a_denied_organization", {"deny": True}, False, True, False),
             ("a_skipped_team", {"skip": True}, False, True, False),
             ("every_team_with_a_source_at_100", {"organization_ids": [], "percentage": 100}, True, True, True),
+            (
+                "a_team_with_a_summary_from_the_summary_rollout",
+                {"organization_ids": [], "percentage": 100, "summary_rollout": True},
+                True,
+                True,
+                True,
+            ),
             ("no_team_without_a_source_at_100", {"organization_ids": [], "percentage": 100}, False, True, False),
             ("the_tick_off", {"enabled": False}, True, True, False),
         ]
@@ -128,6 +137,11 @@ class TestTickEnrollment(_TickTest):
         self.organization.save()
         if has_source:
             self.source_team_ids = {self.team.id}
+        if overrides.get("summary_rollout"):
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+            )
+            self.activity_summary_config = ActivitySummaryConfig(enabled=True, self_driving_organization_percentage=100)
         self.tick = {
             **self.tick,
             "enabled": overrides.get("enabled", True),
