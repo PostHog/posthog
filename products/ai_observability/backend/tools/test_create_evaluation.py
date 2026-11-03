@@ -57,7 +57,7 @@ class TestCreateEvaluationTool(BaseTest):
     ) -> None:
         content, artifact = self._run(name="Check", rollout_percentage=10, **args)
 
-        evaluation = Evaluation.objects.get(id=artifact["evaluation_id"])
+        evaluation = Evaluation.objects.get(id=artifact["evaluation_id"], team=self.team)
         assert evaluation.enabled is False
         assert expected_config.items() <= evaluation.evaluation_config.items()
         assert expected_output_config.items() <= evaluation.output_config.items()
@@ -83,7 +83,7 @@ class TestCreateEvaluationTool(BaseTest):
 
         content, artifact = self._run(name="Judge", evaluation_type="llm_judge", prompt="Did it answer?")
 
-        model_configuration = Evaluation.objects.get(id=artifact["evaluation_id"]).model_configuration
+        model_configuration = Evaluation.objects.get(id=artifact["evaluation_id"], team=self.team).model_configuration
         assert model_configuration is not None
         expected_provider = "anthropic" if has_key else "openai"
         assert model_configuration.provider == expected_provider

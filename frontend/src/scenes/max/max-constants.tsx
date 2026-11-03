@@ -1400,7 +1400,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     create_evaluation: {
         name: 'Create evaluation',
-        description: 'Create a disabled evaluation for review',
+        description: 'Create evaluation as a disabled draft for review',
         product: Scene.AIObservabilityEvaluation,
         icon: iconForType('llm_evaluations'),
         modes: [AgentMode.AIObservability],
