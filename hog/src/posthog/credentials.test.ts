@@ -119,6 +119,13 @@ describe('resolveCredentials', () => {
             { key: { apiKey: 'phx_self', host: 'https://example.com/posthog' } },
         ],
         [
+            '--host with another path on the same origin',
+            settings('https://example.com', { 'https://example.com/posthog': 'keychain' }),
+            { 'https://example.com': login('phx_self') },
+            { host: 'https://example.com/other-app' },
+            'host_mismatch',
+        ],
+        [
             'a posthog.json path on the same origin keeps the path the login was made for',
             settings('https://example.com', { 'https://example.com/posthog': 'keychain' }),
             { 'https://example.com': login('phx_self') },

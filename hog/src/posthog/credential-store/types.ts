@@ -22,7 +22,9 @@ export interface CredentialStore {
     // The file that holds the secrets. Null for a store that isn't a file.
     readonly path: string | null
     read(host: string): Promise<StoredSecret | undefined>
-    write(host: string, secret: StoredSecret): Promise<void>
+    // `removeIfLate` is for a caller that stops using this store when the write times out: a write
+    // that still lands afterwards is removed again, so no item outlives what settings.json records.
+    write(host: string, secret: StoredSecret, options?: { removeIfLate?: boolean }): Promise<void>
     // Resolves to false when the store held nothing for the host.
     remove(host: string): Promise<boolean>
 }

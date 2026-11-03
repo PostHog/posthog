@@ -1,10 +1,10 @@
 from typing import cast
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.api.oauth.cimd import CIMDMetadataDocument, _create_cimd_application
 from posthog.models import OAuthApplication
-from posthog.utils import get_instance_region
 
 # The client metadata documents PostHog publishes from PostHog/posthog.com
 # (static/.well-known/oauth/<app>/client-metadata.json). A local stack can't count on reaching
@@ -61,16 +61,19 @@ POSTHOG_CIMD_DOCUMENTS: list[dict[str, object]] = [
     },
 ]
 
-PRODUCTION_REGIONS = frozenset({"US", "EU"})
-
 
 class Command(BaseCommand):
     help = "Create PostHog's own CIMD client applications, verified, for a local stack"
 
     def handle(self, *args, **options):
-        region = get_instance_region()
-        if region in PRODUCTION_REGIONS:
-            self.stdout.write(f"Skipping PostHog CIMD app setup; staff verify these apps in region {region}")
+        # Verifying an app is a staff decision everywhere else, so only a local stack does it here.
+        site_url = settings.SITE_URL or ""
+        if (
+            not settings.DEBUG
+            or settings.CLOUD_DEPLOYMENT
+            or not ("//localhost" in site_url or "//127.0.0.1" in site_url)
+        ):
+            self.stdout.write("Skipping PostHog CIMD app setup; it only runs on a local stack")
             return
 
         for document in POSTHOG_CIMD_DOCUMENTS:

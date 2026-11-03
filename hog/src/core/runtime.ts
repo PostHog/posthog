@@ -35,7 +35,7 @@ export interface Runtime {
     platform: NodeJS.Platform
     // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
     // and settings apart, so it never reads or replaces those of an installed hog.
-    fromSource: boolean
+    isDevelopment: boolean
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -138,7 +138,7 @@ export function processRuntime(): Runtime {
     return {
         env: process.env,
         platform: process.platform,
-        fromSource: FROM_SOURCE,
+        isDevelopment: FROM_SOURCE,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
