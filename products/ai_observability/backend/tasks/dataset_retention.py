@@ -21,7 +21,7 @@ def expire_datasets() -> None:
     status = "failed"
     try:
         sweep.run()
-        status = "completed"
+        status = "completed_with_errors" if sweep.datasets_failed else "completed"
     finally:
         properties = {
             "run_id": str(uuid4()),
@@ -30,6 +30,7 @@ def expire_datasets() -> None:
             "revisions_expired": sweep.revisions_expired,
             "versions_deleted": sweep.versions_deleted,
             "datasets_deleted": sweep.datasets_deleted,
+            "datasets_failed": sweep.datasets_failed,
             "budget_exhausted": sweep.budget_exhausted,
             "duration_seconds": time.monotonic() - started,
             "$process_person_profile": False,

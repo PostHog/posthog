@@ -50,7 +50,11 @@ class Dataset(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         db_table = "llm_analytics_dataset_v2"
         ordering = ["-created_at", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="uniq_llma_dataset_v2_team_name"),
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=Q(expired_at__isnull=True),
+                name="uniq_llma_dataset_v2_live_name",
+            ),
             models.CheckConstraint(
                 condition=_json_type_is("metadata", "object"),
                 name="llma_dataset_v2_metadata_object",
