@@ -40,6 +40,13 @@ class GatewayTokenError(RuntimeError):
     """The gateway minted no usable token."""
 
 
+def active_user(user_id: int | None) -> User | None:
+    """The user a token is minted under, or None when there is no id or the user is missing or inactive."""
+    if user_id is None:
+        return None
+    return User.objects.filter(pk=user_id, is_active=True).first()
+
+
 def gateway_root(gateway: AIGatewayConfig) -> str:
     # The config URL carries the OpenAI /v1 base; the token routes hang off the gateway root.
     return gateway.url.rstrip("/").removesuffix("/v1")

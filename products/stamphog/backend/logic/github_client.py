@@ -85,13 +85,14 @@ def _is_own_bot_actor(user: dict, expected_login: str | None, *, allow_any_bot: 
     return allow_any_bot
 
 
-def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_any_bot: bool = True) -> bool:
+def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_any_bot: bool = False) -> bool:
     """Whether ``comment`` was posted by this App, not just any account carrying the marker.
 
     The marker is visible in the rendered comment source, so a user could plant it to trick a naive
     upsert into PATCHing (hijacking) their comment. The "any Bot" fallback is acceptable for an
     upsert — a mis-targeted sticky PATCH is cosmetic, never a standing approval (contrast the
-    approval paths). A delete passes ``allow_any_bot=False``, because it cannot be undone.
+    approval paths). So only the upsert passes ``allow_any_bot=True``. A delete keeps the exact
+    match, because it cannot be undone.
     """
     return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=allow_any_bot)
 
@@ -1502,7 +1503,7 @@ class StamphogGitHubClient:
         created/updated comment object.
         """
         marked_body = body if body.startswith(marker) else f"{marker}\n{body}"
-        existing_id = self._find_sticky_comment_id(repo, number, marker=marker)
+        existing_id = self._find_sticky_comment_id(repo, number, marker=marker, allow_any_bot=True)
         if existing_id is not None:
             path = f"/repos/{repo}/issues/comments/{existing_id}"
             response = self._request(
@@ -1537,7 +1538,7 @@ class StamphogGitHubClient:
 
         Matches only the exact ``<slug>[bot]`` login, so it does nothing when the slug is unset.
         """
-        existing_id = self._find_sticky_comment_id(repo, number, marker=marker, allow_any_bot=False)
+        existing_id = self._find_sticky_comment_id(repo, number, marker=marker)
         if existing_id is None:
             return False
         response = self._request(
@@ -1686,7 +1687,7 @@ class StamphogGitHubClient:
         return sorted(slugs)
 
     def _find_sticky_comment_id(
-        self, repo: str, number: int, *, marker: str = STICKY_COMMENT_MARKER, allow_any_bot: bool = True
+        self, repo: str, number: int, *, marker: str = STICKY_COMMENT_MARKER, allow_any_bot: bool = False
     ) -> int | None:
         """Return the id of the App's own comment carrying ``marker``, or ``None`` if there isn't one.
 

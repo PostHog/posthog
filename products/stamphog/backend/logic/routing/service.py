@@ -69,12 +69,12 @@ TRIGGER_SAFETY_NET = "safety_net"
 # most once per pull request, and an approval requests the pinned owners at most once.
 FULL_ROUTED_HEAD = "full_routed_head"
 PINNED_ROUTED_HEAD = "pinned_routed_head"
-_PR_MARK_KEYS = (FULL_ROUTED_HEAD, "full_routed_at", PINNED_ROUTED_HEAD, "pinned_routed_at")
+# Whether the latest finished routing left a routing comment on the pull request. Only then does a
+# routing that writes no comment page through the comments to delete it.
+COMMENT_POSTED = "comment_posted"
+_PR_MARK_KEYS = (FULL_ROUTED_HEAD, "full_routed_at", PINNED_ROUTED_HEAD, "pinned_routed_at", COMMENT_POSTED)
 # The skip values of a run that called the model: it answered (None) or the call failed (NO_ANSWER).
 _CALLED_MODEL_SKIPS = frozenset({None, LlmSkipReason.NO_ANSWER})
-
-
-ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
 
 
 def verdict_trigger(outcome: str) -> str:
@@ -88,13 +88,6 @@ def live_pr_skip_reason(pr: Mapping[str, Any]) -> str | None:
     if pr.get("draft"):
         return "draft"
     return None
-
-
-def routing_skip_reason(action: str, pr: Mapping[str, Any]) -> str | None:
-    """Why the live pull request does not route for this action, or None when it does."""
-    if action not in ROUTING_ACTIONS:
-        return "action"
-    return live_pr_skip_reason(pr)
 
 
 def is_fork(pr: Mapping[str, Any], repository: str) -> bool:
@@ -146,15 +139,19 @@ def _replace_routing(pr_obj: PullRequest, *, expected: Mapping[str, Any] | None,
     return rows.update(routing=record) == 1
 
 
-def save_waiting(pr_obj: PullRequest, *, expected: Mapping[str, Any] | None, head_sha: str, trigger: str) -> bool:
-    record = {
+def _fallback_record(expected: Mapping[str, Any] | None, *, head_sha: str, trigger: str, status: str) -> dict[str, Any]:
+    return {
         **_pr_marks(expected),
         "head_sha": head_sha,
         "mode": RoutingMode.FALLBACK.value,
         "trigger": trigger,
-        "status": STATUS_WAITING,
-        "waiting_since": datetime.now(UTC).isoformat(),
+        "status": status,
     }
+
+
+def save_waiting(pr_obj: PullRequest, *, expected: Mapping[str, Any] | None, head_sha: str, trigger: str) -> bool:
+    record = _fallback_record(expected, head_sha=head_sha, trigger=trigger, status=STATUS_WAITING)
+    record["waiting_since"] = datetime.now(UTC).isoformat()
     return _replace_routing(pr_obj, expected=expected, record=record)
 
 
@@ -165,14 +162,8 @@ def claim_routing(
 
     ``claimed_by`` is the Celery task id, which a retry of the same task keeps, so a retry knows its own claim.
     """
-    claim = {
-        **_pr_marks(expected),
-        "head_sha": head_sha,
-        "mode": RoutingMode.FALLBACK.value,
-        "trigger": trigger,
-        "status": STATUS_ROUTING,
-        "claimed_by": claimed_by,
-    }
+    claim = _fallback_record(expected, head_sha=head_sha, trigger=trigger, status=STATUS_ROUTING)
+    claim["claimed_by"] = claimed_by
     return claim if _replace_routing(pr_obj, expected=expected, record=claim) else None
 
 
@@ -267,13 +258,16 @@ def finish_comment(client: StamphogGitHubClient, pr_obj: PullRequest, record: di
     """Write or remove the routing comment, then mark the record done."""
     repository = pr_obj.repo_config.repository
     body = record.get("pending_comment")
+    posted = False
     if isinstance(body, str) and body:
         client.upsert_sticky_comment(repository, pr_obj.pr_number, body, marker=ROUTING_COMMENT_MARKER)
-    else:
+        posted = True
+    elif record.get(COMMENT_POSTED):
         # Nobody is cut now, so a comment from an earlier routing names cuts that no longer hold.
         client.delete_sticky_comment(repository, pr_obj.pr_number, marker=ROUTING_COMMENT_MARKER)
     done = {key: value for key, value in record.items() if key != "pending_comment"}
     done["status"] = STATUS_DONE
+    done[COMMENT_POSTED] = posted
     _save_routing(pr_obj, done)
 
 

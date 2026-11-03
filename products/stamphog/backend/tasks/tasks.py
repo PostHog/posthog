@@ -8,7 +8,7 @@ a fresh ReviewRun, and kicks off the Temporal review workflow once the row commi
 
 import re
 import math
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -31,6 +31,7 @@ from posthog.models.team import Team
 from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
 from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
+    ROUTING_ACTIONS,
     TERMINAL_STATUSES,
     ReviewMode,
     ReviewRequestRefusal,
@@ -53,22 +54,12 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
-from products.stamphog.backend.logic.routing.service import (
-    FULL_ROUTED_HEAD,
-    PINNED_ROUTED_HEAD,
-    ROUTING_ACTIONS,
-    STATUS_REQUESTED,
-    STATUS_ROUTING,
-    STATUS_WAITING,
-    TRIGGER_SAFETY_NET,
-    claim_routing,
-    finish_comment,
-    live_pr_skip_reason,
-    route_reviewers,
-    routing_skip_reason,
-    save_waiting,
-    stored_routing,
-    verdict_trigger,
+from products.stamphog.backend.logic.routing.triggers import (
+    ReviewPath,
+    route_after_verdict,
+    route_on_pull_request_event,
+    route_on_safety_net,
+    verdict_outcome,
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import (
@@ -1931,12 +1922,30 @@ def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -
     return repo_config.review_mode != ReviewMode.LABEL or repo_config.trigger_label in label_names
 
 
-def _pull_request_row(repo_config: StamphogRepoConfig, pr_number: int) -> PullRequest:
-    return (
-        PullRequest.objects.for_team(repo_config.team_id)
-        .using(router.db_for_write(PullRequest))
-        .get(repo_config=repo_config, pr_number=pr_number)
+def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int) -> None:
+    route_reviewers_safety_net.apply_async(
+        kwargs={"team_id": repo_config.team_id, "repo_config_id": str(repo_config.id), "pr_number": pr_number},
+        countdown=ROUTING_SAFETY_NET_SECONDS,
     )
+
+
+_ROUTING_REVIEW_PATH = ReviewPath(
+    upsert_pull_request=_upsert_pull_request,
+    will_review=_stamphog_will_review,
+    schedule_safety_net=_schedule_routing_safety_net,
+)
+
+
+def _run_routing_step(task: Task, step: Callable[[], None], **log_fields: Any) -> None:
+    """Run one routing step. GitHub and DB errors retry with backoff, a rate limit after its reset."""
+    try:
+        step()
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_reviewer_routing_rate_limited", **log_fields)
+        raise task.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_reviewer_routing_failed", error=str(e), **log_fields)
+        raise task.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**task.request.retries)
 
 
 def _route_reviewers(payload: dict[str, Any]) -> None:
@@ -1949,35 +1958,9 @@ def _route_reviewers(payload: dict[str, Any]) -> None:
     if not installation_id or not repo or not pr_number:
         return
     repo_config = _resolve_repo_config(installation_id, repo)
-    if repo_config is None or repo_config.routing_mode == RoutingMode.OFF:
+    if repo_config is None:
         return
-    mode = RoutingMode(repo_config.routing_mode)
-
-    client = StamphogGitHubClient(installation_id)
-    # The live PR, not the payload: a draft toggle or a close can land between the two.
-    pr = client.get_pr(repo, pr_number)
-    skip_reason = routing_skip_reason(action, pr)
-    if skip_reason is not None:
-        logger.info("stamphog_reviewer_routing_skipped", repo=repo, pr_number=pr_number, reason=skip_reason)
-        return
-
-    head_sha = (pr.get("head") or {}).get("sha") or ""
-    stored = stored_routing(repo_config, pr_number)
-    if stored is not None and stored.get("head_sha") == head_sha:
-        # ALWAYS routes once per head and action. FALLBACK routes once per head, whatever started it.
-        if mode == RoutingMode.FALLBACK or stored.get("trigger") == action:
-            if stored.get("status") == STATUS_REQUESTED:
-                # A retry after the requests went out: finish the comment, request nobody again.
-                finish_comment(client, _pull_request_row(repo_config, pr_number), stored)
-            return
-
-    if mode == RoutingMode.FALLBACK and stored is not None and stored.get(FULL_ROUTED_HEAD):
-        return
-    pr_obj = _upsert_pull_request(repo_config, pr)
-    if mode == RoutingMode.FALLBACK and _stamphog_will_review(repo_config, pr):
-        _wait_for_verdict(repo_config, pr_obj, stored=stored, head_sha=head_sha, trigger=action)
-        return
-    route_reviewers(client, pr_obj, pr, trigger=action, mode=mode, previous=stored)
+    route_on_pull_request_event(repo_config, action=action, pr_number=pr_number, review_path=_ROUTING_REVIEW_PATH)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
@@ -1988,118 +1971,7 @@ def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_i
     errors retry with backoff. The stored routing record makes a retry or a redelivery for the same
     head request nobody twice.
     """
-    try:
-        _route_reviewers(payload)
-    except GitHubRateLimitError as e:
-        logger.warning("stamphog_reviewer_routing_rate_limited", delivery_id=delivery_id)
-        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
-    except Exception as e:
-        logger.exception("stamphog_reviewer_routing_failed", delivery_id=delivery_id, error=str(e))
-        raise self.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**self.request.retries)
-
-
-def _wait_for_verdict(
-    repo_config: StamphogRepoConfig,
-    pr_obj: PullRequest,
-    *,
-    stored: dict[str, Any] | None,
-    head_sha: str,
-    trigger: str,
-) -> None:
-    # Scheduled before the record is saved, so a retry after a failed schedule schedules again.
-    # A second safety net is harmless: only one task can claim the pull request.
-    route_reviewers_safety_net.apply_async(
-        kwargs={"team_id": repo_config.team_id, "repo_config_id": str(repo_config.id), "pr_number": pr_obj.pr_number},
-        countdown=ROUTING_SAFETY_NET_SECONDS,
-    )
-    save_waiting(pr_obj, expected=stored, head_sha=head_sha, trigger=trigger)
-
-
-@frozen
-class _FallbackState:
-    """The FALLBACK view of one pull request: its config, its stored record and this task's own claim."""
-
-    repo_config: StamphogRepoConfig
-    stored: dict[str, Any] | None
-    # The stored record, when this task wrote it in an earlier attempt.
-    own_record: dict[str, Any] | None
-
-
-def _fallback_state(team_id: int, repo_config_id: str, pr_number: int, task_id: str) -> _FallbackState | None:
-    repo_config = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(router.db_for_write(StamphogRepoConfig))
-        .filter(id=repo_config_id)
-        .first()
-    )
-    if repo_config is None or repo_config.routing_mode != RoutingMode.FALLBACK:
-        return None
-    stored = stored_routing(repo_config, pr_number)
-    own = stored is not None and bool(task_id) and stored.get("claimed_by") == task_id
-    return _FallbackState(repo_config=repo_config, stored=stored, own_record=stored if own else None)
-
-
-def _resume_own_record(client: StamphogGitHubClient, state: _FallbackState, pr_number: int) -> bool:
-    """Finish what an earlier attempt of this task started. True when nothing is left to do."""
-    record = state.own_record
-    if record is None:
-        return False
-    if record.get("status") == STATUS_REQUESTED:
-        # A retry after the requests went out: finish the comment, request nobody again.
-        finish_comment(client, _pull_request_row(state.repo_config, pr_number), record)
-        return True
-    # A claim that never reached the requests routes again.
-    return record.get("status") != STATUS_ROUTING
-
-
-def _live_head(client: StamphogGitHubClient, repo_config: StamphogRepoConfig, pr_number: int) -> dict[str, Any] | None:
-    """The live pull request, or None when it is closed or a draft."""
-    pr = client.get_pr(repo_config.repository, pr_number)
-    if live_pr_skip_reason(pr) is not None:
-        return None
-    return pr
-
-
-def _route_after_verdict(*, state: _FallbackState, pr_number: int, head_sha: str, outcome: str, task_id: str) -> None:
-    repo_config = state.repo_config
-    stored = state.stored
-    client = StamphogGitHubClient(repo_config.installation_id)
-    if _resume_own_record(client, state, pr_number):
-        return
-    if state.own_record is None:
-        if stored is not None and stored.get(FULL_ROUTED_HEAD):
-            return
-        at_head = stored if stored is not None and stored.get("head_sha") == head_sha else None
-        if at_head is not None and at_head.get("status") != STATUS_WAITING:
-            # Another task already routed or claimed this head.
-            return
-        if outcome == ReviewVerdict.APPROVED and stored is not None and stored.get(PINNED_ROUTED_HEAD):
-            return
-        if outcome == ReviewVerdict.WAIT and at_head is not None:
-            # Stamphog re-reviews after a WAIT. The safety net already covers this head.
-            return
-
-    pr = _live_head(client, repo_config, pr_number)
-    if pr is None or (pr.get("head") or {}).get("sha") != head_sha:
-        return
-    pr_obj = _upsert_pull_request(repo_config, pr)
-    if outcome == ReviewVerdict.WAIT:
-        _wait_for_verdict(repo_config, pr_obj, stored=stored, head_sha=head_sha, trigger=verdict_trigger(outcome))
-        return
-    claim = state.own_record or claim_routing(
-        pr_obj, expected=stored, head_sha=head_sha, trigger=verdict_trigger(outcome), claimed_by=task_id
-    )
-    if claim is None:
-        return
-    route_reviewers(
-        client,
-        pr_obj,
-        pr,
-        trigger=verdict_trigger(outcome),
-        mode=RoutingMode.FALLBACK,
-        pinned_only=outcome == ReviewVerdict.APPROVED,
-        previous=claim,
-    )
+    _run_routing_step(self, lambda: _route_reviewers(payload), delivery_id=delivery_id)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
@@ -2112,46 +1984,19 @@ def route_reviewers_after_verdict(
     waiting for the safety net. Any other outcome routes in full, once per pull request. A verdict
     for a head that is no longer the PR head does nothing.
     """
-    try:
-        task_id = self.request.id or ""
-        state = _fallback_state(team_id, repo_config_id, pr_number, task_id)
-        if state is not None:
-            _route_after_verdict(state=state, pr_number=pr_number, head_sha=head_sha, outcome=outcome, task_id=task_id)
-    except GitHubRateLimitError as e:
-        logger.warning("stamphog_reviewer_routing_rate_limited", pr_number=pr_number)
-        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
-    except Exception as e:
-        logger.exception("stamphog_reviewer_routing_failed", pr_number=pr_number, error=str(e))
-        raise self.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**self.request.retries)
-
-
-def _route_on_safety_net(*, state: _FallbackState, pr_number: int, task_id: str) -> None:
-    repo_config = state.repo_config
-    stored = state.stored
-    client = StamphogGitHubClient(repo_config.installation_id)
-    if _resume_own_record(client, state, pr_number):
-        return
-    if state.own_record is None and stored is not None and stored.get(FULL_ROUTED_HEAD):
-        return
-
-    pr = _live_head(client, repo_config, pr_number)
-    if pr is None:
-        return
-    # The current head, which can differ from the head this net was scheduled for.
-    head_sha = (pr.get("head") or {}).get("sha") or ""
-    if state.own_record is None and stored is not None:
-        if stored.get(PINNED_ROUTED_HEAD) == head_sha:
-            return
-        if stored.get("status") == STATUS_ROUTING:
-            # Another task holds a claim on the pull request.
-            return
-    pr_obj = _upsert_pull_request(repo_config, pr)
-    claim = state.own_record or claim_routing(
-        pr_obj, expected=stored, head_sha=head_sha, trigger=TRIGGER_SAFETY_NET, claimed_by=task_id
+    _run_routing_step(
+        self,
+        lambda: route_after_verdict(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            outcome=outcome,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
     )
-    if claim is None:
-        return
-    route_reviewers(client, pr_obj, pr, trigger=TRIGGER_SAFETY_NET, mode=RoutingMode.FALLBACK, previous=claim)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
@@ -2161,24 +2006,17 @@ def route_reviewers_safety_net(self: Task, team_id: int, repo_config_id: str, pr
     A full routing on any head, or a pinned-only routing after an approval of the current head,
     means nothing is left to do.
     """
-    try:
-        task_id = self.request.id or ""
-        state = _fallback_state(team_id, repo_config_id, pr_number, task_id)
-        if state is not None:
-            _route_on_safety_net(state=state, pr_number=pr_number, task_id=task_id)
-    except GitHubRateLimitError as e:
-        logger.warning("stamphog_reviewer_routing_rate_limited", pr_number=pr_number)
-        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
-    except Exception as e:
-        logger.exception("stamphog_reviewer_routing_failed", pr_number=pr_number, error=str(e))
-        raise self.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**self.request.retries)
-
-
-def verdict_outcome(status: ReviewRunStatus, verdict: ReviewVerdict) -> str:
-    """The routing outcome of a finished run: approved, refused, escalate, wait, gated or failed."""
-    if status in (ReviewRunStatus.FAILED, ReviewRunStatus.GATED):
-        return status.value
-    return verdict.value
+    _run_routing_step(
+        self,
+        lambda: route_on_safety_net(
+            team_id=team_id,
+            repo_config_id=repo_config_id,
+            pr_number=pr_number,
+            task_id=self.request.id or "",
+            review_path=_ROUTING_REVIEW_PATH,
+        ),
+        pr_number=pr_number,
+    )
 
 
 def queue_routing_after_verdict(

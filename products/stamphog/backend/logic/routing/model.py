@@ -12,14 +12,14 @@ from collections.abc import Mapping
 import httpx
 import structlog
 from anthropic import Anthropic, BadRequestError
-from anthropic.types import JSONOutputFormatParam
+from anthropic.types import JSONOutputFormatParam, Message, OutputConfigParam
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import resolve_ai_gateway_config
-from posthog.models import User
 
 from products.stamphog.backend.logic.gateway_tokens import (
     STAMPHOG_AI_PRODUCT,
+    active_user,
     gateway_root,
     is_legacy_stamphog_route,
     mint_scoped_token,
@@ -33,7 +33,9 @@ logger = structlog.get_logger(__name__)
 # They bound what a leaked token can spend, so do not widen them without a cost reason.
 ROUTING_TOKEN_CAP_USD = "0.25"
 ROUTING_TOKEN_TTL_SECONDS = 300
-_CALL_TIMEOUT_SECONDS = 90
+# A timeout keeps every owner, so this only bounds how long the author waits for the review requests.
+# It sits above the slowest call of the offline evaluation.
+_CALL_TIMEOUT_SECONDS = 30
 _MAX_OUTPUT_TOKENS = 16_000
 
 
@@ -43,18 +45,34 @@ class CutUsage:
     output_tokens: int
 
 
-def _connecting_user(user_id: int | None) -> User | None:
-    if user_id is None:
-        return None
-    return User.objects.filter(pk=user_id, is_active=True).first()
-
-
 def _parse_answer(text: str) -> Mapping[str, object] | None:
     try:
         parsed = json.loads(text)
     except ValueError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _create(client: Anthropic, system_prompt: str, user_prompt: str, output_config: OutputConfigParam) -> Message:
+    return client.messages.create(
+        model=CUT_MODEL,
+        max_tokens=_MAX_OUTPUT_TOKENS,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+        output_config=output_config,
+    )
+
+
+def _create_with_effort_fallback(
+    client: Anthropic, system_prompt: str, user_prompt: str, output_format: JSONOutputFormatParam
+) -> Message:
+    try:
+        return _create(client, system_prompt, user_prompt, {"effort": "medium", "format": output_format})
+    except BadRequestError as exc:
+        if "effort" not in str(exc):
+            raise
+    # The offline evaluation made the same fallback for a model without the effort setting.
+    return _create(client, system_prompt, user_prompt, {"format": output_format})
 
 
 class GatewayCutModel:
@@ -73,7 +91,7 @@ class GatewayCutModel:
         if gateway is None or is_legacy_stamphog_route(gateway.url):
             logger.info("stamphog_reviewer_routing_no_gateway", team_id=self._team_id)
             return None
-        user = _connecting_user(self._connected_by_user_id)
+        user = active_user(self._connected_by_user_id)
         if user is None:
             logger.info("stamphog_reviewer_routing_no_connecting_user", team_id=self._team_id)
             return None
@@ -112,25 +130,7 @@ class GatewayCutModel:
         )
         output_format: JSONOutputFormatParam = {"type": "json_schema", "schema": dict(schema)}
         try:
-            try:
-                response = client.messages.create(
-                    model=CUT_MODEL,
-                    max_tokens=_MAX_OUTPUT_TOKENS,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    output_config={"effort": "medium", "format": output_format},
-                )
-            except BadRequestError as exc:
-                if "effort" not in str(exc):
-                    raise
-                # The offline evaluation made the same fallback for a model without the effort setting.
-                response = client.messages.create(
-                    model=CUT_MODEL,
-                    max_tokens=_MAX_OUTPUT_TOKENS,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    output_config={"format": output_format},
-                )
+            response = _create_with_effort_fallback(client, system_prompt, user_prompt, output_format)
         except Exception as exc:  # noqa: BLE001 - the cut is optional, so any API failure keeps every owner
             logger.warning("stamphog_reviewer_routing_call_failed", error_type=type(exc).__name__)
             return None

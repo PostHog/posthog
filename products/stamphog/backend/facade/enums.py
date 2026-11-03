@@ -28,6 +28,11 @@ class RoutingMode(LabeledStrEnum):
     FALLBACK = "fallback", "When stamphog does not approve"
 
 
+# The pull_request actions that start a reviewer routing run. The webhook consumer imports this at
+# module level, so it lives in this light module.
+ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
+
+
 class ReviewRunStatus(StrEnum):
     QUEUED = "queued"
     GATED = "gated"

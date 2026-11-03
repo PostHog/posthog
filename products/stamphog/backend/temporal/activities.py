@@ -83,6 +83,7 @@ from products.stamphog.backend.logic.engine_pregate import (
 from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.gateway_tokens import (
     GatewayTokenError,
+    active_user,
     gateway_root,
     is_legacy_stamphog_route,
     mint_scoped_token,
@@ -226,7 +227,7 @@ def _connected_user(run: ReviewRun) -> User:
         raise RuntimeError(
             "Repo config has no connecting user (installation never synced); cannot mint sandbox LLM credentials"
         )
-    user = User.objects.filter(pk=user_id, is_active=True).first()
+    user = active_user(user_id)
     if user is None:
         raise RuntimeError(
             "The user who connected this installation is missing or deactivated; "

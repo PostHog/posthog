@@ -8,10 +8,11 @@ from typing import Any, cast
 
 from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
 
+from products.stamphog.backend.facade.enums import ROUTING_ACTIONS
+
 # Installation lifecycle events keep the repo-config rows in step with GitHub (repos added/removed,
 # app uninstalled) so newly installed repos appear in the toggle list without a manual re-sync.
 _INSTALLATION_EVENTS = frozenset({"installation", "installation_repositories"})
-_ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
 
 
 def _run_review(delivery: WebhookDelivery) -> None:
@@ -25,7 +26,7 @@ def _run_review(delivery: WebhookDelivery) -> None:
 
 
 def _route_reviewers(delivery: WebhookDelivery) -> None:
-    if delivery.payload.get("action") not in _ROUTING_ACTIONS:
+    if delivery.payload.get("action") not in ROUTING_ACTIONS:
         return
     from products.stamphog.backend.facade.tasks import (  # noqa: PLC0415 - keeps the GitHub and Temporal clients off the registry's import path
         route_pull_request_reviewers,

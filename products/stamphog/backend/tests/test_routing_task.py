@@ -124,7 +124,7 @@ def _stored(team_id: int) -> dict[str, Any]:
     return record
 
 
-def _seed_routing_comment(chain: RoutingChain) -> None:
+def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) -> None:
     chain.recorder.issue_comments[(REPO, PR_NUMBER)] = [
         {
             "id": 555,
@@ -132,6 +132,14 @@ def _seed_routing_comment(chain: RoutingChain) -> None:
             "user": {"login": f"{ROUTING_APP_SLUG}[bot]", "type": "Bot"},
         }
     ]
+    # The earlier routing that posted the comment recorded it, which is what makes a later one delete it.
+    team_id = repo_config.team_id
+    with team_scope(team_id):
+        pr_obj, _ = PullRequest.objects.for_team(team_id).get_or_create(
+            repo_config=repo_config, pr_number=PR_NUMBER, defaults={"team_id": team_id}
+        )
+        pr_obj.routing = {**(pr_obj.routing or {}), "comment_posted": True}
+        pr_obj.save(update_fields=["routing"])
 
 
 @pytest.mark.parametrize(
@@ -177,8 +185,8 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     user,
     routing_chain,
 ) -> None:
-    _setup(routing_chain, team, user)
-    _seed_routing_comment(routing_chain)
+    repo_config = _setup(routing_chain, team, user)
+    _seed_routing_comment(routing_chain, repo_config)
     routing_chain.cut_model.answer = answer
     routing_chain.cut_model.error = error
 
@@ -190,6 +198,7 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     assert [cut["owner"] for cut in record["cut"]] == expected_cut
     assert record["head_sha"] == HEAD_SHA
     assert record["status"] == "done"
+    assert record["comment_posted"] is bool(expected_cut)
     assert record["additions_resolved"] is True
     assert {candidate["owner"] for candidate in record["candidates"]} == {"team-alpha", "team-beta", "@carol"}
     edits = _writes(routing_chain, "issue_comment_edit")
@@ -312,7 +321,7 @@ def test_fallback_approval_requests_only_pinned_owners(
     safety_net,
 ) -> None:
     repo_config = _open_fallback(routing_chain, team, user, with_addition=with_addition)
-    _seed_routing_comment(routing_chain)
+    _seed_routing_comment(routing_chain, repo_config)
 
     assert routing_chain.recorder.github_writes == []
     assert safety_net.call_args.kwargs["countdown"] == ROUTING_SAFETY_NET_SECONDS
