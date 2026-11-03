@@ -44,7 +44,7 @@ def _multiple_variant_share(
 ) -> float | CheckSkip:
     """The share of exposed users seen in multiple variants, on the 0-100 scale, or why the risk can't arise."""
     if multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
-        return not_applicable("Runs when the results exclude users exposed to multiple variants")
+        return not_applicable('Runs when "Multiple variant handling" is "Exclude from analysis"')
     # Excluded variants don't count, because the exposure query drops their events before it counts users in several
     # variants. `is_evenly_distributed` needs shares that add up to 100. Shares one point apart are even, like 34/33/33.
     compared = [
