@@ -496,7 +496,7 @@ fn read_data_uri(
     payload_start: usize,
     sink: &mut ImageSink<'_>,
 ) -> DataUri {
-    if comma_is_escaped(bytes, payload_start) && !opens_css_url(bytes, start) {
+    if holds_css_escape(&bytes[start..payload_start]) && !opens_css_url(bytes, start) {
         return DataUri::Replaced {
             replacement: sink.decline(ImageDecline::Undecodable),
             end: json_string_end(bytes, payload_start),
@@ -552,13 +552,25 @@ fn ends_with_base64(meta: &str) -> bool {
         .is_some_and(|rest| rest.trim_end_matches(' ').ends_with(';'))
 }
 
-fn comma_is_escaped(bytes: &[u8], payload_start: usize) -> bool {
-    bytes[payload_start - 1] != b',' || bytes[payload_start - 2] == b'\\'
+fn holds_css_escape(bytes: &[u8]) -> bool {
+    bytes.windows(2).any(|pair| pair == br"\\")
 }
 
-/// CSS reads an escaped comma as a comma, but an attribute such as `src` holds it as text, so outside CSS the browser's
-/// header can run past it to a later comma.
+/// CSS reads an escape as its character, but an attribute such as `src` holds it as text, so outside CSS a browser can
+/// read the header another way, for example past an escaped comma to a later one. Whitespace before the URI, in any
+/// spelling, does not change where it sits.
 fn opens_css_url(bytes: &[u8], start: usize) -> bool {
+    let mut start = start;
+    loop {
+        start = match &bytes[..start] {
+            [.., b' '] => start - 1,
+            [.., b'\\', b't' | b'n' | b'r' | b'f'] => start - 2,
+            _ => match css_hex_escape_before(bytes, start) {
+                Some((escape_start, 0x9 | 0xa | 0xc | 0xd | 0x20)) => escape_start,
+                _ => break,
+            },
+        };
+    }
     match start.checked_sub(1).map(|at| bytes[at]) {
         Some(b'(' | b'\'') => true,
         Some(b'"') => {
@@ -586,10 +598,31 @@ fn json_string_end(bytes: &[u8], from: usize) -> usize {
     bytes.len()
 }
 
+/// A six-digit CSS escape such as `\000020` ends at its last digit, so the letter after it starts a word.
 fn starts_inside_a_word(bytes: &[u8], start: usize) -> bool {
     start
         .checked_sub(1)
         .is_some_and(|before| bytes[before].is_ascii_alphanumeric())
+        && css_hex_escape_before(bytes, start)
+            .is_none_or(|(escape_start, _)| start - escape_start != 8)
+}
+
+/// The CSS hex escape that ends right before `at`, as where its doubled backslash starts and the code it names.
+fn css_hex_escape_before(bytes: &[u8], at: usize) -> Option<(usize, u32)> {
+    let digits = bytes[..at]
+        .iter()
+        .rev()
+        .take(6)
+        .take_while(|b| b.is_ascii_hexdigit())
+        .count();
+    let escape_start = at.checked_sub(digits + 2)?;
+    if digits == 0 || bytes[escape_start..escape_start + 2] != *br"\\" {
+        return None;
+    }
+    let code = std::str::from_utf8(&bytes[at - digits..at])
+        .ok()
+        .and_then(|hex| u32::from_str_radix(hex, 16).ok())?;
+    Some((escape_start, code))
 }
 
 /// Each `data:` that a CSS escape spells in part, as where it starts and where its media type starts, in order, from a buffer that stays small on any input.
@@ -849,6 +882,11 @@ mod tests {
                 r#")"}"#,
             ),
             (
+                r#"{"textContent":".a{background:url(\"\\000020"#,
+                format!(r"d\\61ta:image/png;base64,{base64}"),
+                r#"\")}"}"#,
+            ),
+            (
                 r#"{"style":"background:url("#,
                 format!(r"data:image/png\\3b base64\\2c {base64}"),
                 r#")"}"#,
@@ -885,11 +923,6 @@ mod tests {
             ),
             // Raster bytes under an SVG label, which a browser shows as an image.
             (r#"{"src":""#, format!("data:image/svg+xml,{percent}"), r#""}"#),
-            (
-                r#"{"src":""#,
-                format!(r"data:image/sv\\67+xml;base64,{base64}"),
-                r#""}"#,
-            ),
             (
                 r#"{"src":""#,
                 format!("data:image/svg+xml;base64, {base64}"),
@@ -1008,6 +1041,27 @@ mod tests {
                 format!(
                     r"data:image/png;name=base64;x=\\00002cQQ;base64,{}",
                     STANDARD.encode(png(&[7; 52]))
+                ),
+                limits,
+                ImageDecline::Undecodable,
+            ),
+            // A browser reads a CSS escape in an attribute as text, so the label and `base64` are not what CSS reads.
+            (
+                format!(
+                    r"data:image/sv\\67+xml;base64,{}",
+                    STANDARD.encode(png(&[7; 52]))
+                ),
+                limits,
+                ImageDecline::Undecodable,
+            ),
+            (
+                format!(
+                    r"data:image/png;name={};\\000062ase64,{}",
+                    "a".repeat(80),
+                    png(&[7; 52])
+                        .iter()
+                        .map(|b| format!("%{b:02X}"))
+                        .collect::<String>()
                 ),
                 limits,
                 ImageDecline::Undecodable,
