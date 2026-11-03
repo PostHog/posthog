@@ -6,9 +6,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models import ObjectMediaPreview, UploadedMedia
 from posthog.permissions import is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
+
+from products.event_definitions.backend.models import EventDefinition
 
 
 class ObjectMediaPreviewSerializer(serializers.ModelSerializer):

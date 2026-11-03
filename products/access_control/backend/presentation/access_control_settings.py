@@ -26,7 +26,6 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import OpenApiParameter, extend_schema
-from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -60,6 +59,7 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.event_definitions.backend.models import PropertyDefinition
 
 from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
