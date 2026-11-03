@@ -36,7 +36,6 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
-from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import (
@@ -146,15 +145,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
         except Exception:
             return Reject(reason=FreshnessReason.UNPARSEABLE)
-        try:
-            return classify(
-                resolved,
-                now=datetime.now(UTC),
-                timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
-            )
-        except Exception as error:
-            capture_exception(error, {"team_id": self.team.pk, "context": "sql_freshness_classification"})
-            return Reject(reason=FreshnessReason.UNPARSEABLE)
+        return classify(
+            resolved,
+            now=datetime.now(UTC),
+            timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
+        )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:

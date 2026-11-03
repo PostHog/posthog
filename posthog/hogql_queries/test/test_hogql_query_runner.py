@@ -710,8 +710,8 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
 
     def test_classifier_error_keeps_default_age(self) -> None:
         with (
-            patch("posthog.hogql_queries.hogql_query_runner.classify", side_effect=RuntimeError),
-            patch("posthog.hogql_queries.hogql_query_runner.capture_exception") as capture,
+            patch("posthog.hogql_queries.sql_freshness.classifier.fresh_until", side_effect=RuntimeError),
+            patch("posthog.hogql_queries.sql_freshness.classifier.capture_exception") as capture,
         ):
             freshness = self._built_freshness(HogQLQuery(query=PAST_RANGE))
         assert freshness == Reject(reason=FreshnessReason.UNPARSEABLE)

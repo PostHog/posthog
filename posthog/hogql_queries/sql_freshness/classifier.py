@@ -30,14 +30,15 @@ def classify(
 ) -> SqlFreshness | Reject:
     try:
         facts = extract_facts(resolved_query, now=now, timezone=timezone)
+        reason = reject_reason(facts)
+        if reason is not None:
+            return Reject(reason=reason)
+        until, binding_reason = fresh_until(facts)
+        window = shortest_lived_window(facts)
     except Exception as error:
         capture_exception(error)
         return Reject(reason=FreshnessReason.UNPARSEABLE)
-    reason = reject_reason(facts)
-    if reason is not None:
-        return Reject(reason=reason)
-    until, binding_reason = fresh_until(facts)
-    return SqlFreshness(window=shortest_lived_window(facts), fresh_until=until.astimezone(UTC), reason=binding_reason)
+    return SqlFreshness(window=window, fresh_until=until.astimezone(UTC), reason=binding_reason)
 
 
 def freshness_record(freshness: SqlFreshness) -> dict[str, str]:
