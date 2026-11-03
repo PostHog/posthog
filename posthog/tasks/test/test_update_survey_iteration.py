@@ -113,11 +113,20 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertIsNone(self.recurring_survey.current_iteration)
 
-    @parameterized.expand([("no_wait_period", None), ("wait_period", 7)])
-    def test_can_update_internal_targeting_flag(self, _name: str, wait_period_days: int | None) -> None:
+    @parameterized.expand(
+        [
+            ("no_wait_period", None, None),
+            ("wait_period", 7, 7),
+            # The API accepted any JSON here before it validated the value.
+            ("malformed_wait_period", "7", None),
+        ]
+    )
+    def test_can_update_internal_targeting_flag(
+        self, _name: str, stored_wait_period: object, expected_wait_period_days: int | None
+    ) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
-        if wait_period_days is not None:
-            self.recurring_survey.conditions = {"seenSurveyWaitPeriodInDays": wait_period_days}
+        if stored_wait_period is not None:
+            self.recurring_survey.conditions = {"seenSurveyWaitPeriodInDays": stored_wait_period}
         self.recurring_survey.save()
         self.assertEqual(self.recurring_survey.current_iteration, 1)
         update_survey_iteration()
@@ -127,8 +136,32 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
 
         self.assertEqual(
             self.recurring_survey.internal_targeting_flag.filters,
-            self._expected_iteration_filters(3, wait_period_days),
+            self._expected_iteration_filters(3, expected_wait_period_days),
         )
+
+    def test_a_failing_survey_does_not_stop_the_rest_of_the_run(self) -> None:
+        self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)
+        self.recurring_survey.save()
+        survey_without_a_flag = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Second popover survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's a survey?"}],
+            start_date=now() - timedelta(self.iteration_frequency_days * 3),
+            schedule=Survey.Schedule.RECURRING,
+            iteration_count=3,
+            iteration_frequency_days=self.iteration_frequency_days,
+        )
+
+        # Only the survey from setUp holds a flag to update, so this fails that survey alone.
+        with patch("posthog.tasks.update_survey_iteration.update_flag", side_effect=Exception("flag write failed")):
+            update_survey_iteration()
+
+        self.recurring_survey.refresh_from_db()
+        survey_without_a_flag.refresh_from_db()
+        self.assertEqual(self.recurring_survey.current_iteration, 1)
+        self.assertEqual(survey_without_a_flag.current_iteration, 3)
 
     def test_can_create_internal_targeting_flag(self) -> None:
         self.recurring_survey.start_date = now() - timedelta(self.iteration_frequency_days * 3)

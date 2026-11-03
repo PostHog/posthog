@@ -2,12 +2,13 @@ from datetime import date, timedelta
 
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_release_conditions
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.surveys.backend.internal_targeting import build_internal_targeting_groups, get_wait_period_days
+from products.surveys.backend.internal_targeting import build_internal_targeting_groups
 from products.surveys.backend.models import Survey
 
 
@@ -73,7 +74,7 @@ def _has_final_iteration_ended(survey: Survey) -> bool:
 def _get_targeting_flag(survey: Survey) -> FeatureFlag:
     existing_targeting_flag: FeatureFlag | None = survey.internal_targeting_flag
     user_submitted_dismissed_groups = build_internal_targeting_groups(
-        f"{survey.id}/{survey.current_iteration}", get_wait_period_days(survey.conditions)
+        f"{survey.id}/{survey.current_iteration}", survey.conditions
     )
 
     if existing_targeting_flag is not None:
@@ -136,7 +137,12 @@ def update_survey_iteration() -> None:
         end_date__isnull=True,
         iteration_count__isnull=False,
         schedule=Survey.Schedule.RECURRING,
-    ).only("id", "iteration_count", "iteration_start_dates", "conditions")
+    ).only("id", "team", "iteration_count", "iteration_start_dates", "conditions")
 
     for survey in list(surveys_with_recurring_schedules):
-        _update_survey_iteration(survey)
+        try:
+            _update_survey_iteration(survey)
+        except Exception as e:
+            # Every team's recurring surveys roll over in this one loop, and the rows carry
+            # user-written JSON, so a row that fails must not take the rest of the run with it.
+            capture_exception(e, additional_properties={"survey_id": str(survey.id), "team_id": survey.team_id})
