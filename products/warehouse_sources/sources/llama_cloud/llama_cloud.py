@@ -292,6 +292,7 @@ def get_rows(
         # Save AFTER yielding so a crash re-yields the last page rather than skipping it —
         # merge dedupes the re-yielded rows on the primary key.
         resumable_source_manager.save_state(LlamaCloudResumeConfig(next_page_token=next_page_token))
+        resumable_source_manager.safe_point()
         params["page_token"] = next_page_token
 
 

@@ -185,13 +185,18 @@ def _page_predates_cutoff(rows: list[dict[str, Any]], cutoff: datetime | None) -
 
 
 def _iter_workspaces(
-    session: requests.Session, organization: str, logger: FilteringBoundLogger
+    session: requests.Session,
+    organization: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[TerraformCloudResumeConfig],
 ) -> Iterator[dict[str, Any]]:
     """Page through the organization's workspaces, yielding raw JSON:API workspace objects."""
     url: str | None = _build_url(f"/organizations/{quote(organization, safe='')}/workspaces", {"page[size]": PAGE_SIZE})
     while url:
         data = _fetch_json(session, url, logger)
         yield from _data_items(data)
+        # The workspace list holds parents, not rows, so the walk can stop here and restart.
+        resumable_source_manager.safe_point()
         url = _next_url(data)
 
 
@@ -220,6 +225,7 @@ def _get_top_level_rows(
             # page rather than skipping it — merge dedupes on the primary key.
             if next_url:
                 resumable_source_manager.save_state(TerraformCloudResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
         url = next_url
 
 
@@ -249,7 +255,7 @@ def _get_fan_out_rows(
     parent workspace without unpacking relationships. Run and state-version ids are globally
     unique, so `id` alone stays a valid table-wide primary key.
     """
-    workspaces = list(_iter_workspaces(session, organization, logger))
+    workspaces = list(_iter_workspaces(session, organization, logger, resumable_source_manager))
 
     # Resolve the saved workspace bookmark to the slice still to process. If the bookmarked
     # workspace no longer exists (deleted between attempts), start over from the first one —
@@ -297,6 +303,7 @@ def _get_fan_out_rows(
                 # sync re-walks each workspace's full history.
                 if _page_predates_cutoff(rows, cutoff):
                     break
+                resumable_source_manager.safe_point()
                 url = next_url
         except requests.HTTPError as exc:
             # A workspace deleted between enumeration and this fetch 404s. Skip it rather than
@@ -311,6 +318,7 @@ def _get_fan_out_rows(
             resumable_source_manager.save_state(
                 TerraformCloudResumeConfig(next_url=None, workspace_id=remaining[index + 1]["id"])
             )
+        resumable_source_manager.safe_point()
 
 
 def get_rows(

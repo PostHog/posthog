@@ -434,7 +434,7 @@ Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a de
 - Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
 - The buckets have no versioning, so an expired object leaves no older version behind. S3 removes the parts of an unfinished upload after one day.
 - `blocks/` is stored in Glacier Instant Retrieval from the start. The index prefixes and both image prefixes stay in Standard, because readers read them often.
-- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it, because the recorder sends a job for each referenced URL at least once per day.
+- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it. Each day that a block refers to an image, the recorder sends a job for it, or the fetcher's history shows a stored copy that is younger than 7 days at the end of that day.
 - A key outlives every object it sealed: a session writes for at most about 15 days after its key month ends, and an object lives at most 38 days plus the S3 delay. The margin lets the object windows go up to 90 days without a change to the key expiry. Raise the object windows in `v4-staging.hcl` in posthog-cloud-infra only together with the key expiry.
 - DynamoDB TTL can remove a row days after `expires_at`. Writers and readers treat a row past `expires_at` as unusable, so the delay only costs storage.
 - The key table has no point-in-time recovery, backups, exports, streams or replicas, so no copy brings a shredded key back.
@@ -522,7 +522,8 @@ The recorder does not write the two index prefixes itself, as in v3:
 ### Block index
 
 A flush can write its blocks and index rows and then fail before it commits its Kafka offsets.
-The next attempt for that partition starts at the same committed offset and writes the same messages again.
+The recorder keeps running and tries to commit those offsets again later, and it exits only when commits keep failing for 10 minutes.
+When the partition moves first, or the process restarts, the next attempt for that partition starts at the same committed offset and writes the same messages again.
 A retry can also cover a different range than the attempt it replaces, for example one flush that replays two earlier flushes.
 Every row therefore names its flush and its Kafka position.
 The index rows are published without waiting for delivery, so a retry can also reach the index only in part.
@@ -668,7 +669,7 @@ It collects URLs from image sources, the kept candidate of each `srcset`, SVG im
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
 It applies the recorder's URL policy through `@posthog/ai-research-v4-native`, an addon over `replay_core_v4::url_policy`, so it canonicalizes a URL, groups it by registrable domain and refuses private hosts exactly as the recorder does.
-It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane.
+It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane. It parses the image URL reference, seals the frame and computes the response URL HMAC with `replay_core_v4::fetched_image` through the same addon.
 It stores PNG, JPEG, GIF, WebP and SVG as fetched. It does not rasterize an SVG; redaction downstream of the dataset handles SVG text.
 The response must have one of these media types and bytes of that format: a signature for a raster image, or an SVG root element for SVG. An SVG may carry a byte order mark, comments, processing instructions and a doctype before its root. The doctype may name no internal subset and no external DTD other than a W3C SVG DTD, so that a parser downstream cannot resolve entities from the document. It refuses AVIF and every other type.
 
@@ -683,5 +684,16 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
 Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
-The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
+The recorder sends a job for each referenced URL at least once per day, unless the fetcher's history shows that the fetcher would drop it (see below). So the fetcher sees a reference in every 7-day refresh interval.
 The fetcher drops a job whose team month row is missing, expired or deleted.
+
+Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` is set, the recorder also reads the fetcher's history, as the v3 mirror did:
+
+- It reads only the references of the flush that it did not send or mark that day, each one once. The read starts with the flush and runs while the flush seals its blocks.
+- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
+- It sends every other job, so the fetcher still refreshes each stored copy within its interval.
+- It parses a history row with the same code as the fetcher. A row that the fetcher reads as a miss is a miss for the recorder too.
+- A read that fails or takes more than 5 seconds checks nothing, and its jobs go out. The read does not retry a failed request.
+- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
+
+`replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.
