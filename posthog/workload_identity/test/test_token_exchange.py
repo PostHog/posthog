@@ -1,12 +1,15 @@
 import json
 import time
+from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 import jwt
 from oauth2_provider.utils import jwk_from_pem
@@ -271,6 +274,23 @@ class TestWorkloadTokenExchange(APIBaseTest):
                 self.organization_membership.save()
 
         assert self._call("get", path, token).status_code == status.HTTP_401_UNAUTHORIZED
+
+    @parameterized.expand([("expired",), ("signed_by_another_key",)])
+    def test_api_refuses_an_expired_or_forged_token(self, case: str) -> None:
+        token = self._access_token()
+        path = f"/api/projects/{self.team.id}/annotations/"
+
+        if case == "expired":
+            with time_machine.travel(timezone.now() + timedelta(hours=1), tick=False):
+                response = self._call("get", path, token)
+        else:
+            claims = jwt.decode(token, options={"verify_signature": False})
+            forged = jwt.encode(
+                claims, generate_rsa_private_key_pem(), algorithm="RS256", headers=jwt.get_unverified_header(token)
+            )
+            response = self._call("get", path, forged)
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
 
     def test_token_is_pinned_to_its_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
