@@ -305,6 +305,24 @@ ALL_SCOPES: frozenset[str] = frozenset(
 # Filtered out of partner-facing self-serve registration (CIMD, DCR per
 # RFC 7591), so a partner cannot programmatically grant themselves
 # `llm_gateway:read`.
+PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
+
+# String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
+# advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
+# alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
+# so a future hidden object whose action set narrows doesn't carry a phantom
+# string into the set.
+OAUTH_SCOPES_HIDDEN: frozenset[str] = (
+    frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
+)
+
+# Everything safe to grant a generic OAuth client. The broad default for an
+# `OAuthApplication` with empty `scopes`: empty resolves to this set at
+# `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
+# they live in `OIDC_SCOPES` below and are accepted at `/authorize`
+# independently of `application.scopes`.
+UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
+
 # What a risky scope lets a token do, shown wherever a person grants scopes to a token so they add it with care.
 RISKY_SCOPE_WARNINGS: dict[str, str] = {
     "access_control:write": "Changes who can access resources in this project.",
@@ -324,24 +342,6 @@ RISKY_SCOPE_WARNINGS: dict[str, str] = {
     "user:read": "Reads the account details of the user the token acts as.",
     "user:write": "Changes the account of the user the token acts as.",
 }
-
-PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
-
-# String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
-# advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
-# alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
-# so a future hidden object whose action set narrows doesn't carry a phantom
-# string into the set.
-OAUTH_SCOPES_HIDDEN: frozenset[str] = (
-    frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
-)
-
-# Everything safe to grant a generic OAuth client. The broad default for an
-# `OAuthApplication` with empty `scopes`: empty resolves to this set at
-# `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
-# they live in `OIDC_SCOPES` below and are accepted at `/authorize`
-# independently of `application.scopes`.
-UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
 
 
 def get_scope_descriptions() -> dict[str, str]:
