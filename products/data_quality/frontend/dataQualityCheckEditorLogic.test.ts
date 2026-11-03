@@ -547,6 +547,20 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(dataQualityChecksCreate).toHaveBeenCalledWith('1', expect.objectContaining({ config: {} }))
     })
 
+    it('flags the advanced options that hold a value or an error so a collapsed section cannot hide them', async () => {
+        await mountLogic()
+        await openWith(buildCheck({ name: 'orders_not_null', severity: 'warn' }))
+
+        expect(logic.values.advancedOptionsSetCount).toEqual(2)
+        expect(logic.values.advancedOptionsHaveErrors).toBe(false)
+
+        logic.actions.setCheckFormValues({ name: 'not a valid name' })
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.advancedOptionsHaveErrors).toBe(true)
+    })
+
     it('creates the check once when the form is submitted twice', async () => {
         // Enter submits the form even while the save button is disabled by its loading state.
         ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ id: 'check-new' }))
