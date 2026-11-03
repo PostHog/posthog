@@ -116,6 +116,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     request_deadline,
     retry_with_deadline,
     stop_at_request_deadline,
+    suspend_adapter_retries,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
@@ -504,6 +505,7 @@ __all__ = [
     "str_to_optional_list",
     "strip_oauth2_permanent_marker",
     "submit_with_context",
+    "suspend_adapter_retries",
     "unreachable_vendor_message",
     "update_sync_type_config_keys",
     "uses_brotli_compression",
