@@ -82,7 +82,8 @@ def _billing_usage_records_v2_tiering() -> str:
 
 # The sorting key holds the same columns as the v1 table, so both tables deduplicate the same rows.
 # The day leads the key because every reader filters on a time range, and a team-first key forces
-# a one-day read to scan the whole month of every small team.
+# a one-day read to scan the whole month of every small team. Each usage key has one producer, so
+# usage_key before producer_id lets a filter on a few keys skip granules without changing the order.
 def BILLING_USAGE_RECORDS_V2_DATA_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_V2_TABLE}
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS {SHARDED_BILLING_USAGE_RECORDS_V2_TABLE}
 )
 ENGINE = {billing_usage_records_v2_data_table_engine()}
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (toDate(timestamp), team_id, producer_id, usage_key, record_id)
+ORDER BY (toDate(timestamp), team_id, usage_key, producer_id, record_id)
 {_billing_usage_records_v2_tiering()}
 """
 

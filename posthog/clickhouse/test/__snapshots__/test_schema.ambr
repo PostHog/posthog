@@ -7979,7 +7979,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records_v2', '{replica}', inserted_at)
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (toDate(timestamp), team_id, producer_id, usage_key, record_id)
+  ORDER BY (toDate(timestamp), team_id, usage_key, producer_id, record_id)
   
   
   '''
@@ -13899,7 +13899,7 @@
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_billing_usage_records_v2', '{replica}', inserted_at)
   PARTITION BY toYYYYMM(timestamp)
-  ORDER BY (toDate(timestamp), team_id, producer_id, usage_key, record_id)
+  ORDER BY (toDate(timestamp), team_id, usage_key, producer_id, record_id)
   
   
   '''

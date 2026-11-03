@@ -10947,7 +10947,7 @@ SQL
   }
 
   table "sharded_billing_usage_records_v2" {
-    order_by     = ["toDate(timestamp)", "team_id", "producer_id", "usage_key", "record_id"]
+    order_by     = ["toDate(timestamp)", "team_id", "usage_key", "producer_id", "record_id"]
     partition_by = "toYYYYMM(timestamp)"
     settings = {
       index_granularity = "8192"
