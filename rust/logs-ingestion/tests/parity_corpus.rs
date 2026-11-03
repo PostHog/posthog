@@ -47,18 +47,37 @@ fn sort_keys(value: &JsValue) -> JsValue {
     }
 }
 
-/// `canonicalizeMetricPayload`: every array sorted by its elements' JSON text.
+/// Kept equal to `UNORDERED_METRIC_ARRAYS` in `parity-harness.ts`. A histogram's bucket arrays are positional.
+const UNORDERED_METRIC_ARRAYS: [&str; 7] = [
+    "resourceMetrics",
+    "scopeMetrics",
+    "metrics",
+    "dataPoints",
+    "attributes",
+    "exemplars",
+    "filteredAttributes",
+];
+
 fn sort_arrays(value: &JsValue) -> JsValue {
+    sort_arrays_under(value, None)
+}
+
+fn sort_arrays_under(value: &JsValue, key: Option<&str>) -> JsValue {
     match value {
         JsValue::Array(items) => {
-            let mut items: Vec<JsValue> = items.iter().map(sort_arrays).collect();
-            items.sort_by(|a, b| js_sort_cmp(&json_stringify(a), &json_stringify(b)));
+            let mut items: Vec<JsValue> = items
+                .iter()
+                .map(|item| sort_arrays_under(item, None))
+                .collect();
+            if key.is_some_and(|key| UNORDERED_METRIC_ARRAYS.contains(&key)) {
+                items.sort_by(|a, b| js_sort_cmp(&json_stringify(a), &json_stringify(b)));
+            }
             JsValue::Array(items)
         }
         JsValue::Object(o) => {
             let mut out = JsObject::new();
             for (k, v) in o.iter() {
-                out.insert(k.clone(), sort_arrays(v));
+                out.insert(k.clone(), sort_arrays_under(v, k.as_str()));
             }
             JsValue::Object(out)
         }
