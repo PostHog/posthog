@@ -215,9 +215,9 @@ export function isOnboardingNotRequiredForPath(pathname: string): boolean {
 }
 
 export function getOnboardingRedirectNextPath(nextParam: string | null | undefined, location: Location): string {
-    return (
-        getRelativeNextPath(nextParam, location) ?? `${removeProjectIdIfPresent(location.pathname)}${location.search}`
-    )
+    const path = removeProjectIdIfPresent(location.pathname)
+    // Onboarding ignores a `next` of exactly '/', so a root visit drops its query to keep the default landing page.
+    return getRelativeNextPath(nextParam, location) ?? (path === '/' ? path : `${path}${location.search}`)
 }
 
 const DelayedLoadingSpinner = (): JSX.Element => {
