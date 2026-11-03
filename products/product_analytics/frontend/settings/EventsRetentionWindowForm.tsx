@@ -64,7 +64,7 @@ function retentionChoiceOptions({
     return [
         {
             value: 'default',
-            label: `Default events retention (${defaultPeriod})`,
+            label: `${defaultIsOrganizationWindow ? 'Organization' : 'Default'} events retention (${defaultPeriod})`,
             description: defaultIsOrganizationWindow
                 ? `This project uses the organization's events retention of ${defaultPeriod}. To set a ${range} period for this project, use the Custom events retention setting below.`
                 : `Our default retention period for events data is ${defaultPeriod}. To set a ${range} period, use the Custom events retention setting below.`,
