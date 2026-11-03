@@ -587,3 +587,133 @@ class TestCPTeamsUseHogtower:
             ),
         ):
             assert cp_teams.list_org_teams(ORG) is None
+
+
+_HLC = "hlc_0123456789abcdef01234567"
+_HLC_ISSUED = {
+    "client_id": _HLC,
+    "client_secret": _FAKE_SECRET,
+    "name": "laptop",
+    "scope": "read",
+    "expires_at": "2027-02-01T00:00:00Z",
+}
+_HLC_ROW = {
+    "client_id": _HLC,
+    "name": "laptop",
+    "scope": "read",
+    "created_at": "2026-11-01T00:00:00Z",
+    "last_rotated_at": "2026-11-01T00:00:00Z",
+    "expires_at": "2027-02-01T00:00:00Z",
+}
+
+
+class TestHoglakeCredentialRoutes:
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [_HLC_ROW]})})
+    def test_list(self, fake: FakeHogtower) -> None:
+        out = _mapped("GET", "/hoglake-credentials")
+
+        assert (out.status_code, out.json()) == (200, {"hoglake_credentials": [_HLC_ROW]})
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_passes_the_body(self, fake: FakeHogtower) -> None:
+        out = _mapped("POST", "/hoglake-credentials", json_body={"name": "laptop", "scope": "read"})
+
+        assert out.status_code == 201
+        assert fake.calls[0]["json"] == {"name": "laptop", "scope": "read"}
+
+    @_routes({("POST", f"{W}/hoglake-credentials/{_HLC}/rotate"): (200, _HLC_ISSUED)})
+    def test_rotate(self, fake: FakeHogtower) -> None:
+        out = _mapped("POST", f"/hoglake-credentials/{_HLC}/rotate")
+
+        assert out.json()["client_secret"] == _FAKE_SECRET
+        assert fake.calls[0]["json"] is None
+
+    @_routes({("DELETE", f"{W}/hoglake-credentials/{_HLC}"): (200, {"revoked": _HLC})})
+    def test_revoke(self, fake: FakeHogtower) -> None:
+        out = _mapped("DELETE", f"/hoglake-credentials/{_HLC}")
+
+        assert (out.status_code, out.json()) == (200, {"revoked": _HLC})
+
+    @pytest.mark.parametrize(
+        "method,path",
+        [
+            ("GET", f"/hoglake-credentials/{_HLC}"),
+            ("DELETE", f"/hoglake-credentials/{_HLC}/rotate"),
+            ("PUT", "/hoglake-credentials"),
+        ],
+    )
+    def test_other_methods_are_not_forwarded(self, fake: FakeHogtower, method: str, path: str) -> None:
+        assert _mapped(method, path).status_code == 501
+        assert fake.calls == []
+
+
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+class TestHoglakeCredentialViews:
+    @pytest.fixture(autouse=True)
+    def _public_token_url(self):
+        with override_settings(HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token"):
+            yield
+
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [_HLC_ROW]})})
+    def test_list_adds_where_to_connect(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with override_settings(
+            HOGLAKE_PUBLIC_URL="https://hoglake.example.test",
+            HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token",
+        ):
+            resp = managed_warehouse.list_hoglake_credentials(ORG)
+
+        assert resp.status_code == 200
+        assert resp.data["connect"] == {
+            "catalog": ORG,
+            "hoglake_url": "https://hoglake.example.test",
+            "token_url": "https://hogtower-oauth.example.test/oauth/token",
+        }
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_logs_the_action_without_the_secret(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with patch("products.managed_warehouse.backend.presentation.views.logger") as log:
+            resp = managed_warehouse.create_hoglake_credential(
+                ORG, name="laptop", scope="read", ttl_seconds=None, triggered_by=PRINCIPAL
+            )
+
+        assert (resp.status_code, resp.data["client_secret"]) == (201, _FAKE_SECRET)
+        assert fake.calls[0]["json"] == {"name": "laptop", "scope": "read"}
+        log.info.assert_any_call(
+            "managed_warehouse_action",
+            action="create_hoglake_credential",
+            triggered_by=PRINCIPAL,
+            organization_id=ORG,
+            scope="read",
+            credential_id=_HLC,
+        )
+        assert _FAKE_SECRET not in str(log.mock_calls)
+
+    @_routes({("DELETE", f"{W}/hoglake-credentials/{_HLC}"): (404, {"error": "credential not found"})})
+    def test_revoke_error_passes_through_unlogged(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with patch("products.managed_warehouse.backend.presentation.views.logger") as log:
+            resp = managed_warehouse.revoke_hoglake_credential(ORG, _HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code == 404
+        assert not any(c.args[:1] == ("managed_warehouse_action",) for c in log.info.mock_calls)
+
+    def test_without_hogtower_is_501_and_never_reaches_duckgres(self, _enabled: MagicMock) -> None:
+        with (
+            override_settings(HOGTOWER_API_URL=None, DUCKGRES_API_URL="http://duckgres.invalid"),
+            patch("products.managed_warehouse.backend.presentation.views.internal_requests") as duckgres,
+        ):
+            resp = managed_warehouse.create_hoglake_credential(
+                ORG, name="laptop", scope="read", ttl_seconds=None, triggered_by=PRINCIPAL
+            )
+
+        assert resp.status_code == 501
+        duckgres.request.assert_not_called()
+
+    def test_without_a_public_token_url_is_501(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        with override_settings(HOGLAKE_OAUTH_TOKEN_URL=None):
+            resp = managed_warehouse.list_hoglake_credentials(ORG)
+
+        assert (resp.status_code, resp.data) == (
+            501,
+            {"error": "Hoglake credentials are not available in this region yet"},
+        )
+        assert fake.calls == []

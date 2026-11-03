@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable
 from datetime import date
 from functools import partial
-from typing import Literal, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -1383,6 +1383,90 @@ def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Respons
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
     return resp
+
+
+def _hogtower_only() -> Response | None:
+    """Hoglake credentials are served by hogtower alone; duckgres has no such route.
+
+    They are also useless until hoglake has a public endpoint in this deployment, so
+    HOGLAKE_OAUTH_TOKEN_URL being set is what turns the feature on.
+    """
+    if not hogtower.is_configured():
+        return Response(
+            {"error": "Hoglake credentials need the hogtower control plane"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    if not getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        return Response(
+            {"error": "Hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _hoglake_connect(organization_id: UUID | str) -> dict[str, str]:
+    """Where a hoglake credential is used: the catalog is the org id."""
+    connect = {"catalog": str(organization_id)}
+    if url := getattr(settings, "HOGLAKE_PUBLIC_URL", None):
+        connect["hoglake_url"] = url
+    if token_url := getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        connect["token_url"] = token_url
+    return connect
+
+
+def list_hoglake_credentials(organization_id: UUID | str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        resp.data["connect"] = _hoglake_connect(organization_id)
+    return resp
+
+
+def create_hoglake_credential(
+    organization_id: UUID | str, *, name: str, scope: str, ttl_seconds: int | None, triggered_by: str
+) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    body: dict[str, Any] = {"name": name, "scope": scope}
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization_id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_hoglake_credential", organization_id, triggered_by, scope=scope)
+    return resp
+
+
+def rotate_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("POST", organization_id, f"/hoglake-credentials/{credential_id}/rotate")
+    _log_hoglake_action(resp, "rotate_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def revoke_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("DELETE", organization_id, f"/hoglake-credentials/{credential_id}")
+    _log_hoglake_action(resp, "revoke_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def _log_hoglake_action(
+    resp: Response, action: str, organization_id: UUID | str, triggered_by: str, **fields: str
+) -> None:
+    """The audit line for a hoglake credential change. Never the secret: only ids and scope."""
+    if not status.is_success(resp.status_code):
+        return
+    if action != "revoke_hoglake_credential" and isinstance(resp.data, dict):
+        fields.setdefault("credential_id", str(resp.data.get("client_id", "")))
+    logger.info(
+        "managed_warehouse_action",
+        action=action,
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        **fields,
+    )
 
 
 def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:

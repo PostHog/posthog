@@ -267,6 +267,82 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
+export interface HoglakeCredentialApi {
+    /** The OAuth client_id, hlc_… */
+    client_id: string
+    name: string
+    /** read or write */
+    scope: string
+    created_at: string
+    last_rotated_at: string
+    expires_at: string
+    /**
+     * Set once revoked
+     * @nullable
+     */
+    revoked_at?: string | null
+}
+
+export interface HoglakeConnectApi {
+    /** The hoglake catalog (warehouse) these credentials reach */
+    catalog: string
+    /** Hoglake's public REST catalog URL */
+    hoglake_url?: string
+    /** OAuth token endpoint (client_credentials grant) */
+    token_url?: string
+}
+
+export interface HoglakeCredentialListResponseApi {
+    hoglake_credentials: HoglakeCredentialApi[]
+    connect: HoglakeConnectApi
+}
+
+/**
+ * * `read` - read
+ * * `write` - write
+ */
+export type HoglakeCredentialCreateRequestScopeEnumApi =
+    (typeof HoglakeCredentialCreateRequestScopeEnumApi)[keyof typeof HoglakeCredentialCreateRequestScopeEnumApi]
+
+export const HoglakeCredentialCreateRequestScopeEnumApi = {
+    Read: 'read',
+    Write: 'write',
+} as const
+
+export interface HoglakeCredentialCreateRequestApi {
+    /**
+     * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+     */
+    name: string
+    /** read lists and reads tables; write can also commit to them.
+     *
+     * * `read` - read
+     * * `write` - write */
+    scope: HoglakeCredentialCreateRequestScopeEnumApi
+    /**
+     * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+     * @minimum 3600
+     * @maximum 31536000
+     */
+    ttl_seconds?: number
+}
+
+export interface HoglakeCredentialIssuedApi {
+    /** The OAuth client_id, hlc_… */
+    client_id: string
+    /** The client secret — returned only here, never again */
+    client_secret: string
+    name: string
+    scope: string
+    expires_at: string
+}
+
+export interface HoglakeCredentialRevokedApi {
+    /** The revoked client_id */
+    revoked: string
+}
+
 export interface JobStatsBucketApi {
     /** Runs that completed in this bucket. */
     successful: number
