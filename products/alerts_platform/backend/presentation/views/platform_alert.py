@@ -1,6 +1,6 @@
 from dataclasses import replace
 from functools import cache, cached_property
-from typing import Any, Literal, cast
+from typing import Any, Final, Literal, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -9,9 +9,12 @@ from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, e
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from posthog import permissions
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -20,11 +23,9 @@ from posthog.exceptions import Conflict
 from posthog.models import Team, User
 from posthog.permissions import (
     FEATURE_FLAG_REQUIRED_ERROR_CODE,
-    PostHogFeatureFlagPermission,
     get_authenticator_client,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
-    posthog_feature_flag_enabled,
 )
 from posthog.scopes import APIScopeObject, scopes_not_covered
 
@@ -56,6 +57,8 @@ from products.alerts_platform.backend.facade.enums import (
 )
 from products.alerts_platform.backend.facade.source_configs import editable_source_configs
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
+
+PLATFORM_ALERTS_FLAG: Final = "platform-alerts"
 
 RULE_LABELS_HELP = (
     'Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. '
@@ -433,12 +436,48 @@ EDIT_RESPONSES = {
 }
 
 
+class PlatformAlertsFlagPermission(BasePermission):
+    """Lets a caller in when the flag of at least one source kind is on. Each action then serves only
+    the kinds whose flag is on."""
+
+    message = f"This action requires feature flag {PLATFORM_ALERTS_FLAG!r} to be enabled for your organization."
+    code = FEATURE_FLAG_REQUIRED_ERROR_CODE
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        assert isinstance(view, PlatformAlertConfigurationViewSet)
+        return bool(view.open_source_kinds)
+
+
 class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "alert"
-    posthog_feature_flag = "platform-alerts"
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PlatformAlertsFlagPermission]
     serializer_class = PlatformAlertConfigurationSerializer
     pagination_class = PrecountedLimitOffsetPagination
+
+    @cached_property
+    def open_source_kinds(self) -> frozenset[str]:
+        """The kinds whose flag is on for the caller: a kind's `access_flag` when it has one, and
+        `platform-alerts` otherwise."""
+        specs = editable_source_configs()
+        flags: dict[str, bool] = {}
+        open_kinds: set[str] = set()
+        for source_kind in SOURCE_KIND_RESOURCE:
+            spec = specs.get(SourceKind(source_kind))
+            flag = spec.access_flag if spec is not None and spec.access_flag else PLATFORM_ALERTS_FLAG
+            if flag not in flags:
+                flags[flag] = self._flag_enabled(flag)
+            if flags[flag]:
+                open_kinds.add(source_kind)
+        return frozenset(open_kinds)
+
+    def _flag_enabled(self, flag: str) -> bool:
+        return permissions.posthog_feature_flag_enabled(
+            flag,
+            str(cast(User, self.request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+            caller_properties=get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
+        )
 
     @cached_property
     def canonical_team(self) -> Team:
@@ -476,6 +515,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         token_scopes = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
         permitted: list[str] = []
         for source_kind, resource in SOURCE_KIND_RESOURCE.items():
+            if source_kind not in self.open_source_kinds:
+                continue
             if not self.user_access_control.check_access_level_for_resource(resource, access_level):
                 continue
             if (
@@ -552,6 +593,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise ValidationError(
                 {"source_kind": f"Must be one of: {', '.join(sorted(create_serializers()))}."}, code="invalid_choice"
             )
+        if source_kind not in self.open_source_kinds:
+            raise PermissionDenied(
+                f"{source_kind.capitalize()} alerts are not available for this project yet.",
+                code=FEATURE_FLAG_REQUIRED_ERROR_CODE,
+            )
         # The kind comes from the body, so the source product's scope and access are checked here
         # rather than through `required_scopes`.
         if source_kind not in self._source_kinds_with("editor", "write"):
@@ -583,13 +629,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         spec = editable_source_configs().get(source_kind)
         if spec is None or spec.rollout_flag is None:
             return
-        if not posthog_feature_flag_enabled(
-            spec.rollout_flag,
-            str(cast(User, self.request.user).distinct_id),
-            organization_id=self.team.organization_id,
-            team_id=self.team.id,
-            caller_properties=get_authenticator_client(getattr(self.request, "successful_authenticator", None)),
-        ):
+        if not self._flag_enabled(spec.rollout_flag):
             raise PermissionDenied(
                 f"{source_kind.value.capitalize()} alerts are not available for this project yet.",
                 code=FEATURE_FLAG_REQUIRED_ERROR_CODE,
