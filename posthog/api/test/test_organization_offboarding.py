@@ -3,6 +3,8 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -10,9 +12,9 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.organization_offboarding import OrganizationOffboarding
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -71,14 +73,22 @@ class TestOrganizationOffboarding(APIBaseTest):
             f"/project/{self.team.pk}/dashboard/{shared.pk}",
         }
 
-    def test_preview_does_not_load_deferred_insight_queries(self) -> None:
-        for index in range(3):
+    def test_preview_query_count_does_not_grow_with_insights(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing, name="First insight")
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+        self.client.get(self.url + "offboarding_preview/")
+        with CaptureQueriesContext(connection) as first:
+            response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert len(response.json()) == 1
+        for index in range(2):
             insight = Insight.objects.create(team=self.team, created_by=self.departing, name=f"Insight {index}")
             SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
-        membership = OrganizationMembership.objects.get(user=self.departing, organization=self.organization)
-        with self.assertNumQueries(4):
-            resources = OrganizationOffboarding(membership).resources()
-        assert len(resources) == 3
+        with CaptureQueriesContext(connection) as expanded:
+            response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert len(response.json()) == 3
+        assert len(expanded) == len(first)
 
     def test_removal_preserves_all_dashboard_tokens_and_other_members_links(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.departing, is_shared=True)
@@ -229,6 +239,31 @@ class TestOrganizationOffboarding(APIBaseTest):
             assert not share.enabled
         unrelated_share.refresh_from_db()
         assert unrelated_share.enabled
+
+    def test_preview_lists_created_active_alerts_and_removal_preserves_them(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing)
+        kept = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.departing, name="Keep"
+        )
+        disabled = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.departing, name="Disabled", enabled=False
+        )
+        unrelated = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.user, name="Other"
+        )
+        kept.subscribed_users.add(self.user)
+        response = self.client.get(self.url + "offboarding_preview/")
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [f"alert:{kept.pk}"]
+        assert response.json()[0]["kind"] == "alert"
+        assert self.client.delete(self.url).status_code == 204
+        kept.refresh_from_db()
+        disabled.refresh_from_db()
+        unrelated.refresh_from_db()
+        assert kept.enabled
+        assert not disabled.enabled
+        assert unrelated.enabled
+        assert kept.subscribed_users.filter(pk=self.user.pk).exists()
 
     def test_self_leave_skips_resource_review_and_preserves_links_in_all_projects(self) -> None:
         self.organization.available_product_features = [
