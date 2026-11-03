@@ -10,6 +10,9 @@ tools:
     workflows-transactional-email-get:
         operation: transactional_email_log_retrieve
         enabled: true
+        scopes:
+            - hog_flow:read
+            - person:read
         enrich_url: '{message_id}'
         title: Get a transactional email send
         description: >
@@ -18,9 +21,6 @@ tools:
             never sent, and an email marked sensitive keeps no subject values. Share the _posthogUrl so the user can see
             the rendered email.
         feature_flag: workflows-transactional-email-api
-        scopes:
-            - hog_flow:read
-            - person:read
         response:
             informational_wrapper:
                 tag: transactional-email-log
@@ -30,6 +30,9 @@ tools:
     workflows-transactional-email-results:
         operation: transactional_email_log_results_retrieve
         enabled: true
+        scopes:
+            - hog_flow:read
+            - query:read
         title: Get what people did after a transactional email
         description: >
             Of the people a transactional email was sent to, count those who did an event within window_days of their
@@ -37,12 +40,11 @@ tools:
             is the email's transactional_hog_flow_id. Pick the event with the user, such as a signup or a purchase, and
             check its name with the event definitions first. Only sends that named a distinct ID count.
         feature_flag: workflows-transactional-email-api
-        scopes:
-            - hog_flow:read
-            - query:read
     workflows-transactional-email-stats:
         operation: transactional_email_log_stats_retrieve
         enabled: true
+        scopes:
+            - hog_flow:read
         title: Get transactional email delivery stats
         description: >
             Count the project's transactional email sends by outcome, per email (group_by template) or per sending
@@ -50,8 +52,6 @@ tools:
             get rates, divide delivered and bounced by sent, and spam reports, opened and clicked by delivered. Defaults
             to the last 7 days, and the log keeps 30.
         feature_flag: workflows-transactional-email-api
-        scopes:
-            - hog_flow:read
         response:
             informational_wrapper:
                 tag: transactional-email-log
@@ -61,6 +61,9 @@ tools:
     workflows-transactional-emails-list:
         operation: transactional_email_log_list
         enabled: true
+        scopes:
+            - hog_flow:read
+            - person:read
         title: List transactional email sends
         description: >
             List the project's transactional email sends from the last 30 days, newest first, with each send's
@@ -69,9 +72,6 @@ tools:
             message_id for an exact match, or part of an email address. workflow_id is the transactional_hog_flow_id of
             the email to filter on. Page with limit and offset while has_more is true.
         feature_flag: workflows-transactional-email-api
-        scopes:
-            - hog_flow:read
-            - person:read
         response:
             informational_wrapper:
                 tag: transactional-email-log
