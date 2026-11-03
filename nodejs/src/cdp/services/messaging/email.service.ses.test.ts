@@ -97,6 +97,7 @@ describe('EmailService with local SES', () => {
             suppression,
             new RecipientsManagerService(hub.postgres),
             null,
+            { report: jest.fn() },
             assets,
             limiter,
             limiter
