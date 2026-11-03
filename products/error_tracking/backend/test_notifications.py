@@ -57,6 +57,7 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         assert data.target_id == str(self.assignee.id)
         assert data.resource_type == "error_tracking"
         assert data.resource_id == str(self.issue.id)
+        assert data.title == f"{self.assigner.email} assigned an issue to you"
         assert data.metadata == {"trigger": "manual"}
 
     @patch("products.error_tracking.backend.notifications.create_notification")
@@ -112,16 +113,9 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
 
 
 class TestAssignmentActor(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("empty_label", "", None, "automatic"),
-            ("manual_without_user", "Alice", None, "manual"),
-            ("automatic_with_user", "An assignment rule", 1, "automatic"),
-        ]
-    )
-    def test_rejects_invalid_actor(self, _name, label, user_id, trigger):
+    def test_rejects_empty_label(self):
         with pytest.raises(ValueError):
-            AssignmentActor(label=label, user_id=user_id, trigger=trigger)
+            AssignmentActor.automatic("")
 
 
 class TestAssignerExcludingResolver(SimpleTestCase):

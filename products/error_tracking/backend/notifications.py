@@ -34,21 +34,22 @@ class _AssignerExcludingResolver(RecipientsResolver):
 class AssignmentActor:
     label: str
     user_id: int | None
-    trigger: Literal["manual", "automatic"]
 
     def __post_init__(self) -> None:
         if not self.label:
             raise ValueError("label is required")
-        if (self.trigger == "manual") != (self.user_id is not None):
-            raise ValueError("a manual assignment needs a user_id, and an automatic one must not have one")
+
+    @property
+    def trigger(self) -> Literal["manual", "automatic"]:
+        return "manual" if self.user_id is not None else "automatic"
 
     @classmethod
     def from_user(cls, user: User) -> "AssignmentActor":
-        return cls(label=user.first_name or user.email, user_id=user.id, trigger="manual")
+        return cls(label=user.first_name or user.email, user_id=user.id)
 
     @classmethod
     def automatic(cls, label: str) -> "AssignmentActor":
-        return cls(label=label, user_id=None, trigger="automatic")
+        return cls(label=label, user_id=None)
 
 
 def dispatch_issue_assigned_realtime(
