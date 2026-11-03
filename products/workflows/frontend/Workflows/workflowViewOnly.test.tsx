@@ -169,7 +169,7 @@ describe('view-only workflow', () => {
         )
         expect(screen.queryByText(/Firefox/)).not.toBeInTheDocument()
 
-        fireEvent.click(screen.getByRole('button', { name: 'Show filters' }))
+        fireEvent.click(document.querySelector('[data-attr="show-prop-filter-0"]')!)
 
         expect(screen.getByText(/Firefox/)).toBeInTheDocument()
     })
@@ -184,7 +184,7 @@ describe('view-only workflow', () => {
             </ViewOnlyArea>
         )
 
-        fireEvent.click(screen.getAllByRole('button').filter((b) => b.dataset.attr === 'workflow-schedule-row')[1])
+        fireEvent.click(document.querySelectorAll('[data-attr="workflow-schedule-row"]')[1])
 
         expect(logic.values.currentSchedule?.id).toBe('weekly')
     })
