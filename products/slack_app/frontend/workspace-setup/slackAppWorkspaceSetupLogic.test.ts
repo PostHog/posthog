@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -86,8 +87,9 @@ describe('slackAppWorkspaceSetupLogic', () => {
             ],
         })
         const warning = jest.spyOn(lemonToast, 'warning')
+        const capture = jest.spyOn(posthog, 'capture')
 
-        const logic = slackAppWorkspaceSetupLogic({ integrationId: 7, entry: 'slack_page' })
+        const logic = slackAppWorkspaceSetupLogic({ integrationId: 7, entry: 'slack_page', returnTo: 'settings' })
         logic.mount()
         await expectLogic(logic)
             .toFinishAllListeners()
@@ -96,6 +98,12 @@ describe('slackAppWorkspaceSetupLogic', () => {
                 joinedChannelNames: ['general'],
             })
         expect(mockRetrieve).toHaveBeenCalledWith(expect.any(String), '7', { entry: 'slack_page' })
+        expect(capture).toHaveBeenCalledWith('slack app workspace setup viewed', {
+            integration_id: 7,
+            entry: 'slack_page',
+            return_to: 'settings',
+            steps: ['channels'],
+        })
 
         logic.actions.setSelectedChannelIds(['C1', 'C2'])
         await expectLogic(logic, () => logic.actions.joinChannels()).toFinishAllListeners()

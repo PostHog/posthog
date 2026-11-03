@@ -7,7 +7,7 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { slackAppWorkspaceSetupLogic } from '../slackAppWorkspaceSetupLogic'
 
 export function DefaultProjectStep(): JSX.Element {
-    const { setup, selectedProjectIntegrationId, savingDefaultProject } = useValues(slackAppWorkspaceSetupLogic)
+    const { setup, selectedProjectIntegrationId, setupLoading } = useValues(slackAppWorkspaceSetupLogic)
     const { selectProject, saveDefaultProject, skipStep } = useActions(slackAppWorkspaceSetupLogic)
 
     return (
@@ -38,7 +38,7 @@ export function DefaultProjectStep(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     type="primary"
-                    loading={savingDefaultProject}
+                    loading={setupLoading}
                     onClick={saveDefaultProject}
                     data-attr="slack-app-workspace-setup-save-default-project"
                 >

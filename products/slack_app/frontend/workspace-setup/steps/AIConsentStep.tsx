@@ -23,8 +23,7 @@ export function AIConsentStep(): JSX.Element {
 
     const approve = async (): Promise<void> => {
         if (currentOrganization) {
-            // Approving can need a fresh login, which reloads the page. The pending redirect brings
-            // the person back to this setup, and the step is then done.
+            // Approval can need a new login, which reloads the page. The pending redirect brings the person back.
             setPendingApprovalRedirect({
                 url: location.pathname + location.search,
                 organizationId: currentOrganization.id,

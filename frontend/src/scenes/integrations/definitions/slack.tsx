@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getMissingScopes } from 'lib/integrations/integrationScopes'
@@ -39,8 +39,7 @@ function useSlackStatus(integrations: IntegrationType[]): IntegrationStatus {
     return anyNeedsAttention ? 'needs_attention' : 'ok'
 }
 
-// Only the install that the OAuth callback just created goes to the setup, because the callback
-// adds its id to the URL. A later visit to this page for an install keeps "Go to PostHog".
+// Only the install that the OAuth callback just created has its id in the URL, so a later visit keeps "Go to PostHog".
 function useSlackSetupUrl(integrations: IntegrationType[]): string | null {
     const enabled = useFeatureFlag('SLACK_APP_WORKSPACE_SETUP')
     const { searchParams } = useValues(router)
@@ -48,16 +47,14 @@ function useSlackSetupUrl(integrations: IntegrationType[]): string | null {
     if (!enabled || !integrations.some((integration) => integration.id === newIntegrationId)) {
         return null
     }
-    const params = new URLSearchParams({ entry: 'slack_page' })
     const returnTo = parseSlackSetupReturnTarget(searchParams[SLACK_SETUP_RETURN_PARAM])
-    if (returnTo) {
-        params.set(SLACK_SETUP_RETURN_PARAM, returnTo)
-    }
-    return `${urls.slackAppWorkspaceSetup(newIntegrationId)}?${params}`
+    return combineUrl(urls.slackAppWorkspaceSetup(newIntegrationId), {
+        entry: 'slack_page',
+        ...(returnTo ? { [SLACK_SETUP_RETURN_PARAM]: returnTo } : {}),
+    }).url
 }
 
-// A person who connects Slack in Settings sets it up on purpose, so the install continues on the
-// Slack page, and the setup then sends them back to Settings.
+// A connect from Settings is deliberate, so it continues to the setup and then returns to Settings.
 function SlackSettingsSection({
     next,
     centered,
@@ -66,9 +63,9 @@ function SlackSettingsSection({
     const setupEnabled = useFeatureFlag('SLACK_APP_WORKSPACE_SETUP')
     const returnNext =
         setupEnabled && connectSurface === 'settings'
-            ? `${urls.integration('slack')}?${SLACK_SETUP_RETURN_PARAM}=settings`
+            ? combineUrl(urls.integration('slack'), { [SLACK_SETUP_RETURN_PARAM]: 'settings' }).url
             : next
-    return <SlackIntegration next={returnNext} centered={centered} />
+    return <SlackIntegration next={returnNext} centered={centered} connectSurface={connectSurface} />
 }
 
 export const Slack = defineIntegration(

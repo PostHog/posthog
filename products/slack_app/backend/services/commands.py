@@ -419,7 +419,7 @@ def _handle_project_set_workspace(
     """
     from posthog.models.user import User
 
-    from products.slack_app.backend.models import SlackSettings
+    from products.slack_app.backend.services.slack_settings import set_workspace_default_integration
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     if not is_slack_workspace_admin(slack, integration, slack_user_id):
@@ -457,11 +457,7 @@ def _handle_project_set_workspace(
         )
         return
 
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=slack_workspace_id,
-        slack_user_id=None,
-        defaults={"default_integration_id": target.id},
-    )
+    set_workspace_default_integration(slack_workspace_id, target.id)
     post_slack_ephemeral(
         slack.client,
         channel=channel,
