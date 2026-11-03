@@ -84,6 +84,7 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_recording_bytes_in_period": {team_a_id: 1_234_567, team_c_id: 89_012},
         "teams_with_decide_requests_count_in_period": {team_a_id: 1_000, team_b_id: 200, team_c_id: 50},
         "teams_with_local_evaluation_requests_count_in_period": {team_b_id: 5},
+        "teams_with_local_evaluation_not_modified_requests_count_in_period": {team_b_id: 40, team_c_id: 9},
         "teams_with_dashboard_count": {team_a_id: 4, team_b_id: 2, team_c_id: 1},
         "teams_with_ff_count": {team_a_id: 7, team_b_id: 3},
         "teams_with_survey_count": {team_a_id: 1, team_c_id: 2},
@@ -361,9 +362,13 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         lambda begin, end, kind: [
             (str(team_id), total)
             for team_id, total in seeded[
-                UsageCounter.FEATURE_FLAG_REQUESTS
-                if kind == usage_report.FlagRequestType.DECIDE
-                else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                {
+                    usage_report.FlagRequestType.DECIDE: UsageCounter.FEATURE_FLAG_REQUESTS,
+                    usage_report.FlagRequestType.LOCAL_EVALUATION: UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+                    usage_report.FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: (
+                        UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS
+                    ),
+                }[kind]
             ].items()
         ],
     )
