@@ -1,1 +1,1 @@
-0230_report_publication_outbox
+0232_report_publication_index

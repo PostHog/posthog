@@ -4,6 +4,7 @@ from celery import Task, shared_task
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     FirebaseIntegration,
@@ -39,10 +40,10 @@ def recover_github_access(installation_id: str, team_id: int | None = None, afte
         resume_github_blocked_implementations,
     )
 
-    connected_projects = Integration.objects.filter(kind="github", integration_id=installation_id)
-    if team_id is not None:
-        connected_projects = connected_projects.filter(team_id=team_id)
-    connected_team_ids = connected_projects.values("team_id")
+    connected_projects = IntegrationManager.github.oauth.list_by_external_id(
+        installation_id, team_ids=[team_id] if team_id is not None else None
+    )
+    connected_team_ids = {integration.team_id for integration in connected_projects}
     team_ids = list(
         Team.objects.filter(
             Q(id__in=connected_team_ids) | Q(parent_team_id__in=connected_team_ids), id__gt=after_team_id
@@ -52,10 +53,11 @@ def recover_github_access(installation_id: str, team_id: int | None = None, afte
     )
     if team_id is None:
         # Access-change webhooks can outlive a token minted with the installation's previous permissions.
-        for integration in connected_projects.filter(team_id__in=team_ids):
-            GitHubIntegration(
-                integration, source="github_access_recovery", priority=Priority.BATCH
-            ).refresh_access_token()
+        for integration in connected_projects:
+            if integration.team_id in team_ids:
+                GitHubIntegration(
+                    integration, source="github_access_recovery", priority=Priority.BATCH
+                ).refresh_access_token()
     for affected_team_id in team_ids:
         resume_github_blocked_reports.delay(affected_team_id)
         resume_github_blocked_implementations.delay(affected_team_id)
