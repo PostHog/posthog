@@ -29,7 +29,7 @@ _NO_PATCH = "(GitHub gave no patch for this file)"
 _PATCH_LEFT_OUT = "(diff left out: input cap reached)"
 _PIN_LABELS = {PinReason.SENSITIVE: "sensitive", PinReason.NEW_PATH: "new path"}
 
-# Verbatim from the offline evaluation (eval_cuts_v4). A change to this text needs a new evaluation.
+# Verbatim from the offline evaluation that picked this prompt and model. A change to this text needs a new evaluation.
 CUT_SYSTEM_PROMPT = """You check the reviewer requests for one pull request. Every owner of changed code is requested by \
 default, and that default is right. Your only job is to find owners who would rightly ask "why did you assign \
 me?" because their part of the change is trivial, and cut them.
@@ -82,6 +82,8 @@ class LlmSkipReason(StrEnum):
     NO_ANSWER = "no_answer"
     # Stamphog approved the head, so only pinned owners are requested and nothing is left to cut.
     STAMPHOG_APPROVED = "stamphog_approved"
+    # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
+    FILES_TRUNCATED = "files_truncated"
 
 
 @frozen
@@ -219,8 +221,11 @@ def decide_cuts(
     description: str,
     is_fork: bool,
     call_model: CutModelCall,
+    files_truncated: bool = False,
 ) -> RoutingDecision:
     """Which candidates to request. Never raises: any failure of the model call cuts nobody."""
+    if files_truncated:
+        return _keep_all(candidates, LlmSkipReason.FILES_TRUNCATED)
     if len(candidates) < 2:
         return _keep_all(candidates, LlmSkipReason.SINGLE_CANDIDATE)
     if is_fork:

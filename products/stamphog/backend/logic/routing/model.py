@@ -76,12 +76,17 @@ def _create_with_effort_fallback(
 
 
 class GatewayCutModel:
-    """A `CutModelCall` for one routing run. After the call, `usage` holds the token counts."""
+    """A `CutModelCall` for one routing run.
+
+    After the call, `sent_request` says whether a request reached the gateway, and `usage` holds
+    the token counts of an answer.
+    """
 
     def __init__(self, *, team_id: int, connected_by_user_id: int | None, attribution: Mapping[str, object]) -> None:
         self._team_id = team_id
         self._connected_by_user_id = connected_by_user_id
         self._attribution = attribution
+        self.sent_request = False
         self.usage: CutUsage | None = None
 
     def __call__(
@@ -129,6 +134,7 @@ class GatewayCutModel:
             http_client=httpx.Client(trust_env=False),
         )
         output_format: JSONOutputFormatParam = {"type": "json_schema", "schema": dict(schema)}
+        self.sent_request = True
         try:
             response = _create_with_effort_fallback(client, system_prompt, user_prompt, output_format)
         except Exception as exc:  # noqa: BLE001 - the cut is optional, so any API failure keeps every owner

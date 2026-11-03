@@ -185,7 +185,7 @@ A comment names the cut owners and why.
 - `off` (the default): never.
 - `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too.
 - `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, bot or untrusted author, or label mode without the trigger label), routing runs at once, like `always`. Otherwise the head waits for the verdict:
-  - An approval requests only the pinned owners and says so in the comment. This happens once per PR.
+  - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody.
   - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there.
   - Any other outcome (refused, escalate, gated, failed) routes in full.
   - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
@@ -195,9 +195,22 @@ A comment names the cut owners and why.
 
 There is no API or admin page for these settings yet. Set them with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_mode="fallback", routing_fork_labels={"team-alpha": "team/alpha"})`.
 
-The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`) and status (`waiting`, `routing`, `requested` or `done`).
-`full_routed_head` and `pinned_routed_head` (with their `_at` times) carry over to every later record, so the PR-level rules hold across pushes.
-The record stops a retry or a redelivery from requesting anybody twice, and a compare-and-swap claim stops a verdict and a safety net that fire together from both routing.
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+`full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
+Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
+
+Every routing run (event, verdict or safety net) takes the same steps:
+
+1. A compare-and-swap claim sets `routing` with `claimed_by` (the Celery task id) and `claimed_at`.
+2. The plan (kept and cut owners, the user, team and label requests, the comment body) is saved under the claim, with `planned_at`, before any GitHub write.
+3. The labels and review requests go out, and the record becomes `requested`.
+4. The comment is written or removed, and the record becomes `done`.
+
+A retry of the same task keeps the task id: it reuses a saved plan without a second model call, and after `requested` it only finishes the comment.
+While another task holds a claim on any head, the event and verdict tasks retry a minute later and the safety net returns.
+A claim older than two hours counts as abandoned, so a task that died does not block the PR.
+When GitHub lists fewer files than the PR's `changed_files`, the cut step is skipped (`files_truncated: true`, `llm_skipped: files_truncated`) and every owner found is requested.
+`model` is set only when a request reached the gateway.
 
 ## How it runs
 

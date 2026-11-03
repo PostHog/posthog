@@ -196,6 +196,10 @@ class GitHubRecorder:
         # Reviewers GitHub refuses to request (`@login` or a team slug): a stale slug, or the author.
         # Any request naming one answers 422 for the whole request, as GitHub does.
         self.unrequestable_reviewers: set[str] = set()
+        # How many review requests answer 500 before GitHub takes them again.
+        self.reviewer_request_failures = 0
+        # How many times the ownership reader looked up the default branch head.
+        self.head_lookups = 0
         self.github_writes: list[dict[str, Any]] = []
         self._next_id = 90000
 
@@ -349,6 +353,7 @@ class GitHubRecorder:
                 200, json_data={"data": {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}}
             )
         if "defaultBranchRef" in query:
+            self.head_lookups += 1
             if f"{variables.get('owner', '')}/{variables.get('name', '')}" in self.empty_repositories:
                 return FakeResponse(200, json_data={"data": {"repository": {"defaultBranchRef": None}}})
             # The ownership reader caches blobs per commit, and the cache outlives one test. A commit
@@ -402,6 +407,9 @@ class GitHubRecorder:
         return FakeResponse(200, json_data={"data": {"repository": field}})
 
     def _request_reviewers(self, repo: str, number: int, body: dict) -> FakeResponse:
+        if self.reviewer_request_failures > 0:
+            self.reviewer_request_failures -= 1
+            return FakeResponse(500, text="server error")
         named = {f"@{user}" for user in body.get("reviewers", [])} | set(body.get("team_reviewers", []))
         if named & self.unrequestable_reviewers:
             self.github_writes.append(

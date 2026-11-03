@@ -54,6 +54,7 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.logic.routing.triggers import (
     ReviewPath,
     route_after_verdict,
@@ -1905,6 +1906,8 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
 
 _ROUTING_MAX_RETRIES = 4
 _ROUTING_RETRY_BASE_SECONDS = 30
+# Another task holds the routing claim. It finishes within seconds, so the retry comes soon.
+ROUTING_BUSY_RETRY_SECONDS = 60
 # FALLBACK mode routes in full when no verdict arrived for a waiting head after this long.
 ROUTING_SAFETY_NET_SECONDS = 30 * 60
 
@@ -1930,16 +1933,21 @@ def _schedule_routing_safety_net(repo_config: StamphogRepoConfig, pr_number: int
 
 
 _ROUTING_REVIEW_PATH = ReviewPath(
-    upsert_pull_request=_upsert_pull_request,
     will_review=_stamphog_will_review,
     schedule_safety_net=_schedule_routing_safety_net,
 )
 
 
 def _run_routing_step(task: Task, step: Callable[[], None], **log_fields: Any) -> None:
-    """Run one routing step. GitHub and DB errors retry with backoff, a rate limit after its reset."""
+    """Run one routing step. GitHub and DB errors retry with backoff, a rate limit after its reset.
+
+    A step that finds another task's routing claim retries soon, so its own work is not lost.
+    """
     try:
         step()
+    except RoutingBusy as e:
+        logger.info("stamphog_reviewer_routing_busy", **log_fields)
+        raise task.retry(exc=e, countdown=ROUTING_BUSY_RETRY_SECONDS)
     except GitHubRateLimitError as e:
         logger.warning("stamphog_reviewer_routing_rate_limited", **log_fields)
         raise task.retry(exc=e, countdown=max(e.retry_after or 0, 60))
@@ -1948,7 +1956,7 @@ def _run_routing_step(task: Task, step: Callable[[], None], **log_fields: Any) -
         raise task.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**task.request.retries)
 
 
-def _route_reviewers(payload: dict[str, Any]) -> None:
+def _route_reviewers(payload: dict[str, Any], task_id: str) -> None:
     action = payload.get("action", "")
     if action not in ROUTING_ACTIONS:
         return
@@ -1960,7 +1968,9 @@ def _route_reviewers(payload: dict[str, Any]) -> None:
     repo_config = _resolve_repo_config(installation_id, repo)
     if repo_config is None:
         return
-    route_on_pull_request_event(repo_config, action=action, pr_number=pr_number, review_path=_ROUTING_REVIEW_PATH)
+    route_on_pull_request_event(
+        repo_config, action=action, pr_number=pr_number, task_id=task_id, review_path=_ROUTING_REVIEW_PATH
+    )
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
@@ -1971,7 +1981,7 @@ def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_i
     errors retry with backoff. The stored routing record makes a retry or a redelivery for the same
     head request nobody twice.
     """
-    _run_routing_step(self, lambda: _route_reviewers(payload), delivery_id=delivery_id)
+    _run_routing_step(self, lambda: _route_reviewers(payload, self.request.id or ""), delivery_id=delivery_id)
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
@@ -1980,7 +1990,7 @@ def route_reviewers_after_verdict(
 ) -> None:
     """Route a FALLBACK pull request once stamphog's review of ``head_sha`` ended.
 
-    An approval requests only the pinned owners, once per pull request. A WAIT keeps the head
+    An approval requests only the pinned owners that no earlier routing requested. A WAIT keeps the head
     waiting for the safety net. Any other outcome routes in full, once per pull request. A verdict
     for a head that is no longer the PR head does nothing.
     """

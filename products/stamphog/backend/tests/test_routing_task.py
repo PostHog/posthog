@@ -1,22 +1,35 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+from celery.exceptions import Retry
+
 from posthog.models.scoping import team_scope
+from posthog.ownership.github_files import OwnershipUnavailable
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.tasks import route_pull_request_reviewers
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
+from products.stamphog.backend.logic.routing.service import CLAIM_STALE_AFTER, RoutingBusy
 from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
+    ROUTING_BUSY_RETRY_SECONDS,
     ROUTING_SAFETY_NET_SECONDS,
     queue_routing_after_verdict,
+    route_reviewers_after_verdict,
     route_reviewers_safety_net,
 )
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, ROUTING_APP_SLUG, RoutingChain
+from products.stamphog.backend.tests.test_tasks import (
+    _pr_payload as _review_pr_payload,
+    _run_task as _run_review_task,
+)
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "2002"
@@ -27,7 +40,7 @@ _OWNERS_FILES = {
     "owners.yaml": "version: 1\n",
     "products/alpha/owners.yaml": "version: 1\nowners: [team-alpha]\nadditions: [team-alpha]\n",
     "products/beta/owners.yaml": "version: 1\nowners: [team-beta]\n",
-    "products/gamma/owners.yaml": "version: 1\nowners: ['@carol']\n",
+    "products/gamma/owners.yaml": "version: 1\nowners: ['@carol']\nadditions: ['@carol']\n",
     "products/alpha/a.py": "a = 1\n",
 }
 _CUT_BETA = {"cuts": [{"owner": "team-beta", "reason": "Only renames an import."}]}
@@ -52,12 +65,14 @@ def _setup(
     review_mode: str = ReviewMode.ALL,
     author_type: str = "User",
     with_addition: bool = True,
+    changed_files: int | None = None,
 ) -> StamphogRepoConfig:
     chain.recorder.policy_files.update(_OWNERS_FILES)
     chain.recorder.register_pr(
         REPO,
         PR_NUMBER,
         {
+            **({"changed_files": changed_files} if changed_files is not None else {}),
             "number": PR_NUMBER,
             "title": "Move the widget loader",
             "body": "Moves code around.",
@@ -164,13 +179,15 @@ def test_routing_skips_quietly(name: str, setup_kwargs: dict[str, Any], action: 
 
 
 @pytest.mark.parametrize(
-    "name,answer,error,expected_users,expected_teams,expected_cut",
+    "name,answer,error,gateway,expected_users,expected_teams,expected_cut",
     [
         # The model cuts one owner: the other two are requested and the comment names the cut one.
-        ("one_cut", _CUT_BETA, None, {"carol"}, {"team-alpha"}, ["team-beta"]),
+        ("one_cut", _CUT_BETA, None, True, {"carol"}, {"team-alpha"}, ["team-beta"]),
         # Any model failure cuts nobody, and an earlier routing comment no longer holds.
-        ("model_error", _CUT_BETA, RuntimeError("gateway down"), {"carol"}, {"team-alpha", "team-beta"}, []),
-        ("unparseable_answer", "not json", None, {"carol"}, {"team-alpha", "team-beta"}, []),
+        ("model_error", _CUT_BETA, RuntimeError("gateway down"), True, {"carol"}, {"team-alpha", "team-beta"}, []),
+        ("unparseable_answer", "not json", None, True, {"carol"}, {"team-alpha", "team-beta"}, []),
+        # No gateway means no call, so the record names no model.
+        ("no_gateway", _CUT_BETA, None, False, {"carol"}, {"team-alpha", "team-beta"}, []),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -178,6 +195,7 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     name: str,
     answer: Any,
     error: Exception | None,
+    gateway: bool,
     expected_users: set[str],
     expected_teams: set[str],
     expected_cut: list[str],
@@ -190,11 +208,16 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     routing_chain.cut_model.answer = answer
     routing_chain.cut_model.error = error
 
-    _route()
+    with override_settings(**({} if gateway else {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""})):
+        _route()
 
-    assert [call["model"] for call in routing_chain.cut_model.calls] == [CUT_MODEL]
+    expected_model = CUT_MODEL if gateway else None
+    assert [call["model"] for call in routing_chain.cut_model.calls] == ([CUT_MODEL] if gateway else [])
     assert _requested(routing_chain) == (expected_users, expected_teams)
     record = _stored(team.id)
+    assert record["model"] == expected_model
+    # One head lookup: every ownership read of the run sees the same default-branch commit.
+    assert routing_chain.recorder.head_lookups == 1
     assert [cut["owner"] for cut in record["cut"]] == expected_cut
     assert record["head_sha"] == HEAD_SHA
     assert record["status"] == "done"
@@ -420,3 +443,205 @@ def test_fallback_routes_each_pull_request_once_in_full(
     assert safety_net.call_count == expected_safety_nets
     record = _stored(team.id)
     assert (record["trigger"], record["head_sha"]) == (expected_trigger, expected_head)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_truncated_file_list_keeps_every_owner_found_without_a_model_call(team, user, routing_chain) -> None:
+    # GitHub lists fewer files than the pull request changes, so a cut would judge a partial diff.
+    _setup(routing_chain, team, user, changed_files=5000)
+    routing_chain.cut_model.answer = _CUT_BETA
+
+    _route()
+
+    assert routing_chain.cut_model.calls == []
+    assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+    record = _stored(team.id)
+    assert (record["files_truncated"], record["llm_skipped"], record["model"]) == (True, "files_truncated", None)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_failed_kind_lookup_routes_without_the_owners_of_additions(team, user, routing_chain) -> None:
+    _setup(routing_chain, team, user)
+
+    with patch(
+        "posthog.ownership.github_files.GitHubFilesFetcher.path_kinds",
+        side_effect=OwnershipUnavailable("tree lookup failed"),
+    ):
+        _route()
+
+    record = _stored(team.id)
+    assert record["additions_resolved"] is False
+    assert all(candidate["pins"] == [] for candidate in record["candidates"])
+    assert routing_chain.recorder.head_lookups == 1
+    assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_routing_leaves_the_review_path_clock_alone(team, user, routing_chain) -> None:
+    # Routing reads the live pull request, whose updated_at is newer than a webhook delivery the
+    # review path has not processed yet. That delivery must still start a review.
+    _setup(routing_chain, team, user)
+    _route()
+
+    mock_execute = _run_review_task(
+        _review_pr_payload(
+            action="opened",
+            installation_id=INSTALLATION_ID,
+            pr_number=PR_NUMBER,
+            head_sha=HEAD_SHA,
+            updated_at="2026-11-03T09:59:00Z",
+        ),
+        "delivery-review-1",
+        team.id,
+    )
+
+    mock_execute.assert_called_once()
+    with team_scope(team.id):
+        pr_obj = PullRequest.objects.for_team(team.id).get(pr_number=PR_NUMBER)
+    assert pr_obj.payload_updated_at == datetime(2026, 11, 3, 9, 59, tzinfo=UTC)
+    assert pr_obj.routing is not None and pr_obj.routing["status"] == "done"
+
+
+def _push_files(chain: RoutingChain, head_sha: str, files: list[dict[str, Any]]) -> None:
+    _push(chain, head_sha)
+    chain.recorder.pr_files[(REPO, PR_NUMBER)] = files
+
+
+@pytest.mark.parametrize(
+    "name,head_2_files,expected_second_request",
+    [
+        # Head 2 adds a directory that pins @carol, so the second approval requests her alone.
+        (
+            "new_pin",
+            [_file("products/alpha/new/b.py", status="added"), _file("products/gamma/new/d.py", status="added")],
+            {"reviewers": ["carol"]},
+        ),
+        # Head 2 pins only team-alpha again, which the first approval already requested.
+        ("same_pin", [_file("products/alpha/new/b.py", status="added")], None),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_later_approval_requests_only_the_pins_no_routing_requested_yet(
+    name: str,
+    head_2_files: list[dict[str, Any]],
+    expected_second_request: dict[str, Any] | None,
+    team,
+    user,
+    routing_chain,
+    safety_net,
+) -> None:
+    repo_config = _open_fallback(routing_chain, team, user)
+    _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
+    _push_files(routing_chain, _HEAD_2, head_2_files)
+
+    _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, head_sha=_HEAD_2)
+
+    requests = [write["body"] for write in _writes(routing_chain, "request_reviewers")]
+    assert requests[0] == {"team_reviewers": ["team-alpha"]}
+    assert requests[1:] == ([expected_second_request] if expected_second_request else [])
+    record = _stored(team.id)
+    assert (record["head_sha"], record["pinned_routed_head"]) == (_HEAD_2, _HEAD_2)
+    assert set(record["requested_owners"]) == {"team-alpha", *(["@carol"] if expected_second_request else [])}
+    assert routing_chain.cut_model.calls == []
+
+
+def _seed_claim(repo_config: StamphogRepoConfig, *, claimed_at: datetime) -> dict[str, Any]:
+    claim = {
+        "head_sha": "head-sha-0",
+        "mode": "fallback",
+        "trigger": "safety_net",
+        "status": "routing",
+        "scope": "full",
+        "claimed_by": "another-task",
+        "claimed_at": claimed_at.isoformat(),
+        "previous": None,
+    }
+    team_id = repo_config.team_id
+    with team_scope(team_id):
+        PullRequest.objects.for_team(team_id).create(
+            team_id=team_id, repo_config=repo_config, pr_number=PR_NUMBER, routing=claim
+        )
+    return claim
+
+
+def _run_event_task(_repo_config: StamphogRepoConfig, *, throw: bool = True) -> Any:
+    return route_pull_request_reviewers.apply(kwargs={"payload": _payload(), "delivery_id": "delivery-1"}, throw=throw)
+
+
+def _run_verdict_task(repo_config: StamphogRepoConfig) -> None:
+    route_reviewers_after_verdict.apply(
+        kwargs={
+            "team_id": repo_config.team_id,
+            "repo_config_id": str(repo_config.id),
+            "pr_number": PR_NUMBER,
+            "head_sha": HEAD_SHA,
+            "outcome": "refused",
+        },
+        throw=True,
+    )
+
+
+def _run_safety_net_task(repo_config: StamphogRepoConfig) -> None:
+    route_reviewers_safety_net.apply(
+        kwargs={"team_id": repo_config.team_id, "repo_config_id": str(repo_config.id), "pr_number": PR_NUMBER},
+        throw=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "name,run_task,raises",
+    [
+        # The event and the verdict retry until the claim is gone, so their work is not lost.
+        ("event", _run_event_task, True),
+        ("verdict", _run_verdict_task, True),
+        # A safety net that finds another task routing has nothing left to cover.
+        ("safety_net", _run_safety_net_task, False),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_another_tasks_claim_on_any_head_blocks_routing(
+    name: str, run_task: Any, raises: bool, team, user, routing_chain, safety_net
+) -> None:
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback")
+    claim = _seed_claim(repo_config, claimed_at=datetime.now(UTC))
+
+    if raises:
+        with pytest.raises(Retry) as retry:
+            run_task(repo_config)
+        assert isinstance(retry.value.exc, RoutingBusy)
+        assert retry.value.when == ROUTING_BUSY_RETRY_SECONDS
+    else:
+        run_task(repo_config)
+
+    assert routing_chain.recorder.github_writes == []
+    assert routing_chain.cut_model.calls == []
+    safety_net.assert_not_called()
+    assert _stored(team.id) == claim
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_an_abandoned_claim_does_not_block_the_pull_request(team, user, routing_chain, safety_net) -> None:
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback")
+    _seed_claim(repo_config, claimed_at=datetime.now(UTC) - CLAIM_STALE_AFTER - timedelta(minutes=1))
+
+    _run_safety_net_task(repo_config)
+
+    assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
+    record = _stored(team.id)
+    assert (record["trigger"], record["status"]) == ("safety_net", "done")
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_failure_after_the_plan_is_saved_retries_without_a_second_model_call(team, user, routing_chain) -> None:
+    _setup(routing_chain, team, user)
+    routing_chain.cut_model.answer = _CUT_BETA
+    routing_chain.recorder.reviewer_request_failures = 1
+
+    # Without throw, an eager retry runs again at once under the same task id, as a worker retry does.
+    assert _run_event_task(MagicMock(), throw=False).successful()
+
+    assert len(routing_chain.cut_model.calls) == 1
+    assert _requested(routing_chain) == ({"carol"}, {"team-alpha"})
+    record = _stored(team.id)
+    assert (record["status"], [cut["owner"] for cut in record["cut"]]) == ("done", ["team-beta"])
+    assert len(_writes(routing_chain, "issue_comment")) == 1

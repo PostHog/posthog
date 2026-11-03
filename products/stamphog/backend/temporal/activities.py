@@ -1887,8 +1887,8 @@ def _notify_finished_review(
         pull_request.repo_config,
         pr_number=pull_request.pr_number,
         head_sha=run.head_sha,
-        status=status,
-        verdict=ReviewVerdict(run.verdict),
+        status=finished.status,
+        verdict=finished.verdict,
     )
 
 

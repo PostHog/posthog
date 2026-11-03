@@ -5,13 +5,17 @@ becomes ready. FALLBACK waits for stamphog's verdict on the head when stamphog w
 approval requests only the pinned owners, any other outcome routes in full. Routing runs for bot
 and fork pull requests too, like the CI assigner it replaces. Ownership is read from the default
 branch, never from the pull request head, so a pull request cannot name its own reviewers.
+
+Every run goes through one claim: a compare-and-swap on `PullRequest.routing` that names the Celery
+task. The task then saves its plan, makes the GitHub writes, and finishes the comment. A retry of the
+same task keeps the task id, so it finds its own claim and continues from the last saved step.
 """
 
 from __future__ import annotations
 
 import time
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.db import router
@@ -21,18 +25,16 @@ from owners_yaml import OwnersResolver, Resolution
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.ownership.github_files import AuthenticatedRepoFiles, AuthenticatedRepoTree, GitHubFilesFetcher
+from posthog.ownership.github_files import AuthenticatedRepoTree, GitHubFilesFetcher
 from posthog.ph_client import ph_scoped_capture
 
 from products.stamphog.backend.facade.enums import RoutingMode
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.candidates import (
-    ADDED_FILE_STATUSES,
     ChangedFile,
     OwnerCandidate,
     OwnerKind,
     find_candidates,
-    is_excluded,
     paths_to_resolve,
 )
 from products.stamphog.backend.logic.routing.comment import (
@@ -56,25 +58,43 @@ logger = structlog.get_logger(__name__)
 ROUTING_EVENT = "stamphog_reviewer_routing_completed"
 # FALLBACK only: the head waits for stamphog's verdict or for the safety net, whichever comes first.
 STATUS_WAITING = "waiting"
-# FALLBACK only: a verdict or the safety net claimed the waiting head, and its routing is running.
+# A task claimed the pull request and its routing is running. The record holds the plan once
+# `planned_at` is set, and the plan is saved before any GitHub write.
 STATUS_ROUTING = "routing"
 # A record stays REQUESTED between the review requests and the comment, so a retry finishes the
 # comment without requesting anybody a second time.
 STATUS_REQUESTED = "requested"
 STATUS_DONE = "done"
+_CLAIMED_STATUSES = frozenset({STATUS_ROUTING, STATUS_REQUESTED})
+# A claim older than this counts as abandoned, so a task that died does not block the pull request
+# for good. It sits far above the time a task needs to finish, retries included.
+CLAIM_STALE_AFTER = timedelta(hours=2)
 
 TRIGGER_SAFETY_NET = "safety_net"
+SCOPE_FULL = "full"
+SCOPE_PINNED = "pinned"
 
 # PR-level marks, carried over every later record of the pull request. FALLBACK routes in full at
-# most once per pull request, and an approval requests the pinned owners at most once.
+# most once per pull request. `pinned_routed_head` is the latest approved head that got its pinned
+# owners requested, and `requested_owners` is every owner any routing of the pull request requested.
 FULL_ROUTED_HEAD = "full_routed_head"
 PINNED_ROUTED_HEAD = "pinned_routed_head"
+REQUESTED_OWNERS = "requested_owners"
 # Whether the latest finished routing left a routing comment on the pull request. Only then does a
 # routing that writes no comment page through the comments to delete it.
 COMMENT_POSTED = "comment_posted"
-_PR_MARK_KEYS = (FULL_ROUTED_HEAD, "full_routed_at", PINNED_ROUTED_HEAD, "pinned_routed_at", COMMENT_POSTED)
-# The skip values of a run that called the model: it answered (None) or the call failed (NO_ANSWER).
-_CALLED_MODEL_SKIPS = frozenset({None, LlmSkipReason.NO_ANSWER})
+_PR_MARK_KEYS = (
+    FULL_ROUTED_HEAD,
+    "full_routed_at",
+    PINNED_ROUTED_HEAD,
+    "pinned_routed_at",
+    REQUESTED_OWNERS,
+    COMMENT_POSTED,
+)
+
+
+class RoutingBusy(Exception):
+    """Another task holds the routing claim of the pull request, or changed its record first."""
 
 
 def verdict_trigger(outcome: str) -> str:
@@ -116,10 +136,57 @@ def stored_routing(repo_config: StamphogRepoConfig, pr_number: int) -> dict[str,
     return record if isinstance(record, dict) else None
 
 
-def _save_routing(pr_obj: PullRequest, record: dict[str, Any]) -> None:
-    PullRequest.objects.for_team(pr_obj.team_id).using(router.db_for_write(PullRequest)).filter(id=pr_obj.id).update(
-        routing=record
+def routing_pull_request(repo_config: StamphogRepoConfig, pr_number: int) -> PullRequest:
+    """The pull request row that routing writes its record to, created bare when it is missing.
+
+    Routing never writes `payload_updated_at` or the descriptive fields. The review path drops a
+    webhook delivery older than `payload_updated_at`, so a live read stamped there would make it drop
+    a delivery it has not processed yet. A bare row has a null clock, which the review path refreshes.
+    """
+    team_id = repo_config.team_id
+    pr_obj, _ = (
+        PullRequest.objects.for_team(team_id)
+        .using(router.db_for_write(PullRequest))
+        .get_or_create(repo_config=repo_config, pr_number=pr_number, defaults={"team_id": team_id})
     )
+    return pr_obj
+
+
+def _is_claim(record: Mapping[str, Any] | None) -> bool:
+    return record is not None and record.get("status") in _CLAIMED_STATUSES
+
+
+def is_own_claim(record: Mapping[str, Any] | None, task_id: str) -> bool:
+    return _is_claim(record) and bool(task_id) and record is not None and record.get("claimed_by") == task_id
+
+
+def _is_stale_claim(record: Mapping[str, Any]) -> bool:
+    try:
+        claimed_at = datetime.fromisoformat(str(record.get("claimed_at") or ""))
+    except ValueError:
+        return True
+    return datetime.now(UTC) - claimed_at > CLAIM_STALE_AFTER
+
+
+def is_foreign_claim(record: Mapping[str, Any] | None, task_id: str) -> bool:
+    """Whether another task holds a live claim on the pull request."""
+    return (
+        _is_claim(record) and not is_own_claim(record, task_id) and record is not None and not _is_stale_claim(record)
+    )
+
+
+def effective_record(record: dict[str, Any] | None, task_id: str) -> dict[str, Any] | None:
+    """The record the guards decide on.
+
+    A claim that has not reached its requests, and is this task's own or abandoned, counts as the
+    record it replaced. So a retry or a takeover decides as if that claim never happened.
+    """
+    if record is None or record.get("status") != STATUS_ROUTING:
+        return record
+    if is_own_claim(record, task_id) or _is_stale_claim(record):
+        previous = record.get("previous")
+        return previous if isinstance(previous, dict) else None
+    return record
 
 
 def _pr_marks(previous: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -131,85 +198,121 @@ def _pr_marks(previous: Mapping[str, Any] | None) -> dict[str, Any]:
 def _replace_routing(pr_obj: PullRequest, *, expected: Mapping[str, Any] | None, record: dict[str, Any]) -> bool:
     """Write ``record`` only while the stored record still equals ``expected``.
 
-    A verdict and a safety net can fire at the same moment. Only one of them wins the compare and
-    swap, so the pull request gets one set of review requests.
+    Event, verdict and safety-net tasks can fire at the same moment. Only one of them wins the
+    compare and swap, so the pull request gets one set of review requests.
     """
     rows = PullRequest.objects.for_team(pr_obj.team_id).using(router.db_for_write(PullRequest)).filter(id=pr_obj.id)
     rows = rows.filter(routing__isnull=True) if expected is None else rows.filter(routing=expected)
     return rows.update(routing=record) == 1
 
 
-def _fallback_record(expected: Mapping[str, Any] | None, *, head_sha: str, trigger: str, status: str) -> dict[str, Any]:
-    return {
-        **_pr_marks(expected),
-        "head_sha": head_sha,
-        "mode": RoutingMode.FALLBACK.value,
-        "trigger": trigger,
-        "status": status,
-    }
+def _save_claimed(pr_obj: PullRequest, record: dict[str, Any]) -> bool:
+    """Write ``record`` only while the task in its `claimed_by` still holds the claim."""
+    saved = (
+        PullRequest.objects.for_team(pr_obj.team_id)
+        .using(router.db_for_write(PullRequest))
+        .filter(id=pr_obj.id, routing__claimed_by=record["claimed_by"])
+        .update(routing=record)
+        == 1
+    )
+    if not saved:
+        logger.warning("stamphog_reviewer_routing_claim_lost", pr_number=pr_obj.pr_number)
+    return saved
 
 
-def save_waiting(pr_obj: PullRequest, *, expected: Mapping[str, Any] | None, head_sha: str, trigger: str) -> bool:
-    record = _fallback_record(expected, head_sha=head_sha, trigger=trigger, status=STATUS_WAITING)
+def _base_record(
+    previous: Mapping[str, Any] | None, *, head_sha: str, mode: RoutingMode, trigger: str, status: str
+) -> dict[str, Any]:
+    return {**_pr_marks(previous), "head_sha": head_sha, "mode": mode.value, "trigger": trigger, "status": status}
+
+
+def save_waiting(
+    pr_obj: PullRequest,
+    *,
+    expected: Mapping[str, Any] | None,
+    previous: Mapping[str, Any] | None,
+    head_sha: str,
+    trigger: str,
+) -> bool:
+    """Make the head wait for the verdict. ``previous`` is the record whose marks carry over."""
+    record = _base_record(
+        previous, head_sha=head_sha, mode=RoutingMode.FALLBACK, trigger=trigger, status=STATUS_WAITING
+    )
     record["waiting_since"] = datetime.now(UTC).isoformat()
     return _replace_routing(pr_obj, expected=expected, record=record)
 
 
 def claim_routing(
-    pr_obj: PullRequest, *, expected: Mapping[str, Any] | None, head_sha: str, trigger: str, claimed_by: str
+    pr_obj: PullRequest,
+    *,
+    expected: Mapping[str, Any] | None,
+    previous: Mapping[str, Any] | None,
+    head_sha: str,
+    mode: RoutingMode,
+    trigger: str,
+    scope: str,
+    claimed_by: str,
 ) -> dict[str, Any] | None:
-    """Claim the head for one task. Returns the claim, or None when another task changed the record first.
+    """Claim the pull request for one task. Returns the claim, or None when another task changed the record first.
 
-    ``claimed_by`` is the Celery task id, which a retry of the same task keeps, so a retry knows its own claim.
+    ``previous`` is the record the guards decided on. The claim keeps it whole, so a retry or a
+    takeover before the requests can decide on it again, or put it back with `release_claim`.
     """
-    claim = _fallback_record(expected, head_sha=head_sha, trigger=trigger, status=STATUS_ROUTING)
+    claim = _base_record(previous, head_sha=head_sha, mode=mode, trigger=trigger, status=STATUS_ROUTING)
+    claim["scope"] = scope
     claim["claimed_by"] = claimed_by
+    claim["claimed_at"] = datetime.now(UTC).isoformat()
+    claim["previous"] = previous
     return claim if _replace_routing(pr_obj, expected=expected, record=claim) else None
 
 
-class _OwnersReader:
-    """Resolves owners at the default branch with Stamphog's own installation token."""
-
-    def __init__(self, client: StamphogGitHubClient, repository: str) -> None:
-        self._repository = repository
-        self._fetcher = GitHubFilesFetcher.from_token(
-            client.installation_token(),
-            installation_id=client.installation_id,
-            refresh=client.refresh_installation_token,
-            # The author waits on the review requests.
-            priority=Priority.NORMAL,
-        )
-
-    def resolve(self, paths: list[str]) -> dict[str, Resolution]:
-        # The run requests reviewers once and never corrects them later, so it reads the head of
-        # this run rather than a head another read cached a minute ago.
-        files = AuthenticatedRepoFiles(self._repository, self._fetcher, fresh_head=True)
-        return OwnersResolver(source=files).map(paths)
-
-    def resolve_additions(self, paths: list[str]) -> dict[str, Resolution]:
-        tree = AuthenticatedRepoTree(self._repository, self._fetcher, fresh_head=True)
-        tree.prefetch_kinds(paths)
-        return OwnersResolver(source=tree).map(paths)
+def release_claim(pr_obj: PullRequest, claim: dict[str, Any]) -> None:
+    """Put back the record that an own claim replaced, for a retry whose guards no longer route."""
+    previous = claim.get("previous")
+    restored = previous if isinstance(previous, dict) else None
+    rows = PullRequest.objects.for_team(pr_obj.team_id).using(router.db_for_write(PullRequest)).filter(id=pr_obj.id)
+    rows.filter(routing=claim).update(routing=restored)
 
 
-def _resolve_owners(reader: _OwnersReader, files: Sequence[ChangedFile]) -> tuple[dict[str, Resolution], bool]:
-    """Every path's resolution, and whether the owners of additions are part of it.
+class _SourceWithoutKinds:
+    """An ownership source that hides `path_kind`, so the resolver reports no additions."""
 
-    The owners of additions are an extra. A failure there routes without their pins rather than
+    def __init__(self, files: AuthenticatedRepoTree) -> None:
+        self._files = files
+
+    def read(self, path: str) -> str | None:
+        return self._files.read(path)
+
+    def read_all(self, paths: list[str]) -> None:
+        self._files.read_all(paths)
+
+
+def _resolve_owners(
+    client: StamphogGitHubClient, repository: str, files: Sequence[ChangedFile]
+) -> tuple[dict[str, Resolution], bool]:
+    """Every path's resolution at one default-branch commit, and whether the owners of additions are part of it.
+
+    The owners of additions are an extra. A failed kind lookup routes without their pins rather than
     failing the run; a failure of the plain ownership read raises.
     """
-    resolutions = reader.resolve(paths_to_resolve(files))
-    added = list(
-        dict.fromkeys(file.path for file in files if file.status in ADDED_FILE_STATUSES and not is_excluded(file.path))
+    fetcher = GitHubFilesFetcher.from_token(
+        client.installation_token(),
+        installation_id=client.installation_id,
+        refresh=client.refresh_installation_token,
+        # The author waits on the review requests.
+        priority=Priority.NORMAL,
     )
-    if not added:
-        return resolutions, True
+    # The run requests reviewers once and never corrects them later, so it reads the head of this
+    # run rather than a head another read cached a minute ago. One reader keeps every read on that
+    # one commit.
+    tree = AuthenticatedRepoTree(repository, fetcher, fresh_head=True)
+    paths = paths_to_resolve(files)
     try:
-        resolutions.update(reader.resolve_additions(added))
+        tree.prefetch_kinds(paths)
     except Exception:
         logger.warning("stamphog_reviewer_routing_additions_unavailable", exc_info=True)
-        return resolutions, False
-    return resolutions, True
+        return OwnersResolver(source=_SourceWithoutKinds(tree)).map(paths), False
+    return OwnersResolver(source=tree).map(paths), True
 
 
 @frozen
@@ -268,18 +371,17 @@ def finish_comment(client: StamphogGitHubClient, pr_obj: PullRequest, record: di
     done = {key: value for key, value in record.items() if key != "pending_comment"}
     done["status"] = STATUS_DONE
     done[COMMENT_POSTED] = posted
-    _save_routing(pr_obj, done)
+    _save_claimed(pr_obj, done)
 
 
-def _capture(
-    repo_config: StamphogRepoConfig, record: dict[str, Any], *, latency_ms: int, model: GatewayCutModel
-) -> None:
+def _capture(repo_config: StamphogRepoConfig, record: dict[str, Any]) -> None:
     # Counts only: no title, path or reason leaves for analytics.
     properties: dict[str, Any] = {
         "stamphog_repo": repo_config.repository,
         "stamphog_team_id": repo_config.team_id,
         "stamphog_routing_mode": record["mode"],
         "stamphog_routing_trigger": record["trigger"],
+        "stamphog_routing_scope": record["scope"],
         "stamphog_routing_fork": record["fork"],
         "stamphog_routing_candidates": len(record["candidates"]),
         "stamphog_routing_pinned": sum(1 for candidate in record["candidates"] if candidate["pins"]),
@@ -291,38 +393,37 @@ def _capture(
         "stamphog_routing_refused": len(record["refused"]),
         "stamphog_routing_llm_skipped": record["llm_skipped"],
         "stamphog_routing_additions_resolved": record["additions_resolved"],
-        "stamphog_routing_latency_ms": latency_ms,
-        "stamphog_routing_input_tokens": model.usage.input_tokens if model.usage else 0,
-        "stamphog_routing_output_tokens": model.usage.output_tokens if model.usage else 0,
+        "stamphog_routing_files_truncated": record["files_truncated"],
+        "stamphog_routing_latency_ms": record["latency_ms"],
+        "stamphog_routing_input_tokens": record["input_tokens"],
+        "stamphog_routing_output_tokens": record["output_tokens"],
     }
     with ph_scoped_capture() as capture:
         capture(distinct_id=repo_config.repository, event=ROUTING_EVENT, properties=properties)
 
 
-def route_reviewers(
-    client: StamphogGitHubClient,
-    pr_obj: PullRequest,
-    pr: Mapping[str, Any],
-    *,
-    trigger: str,
-    mode: RoutingMode,
-    pinned_only: bool = False,
-    previous: Mapping[str, Any] | None = None,
+def _plan(
+    client: StamphogGitHubClient, pr_obj: PullRequest, pr: Mapping[str, Any], *, claim: dict[str, Any]
 ) -> dict[str, Any]:
-    """Request reviews from the owners the cut step keeps, then comment on the cut ones.
-
-    ``pinned_only`` is for a head that stamphog approved: it requests only the owners of sensitive
-    and new paths, with no model call. ``previous`` is the stored record this run replaces: its
-    PR-level marks and its claim carry over. The record is saved between the requests and the comment,
-    so a retry after a failed comment finishes the comment without requesting anybody twice.
-    Returns the final record.
-    """
+    """The claim with the routing decision and the GitHub writes it needs. Makes no GitHub write."""
     started = time.monotonic()
     repo_config = pr_obj.repo_config
     repository = repo_config.repository
+    pinned_only = claim["scope"] == SCOPE_PINNED
     fork = is_fork(pr, repository)
     files = [ChangedFile.from_github(entry) for entry in client.get_pr_files(repository, pr_obj.pr_number)]
-    resolutions, additions_resolved = _resolve_owners(_OwnersReader(client, repository), files)
+    changed_files = pr.get("changed_files")
+    # GitHub's file list stops at a page cap, and a pull request reports its own file count.
+    files_truncated = isinstance(changed_files, int) and len(files) < changed_files
+    if files_truncated:
+        logger.warning(
+            "stamphog_reviewer_routing_files_truncated",
+            repo=repository,
+            pr_number=pr_obj.pr_number,
+            listed=len(files),
+            changed_files=changed_files,
+        )
+    resolutions, additions_resolved = _resolve_owners(client, repository, files)
     candidates = find_candidates(files, resolutions)
 
     model = GatewayCutModel(
@@ -336,6 +437,9 @@ def route_reviewers(
     )
     if pinned_only:
         decision = keep_pinned(candidates)
+        already = set(claim.get(REQUESTED_OWNERS) or [])
+        # An approval of a later head requests only the pinned owners that no routing requested yet.
+        to_request = [candidate for candidate in decision.kept if candidate.owner not in already]
     else:
         decision = decide_cuts(
             candidates=candidates,
@@ -343,45 +447,83 @@ def route_reviewers(
             description=str(pr.get("body") or ""),
             is_fork=fork,
             call_model=model,
+            files_truncated=files_truncated,
         )
-
-    requests = _plan_requests(decision.kept, fork=fork, labels_by_team=fork_labels(repo_config))
-    if requests.labels:
-        client.add_pr_labels(repository, pr_obj.pr_number, requests.labels)
-    refused = client.request_reviewers(repository, pr_obj.pr_number, users=requests.users, teams=requests.teams)
-    if refused:
-        logger.info("stamphog_reviewer_routing_refused", repo=repository, pr_number=pr_obj.pr_number, refused=refused)
-
-    head_sha = (pr.get("head") or {}).get("sha") or ""
-    routed_at = datetime.now(UTC).isoformat()
-    marks = _pr_marks(previous)
-    if pinned_only:
-        marks.update({PINNED_ROUTED_HEAD: head_sha, "pinned_routed_at": routed_at})
-    else:
-        marks.update({FULL_ROUTED_HEAD: head_sha, "full_routed_at": routed_at})
-    record: dict[str, Any] = {
-        **marks,
-        "head_sha": head_sha,
-        "mode": mode.value,
-        "trigger": trigger,
-        "status": STATUS_REQUESTED,
+        to_request = list(decision.kept)
+    requests = _plan_requests(to_request, fork=fork, labels_by_team=fork_labels(repo_config))
+    planned_at = datetime.now(UTC).isoformat()
+    return {
+        **claim,
         "fork": fork,
         "candidates": [_candidate_record(candidate) for candidate in candidates],
         "kept": [candidate.owner for candidate in decision.kept],
         "cut": [{"owner": cut.candidate.owner, "reason": cut.reason} for cut in decision.cut],
         "llm_skipped": decision.llm_skipped.value if decision.llm_skipped else None,
-        "model": CUT_MODEL if decision.llm_skipped in _CALLED_MODEL_SKIPS else None,
+        "model": CUT_MODEL if model.sent_request else None,
         "additions_resolved": additions_resolved,
+        "files_truncated": files_truncated,
+        "request_owners": [candidate.owner for candidate in to_request],
         "requested_teams": requests.teams,
         "requested_users": requests.users,
         "labeled_teams": requests.labeled_teams,
-        "refused": refused,
-        "routed_at": routed_at,
+        "labels": requests.labels,
         "pending_comment": _comment_body(decision, repository),
+        "input_tokens": model.usage.input_tokens if model.usage else 0,
+        "output_tokens": model.usage.output_tokens if model.usage else 0,
+        "latency_ms": int((time.monotonic() - started) * 1000),
+        "planned_at": planned_at,
+        "routed_at": planned_at,
     }
-    if previous is not None and "claimed_by" in previous:
-        record["claimed_by"] = previous["claimed_by"]
-    _save_routing(pr_obj, record)
-    _capture(repo_config, record, latency_ms=int((time.monotonic() - started) * 1000), model=model)
-    finish_comment(client, pr_obj, record)
-    return record
+
+
+def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan: dict[str, Any]) -> None:
+    """Make the GitHub writes of a saved plan, then finish the comment."""
+    repo_config = pr_obj.repo_config
+    repository = repo_config.repository
+    if plan["labels"]:
+        client.add_pr_labels(repository, pr_obj.pr_number, plan["labels"])
+    refused = client.request_reviewers(
+        repository, pr_obj.pr_number, users=plan["requested_users"], teams=plan["requested_teams"]
+    )
+    if refused:
+        logger.info("stamphog_reviewer_routing_refused", repo=repository, pr_number=pr_obj.pr_number, refused=refused)
+
+    requested = {key: value for key, value in plan.items() if key != "previous"}
+    requested["status"] = STATUS_REQUESTED
+    requested["refused"] = refused
+    requested[REQUESTED_OWNERS] = sorted({*(plan.get(REQUESTED_OWNERS) or []), *plan["request_owners"]})
+    if plan["scope"] == SCOPE_PINNED:
+        requested.update({PINNED_ROUTED_HEAD: plan["head_sha"], "pinned_routed_at": plan["routed_at"]})
+    else:
+        requested.update({FULL_ROUTED_HEAD: plan["head_sha"], "full_routed_at": plan["routed_at"]})
+    if not _save_claimed(pr_obj, requested):
+        return
+    _capture(repo_config, requested)
+    finish_comment(client, pr_obj, requested)
+
+
+def resume_own_claim(client: StamphogGitHubClient, pr_obj: PullRequest, record: dict[str, Any]) -> bool:
+    """Continue an own claim from its last saved step. False when the claim saved no plan yet."""
+    if record.get("status") == STATUS_REQUESTED:
+        # The requests went out: finish the comment, request nobody again.
+        finish_comment(client, pr_obj, record)
+        return True
+    if record.get("planned_at"):
+        # The plan is saved, so the retry makes its GitHub writes without a second model call.
+        _request_and_comment(client, pr_obj, record)
+        return True
+    return False
+
+
+def route_claimed(
+    client: StamphogGitHubClient, pr_obj: PullRequest, pr: Mapping[str, Any], *, claim: dict[str, Any]
+) -> None:
+    """Plan under ``claim``, save the plan, then request reviews and comment.
+
+    The claim's `scope` decides the run: `full` asks the cut step, `pinned` requests only the owners
+    of sensitive and new paths, with no model call.
+    """
+    plan = _plan(client, pr_obj, pr, claim=claim)
+    if not _save_claimed(pr_obj, plan):
+        return
+    _request_and_comment(client, pr_obj, plan)
