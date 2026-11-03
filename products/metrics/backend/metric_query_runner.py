@@ -863,7 +863,9 @@ class MetricQueryRunner:
             )
         return series_scope_expr(self.metric_name, self.filters, self.date_from)
 
-    def _points_query(self, columns: Sequence[str], point_filters: Sequence[ast.Expr] = ()) -> ast.SelectQuery:
+    def _points_query(
+        self, columns: Sequence[str], point_filters: Sequence[ast.Expr] = (), dedupe_points: bool = True
+    ) -> ast.SelectQuery:
         return points_query(
             from_samples=self.reads_samples,
             columns=columns,
@@ -873,7 +875,7 @@ class MetricQueryRunner:
             timezone=self.team.timezone,
             row_filters=(self._series_scope_expr(), self._type_filter_expr()),
             point_filters=point_filters,
-            dedupe_points=self._dedupe_points,
+            dedupe_points=dedupe_points and self._dedupe_points,
         )
 
     @cached_property
@@ -944,7 +946,8 @@ class MetricQueryRunner:
             """,
             placeholders={
                 "interval": _interval_expr(self.interval),
-                "points": self._points_query(("timestamp", "series_fingerprint", "value")),
+                # A copy cannot change argMax, so skip the dedupe cost.
+                "points": self._points_query(("timestamp", "series_fingerprint", "value"), dedupe_points=False),
                 "series_key": _series_key_expr(),
             },
         )

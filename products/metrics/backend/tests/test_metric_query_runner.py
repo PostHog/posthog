@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 import threading
 from typing import Any
@@ -1376,6 +1377,25 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
             rows = self._run("increase")
         self.assertEqual([row["value"] for row in rows], [expected])
         self.assertEqual(flag.call_args.args[0], "metrics-query-dedupe-points")
+
+    @parameterized.expand(
+        [
+            # A copy cannot change argMax, so a last-value query skips the dedupe cost.
+            ("last_value", "sum", {}, False),
+            ("increase", "sum", {"range_function": "increase"}, True),
+        ]
+    )
+    def test_dedupe_flag_applies_only_where_copies_change_the_result(
+        self, _name: str, aggregation: str, overrides: dict[str, Any], expect_dedupe: bool
+    ):
+        with (
+            patch("products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.metric_query_runner.execute_hogql_query", wraps=execute_hogql_query
+            ) as execute,
+        ):
+            self._run(aggregation, **overrides)
+        self.assertEqual(bool(re.search(r"LIMIT 1\s+BY", execute.call_args.kwargs["query"].to_hogql())), expect_dedupe)
 
     def test_deltas_are_computed_per_underlying_series(self):
         # Diff each pod separately.
