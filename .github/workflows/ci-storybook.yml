@@ -1407,11 +1407,7 @@ jobs:
                   fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  # The timing manifest sizes the shard count, so a narrow diff is not
-                  # given a quarter of the runners to do the full run's work.
-                  sparse-checkout: |
-                      .nvmrc
-                      common/storybook/storybook-timings.json
+                  sparse-checkout: .nvmrc
                   sparse-checkout-cone-mode: false
 
             - name: Check out trusted story selector
@@ -1422,7 +1418,13 @@ jobs:
                   path: story-selector
                   ref: ${{ github.event.pull_request.base.ref }}
                   repository: ${{ github.event.pull_request.base.repo.full_name }}
-                  sparse-checkout: bin/find-affected-stories
+                  # The timing manifest sizes the shard count, so a narrow diff is not
+                  # given a quarter of the runners to do the full run's work. It comes
+                  # from the base branch with the selector: the nightly refresh lands
+                  # there, and a fork cannot steer the shard count through it.
+                  sparse-checkout: |
+                      bin/find-affected-stories
+                      common/storybook/storybook-timings.json
                   sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
@@ -1465,7 +1467,7 @@ jobs:
                   RESULT=$(story-selector/bin/find-affected-stories \
                       --graph /tmp/storybook-graph/module-graph.json \
                       --base-ref "base/$BASE_REF" \
-                      --timings common/storybook/storybook-timings.json \
+                      --timings story-selector/common/storybook/storybook-timings.json \
                       --max-shards "$CHROMIUM_SHARDS")
                   echo "$RESULT" > /tmp/selection-result.json
                   # Stash compact form in step output (single line) for the summary step.

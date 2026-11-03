@@ -130,7 +130,7 @@ function emitFull(reason, totalStories) {
     process.stdout.write(JSON.stringify({ mode: 'full', reason, total_story_count: totalStories }) + '\n')
 }
 
-function loadTimings(path) {
+export function loadTimings(path) {
     try {
         const data = JSON.parse(fs.readFileSync(path, 'utf-8'))
         if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -145,7 +145,7 @@ function loadTimings(path) {
 
 // Render seconds for a set of stories. A story the nightly refresh has not timed
 // yet costs the manifest median, which is far closer than the old flat constant.
-function workloadSeconds(stories, timings) {
+export function workloadSeconds(stories, timings) {
     if (!timings) {
         return stories.length * AVG_STORY_DURATION_SECONDS
     }
@@ -336,6 +336,13 @@ export function main() {
     const timings = loadTimings(args.timings)
     if (!timings) {
         process.stderr.write(`No timing manifest at ${args.timings}; sizing shards from the flat estimate\n`)
+    } else {
+        // A key format drift would send every story to the median without failing,
+        // so the hit rate is printed where the job log shows it.
+        const timed = affected.filter((story) => timings.has(story)).length
+        process.stderr.write(
+            `Timed ${timed} of ${affected.length} affected stories from ${args.timings}; the rest cost the median\n`
+        )
     }
     const allStories = graph.modules.map((m) => normalize(m.name)).filter((name) => STORY_RE.test(name))
     emitSelective(affected, totalStories, unresolved, allStories, args.maxShards, timings)
