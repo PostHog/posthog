@@ -451,11 +451,11 @@ export function EditableTableBlock({
     )
     const activeRowRemove = nearestIndex(
         controlLayout?.rowRemoveRects.map(({ top, height }) => top + height / 2) ?? [],
-        hoverPosition?.y
+        hoverPosition && hoverPosition.x >= tableLeft + tableWidth - insertZoneSize / 2 ? hoverPosition.y : undefined
     )
     const activeColumnRemove = nearestIndex(
         controlLayout?.columnRemoveRects.map(({ left, width }) => left + width / 2) ?? [],
-        hoverPosition?.x
+        hoverPosition && hoverPosition.y <= tableTop + insertZoneSize / 2 ? hoverPosition.x : undefined
     )
 
     return (

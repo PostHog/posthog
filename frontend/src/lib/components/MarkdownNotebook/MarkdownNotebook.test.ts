@@ -9275,6 +9275,11 @@ ${' '}
                 const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
                 const cell = within(container).getByText('Other')
                 fireEvent.mouseMove(cell, { clientX: 450, clientY: 275 })
+                expect(
+                    container.querySelector(
+                        '.MarkdownNotebook__table-remove-zone.MarkdownNotebook__table-control-zone--active'
+                    )
+                ).toBeNull()
 
                 const addButton = container.querySelector<HTMLButtonElement>(
                     `button[aria-label="${addLabel}"]`
