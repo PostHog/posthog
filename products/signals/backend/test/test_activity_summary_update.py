@@ -14,6 +14,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.activity_summary import mcp_buffer
+from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import user_activity
 from products.signals.backend.activity_summary.logic import (
     ActivitySummaryUpdate,
@@ -22,6 +23,7 @@ from products.signals.backend.activity_summary.logic import (
     update_activity_summary,
 )
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.activity_summary.render import MCP_HEADER, RENDER_VERSION, Product, RenderLimits
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
@@ -150,10 +152,10 @@ class TestUpdateActivitySummary(BaseTest):
         assert result.rendered_input is not None
         assert '- Insight "Weekly signups": opened 1 day, last 2026-10-17, not theirs' in result.rendered_input
         assert '- Insight "Churn by plan": opened 1 day, last 2026-10-18\n' in result.rendered_input
-        assert "- Experiments pages: opened 1 day, last 2026-10-18" in result.rendered_input
+        assert "Experiments pages" not in result.rendered_input
         stored = self._stored()
         assert stored is not None
-        assert stored.inputs_used["view_lines"] == 3
+        assert (stored.inputs_used["view_lines"], stored.inputs_used["page_units"]) == (2, 1)
         assert stored.inputs_used["drops"] == {"generic_scene": 1}
         assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
 
@@ -212,11 +214,14 @@ class TestUpdateActivitySummary(BaseTest):
         assert off.rendered_input is not None and MCP_HEADER not in off.rendered_input
         assert off.inputs_used is not None and "mcp_records" not in off.inputs_used
         assert on.status == UpdateStatus.OK and on.rendered_input is not None
-        section = f"{MCP_HEADER}\n- 2026-10-18, 2 calls: why signups dropped --> signups by country"
+        section = f"{MCP_HEADER}\n- m1 2026-10-18, 2 calls: why signups dropped --> signups by country"
         assert section in on.rendered_input
         assert on.inputs_used is not None
         assert {key: value for key, value in on.inputs_used.items() if key.startswith("mcp_")} == {
             "mcp_sessions": 1,
+            "mcp_burst_cap_drops": 0,
+            "mcp_sample_cap_drops": 0,
+            "mcp_budget_drops": 0,
             "mcp_lines": 1,
             "mcp_chars": len(section),
             "mcp_records": 2,
@@ -225,6 +230,8 @@ class TestUpdateActivitySummary(BaseTest):
         }
         stored = self._stored()
         assert stored is not None and stored.input_watermark == newest
+        assert stored.computed is not None
+        assert stored.computed["mcp_sessions"] == [{"ref": "m1", "last_at": "2026-10-18"}]
 
         self._changes(3, days_ago=0.5)
         with time_machine.travel(NOW + datetime.timedelta(days=2), tick=False):
@@ -265,6 +272,51 @@ class TestUpdateActivitySummary(BaseTest):
         stored = self._stored()
         assert stored is not None
         assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
+
+    @parameterized.expand(
+        [
+            ("stale, too few units", True, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, empty profile", True, 3, FakeLLM([EMPTY_PROFILE_ANSWER]), ActivitySummaryStatus.NOT_READY),
+            ("stale, failed", True, 3, FakeLLM([(ANSWER, "length")], usage=False), ActivitySummaryStatus.READY),
+            ("current, too few units", False, 2, FakeLLM([ANSWER]), ActivitySummaryStatus.READY),
+        ]
+    )
+    def test_a_skipped_rebuild_of_a_stale_summary_reads_not_ready_until_a_good_build(
+        self, _name: str, stale: bool, changes: int, llm: FakeLLM, read_status: ActivitySummaryStatus
+    ) -> None:
+        old_summary = json.loads(ANSWER) | {"headline": "Old stored summary."}
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            status=UserActivitySummary.Status.OK,
+            summary=old_summary,
+            generated_at=NOW - datetime.timedelta(days=2),
+            input_watermark=NOW - datetime.timedelta(days=2),
+            prompt_version=PROMPT_VERSION - 1 if stale else PROMPT_VERSION,
+            render_version=RENDER_VERSION,
+            version=1,
+        )
+        self._changes(changes, days_ago=1)
+        config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True)
+
+        with patch("products.signals.backend.activity_summary.read.read_config", return_value=config):
+            self._update(llm)
+            skipped = get_summary(self.team, self.user.id)
+            self._changes(3, days_ago=0.5)
+            assert self._update(FakeLLM([ANSWER]), force=True).status == UpdateStatus.OK
+            rebuilt = get_summary(self.team, self.user.id)
+
+        stored = self._stored()
+        assert skipped is not None and rebuilt is not None and stored is not None
+        assert skipped.status == read_status
+        if read_status == ActivitySummaryStatus.READY:
+            assert (skipped.headline, skipped.stale) == ("Old stored summary.", stale)
+        assert (rebuilt.status, rebuilt.headline, rebuilt.stale) == (
+            ActivitySummaryStatus.READY,
+            "Builds the signup funnel.",
+            False,
+        )
+        assert stored.version == 2
 
     def test_a_failed_update_keeps_the_stored_summary_and_watermark(self) -> None:
         self._changes(3, days_ago=2)

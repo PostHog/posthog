@@ -742,6 +742,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "__hogql_accurate_cast_value",
             "CAST(ceil(",
         ),
+        (
+            "SELECT toInt(ceil(plus(multiply(divide(minus(a, n), minus(n, a)), n), a))) "
+            "FROM (SELECT sum(id) AS a, count() AS n FROM users)",
+            "__hogql_accurate_cast_value",
+            "CAST(ceil(",
+        ),
         # Trino reads ORDER BY names as output columns first, so the qualifier `t` would read the `0 AS t` column.
         (
             "WITH t AS (SELECT 1 AS x) SELECT x AS x, 0 AS t FROM t ORDER BY x + 0",

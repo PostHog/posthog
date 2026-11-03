@@ -225,6 +225,7 @@ export const FEATURE_FLAGS = {
     SELF_DRIVING_GITHUB_OPTIONAL: 'self-driving-github-optional',
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SELF_DRIVING_UBP: 'self-driving-ubp', // owner: #team-self-driving
+    SELF_DRIVING_USAGE_DISPLAY: 'self-driving-usage-display', // owner: #team-self-driving, gates monetary usage in the Self-driving UI
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -270,7 +271,6 @@ export const FEATURE_FLAGS = {
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
     BROADCASTS_AI_FIRST_NEW: 'broadcasts-ai-first-new', // owner: @dmarchuk #team-workflows
-    BROADCASTS_PUSH_CHANNEL: 'broadcasts-push-channel', // owner: @dmarchuk #team-workflows, push as a broadcast channel
     CANVAS_COMMENTS: 'posthog-desktop-canvas-comments', // owner: @k11kirky, shows canvas comments and selection comments on web canvases, shared with PostHog Desktop
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_DWH_VIEW_SOURCE: 'cdp-dwh-view-source', // owner: #team-workflows-cdp
@@ -283,7 +283,7 @@ export const FEATURE_FLAGS = {
     CODE_BADGE_SELF_DRIVING_LABEL: 'code-badge-self-driving-label', // owner: #team-self-driving, experiment: label the Code badge "Self-driving" and compare setup activations
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
     COHORTS_TAXONOMIC_BASIC_LIST: 'cohorts-taxonomic-basic-list', // owner: @adamleith, picker sends ?basic=true to the cohorts list endpoint (trimmed payload: no query/groups/last_error_message/experiment_set; filters is kept)
-    COMMAND_K_SETTINGS_IN_RESULTS: 'command-k-settings-in-results', // owner: @puemos #team-platform-ux multivariate=control,test, experiment: rank exact-match settings with the Command K results
+    COMMAND_K_UNIFIED_RANKING: 'command-k-unified-ranking', // owner: @puemos #team-platform-ux multivariate=control,test, experiment: rank every Command K result type with one scorer
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -301,6 +301,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_EXPORT_NUDGE: 'dashboard-export-nudge', // owner: #team-analytics-platform multivariate=control,test, nudges people who just exported a dashboard toward a recurring subscription
     DASHBOARD_LAYOUT_DISCARD_PROMPT: 'dashboard-layout-discard-prompt', // owner: @cory.s #team-analytics-platform
     DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
+    DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
     DATA_MODELING_USAGE: 'data-modeling-usage', // owner: #team-data-modeling, gates the Models usage tab
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
@@ -335,6 +336,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_RECALCULATION_RATE_LIMIT: 'experiment-metric-recalculation-rate-limit', // owner: @rodrigoi #team-experiments, five-minute window between manual metric reloads
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SYNC_QUERIES: 'experiments-sync-queries', // owner: @andehen #team-experiments
+    EXPLAIN_CHART: 'explain-chart', // owner: @sampennington #team-product-analytics, gates "Explain this chart" on trends insights, which walks a person through what stands out on the chart
     FEATURE_FLAG_CLEANUP_ASSESSMENT: 'feature-flag-cleanup-assessment', // owner: #team-feature-flags, kill switch for the flag-page "Review cleanup with AI" action
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FEATURE_FLAG_CREATION_INTENTS: 'feature-flag-creation-intents', // owner: #team-feature-flags
@@ -378,6 +380,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
+    LOGS_ALERTS_GROUPING: 'logs-alerts-grouping', // owner: #team-apm, shows the Group by field on logs alerts the alerts platform runs
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
     LOGS_IMPACT_STRIP: 'logs-impact-strip', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
@@ -452,7 +455,7 @@ export const FEATURE_FLAGS = {
     PAYMENT_ENTRY_CONTACT_SUPPORT: 'payment-entry-contact-support', // owner: #team-billing, see `PaymentEntryModal.tsx`
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_QUILL: 'phai-quill', // owner: #team-posthog-ai, renders the PostHog AI chat thread in quill like PostHog Desktop; on with today-rail-nav too
-    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai, PostHog AI 2.0: the sandbox runtime and the task composer; without it the today-rail-nav chats use the legacy chat
+    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai, PostHog AI 2.0: the sandbox runtime and the task composer; without it the today-rail-nav chats use the legacy chat. The app reads the server's access gate in its place (featureFlagLogic)
     PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PI_ACP: 'pi-acp', // owner: #team-agent-infrastructure, Pi runs write ACP and show on the web run surface
@@ -480,10 +483,10 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_AI_NOTES: 'product-support-ai-notes', // owner: @veryayskiy #team-conversations, shows AI private notes in the ticket thread
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_IMPORT_TICKETS: 'product-support-import-tickets', // owner: @veryayskiy #team-conversations
+    PRODUCT_SUPPORT_MACROS: 'support-macros', // owner: @veryayskiy #team-conversations, saved replies in the support composer
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_TEAMS_ENABLED: 'product-support-teams-enabled', // owner: @veryayskiy #team-conversations
@@ -524,6 +527,7 @@ export const FEATURE_FLAGS = {
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
+    SLACK_APP_WORKSPACE_SETUP: 'slack-app-workspace-setup', // owner: #team-surfaces, sends new Slack app installs to the web setup
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SQL_EDITOR_BI_MODE: 'sql-editor-bi-mode', // owner: @mariusandra #team-data-tools
     SQL_EDITOR_SAVE_AS_CHOOSER: 'sql-editor-save-as-chooser', // owner: #team-data-tools
@@ -613,11 +617,9 @@ export const FEATURE_FLAGS = {
     WIZARD_RUN_SYNC: 'wizard-run-sync', // owner: #team-growth multivariate=wizard-session,wizard-run — selects the Wizard sync widget
     WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface
     WORKFLOW_ADD_TO_STATIC_COHORT_ACTION: 'workflow-add-to-static-cohort-action', // owner: #team-workflows
-    WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
-    WORKFLOWS_BROADCAST_AUDIENCE_SUGGESTIONS: 'workflows-broadcast-audience-suggestions', // owner: @dmarchuk #team-workflows, AI audience ideas on the Broadcasts tab
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_CUSTOMERIO_IMPORT: 'workflows-customerio-import', // owner: @dmarchuk #team-workflows, import Customer.io automations as draft workflows
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
@@ -629,6 +631,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
     WORKFLOWS_SENDING_TIER_REQUESTS: 'workflows-sending-tier-requests', // owner: @luke-belton #team-workflows, lets customers request a higher email sending tier
     WORKFLOWS_SUPABASE_AUTH_EMAILS: 'workflows-supabase-auth-emails', // owner: @luke-belton #team-workflows, send Supabase auth emails through transactional templates
+    WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows
     WORKFLOWS_TILE_CANVAS: 'workflows-tile-canvas', // owner: #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
@@ -706,6 +709,7 @@ export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
 export const ACTIVITY_PAGE_SIZE = 20
 export const ADVANCED_ACTIVITY_PAGE_SIZE = 100
+export const SURVEY_PAGE_SIZE = 100
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50

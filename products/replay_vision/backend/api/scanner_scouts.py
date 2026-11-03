@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
@@ -14,6 +15,8 @@ from products.replay_vision.backend.api.scout_permissions import ScoutDataAccess
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.scout_template_sync import claim_template_scout
+from products.replay_vision.backend.scout_templates import PLACEHOLDER_PATTERN, ScoutTemplateKey, scout_templates_for
 from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG, variant_analysis_config
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer, SignalScoutCreateSerializer
@@ -36,6 +39,24 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
         ),
     )
 
+    template_key = serializers.ChoiceField(
+        choices=ScoutTemplateKey.choices,
+        required=False,
+        help_text=(
+            "The template the body came from. A body left exactly as the template rendered it keeps "
+            "following later edits to that template; an edited body stays as written."
+        ),
+    )
+
+    def validate_body(self, value: str) -> str:
+        # A scout saved with its slots unfilled runs on a schedule with no idea what to report.
+        placeholders = sorted(set(PLACEHOLDER_PATTERN.findall(value)))
+        if placeholders:
+            raise serializers.ValidationError(
+                f"Replace these placeholders before creating the scout: {', '.join(placeholders)}"
+            )
+        return super().validate_body(value)
+
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         # Bundling files with a prompt is the generic endpoint's affordance; this one creates a scout
@@ -54,6 +75,15 @@ class ScannerScoutCreateResponseSerializer(serializers.Serializer):
         help_text="False when a scout of this name already existed and the supplied config was applied to it."
     )
     config = SignalScoutConfigSerializer(help_text="The scout's config, including the source recorded for it.")
+
+
+class ScannerScoutTemplateSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(choices=ScoutTemplateKey.choices, help_text="The template's id.")
+    title = serializers.CharField(help_text="The template's name, as the template picker shows it.")
+    description = serializers.CharField(help_text="What a scout made from this template does.")
+    default_name = serializers.CharField(help_text="The name the create form starts with.")
+    cron = serializers.CharField(help_text="The default run schedule, as a cron expression in the project timezone.")
+    body = serializers.CharField(help_text="The scout's instructions, rendered for this scanner.")
 
 
 class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -84,6 +114,16 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not access.check_access_level_for_object(scanner, required_level="editor"):
             raise PermissionDenied("Creating a scout for this scanner requires editor access to it.")
         return scanner
+
+    @extend_schema(
+        responses={200: ScannerScoutTemplateSerializer(many=True)},
+        description="The scout templates this scanner offers, rendered for it, in the order the picker shows them.",
+    )
+    @action(detail=False, methods=["get"], required_scopes=["replay_scanner:read", "session_recording:read"])
+    def templates(self, request: Any, **kwargs: Any) -> Response:
+        scanner = scanner_for_recording_derived_read(self)
+        templates = scout_templates_for(str(scanner.id), scanner.scanner_type, scanner.name or "")
+        return Response(ScannerScoutTemplateSerializer(templates, many=True).data)
 
     @extend_schema(
         request=ScannerScoutCreateSerializer,
@@ -147,6 +187,14 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             source_product=SCOUT_SOURCE_PRODUCT,
             source_id=str(scanner.id),
         )
+        if result.created:
+            claim_template_scout(
+                team_id=canonical_team.id,
+                skill_name=result.config.skill_name,
+                template_key=validated.get("template_key"),
+                body=validated["body"],
+                scanner=scanner,
+            )
         report_user_action(
             cast(User, request.user),
             "replay_vision_scanner_scout_created",
@@ -154,6 +202,7 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "scanner_id": str(scanner.id),
                 "scanner_type": scanner.scanner_type,
                 "variant_analysis": validated["variant_analysis"],
+                "template_key": validated.get("template_key"),
                 "created": result.created,
             },
             team=self.team,

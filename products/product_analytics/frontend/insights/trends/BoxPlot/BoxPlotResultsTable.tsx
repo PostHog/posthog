@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
 import { getSeriesColor } from 'lib/colors'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { BoxPlotDatum } from '~/queries/schema/schema-general'
