@@ -1,10 +1,16 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models import Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
@@ -13,6 +19,7 @@ from products.tasks.backend.logic.repo_selection.agent import (
     _build_repo_selection_prompt,
     _routing_rules_block,
     _salvage_repo_selection,
+    filter_repository_candidates_for_sources,
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
@@ -441,3 +448,26 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
     assert "2. `acme/d` (private)" in prompt
     assert "`acme/c`" not in prompt
     session.end.assert_awaited_once()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("refreshed_private", [False, True, None])
+def test_saved_selection_requires_current_private_visibility(team, refreshed_private: bool | None) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="visibility-refresh",
+        config={"installation_id": "visibility-refresh"},
+        repository_cache=[{"id": 1, "name": "target", "full_name": "example/target", "private": True}],
+        repository_cache_updated_at=timezone.now() - timedelta(days=2),
+    )
+    with patch.object(
+        GitHubIntegration,
+        "list_all_repositories",
+        return_value=[{"id": 1, "name": "target", "full_name": "example/target", "private": refreshed_private}],
+        side_effect=RuntimeError("GitHub unavailable") if refreshed_private is None else None,
+    ):
+        allowed = filter_repository_candidates_for_sources(
+            team.id, ["example/target"], (), require_private_destination=True
+        )
+    assert allowed == (["example/target"] if refreshed_private is True else [])

@@ -33,6 +33,8 @@ class MonitoringRepositorySources:
 @frozen
 class _MonitoringReferences:
     repositories: frozenset[str]
+    repository_origins: frozenset[str]
+    parents_by_origin: dict[str, frozenset[str]]
     parents: frozenset[str]
     origins: frozenset[str]
     row_count: int
@@ -72,6 +74,8 @@ def _read_monitoring_source_references(team: Team, report_ids: set[str], remaini
     )
     rows = result.results or []
     repositories: set[str] = set()
+    repository_origins: set[str] = set()
+    parents_by_origin: dict[str, set[str]] = {}
     parents: set[str] = set()
     origins: set[str] = set()
     incomplete = len(rows) > remaining_rows
@@ -83,13 +87,18 @@ def _read_monitoring_source_references(team: Team, report_ids: set[str], remaini
                 incomplete = True
             else:
                 repositories.add(ref.repository.lower())
+                repository_origins.add(str(source_report))
         elif product == SignalSourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.MONITORING_UNRESOLVED:
             try:
-                parents.add(str(UUID(report_id)))
+                parent_id = str(UUID(report_id))
+                parents.add(parent_id)
+                parents_by_origin.setdefault(str(source_report), set()).add(parent_id)
             except (TypeError, ValueError, AttributeError):
                 incomplete = True
     return _MonitoringReferences(
         repositories=frozenset(repositories),
+        repository_origins=frozenset(repository_origins),
+        parents_by_origin={origin: frozenset(links) for origin, links in parents_by_origin.items()},
         parents=frozenset(parents),
         origins=frozenset(origins),
         row_count=len(rows),
@@ -104,6 +113,8 @@ def _resolve_monitoring_repository_sources(
         return MonitoringRepositorySources(repositories=references.repositories, require_private_destination=True)
     pending = set(references.parents)
     repositories = set(references.repositories)
+    known_origins = set(references.repository_origins)
+    parent_links = dict(references.parents_by_origin)
     seen: set[str] = set()
     private_required: bool = False
     remaining_rows = 500 - references.row_count
@@ -129,9 +140,9 @@ def _resolve_monitoring_repository_sources(
             .filter(team_id=team.id, report_id__in=available, type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
             .order_by("report_id", "-created_at", "-id")
             .distinct("report_id")
-            .values_list("content", flat=True)
+            .values_list("report_id", "content")
         )
-        for content in selections:
+        for origin_id, content in selections:
             try:
                 repository = json.loads(content).get("repository")
             except (ValueError, AttributeError):
@@ -139,8 +150,11 @@ def _resolve_monitoring_repository_sources(
                 continue
             if isinstance(repository, str) and repository:
                 repositories.add(repository.lower())
+                known_origins.add(str(origin_id))
         references = _read_monitoring_source_references(team, available, remaining_rows)
         repositories.update(references.repositories)
+        known_origins.update(references.repository_origins)
+        parent_links.update(references.parents_by_origin)
         remaining_rows -= references.row_count
         private_required = private_required or references.incomplete or bool(available - references.origins)
         pending = set(references.parents)
@@ -148,8 +162,15 @@ def _resolve_monitoring_repository_sources(
             break
     else:
         private_required = bool(pending - seen) or private_required
+    # A public sibling cannot remove the private-only fallback of an origin with unknown ancestry.
+    for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
+        inherited = {origin for origin, parents in parent_links.items() if parents and parents <= known_origins}
+        if inherited <= known_origins:
+            break
+        known_origins.update(inherited)
     return MonitoringRepositorySources(
-        repositories=frozenset(repositories), require_private_destination=private_required or not repositories
+        repositories=frozenset(repositories),
+        require_private_destination=private_required or bool(seen - known_origins) or not repositories,
     )
 
 
@@ -166,6 +187,8 @@ def monitoring_repository_sources(team_id: int, signals: list[SignalData]) -> Mo
         Team.objects.get(id=team_id),
         _MonitoringReferences(
             repositories=frozenset(repository for signal in signals if (repository := _issue_repository(signal))),
+            repository_origins=frozenset(),
+            parents_by_origin={},
             parents=frozenset(pending),
             origins=frozenset(),
             row_count=0,

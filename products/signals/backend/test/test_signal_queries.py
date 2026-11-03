@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import islice, product
 
@@ -352,17 +353,34 @@ class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
 
 
 class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
-    @parameterized.expand([("direct", False, False), ("nested", True, False), ("missing_origin", False, True)])
-    def test_retains_original_repository_restrictions(self, _name: str, nested: bool, missing: bool) -> None:
+    @parameterized.expand(
+        [
+            ("direct", False, False, False),
+            ("nested", True, False, False),
+            ("missing_origin", False, True, False),
+            ("unknown_origin", False, False, True),
+            ("nested_unknown_origin", True, False, True),
+        ]
+    )
+    def test_retains_original_repository_restrictions(
+        self, _name: str, nested: bool, missing: bool, unknown: bool
+    ) -> None:
         origin = SignalReport.objects.create(team=self.team, status="closed")
         self._emit_version(
             document_id="original-private-issue",
             report_id=str(origin.id),
-            source_product="github",
+            source_product="error_tracking" if unknown else "github",
             source_type="issue",
             inserted_at=self.base,
             extra={"html_url": "https://github.com/example/private/issues/1"},
         )
+        if unknown:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=origin,
+                type="repo_selection",
+                content='{"repository": null, "reason": "No repository"}',
+            )
         source_id = str(origin.id)
         if nested:
             parent = SignalReport.objects.create(team=self.team, status="closed")
@@ -387,10 +405,18 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             timestamp=self.base,
             extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
         )
-        sources = monitoring_repository_sources(self.team.id, [signal])
+        public_signal = replace(
+            signal,
+            source_product="github",
+            source_type="issue",
+            extra={"html_url": "https://github.com/example/public/issues/1"},
+        )
+        sources = monitoring_repository_sources(self.team.id, [signal, public_signal])
         assert sources is not None
-        assert sources.repositories == (frozenset() if missing else frozenset({"example/private"}))
-        assert sources.require_private_destination is missing
+        assert sources.repositories == frozenset(
+            {"example/public"} if missing or unknown else {"example/public", "example/private"}
+        )
+        assert sources.require_private_destination is (missing or unknown)
         receiving = SignalReport.objects.create(team=self.team, status="ready")
         self._emit_version(
             document_id="receiving-monitoring",
@@ -399,6 +425,14 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             source_type="monitoring_unresolved",
             inserted_at=self.base,
             extra=signal.extra,
+        )
+        self._emit_version(
+            document_id="receiving-public-issue",
+            report_id=str(receiving.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra=public_signal.extra,
         )
         Integration.objects.create(
             team=self.team,

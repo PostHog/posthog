@@ -357,7 +357,14 @@ def filter_repository_candidates_for_sources(
         return []
     sources = {repository.strip().lower() for repository in source_repositories}
     normalized = {repository: repository.strip().lower() for repository in candidate_repos}
-    visibility = _candidate_visibility(github, [*normalized.values(), *sources])
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    visibility = (
+        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+    )
     allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
     return [repository for repository, name in normalized.items() if name in allowed]
 

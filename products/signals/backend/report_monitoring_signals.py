@@ -178,10 +178,17 @@ def monitoring_research_evidence(
             report__team_id=team_id,
             research_requested_at__isnull=False,
         )
+        .exclude(report__status=SignalReport.Status.DELETED)
         .first()
     )
     if attempt is None:
-        raise ValueError("Monitoring research request is no longer current")
+        return json.dumps(
+            {
+                "report_id": payload.report_id,
+                "attempt_id": payload.attempt_id,
+                "history": "Monitoring history is unavailable.",
+            }
+        )
     sections: dict[str, list[Mapping[str, object]]] = {
         "attempts": list(
             SignalReportMonitoringAttempt.objects.for_team(team_id)

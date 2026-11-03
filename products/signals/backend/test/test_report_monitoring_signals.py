@@ -220,9 +220,9 @@ class TestMonitoringSignals(BaseTest):
         assert evidence["results"][0]["outcome"] == "failed"
         assert "inbox-report-artefacts-list" in evidence["history"]
 
-    @parameterized.expand([("brief", 1, 1), ("long_history", 1000, 40)])
+    @parameterized.expand([("brief", 1, 1, False), ("long_history", 1000, 40, False), ("deleted", 1, 1, True)])
     def test_research_loads_saved_evidence_without_putting_it_in_the_signal(
-        self, _name: str, repetitions: int, history_rows: int
+        self, _name: str, repetitions: int, history_rows: int, deleted: bool
     ) -> None:
         assert self.attempt.aggregation_reason is not None
         reason = self.attempt.aggregation_reason * repetitions
@@ -241,7 +241,18 @@ class TestMonitoringSignals(BaseTest):
             )
         self.emit()
         payload = MonitoringUnresolvedSignalExtra.model_validate(self.emitted()[0].signal.extra)
+        if deleted:
+            SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(
+                status=SignalReport.Status.DELETED
+            )
         serialized = monitoring_research_evidence(team_id=self.team.id, payload=payload)
+        if deleted:
+            assert json.loads(serialized)["history"] == "Monitoring history is unavailable."
+            assert self.report.summary is not None
+            assert self.report.summary not in serialized
+            assert "affected population" not in serialized
+            assert len(serialized) <= 512
+            return
         assert len(serialized) <= MONITORING_EVIDENCE_MAX_CHARS
         evidence = json.loads(serialized)
         assert evidence["original_report"]["summary"] == self.report.summary
