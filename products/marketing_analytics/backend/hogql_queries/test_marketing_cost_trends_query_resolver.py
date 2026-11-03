@@ -17,6 +17,7 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     MarketingAnalyticsCostFallback,
+    MarketingAnalyticsCostSource,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     TrendsQuery,
@@ -149,7 +150,11 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             self.query.compareFilter = CompareFilter(compare=True, compare_to="-1y")
         self.ensure.side_effect = [LazyComputationResult(ready=ready, job_ids=[]) for ready in coverage]
         runner = self.runner()
-        result = runner.resolve_query()
+        resolved = runner.resolve_query()
+        result = resolved.query
+        assert resolved.source == (
+            MarketingAnalyticsCostSource.PRECOMPUTED if precomputed else MarketingAnalyticsCostSource.LIVE
+        )
         assert result.marketingAnalyticsCostFallback is None
         assert result.dateRange == self.query.dateRange
         assert result.compareFilter == self.query.compareFilter
@@ -187,6 +192,9 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
 
     @parameterized.expand([("unmaterializable",), ("check_error",), ("inaccessible_source",), ("expired",)])
     def test_uncertain_coverage_uses_live(self, case: str) -> None:
+        self.query.breakdownFilter = BreakdownFilter(
+            breakdowns=[Breakdown(type="data_warehouse", property="campaign_name")]
+        )
         self.ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         if case == "unmaterializable":
             self.adapters[1].build_materialization_query.return_value = None
@@ -198,7 +206,9 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             assert self.query.marketingAnalyticsCostFallback is not None
             self.query.marketingAnalyticsCostFallback.sourceIds = ["b"]
             self.factory.return_value.get_valid_adapters.return_value = self.adapters[:1]
-        result = self.runner().resolve_query()
+        resolved = self.runner().resolve_query()
+        assert resolved.source == MarketingAnalyticsCostSource.LIVE
+        result = resolved.query
         assert result.series == self.live_series
         assert result.breakdownFilter is None
 
@@ -209,7 +219,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
         self.query.marketingAnalyticsCostFallback.series = self.live_series[1:]
         self.query.compareFilter = CompareFilter(compare=False)
         self.ensure.return_value = LazyComputationResult(ready=ready, job_ids=[])
-        result = self.runner().resolve_query()
+        result = self.runner().resolve_query().query
         if ready:
             series = result.series[0]
             assert isinstance(series, DataWarehouseNode)
@@ -228,7 +238,9 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
     def test_edited_insight_executes_requested_series(self, case: str) -> None:
         event = EventsNode(event="$pageview")
         self.query.series = [event] if case == "replace_series" else [*self.query.series, event]
-        result = self.runner().resolve_query()
+        resolved = self.runner().resolve_query()
+        assert resolved.source is None
+        result = resolved.query
         assert result.series == self.query.series
         assert result.breakdownFilter == self.query.breakdownFilter
         assert result.marketingAnalyticsCostFallback is None
@@ -274,7 +286,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
                 LazyComputationExecutor, "execute", return_value=LazyComputationResult(ready=True, job_ids=[])
             ) as execute,
         ):
-            series = runner.resolve_query().series[0]
+            series = runner.resolve_query().query.series[0]
             assert isinstance(series, DataWarehouseNode)
             assert series.table_name == "marketing_costs_precomputed"
             trend_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]

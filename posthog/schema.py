@@ -194,6 +194,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsBaseColumns as MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames as MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants as MarketingAnalyticsConstants,
+    MarketingAnalyticsCostSource as MarketingAnalyticsCostSource,
     MarketingAnalyticsDrillDownLevel as MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderByEnum as MarketingAnalyticsOrderByEnum,
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
@@ -9501,6 +9502,14 @@ class TrendsQueryResponse(BaseModel):
     )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    marketingAnalyticsCostSource: MarketingAnalyticsCostSource | None = Field(
+        default=None,
+        description=(
+            "Which table served a Marketing cost trend. The live fallback has one"
+            " series per source and ignores the breakdown, so a campaign split only"
+            " applies when this is `precomputed`."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,
@@ -16520,6 +16529,14 @@ class CachedTrendsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
+    marketingAnalyticsCostSource: MarketingAnalyticsCostSource | None = Field(
+        default=None,
+        description=(
+            "Which table served a Marketing cost trend. The live fallback has one"
+            " series per source and ignores the breakdown, so a campaign split only"
+            " applies when this is `precomputed`."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
@@ -24517,6 +24534,14 @@ class QueryResponseAlternative61(BaseModel):
     )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    marketingAnalyticsCostSource: MarketingAnalyticsCostSource | None = Field(
+        default=None,
+        description=(
+            "Which table served a Marketing cost trend. The live fallback has one"
+            " series per source and ignores the breakdown, so a campaign split only"
+            " applies when this is `precomputed`."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
         default=None,

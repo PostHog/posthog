@@ -16257,6 +16257,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "marketingAnalyticsCostSource": {
+                    "$ref": "#/definitions/MarketingAnalyticsCostSource",
+                    "description": "Which table served a Marketing cost trend. The live fallback has one series per source and ignores the breakdown, so a campaign split only applies when this is `precomputed`."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -36240,6 +36244,10 @@
             "required": ["series", "sourceIds"],
             "type": "object"
         },
+        "MarketingAnalyticsCostSource": {
+            "enum": ["precomputed", "live"],
+            "type": "string"
+        },
         "MarketingAnalyticsDrillDownConfig": {
             "additionalProperties": false,
             "properties": {
@@ -47646,6 +47654,10 @@
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
+                        "marketingAnalyticsCostSource": {
+                            "$ref": "#/definitions/MarketingAnalyticsCostSource",
+                            "description": "Which table served a Marketing cost trend. The live fallback has one series per source and ignores the breakdown, so a campaign split only applies when this is `precomputed`."
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -57307,6 +57319,10 @@
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
+                },
+                "marketingAnalyticsCostSource": {
+                    "$ref": "#/definitions/MarketingAnalyticsCostSource",
+                    "description": "Which table served a Marketing cost trend. The live fallback has one series per source and ignores the breakdown, so a campaign split only applies when this is `precomputed`."
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",

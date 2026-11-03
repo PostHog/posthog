@@ -7,10 +7,12 @@ import structlog
 from posthog.schema import (
     DataWarehouseNode,
     DataWarehousePropertyFilter,
+    MarketingAnalyticsCostSource,
     MarketingAnalyticsDrillDownLevel,
     PropertyOperator,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -34,6 +36,13 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class ResolvedMarketingCostTrend:
+    query: TrendsQuery
+    # None when an edited insight no longer reads the cost table, so neither path applies.
+    source: MarketingAnalyticsCostSource | None
 
 
 class MarketingCostTrendsQueryResolver:
@@ -88,7 +97,7 @@ class MarketingCostTrendsQueryResolver:
                     return None
         return sorted(selected_ids)
 
-    def resolve_query(self) -> TrendsQuery:
+    def resolve_query(self) -> ResolvedMarketingCostTrend:
         fallback = self.query.marketingAnalyticsCostFallback
         assert fallback is not None
         requested_query = self.query.model_copy(deep=True)
@@ -98,21 +107,22 @@ class MarketingCostTrendsQueryResolver:
             or not isinstance(self.query.series[0], DataWarehouseNode)
             or self.query.series[0].table_name != "marketing_costs_precomputed"
         ):
-            return requested_query
+            return ResolvedMarketingCostTrend(query=requested_query, source=None)
         live_query = requested_query.model_copy(deep=True)
         live_query.series = [series.model_copy(deep=True) for series in fallback.series]
         live_query.breakdownFilter = None
+        live = ResolvedMarketingCostTrend(query=live_query, source=MarketingAnalyticsCostSource.LIVE)
         if not fallback.series or (self.query.dateRange and self.query.dateRange.date_from == "all"):
-            return live_query
+            return live
         try:
             if not MarketingAnalyticsConfig.from_team(self.team).costs_precomputation_enabled:
-                return live_query
+                return live
             source_ids = self._covered_source_ids(self.date_ranges)
             if source_ids is None:
-                return live_query
+                return live
         except Exception:
             logger.exception("marketing_cost_trend_coverage_check_failed", team_id=self.team.pk)
-            return live_query
+            return live
 
         precomputed_query = self.query.model_copy(deep=True)
         precomputed_query.marketingAnalyticsCostFallback = None
@@ -123,7 +133,7 @@ class MarketingCostTrendsQueryResolver:
         series.properties.append(
             DataWarehousePropertyFilter(key="source_id", operator=PropertyOperator.EXACT, value=list(source_ids))
         )
-        return precomputed_query
+        return ResolvedMarketingCostTrend(query=precomputed_query, source=MarketingAnalyticsCostSource.PRECOMPUTED)
 
 
 def resolve_marketing_cost_trend(
@@ -132,5 +142,5 @@ def resolve_marketing_cost_trend(
     team: Team,
     date_ranges: Sequence[QueryDateRange],
     get_database: Callable[[], Database],
-) -> TrendsQuery:
+) -> ResolvedMarketingCostTrend:
     return MarketingCostTrendsQueryResolver(query, team, date_ranges, get_database).resolve_query()

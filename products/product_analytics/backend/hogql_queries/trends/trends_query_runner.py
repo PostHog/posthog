@@ -439,14 +439,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             date_ranges = [self.query_date_range]
             if self.query.compareFilter and self.query.compareFilter.compare:
                 date_ranges.append(self.query_previous_date_range)
-            resolved_query = resolve_marketing_cost_trend(
+            resolved = resolve_marketing_cost_trend(
                 query=self.query,
                 team=self.team,
                 date_ranges=date_ranges,
                 get_database=lambda: self.shared_database,
             )
             runner = TrendsQueryRunner(
-                query=resolved_query,
+                query=resolved.query,
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -458,7 +458,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
             if runner.modifiers == self.modifiers:
                 runner._shared_database = self._shared_database
-            return runner.calculate()
+            response = runner.calculate()
+            response.marketingAnalyticsCostSource = resolved.source
+            return response
 
         queries = self.to_queries()
 

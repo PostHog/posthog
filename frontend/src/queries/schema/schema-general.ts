@@ -2020,6 +2020,11 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     hasMore?: boolean
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
+    /**
+     * Which table served a Marketing cost trend. The live fallback has one series per source and ignores the
+     * breakdown, so a campaign split only applies when this is `precomputed`.
+     */
+    marketingAnalyticsCostSource?: MarketingAnalyticsCostSource
 }
 
 export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
@@ -2050,6 +2055,11 @@ export type ResultCustomization = ResultCustomizationByValue | ResultCustomizati
 export type TrendsQuerySeriesNodeUnion = EventsNode | ActionsNode | DataWarehouseNode | GroupNode
 
 export type TrendsQuerySeriesNode = TrendsQuerySeriesNodeUnion
+
+export enum MarketingAnalyticsCostSource {
+    Precomputed = 'precomputed',
+    Live = 'live',
+}
 
 export interface MarketingAnalyticsCostFallback {
     /** @minItems 1 @maxItems 200 */
