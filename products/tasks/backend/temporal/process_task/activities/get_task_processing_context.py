@@ -1071,9 +1071,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
+    store_skills_updates: dict[str, Any] | None
     try:
         if not include_live_context:
-            store_skills_updates: dict[str, Any] | None = disabled_store_skills_state()
+            store_skills_updates = disabled_store_skills_state()
             state.update(store_skills_updates)
         else:
             with StepTimer("store_skills"):
