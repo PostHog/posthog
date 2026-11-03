@@ -715,7 +715,7 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
         ):
             freshness = self._built_freshness(HogQLQuery(query=PAST_RANGE))
         assert freshness == Reject(reason=FreshnessReason.UNPARSEABLE)
-        capture.assert_called_once()
+        assert capture.call_args.args[1] == {"context": "sql_freshness_classification"}
 
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
     def test_named_values_read_as_literals(self) -> None:

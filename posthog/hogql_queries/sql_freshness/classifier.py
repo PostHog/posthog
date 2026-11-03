@@ -36,7 +36,7 @@ def classify(
         until, binding_reason = fresh_until(facts)
         window = shortest_lived_window(facts)
     except Exception as error:
-        capture_exception(error)
+        capture_exception(error, {"context": "sql_freshness_classification"})
         return Reject(reason=FreshnessReason.UNPARSEABLE)
     return SqlFreshness(window=window, fresh_until=until.astimezone(UTC), reason=binding_reason)
 
