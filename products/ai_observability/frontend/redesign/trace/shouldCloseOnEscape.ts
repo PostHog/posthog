@@ -1,5 +1,6 @@
 const EDITABLE_TARGET = 'input, textarea, [contenteditable]:not([contenteditable="false"])'
-// A modal or popover owns the keyboard while it is open.
+// A modal or popover owns the keyboard while it is open. react-modal appends a custom overlay class
+// after its own, so `.ReactModal__Overlay` also matches LemonModal, LemonDialog and LemonDrawer.
 const KEYBOARD_OWNERS = '.ReactModal__Overlay, .Popover'
 
 export function isOverlayOpen(): boolean {

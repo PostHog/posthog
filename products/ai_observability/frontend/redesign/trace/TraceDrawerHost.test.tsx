@@ -1,6 +1,8 @@
 import { RenderResult, act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { combineUrl, router } from 'kea-router'
 
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -187,11 +189,13 @@ describe('TraceDrawerHost', () => {
         fireEvent.keyDown(attr(view.container, 'trace-view-search-input'), { key: 'n' })
         expect(router.values.searchParams.trace).toBe('a')
 
-        const modal = document.createElement('div')
-        modal.className = 'ReactModal__Overlay'
-        document.body.appendChild(modal)
-        fireEvent.keyDown(document.body, { key: 'n' })
-        modal.remove()
+        const modal = render(
+            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
+                <LemonButton>Save</LemonButton>
+            </LemonModal>
+        )
+        fireEvent.keyDown(modal.getByText('Save'), { key: 'n' })
+        modal.unmount()
         expect(router.values.searchParams.trace).toBe('a')
 
         fireEvent.keyDown(document.body, { key: 'n' })
