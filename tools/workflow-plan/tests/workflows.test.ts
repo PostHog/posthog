@@ -1049,6 +1049,46 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['PR cache miss', pullRequest(), 'false', 'success', 'success', true, false],
+        ['master cache hit', schedule(), 'true', 'success', 'success', false, false],
+        ['master cache miss', schedule(), 'false', 'success', 'success', true, true],
+        ['failed restore', schedule(), '', 'failure', 'success', true, true],
+        ['failed preparation', schedule(), 'false', 'success', 'failure', true, false],
+    ] as const)(
+        'Temporal cache preparation on %s',
+        (name, github, cacheHit, restoreOutcome, preparationOutcome, prepares, saves) => {
+            for (const job of ['django', 'turbo-tests']) {
+                const scenario = depotBackend(
+                    {
+                        name,
+                        github,
+                        steps: {
+                            ...backendSelectors,
+                            [job]: {
+                                'temporal-test-servers': {
+                                    outcome: restoreOutcome,
+                                    outputs: { 'cache-hit': cacheHit },
+                                },
+                                'download-temporal-test-servers': { outcome: preparationOutcome },
+                            },
+                        },
+                    },
+                    {}
+                ).scenario
+                const plan = planWorkflow(workflow(DEPOT_BACKEND), scenario)
+                expect(plan.errors).toEqual([])
+                expect(plan.jobs[job]?.result).toBe(preparationOutcome)
+                expect(plan.jobs[job]?.steps.find((step) => step.id === 'download-temporal-test-servers')?.runs).toBe(
+                    prepares
+                )
+                expect(plan.jobs[job]?.steps.find((step) => step.name === 'Save Temporal test servers')?.runs).toBe(
+                    saves
+                )
+            }
+        }
+    )
+
+    it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],
         ['fork PR', pullRequest({ fork: true }), 'success', false],
