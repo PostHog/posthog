@@ -20,7 +20,11 @@ import {
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
-import { FrequencyCapCheck, RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
+import {
+    FrequencyCapCheck,
+    PREFERENCES_UNAVAILABLE,
+    RecipientPreferencesService,
+} from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -131,6 +135,12 @@ const logStepWarnings = (
     }
 }
 
+const counterPreferencesUnavailable = new Counter({
+    name: 'cdp_hogflow_message_preferences_unavailable',
+    help: 'A marketing message step could not read the message preferences, by what the step did next.',
+    labelNames: ['outcome'],
+})
+
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
@@ -187,7 +197,8 @@ export class HogFunctionHandler implements ActionHandler {
         // rendered state in hogFunctionState) - so this also fires at most once per step per run
         if (
             !invocation.state.currentAction?.hogFunctionState &&
-            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt
+            !invocation.state.currentAction?.frequencyCapHoldDeadlineAt &&
+            !invocation.state.currentAction?.preferencesHoldDeadlineAt
         ) {
             observeMissingVariableReferences(invocation, action, result)
         }
@@ -221,6 +232,11 @@ export class HogFunctionHandler implements ActionHandler {
             result.invocation.state.currentAction!.frequencyCapHoldDeadlineAt =
                 functionResult.frequencyCapHold.deadlineAt
             return { scheduledAt: functionResult.frequencyCapHold.until }
+        }
+
+        if (functionResult.preferencesHold) {
+            result.invocation.state.currentAction!.preferencesHoldDeadlineAt = functionResult.preferencesHold.deadlineAt
+            return { scheduledAt: functionResult.preferencesHold.until }
         }
 
         if (!functionResult.finished) {
@@ -444,6 +460,7 @@ export class HogFunctionHandler implements ActionHandler {
         CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> & {
             skipped?: boolean
             frequencyCapHold?: FrequencyCapHold
+            preferencesHold?: PreferencesHold
         }
     > {
         const hogFunction = await instrumentFn(
@@ -475,7 +492,48 @@ export class HogFunctionHandler implements ActionHandler {
                     invocation.state.messageOptOuts
                 )
         )
-        if (skipReason) {
+        // A continuation on the email queue passed this check before it was queued, and a hold would drop
+        // the pending send that it carries. It sends, and every other run waits for the lookup to recover.
+        if (skipReason === PREFERENCES_UNAVAILABLE && invocation.state.currentAction?.hogFunctionState) {
+            counterPreferencesUnavailable.inc({ outcome: 'sent_after_earlier_check' })
+        } else if (skipReason === PREFERENCES_UNAVAILABLE) {
+            const hold = hogExecutorOptions?.isTest ? null : preferencesHold(invocation)
+            if (hold) {
+                counterPreferencesUnavailable.inc({ outcome: 'held' })
+                return {
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    preferencesHold: hold,
+                    logs: [
+                        {
+                            level: 'warn',
+                            timestamp: DateTime.now(),
+                            message: `Holding send until ${hold.until.toUTC().toISO()}: couldn't check if this person opted out.`,
+                        },
+                    ],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                }
+            }
+            counterPreferencesUnavailable.inc({ outcome: 'gave_up' })
+            return {
+                finished: true,
+                skipped: true,
+                error: new Error(
+                    "Message not sent: couldn't check if this person opted out. You can rerun this run from the Invocations tab."
+                ),
+                invocation: hogFunctionInvocation,
+                logs: [],
+                metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            }
+        } else if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run
             // log needs to know which one — the operator response is different (fix the recipient
             // list vs. respect the unsubscribe). `email_suppressed` mirrors the metric name the
@@ -629,6 +687,25 @@ export class HogFunctionHandler implements ActionHandler {
 }
 
 type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolean }
+type PreferencesHold = { until: DateTime; deadlineAt: string }
+
+const PREFERENCES_HOLD_MS = 60 * 60 * 1000
+const PREFERENCES_RETRY_MS = 5 * 60 * 1000
+
+/** Returns when to check the person's message preferences again, or null when the hold has ended. */
+function preferencesHold(invocation: CyclotronJobInvocationHogFlow): PreferencesHold | null {
+    const now = DateTime.now()
+    const startedDeadline = invocation.state.currentAction?.preferencesHoldDeadlineAt
+    const deadline = startedDeadline
+        ? DateTime.fromISO(startedDeadline)
+        : now.plus({ milliseconds: PREFERENCES_HOLD_MS })
+    if (now >= deadline) {
+        return null
+    }
+    // Up to one retry interval of spread, so sends held by one outage don't all wake at once.
+    const wake = now.plus({ milliseconds: PREFERENCES_RETRY_MS + Math.floor(Math.random() * PREFERENCES_RETRY_MS) })
+    return { until: DateTime.min(wake, deadline), deadlineAt: deadline.toISO()! }
+}
 
 // Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
 const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000

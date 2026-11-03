@@ -19,6 +19,9 @@ type MessageAction = Extract<HogFlowAction, { type: MessageFunctionActionType }>
 // reason instead of collapsing suppression and opt-out into a single "opted out" message.
 export type RecipientSkipReason = 'suppressed' | 'opted_out'
 
+// The lookup failed, so nobody can say whether the person opted out. The caller must not send yet.
+export const PREFERENCES_UNAVAILABLE = 'preferences_unavailable'
+
 // One Lua script, so two concurrent sends to one person cannot both pass with one slot left. Each slot
 // is keyed on the step visit. The email queue and send retries run the same step visit again, so a
 // visit that already holds a slot passes. That run also moves the slot score to now, because the email
@@ -122,7 +125,7 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         hogFlowAction: HogFlowAction,
         runOptOuts: MessageOptOutRecord[] = []
-    ): Promise<RecipientSkipReason | null> {
+    ): Promise<RecipientSkipReason | typeof PREFERENCES_UNAVAILABLE | null> {
         const action = this.asMessageAction(hogFlowAction)
         if (!action) {
             return null
@@ -141,7 +144,11 @@ export class RecipientPreferencesService {
             return null
         }
 
-        return (await this.isRecipientOptedOutOfAction(invocation, action, runOptOuts)) ? 'opted_out' : null
+        const optedOut = await this.isRecipientOptedOutOfAction(invocation, action, runOptOuts)
+        if (optedOut === null) {
+            return PREFERENCES_UNAVAILABLE
+        }
+        return optedOut ? 'opted_out' : null
     }
 
     private async isRecipientSuppressed(
@@ -191,7 +198,7 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: MessageAction,
         runOptOuts: MessageOptOutRecord[]
-    ): Promise<boolean> {
+    ): Promise<boolean | null> {
         let identifier
 
         if (action.type === 'function_sms') {
@@ -259,7 +266,7 @@ export class RecipientPreferencesService {
             return messageCategoryPreference === 'OPTED_OUT' || allMarketingPreferences === 'OPTED_OUT'
         } catch (error) {
             logger.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
-            return false
+            return null
         }
     }
 }
