@@ -2426,6 +2426,10 @@ describe('CDP API', () => {
                 { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
+            [
+                'a code send with copies to addresses that use atext symbols',
+                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+            ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
@@ -2632,6 +2636,17 @@ describe('CDP API', () => {
 
         it.each([
             ['a valid address', { to: 'user@example.com' }, 202, 'queued'],
+            ...[
+                'jane=tag@example.com',
+                'jane~tag@example.com',
+                'jane#tag@example.com',
+                "o'brien@example.com",
+                'a!b$c%d&e*f/g?h^i`j{k|l}m@example.com',
+                'jane@sub.example.co.uk',
+            ].map((to) => [to, { to }, 202, 'queued'] as const),
+            ...['jane@bücher.example', 'jane@[192.0.2.1]', '"jane doe"@example.com', 'jane@localhost'].map(
+                (to) => [to, { to }, 422, 'recipient_unreachable'] as const
+            ),
             ['a domain with a fullwidth dot', { to: 'user@ph\uFF0Eexample.com' }, 422, 'recipient_unreachable'],
             ['an ideographic full stop', { to: 'user@ph\u3002example.com' }, 422, 'recipient_unreachable'],
             ['a zero-width space', { to: 'user\u200B@example.com' }, 422, 'recipient_unreachable'],
