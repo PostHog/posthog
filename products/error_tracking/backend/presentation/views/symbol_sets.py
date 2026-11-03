@@ -1,3 +1,5 @@
+from django.core.files.uploadedfile import UploadedFile
+
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -19,6 +21,7 @@ from products.error_tracking.backend.facade import (
 )
 
 BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS = 1000
+UPLOAD_ENVELOPE_BYTES = 1024 * 1024
 
 
 class ErrorTrackingSymbolSetSerializer(DataclassSerializer):
@@ -315,16 +318,27 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if multipart:
-            data = bytearray()
-            for chunk in request.FILES["file"].chunks():
-                data.extend(chunk)
-        else:
-            # legacy: older versions of the CLI did not use multipart uploads
-            # file added to the request data by the FileUploadParser
-            data = request.data["file"].read()
+        # Reject on the declared length before request.FILES parses the body and spools it to disk.
+        try:
+            declared_size = int(request.META.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            declared_size = 0
+        symbol_sets_facade.check_upload_size(declared_size - UPLOAD_ENVELOPE_BYTES)
 
-        symbol_sets_facade.create_deprecated_symbol_set(self.team, chunk_id, release_id, bytearray(data))
+        # legacy: older versions of the CLI did not use multipart uploads
+        # file added to the request data by the FileUploadParser
+        upload = request.FILES.get("file") if multipart else request.data.get("file")
+        if not isinstance(upload, UploadedFile):
+            return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # The upload handler has already counted the bytes, so check the size before reading them into memory.
+        symbol_sets_facade.check_upload_size(upload.size or 0)
+
+        data = bytearray()
+        for chunk in upload.chunks():
+            data.extend(chunk)
+
+        symbol_sets_facade.create_deprecated_symbol_set(self.team, chunk_id, release_id, data)
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 

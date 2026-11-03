@@ -9,6 +9,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
+from django.core.files.uploadhandler import MemoryFileUploadHandler
 from django.db import OperationalError, connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
@@ -56,6 +58,14 @@ from products.error_tracking.backend.presentation.views.symbol_sets import (
 )
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
+
+
+class OversizedReportingUploadHandler(MemoryFileUploadHandler):
+    def file_complete(self, file_size: int) -> UploadedFile | None:
+        uploaded = super().file_complete(file_size)
+        if uploaded is not None:
+            uploaded.size = symbol_sets_logic.ONE_HUNDRED_MEGABYTES + 1
+        return uploaded
 
 
 def get_path_to(fixture_file: str) -> str:
@@ -1243,6 +1253,52 @@ class TestErrorTracking(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "file_too_large"
+
+    @parameterized.expand(
+        [
+            ("oversized_multipart", "multipart", "file_too_large"),
+            ("oversized_raw_body", "raw", "file_too_large"),
+            ("oversized_declared_length", "declared_length", "file_too_large"),
+            ("missing_file", "missing", None),
+        ]
+    )
+    def test_deprecated_create_rejects_invalid_upload(self, _name: str, body: str, expected_code: str | None) -> None:
+        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}"
+        handler = f"{__name__}.{OversizedReportingUploadHandler.__name__}"
+        raw_file = {
+            "content_type": "application/octet-stream",
+            "HTTP_CONTENT_DISPOSITION": "attachment; filename=a.map",
+        }
+        with self.settings(FILE_UPLOAD_HANDLERS=[handler]):
+            if body == "multipart":
+                response = self.client.post(
+                    f"{url}&multipart=true",
+                    data={"file": SimpleUploadedFile("a.map", b"{}")},
+                    format="multipart",
+                )
+            elif body == "raw":
+                response = self.client.post(url, data=b"{}", **raw_file)
+            elif body == "declared_length":
+                # A header-authenticated request reaches the view with the body unparsed, so the
+                # declared length is checked before anything reads the stream.
+                self.client.logout()
+                api_key = self.create_personal_api_key_with_scopes(["error_tracking:write"])
+                response = self.client.post(
+                    url,
+                    data=b"{}",
+                    HTTP_AUTHORIZATION=f"Bearer {api_key}",
+                    CONTENT_LENGTH=str(symbol_sets_logic.ONE_HUNDRED_MEGABYTES * 2),
+                    **raw_file,
+                )
+            else:
+                response = self.client.post(f"{url}&multipart=true", data={}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        if expected_code is not None:
+            assert response.json()["code"] == expected_code
+        else:
+            assert response.json()["detail"] == "file is required"
+        assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
 
     @patch("posthog.storage.object_storage._client")
     def test_finish_upload_updates_the_content_hash(self, patched_s3_client):
