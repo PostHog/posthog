@@ -552,8 +552,6 @@ describe('Hono MCP analytics contexts', () => {
                 { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
                 false,
             ],
-            // An email's body can carry a password reset link or a one-time code, and key-based
-            // redaction leaves `html` and `text` intact.
             [
                 'preparing an email send',
                 'workflows-send-email-prepare',

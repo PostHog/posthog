@@ -341,9 +341,6 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
-// Its args are the email's subject and body, which can carry a password reset link or a one-time code. Key-based
-// redaction leaves `html` and `text` intact. In single-exec mode the same args arrive inside the `exec` command
-// string, so that call is checked by its inner tool name.
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
 
 function sendsEmailContent(toolName: string, input: unknown): boolean {
