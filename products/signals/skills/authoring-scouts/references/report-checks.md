@@ -12,7 +12,7 @@ There is no create surface for a person or a task token: the `inbox-report-check
 Always list the report's checks before you write one:
 
 - Inside a run: `posthog:scout-report-check-list {"report_id": "<report>"}`. The `report_id` is the only input.
-- Outside a run: `posthog:inbox-report-checks-list` (read-only, `task:read`).
+- Outside a run: `posthog:inbox-report-checks-list` (read-only, `inbox:read`).
 
 Two reasons this is a hard step, not a courtesy:
 

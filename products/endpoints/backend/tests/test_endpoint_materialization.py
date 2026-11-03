@@ -39,7 +39,7 @@ from products.endpoints.backend.logic.materialization import (
     OrphanedEndpointSavedQueryError,
     prepare_executable_query,
 )
-from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
+from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError, build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -2237,6 +2237,44 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(OrphanedEndpointSavedQueryError):
             prepare_executable_query(saved_query)
+
+    @parameterized.expand(
+        [
+            ("multi_arg_concat_equality", "properties.label = concat('x-', {variables.item})"),
+            ("like_concat", "properties.$current_url LIKE concat('%', {variables.item}, '%')"),
+            ("multi_arg_range_wrapper", "timestamp >= toDateTime64({variables.item}, 6, 'UTC')"),
+        ]
+    )
+    def test_prepare_executable_query_refuses_version_that_no_longer_materializes(self, _name: str, predicate: str):
+        version_query = {
+            "kind": "HogQLQuery",
+            "query": f"SELECT count() AS c FROM events WHERE event = '$pageview' AND {predicate}",
+            "variables": {"var-1": {"variableId": "var-1", "code_name": "item", "value": "1"}},
+        }
+        endpoint = create_endpoint_with_version(
+            name=f"legacy_{_name}",
+            team=self.team,
+            query=version_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        previously_built = {"kind": "HogQLQuery", "query": "SELECT count() AS c, properties.label AS item FROM events"}
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"legacy_{_name}_v1",
+            team=self.team,
+            query=previously_built,
+            created_by=self.user,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save(update_fields=["saved_query"])
+
+        with self.assertRaises(MaterializationNotSupportedError):
+            prepare_executable_query(saved_query)
+
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.query, previously_built)
 
     def test_enable_materialization_links_version_before_immediate_run(self):
         endpoint = create_endpoint_with_version(
