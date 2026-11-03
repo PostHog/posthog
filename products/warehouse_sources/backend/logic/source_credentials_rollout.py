@@ -26,6 +26,7 @@ import time
 import asyncio
 import threading
 from collections.abc import Iterable, Mapping
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -105,8 +106,9 @@ class _ExpiringFlags:
         if entry is not None and entry[0] > now:
             return entry[1]
         try:
-            # A savepoint: the lookup queries `Team`, and a failed query must not abort a caller's transaction.
-            with transaction.atomic():
+            # Inside a caller's transaction, a savepoint keeps a failed `Team` query from aborting it. Outside
+            # one, no transaction is opened, so the remote flag evaluation does not hold one open.
+            with transaction.atomic() if transaction.get_connection().in_atomic_block else nullcontext():
                 enabled = is_team_flag_enabled(team_id, self._flag, raise_on_error=True)
         except Exception:
             # Not cached: a failure in one context (for example a query from an event loop thread, or a
@@ -184,7 +186,8 @@ def assign_credentials_reference(
 ) -> None:
     """Set the source's `credentials_integration_id` for the ``inputs`` that the caller stages. Does not save.
 
-    ``reference`` is a row that an API edit picked. It replaces the stored reference. With the flag on:
+    ``reference`` is a row that an API edit picked. It replaces the stored reference, and the row is not
+    written. With the flag on:
 
     - An in-use OAuth pointer goes to the column. A source whose selected options hold an OAuth field gets
       no typed-in row, because the sync uses the OAuth row (Pardot keeps a typed-in `environment` next to
@@ -220,7 +223,11 @@ def assign_credentials_reference(
         logger.warning("warehouse_source_credentials.split_failed", **_log_context(source), exc_info=True)
         return
     if connection:
-        _mirror_connection_fields(source, connection, shared_credentials, picked=reference is not None)
+        if reference is not None:
+            # A picked row keeps its fields: `with_credentials_of` took the connection fields from it, so only
+            # parser defaults can differ, and a write would turn them into an edit of the row.
+            return
+        _mirror_connection_fields(source, connection, shared_credentials)
         return
     # The source uses its OAuth row, or no row (a select switched away from its typed-in option, a managed
     # source that now gets its credentials elsewhere). A kept typed-in reference would leave the source a
@@ -234,8 +241,6 @@ def _mirror_connection_fields(
     source: ExternalDataSource,
     connection: Mapping[str, Any],
     shared_credentials: SharedCredentialsEdit,
-    *,
-    picked: bool,
 ) -> None:
     current = source.credentials_integration_id
     try:
@@ -244,7 +249,7 @@ def _mirror_connection_fields(
         # the row after the caller read the source), so the stored reference is read under the lock.
         with transaction.atomic():
             stored = _locked_typed_in_reference(source)
-            current = source.credentials_integration_id if picked else stored
+            current = stored
             source.credentials_integration_id = current
             outcome = _write_row(source, connection, shared_credentials)
     except SharedCredentialsError:

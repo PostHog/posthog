@@ -333,6 +333,12 @@ QUOTA_EXHAUSTED_MESSAGE = (
     "Top up at https://us.posthog.com/organization/billing to continue."
 )
 
+AI_PROCESSING_NOT_APPROVED_MESSAGE = (
+    ":lock: *PostHog AI is turned off for your organization*\n"
+    "I can't work on this request until AI analysis is on. "
+    "Ask an organization admin to turn it on in <{settings_url}|organization settings>."
+)
+
 
 def post_quota_exhausted_denial(
     *,
@@ -363,6 +369,35 @@ def post_quota_exhausted_denial(
         slack_user_id,
         thread_ts,
         QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
+
+
+def post_ai_processing_not_approved_denial(
+    *,
+    integration: WorkspaceIntegration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-consent denial message into a Slack thread."""
+    logger.info(
+        "slack_app_slack_blocked_by_ai_consent",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        AI_PROCESSING_NOT_APPROVED_MESSAGE.format(
+            settings_url=f"{settings.SITE_URL}/settings/organization-details#organization-ai-consent"
+        ),
         prefer_thread_message=True,
     )
 

@@ -17,7 +17,7 @@ import temporalio
 from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -604,6 +604,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         try:
             requested_reference = SourceInputsStore.requested_credentials_reference(instance, incoming_job_inputs)
             if requested_reference is not None:
+                # Object access controls on the sources that use the row also apply to its credentials.
+                if helpers.denied_source_usages(
+                    self.user_access_control,
+                    instance.team_id,
+                    SourceInputsStore.credentials_usages(instance, requested_reference),
+                    "editor",
+                ):
+                    raise UnusableCredentialsReferenceError(
+                        f"Source {instance.id} cannot use credentials {requested_reference}"
+                    )
                 new_job_inputs = SourceInputsStore.with_credentials_of(instance, new_job_inputs, requested_reference)
         except UnusableCredentialsReferenceError:
             raise ValidationError(
@@ -721,6 +731,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
+        # A confirmation changes the row for its other users too, so it needs edit access to each of them. Without
+        # it, the edit fails as an unconfirmed one does, and the view answers with a 403.
+        confirmed_shared_edit = helpers.update_shared_credentials_confirmed(request) and not (
+            "job_inputs" in validated_data
+            and helpers.denied_source_usages(
+                self.user_access_control,
+                instance.team_id,
+                SourceInputsStore.credentials_usages(instance, requested_reference),
+                "editor",
+            )
+        )
+
         # One transaction for the credentials row and the source, so a failed source save also undoes the
         # row write, and the source lock of the copy holds until the source save commits.
         with transaction.atomic():
@@ -731,7 +753,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     instance,
                     validated_data.pop("job_inputs"),
                     shared_credentials=SharedCredentialsEdit.CONFIRMED
-                    if helpers.update_shared_credentials_confirmed(request)
+                    if confirmed_shared_edit
                     else SharedCredentialsEdit.REFUSE,
                     credentials_reference=requested_reference,
                 )
@@ -1133,7 +1155,13 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         try:
             return super().update(request, *args, **kwargs)
         except SharedCredentialsError as error:
-            return shared_credentials.shared_credentials_conflict_response(error)
+            if helpers.update_shared_credentials_confirmed(request):
+                # The serializer drops a confirmation from a user who cannot edit every other user of the row.
+                raise PermissionDenied(
+                    "You need edit access to every source that uses these credentials to change them."
+                )
+            hidden = helpers.denied_source_usages(self.user_access_control, self.team_id, error.usages, "viewer")
+            return shared_credentials.shared_credentials_conflict_response(error, hidden_usage_ids=hidden)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).

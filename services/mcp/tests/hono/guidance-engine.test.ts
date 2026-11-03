@@ -83,7 +83,10 @@ describe('GuidanceEngine', () => {
         ['with org consent', true, 'shown'],
     ])('stamps the consent outcome %s for a rule that needs it', async (_label, aiConsentGiven, outcome) => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, requiresAiConsent: true }])
-        const state = makeState({ aiConsentGiven })
+        const state = makeState({
+            aiConsentGiven,
+            ...(aiConsentGiven === true ? {} : { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] }),
+        })
         await engine.evaluate(state, replayQuery)
         const notice = await engine.evaluate(state, replayQuery)
         expect(notice).toMatchObject({ ruleId: 'test-rule', outcome })

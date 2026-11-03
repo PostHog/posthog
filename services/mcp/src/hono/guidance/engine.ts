@@ -76,9 +76,11 @@ function isGuidanceAudience(state: ResolvedState): boolean {
 // flag off, or without AI consent, is counted the same way, so the stamped outcome gives a
 // control group and a measure of how often consent blocks the notice.
 function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): boolean {
+    // The roster drops consent-gated tools without org consent, so it cannot decide these callers.
+    const withheldForConsent = rule.requiresAiConsent === true && state.aiConsentGiven !== true
     return (
         rule.trigger.presets.includes(preset as GuidanceRule['trigger']['presets'][number]) &&
-        rule.requiresTool.every((name) => state.allTools.some((tool) => tool.name === name))
+        (withheldForConsent || rule.requiresTool.every((name) => state.allTools.some((tool) => tool.name === name)))
     )
 }
 
