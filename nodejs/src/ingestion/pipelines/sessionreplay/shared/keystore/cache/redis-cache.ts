@@ -38,12 +38,23 @@ export class RedisCachedKeyStore implements KeyStore {
     }
 
     // Best effort: the caller already has the key, so a failed write (e.g. READONLY after a failover) must not fail the request.
-    private async setCached(sessionId: string, teamId: number, key: SessionKey): Promise<void> {
+    // onlyIfAbsent keeps a lookup that read the key before a delete from overwriting the deletion marker written after it.
+    private async setCached(
+        sessionId: string,
+        teamId: number,
+        key: SessionKey,
+        { onlyIfAbsent = false }: { onlyIfAbsent?: boolean } = {}
+    ): Promise<void> {
         const startTime = performance.now()
         try {
             const client = await this.redisPool.acquire()
             try {
-                await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
+                const cacheKey = this.cacheKey(sessionId, teamId)
+                if (onlyIfAbsent) {
+                    await client.set(cacheKey, serializeSessionKey(key), 'EX', this.ttlSeconds, 'NX')
+                } else {
+                    await client.setex(cacheKey, this.ttlSeconds, serializeSessionKey(key))
+                }
             } finally {
                 await this.redisPool.release(client)
             }
@@ -79,7 +90,7 @@ export class RedisCachedKeyStore implements KeyStore {
         }
 
         const key = await this.delegate.getKey(sessionId, teamId)
-        await this.setCached(sessionId, teamId, key)
+        await this.setCached(sessionId, teamId, key, { onlyIfAbsent: true })
         return key
     }
 
@@ -87,8 +98,14 @@ export class RedisCachedKeyStore implements KeyStore {
         // Clear cache first to ensure stale data isn't served
         await this.deleteCached(sessionId, teamId)
         const result = await this.delegate.deleteKey(sessionId, teamId, deletedBy)
-        // A getKey between the first clear and the delete re-caches the live key for a day, so clear it again.
-        await this.deleteCached(sessionId, teamId)
+        // The deletion has committed, so a cache error must not report it as failed: setCached only logs and counts it.
+        await this.setCached(sessionId, teamId, {
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            sessionState: 'deleted',
+            deletedAt: result.deletedAt,
+            deletedBy: result.deletedBy,
+        })
         return result
     }
 

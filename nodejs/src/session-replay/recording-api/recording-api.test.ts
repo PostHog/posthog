@@ -457,6 +457,24 @@ describe('RecordingApi', () => {
             expect(mockService.getDeletion).toHaveBeenCalledWith('session-123', 1)
         })
 
+        it('still lists blocks when the key store does not answer', async () => {
+            mockService.listBlocks.mockResolvedValue([
+                {
+                    key: 'session_recordings/30d/1000-aaa',
+                    start_byte: 0,
+                    end_byte: 100,
+                    start_timestamp: '2024-01-01T00:00:00Z',
+                    end_timestamp: '2024-01-01T00:01:00Z',
+                },
+            ])
+            mockService.getDeletion.mockReturnValue(new Promise(() => {}))
+
+            const res = await supertest(app).get('/api/projects/1/recordings/session-123/blocks')
+
+            expect(res.status).toBe(200)
+            expect(res.body.blocks).toHaveLength(1)
+        })
+
         it('does not look up the key of a session with no blocks', async () => {
             mockService.listBlocks.mockResolvedValue([])
 

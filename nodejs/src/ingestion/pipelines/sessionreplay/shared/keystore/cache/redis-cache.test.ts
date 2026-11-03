@@ -29,6 +29,7 @@ describe('RedisCachedKeyStore', () => {
         mockRedisClient = {
             get: jest.fn().mockResolvedValue(null),
             setex: jest.fn().mockResolvedValue('OK'),
+            set: jest.fn().mockResolvedValue('OK'),
             del: jest.fn().mockResolvedValue(1),
         }
 
@@ -119,16 +120,18 @@ describe('RedisCachedKeyStore', () => {
             const result = await cachedKeyStore.getKey('session-123', 1)
 
             expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+            expect(mockRedisClient.set).toHaveBeenCalledWith(
                 '@posthog/replay/recording-key:1:session-123',
+                expect.any(String),
+                'EX',
                 86400,
-                expect.any(String)
+                'NX'
             )
             expect(result).toEqual(mockSessionKey)
         })
 
         it.each([
-            ['setex rejects', () => mockRedisClient.setex.mockRejectedValue(new Error('READONLY'))],
+            ['set rejects', () => mockRedisClient.set.mockRejectedValue(new Error('READONLY'))],
             [
                 'pool acquire rejects',
                 () =>
@@ -187,23 +190,51 @@ describe('RedisCachedKeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should clear cache before and after the delegate deletes', async () => {
-            const calls: string[] = []
-            mockRedisClient.del.mockImplementation(() => {
-                calls.push('del')
-                return Promise.resolve(1)
-            })
-            mockDelegate.deleteKey.mockImplementation(() => {
-                calls.push('delete')
-                return Promise.resolve({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
-            })
-
+        it('should clear cache and call delegate', async () => {
             const result = await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
 
-            expect(calls).toEqual(['del', 'delete', 'del'])
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockDelegate.deleteKey).toHaveBeenCalledWith('session-123', 1, 'test@example.com')
             expect(result).toEqual({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+        })
+
+        it('keeps the deletion when a lookup that read the live key finishes after the delete', async () => {
+            const store = new Map<string, string>()
+            mockRedisClient.get.mockImplementation((key: string) => Promise.resolve(store.get(key) ?? null))
+            mockRedisClient.del.mockImplementation((key: string) => Promise.resolve(store.delete(key) ? 1 : 0))
+            mockRedisClient.setex.mockImplementation((key: string, _ttl: number, value: string) => {
+                store.set(key, value)
+                return Promise.resolve('OK')
+            })
+            mockRedisClient.set.mockImplementation((key: string, value: string, ...flags: unknown[]) => {
+                if (flags.includes('NX') && store.has(key)) {
+                    return Promise.resolve(null)
+                }
+                store.set(key, value)
+                return Promise.resolve('OK')
+            })
+            let releaseLookup: (key: SessionKey) => void = () => {}
+            mockDelegate.getKey.mockImplementation(() => new Promise((resolve) => (releaseLookup = resolve)))
+
+            const lookup = cachedKeyStore.getKey('session-123', 1)
+            await new Promise((resolve) => setImmediate(resolve))
+            await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
+            releaseLookup(mockSessionKey)
+            await lookup
+
+            mockDelegate.getKey.mockClear()
+            const after = await cachedKeyStore.getKey('session-123', 1)
+            expect(after.sessionState).toBe('deleted')
+            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+        })
+
+        it('reports a committed deletion even when the cache cannot record it', async () => {
+            mockRedisClient.setex.mockRejectedValue(new Error('READONLY'))
+
+            const result = await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
+
+            expect(result).toEqual({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+            expect(SessionBatchMetrics.incrementKeystoreRedisWriteErrors).toHaveBeenCalled()
         })
 
         it('should clear cache even if delegate returns already_deleted', async () => {

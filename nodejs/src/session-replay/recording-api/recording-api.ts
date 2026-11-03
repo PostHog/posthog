@@ -28,6 +28,9 @@ import {
 } from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor, RecordingEncryptor } from './types'
 
+// A Redis stall must not hold up a listing that already has its blocks.
+const DELETION_CHECK_TIMEOUT_MS = 1000
+
 function sendRecordingDeleted(res: express.Response, deletion: RecordingDeletedResult): void {
     res.status(410).json({ error: 'recording_deleted', deleted_at: deletion.deletedAt, deleted_by: deletion.deletedBy })
 }
@@ -345,8 +348,12 @@ export class RecordingApi {
         sessionId: string,
         teamId: number
     ): Promise<RecordingDeletedResult | null> {
+        let timer: NodeJS.Timeout | undefined
+        const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Deletion check timed out')), DELETION_CHECK_TIMEOUT_MS)
+        })
         try {
-            return await service.getDeletion(sessionId, teamId)
+            return await Promise.race([service.getDeletion(sessionId, teamId), timeout])
         } catch (error) {
             logger.warn('[RecordingApi] Could not check deletion while listing blocks', {
                 error: serializeError(error),
@@ -354,6 +361,8 @@ export class RecordingApi {
                 sessionId,
             })
             return null
+        } finally {
+            clearTimeout(timer)
         }
     }
 
