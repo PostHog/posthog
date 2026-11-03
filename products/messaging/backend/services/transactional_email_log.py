@@ -405,7 +405,7 @@ def _conversions(
     recipients = list(first_send)
     response = execute_hogql_query(
         """
-        SELECT recipient, min(timestamp), sum(value)
+        SELECT conversions.recipient, min(conversions.timestamp), sum(conversions.value)
         FROM (
             SELECT
                 if(person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}),
@@ -417,11 +417,14 @@ def _conversions(
               AND timestamp >= {start} AND timestamp < {end}
               AND (distinct_id IN {distinct_ids}
                    OR person_id IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id IN {distinct_ids}))
-        )
-        WHERE indexOf({recipients}, recipient) > 0
-          AND timestamp >= fromUnixTimestamp64Milli({sent_at_ms}[indexOf({recipients}, recipient)])
-          AND timestamp <= fromUnixTimestamp64Milli({sent_at_ms}[indexOf({recipients}, recipient)] + {window_ms})
-        GROUP BY recipient
+        ) AS conversions
+        INNER JOIN (
+            SELECT tupleElement(send, 1) AS recipient, fromUnixTimestamp64Milli(tupleElement(send, 2)) AS sent_at
+            FROM (SELECT arrayJoin(arrayZip({recipients}, {sent_at_ms})) AS send)
+        ) AS sends ON conversions.recipient = sends.recipient
+        WHERE conversions.timestamp >= sends.sent_at
+          AND conversions.timestamp <= sends.sent_at + toIntervalSecond({window_seconds})
+        GROUP BY conversions.recipient
         LIMIT {limit}
         """,
         team=team,
@@ -436,7 +439,7 @@ def _conversions(
             "sent_at_ms": ast.Constant(
                 value=[int(first_send[recipient].timestamp() * 1000) for recipient in recipients]
             ),
-            "window_ms": ast.Constant(value=int(window.total_seconds() * 1000)),
+            "window_seconds": ast.Constant(value=int(window.total_seconds())),
             "limit": ast.Constant(value=len(recipients)),
         },
         query_type="transactional_email_results_conversions",
