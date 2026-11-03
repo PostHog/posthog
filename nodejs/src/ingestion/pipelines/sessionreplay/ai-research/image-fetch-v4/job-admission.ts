@@ -9,7 +9,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'
-import { parseV4UrlRef } from './v4-url-ref'
+import { parseV4UrlRef } from './v4-native'
 
 /** Each lookup's read budget starts when it starts, so a batch of many new team months must not start them all at once. */
 const KEY_LOOKUP_CONCURRENCY = 16
