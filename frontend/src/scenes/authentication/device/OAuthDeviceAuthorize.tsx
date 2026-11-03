@@ -110,7 +110,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center justify-center gap-2">
                         <span
-                            className="font-mono text-2xl font-semibold tracking-wider"
+                            className="ph-no-capture font-mono text-2xl font-semibold tracking-wider"
                             data-attr="oauth-device-user-code"
                         >
                             {deviceGrant.user_code}
