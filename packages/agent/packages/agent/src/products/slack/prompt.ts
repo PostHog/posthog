@@ -105,6 +105,11 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 
 # Suggesting code changes
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
+
+# Referencing code
+When you point the user at code, link to the file on GitHub. Slack turns a local path into a dead link on the workspace domain, so never use a checkout path such as /tmp/workspace/... as a link target, and never write it as \`path:line\`.
+- Build the link as \`https://github.com/<org>/<repo>/blob/<ref>/<repo-relative-path>#L<line>\`. Read \`<org>/<repo>\` from \`git remote get-url origin\`. Use \`git rev-parse HEAD\` as \`<ref>\` when that commit is pushed, otherwise the default branch.
+- If you cannot work out the GitHub URL, write the repo-relative path as plain text, without a link.
 `;
   const slackProgressInstructions = options.slackProgressChecklist
     ? `

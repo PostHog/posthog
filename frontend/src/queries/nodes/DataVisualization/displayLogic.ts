@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { mean } from 'd3-array'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -92,7 +92,7 @@ export const displayLogic = kea<displayLogicType>([
                 addGoalLine: (state, { yData, label }) => {
                     const yDataFlat =
                         yData?.flatMap((n) => n.data).filter((value): value is number => value !== null) ?? []
-                    const yDataAvg = Math.round(d3.mean(yDataFlat) ?? 0)
+                    const yDataAvg = Math.round(mean(yDataFlat) ?? 0)
 
                     return [
                         ...state,

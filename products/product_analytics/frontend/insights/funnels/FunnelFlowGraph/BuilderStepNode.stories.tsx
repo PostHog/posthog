@@ -7,8 +7,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { getActionFilterFromFunnelStep } from '../shared/funnelStepTableUtils'
-import { InsightProvider, makeStep } from './__mocks__/nodeStoryUtils'
+import { InsightProvider, makeStep, makeStepSeries } from './__mocks__/nodeStoryUtils'
 import { NODE_WIDTH } from './funnelFlowGraphLogic'
 import { StepNodeShell } from './StepNodeShell'
 
@@ -35,7 +34,7 @@ function BuilderNodeStory({
                 handles={<></>}
                 eventDisplay={
                     hasEvent ? (
-                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+                        <EntityFilterInfo filter={makeStepSeries(step.name)} allowWrap />
                     ) : (
                         <LemonButton type="secondary" size="small">
                             Select an event
@@ -79,7 +78,6 @@ export const NoEvent: Story = {
     render: () => {
         const emptyStep = {
             ...makeStep('Select an event', 0, 0, 0),
-            action_id: null,
             count: null,
         } as unknown as FunnelStepWithConversionMetrics
         return <BuilderNodeStory step={emptyStep} stepIndex={0} hasEvent={false} />
@@ -95,7 +93,6 @@ export const AllVariants: Story = {
         const spacing = NODE_WIDTH + 20
         const emptyStep = {
             ...makeStep('Select an event', 0, 0, 0),
-            action_id: null,
             count: null,
         } as unknown as FunnelStepWithConversionMetrics
 

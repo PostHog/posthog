@@ -101,6 +101,7 @@ export interface maxGlobalLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     availableStaticTools: ToolRegistration[]
     conversationHistory: ConversationDetail[]
+    conversationHistoryLoadedAt: number | null
     conversationHistoryLoading: boolean
     currentConversationId: string | null
     editInsightToolRegistered: true
@@ -345,6 +346,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 return mergeConversationHistory(state, conversation)
             },
         },
+        conversationHistoryLoadedAt: [
+            null as number | null,
+            {
+                loadConversationHistorySuccess: () => Date.now(),
+            },
+        ],
         liabilityNoticeDismissed: [
             false,
             { persist: true, storageKey: AI_LIABILITY_NOTICE_STORAGE_KEY },

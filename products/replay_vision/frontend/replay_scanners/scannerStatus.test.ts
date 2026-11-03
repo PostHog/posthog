@@ -17,6 +17,7 @@ const HEALTHY: ScannerStatusFields = {
     created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
     filter_error: null,
+    unrunnable_reason: null,
 }
 
 const DROUGHT = { everScanned: true, samplingRate: 1 }
@@ -39,6 +40,31 @@ describe('scannerStatus', () => {
             'limit_reached',
         ],
         ['stopped when the org quota is used up', {}, { quotaExhausted: true }, 'quota_exhausted'],
+        [
+            'replay off ahead of the limits it makes moot',
+            { limit_reached: true },
+            { quotaExhausted: true, recordingsBlock: 'replay-off' as const },
+            'replay_off',
+        ],
+        ['off wins over replay being off', { enabled: false }, { recordingsBlock: 'replay-off' as const }, 'off'],
+        [
+            'missing AI consent explains an off scanner',
+            { enabled: false, unrunnable_reason: 'no_ai_consent' as const },
+            { recordingsBlock: 'replay-off' as const },
+            'no_ai_consent',
+        ],
+        [
+            'a creator who lost access explains an off scanner',
+            { enabled: false, unrunnable_reason: 'creator_lost_access' as const },
+            {},
+            'creator_lost_access',
+        ],
+        [
+            'no recordings instead of blaming the filters',
+            {},
+            { drought: DROUGHT, recordingsBlock: 'no-recordings' as const },
+            'no_recordings',
+        ],
         [
             'filter error ahead of the delay it causes',
             { filter_error: 'Unable to resolve field: event', last_swept_at: NOW.subtract(3, 'hour').toISOString() },

@@ -24,6 +24,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     IncrementalField,
     ManualLinkSourceType,
     manualLinkSources,
@@ -32,7 +33,6 @@ import {
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
-    ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
@@ -665,11 +665,11 @@ export interface sourceWizardLogicActions {
         value: true
     }
     handleRedirect: (
-        source: ExternalDataSourceTypeEnumApi,
+        source: ExternalDataSourceType,
         searchParams?: any
     ) => {
         searchParams: any
-        source: ExternalDataSourceTypeEnumApi
+        source: string
     }
     onBack: () => {
         value: true
@@ -1066,7 +1066,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setInitialConnector: (connector: SourceConfigResponseApi | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (source: ExternalDataSourceTypeEnumApi, searchParams?: any) => ({
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
             source,
             searchParams,
         }),
@@ -1471,8 +1471,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: (values.selectedConnector?.name ||
-                                    'Postgres') as ExternalDataSourceTypeEnumApi,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...payload,
                                 cdc_management_mode: mode,
                                 tables: [],
@@ -1509,8 +1508,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: (values.selectedConnector?.name ||
-                                    'Postgres') as ExternalDataSourceTypeEnumApi,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...connectionPayload,
                                 cdc_management_mode: 'self_managed',
                                 // PostHog creates the slot itself — only verify the publication.
@@ -2438,8 +2436,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         handleRedirect: async ({ source }) => {
-            // By default, we assume the source is a valid external data source
-            if (Object.values(ExternalDataSourceTypeEnumApi).includes(source)) {
+            // The redirect names the source it came back for. Only a source the catalog lists can continue.
+            if (values.availableSources?.[source]) {
                 actions.updateSource({
                     source_type: source,
                 })
@@ -2677,10 +2675,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        toggleAllTables: () => {
+        toggleAllTables: ({ selectAll, tableNames }) => {
             // databaseSchema reducer already applied the toggle; re-emit so the
             // setDatabaseSchemas listener (syncExpandedSchemaGroupKeys) fires.
             actions.setDatabaseSchemas(values.databaseSchema)
+
+            if (selectAll) {
+                // Select all leaves default-off tables off, so the header checkbox never fills.
+                // Say why, otherwise it reads as a checkbox that ignores clicks.
+                const targetSet = tableNames ? new Set(tableNames) : null
+                const skippedDefaultOff = values.databaseSchema.some(
+                    (schema) =>
+                        (!targetSet || targetSet.has(schema.table)) &&
+                        schema.should_sync_default === false &&
+                        !schema.should_sync &&
+                        !schema.permission_error
+                )
+                if (skippedDefaultOff) {
+                    lemonToast.info(
+                        'Select all skips tables that are off by default. Check those tables one at a time to sync them.'
+                    )
+                }
+            }
         },
     })),
     urlToAction(({ actions, values }) => {

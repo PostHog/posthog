@@ -331,6 +331,12 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    {
+        key: 'signal_usage',
+        objectName: 'Self-driving usage',
+        objectPlural: 'self-driving usage',
+        disabledActions: ['write'],
+    },
     { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
@@ -617,6 +623,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'today',
             'loop',
             'signal_scout',
+            'signal_usage',
             'review_hog',
             'approvals',
             'autoresearch',
@@ -689,6 +696,31 @@ export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePi
     return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
         .filter((label) => rowsByLabel.has(label))
         .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
+}
+
+export type ScopeGroupSummary = { label: string; write: number; read: number }
+
+// Counts the objects in each product area that a key can write, or only read, in API_SCOPE_GROUPS order.
+// `insight:read` and `insight:write` together count once, as write.
+export const summarizeScopesByGroup = (scopes: readonly string[]): ScopeGroupSummary[] => {
+    const levelByObject = new Map<string, 'read' | 'write'>()
+    for (const scope of scopes) {
+        const [object, action] = scope.split(':')
+        if (levelByObject.get(object) !== 'write') {
+            levelByObject.set(object, action === 'write' ? 'write' : 'read')
+        }
+    }
+    const summaryByLabel = new Map<string, ScopeGroupSummary>()
+    for (const [object, level] of levelByObject) {
+        const label = getScopeGroupLabel(object)
+        const summary = summaryByLabel.get(label) ?? { label, write: 0, read: 0 }
+        summary[level] += 1
+        summaryByLabel.set(label, summary)
+    }
+    return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL].flatMap((label) => {
+        const summary = summaryByLabel.get(label)
+        return summary ? [summary] : []
+    })
 }
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
