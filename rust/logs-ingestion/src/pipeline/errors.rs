@@ -1,6 +1,3 @@
-//! JavaScript error identity for the DLQ headers and the batch result, and the
-//! `retryOnDependencyUnavailableError` policy.
-
 use std::future::Future;
 use std::time::Duration;
 
@@ -23,8 +20,7 @@ impl NamedError {
     }
 }
 
-/// `DependencyUnavailableError`: an infrastructure outage, which fails the batch instead of
-/// quarantining the message.
+/// An infrastructure outage, which fails the batch instead of quarantining the message.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
 pub struct DependencyUnavailableError {
@@ -60,7 +56,7 @@ pub const PER_MESSAGE_KAFKA_ERROR_CODES: [i32; 8] = [
     ERR_INVALID_TYPE,
 ];
 
-/// `rethrowKafkaOutageAsDependency`: a Kafka outage on the logs produce replays the batch.
+/// A Kafka outage on the logs produce replays the batch.
 pub fn kafka_outage_as_dependency(error: anyhow::Error) -> anyhow::Error {
     match error.downcast_ref::<KafkaProduceError>() {
         Some(e) if !PER_MESSAGE_KAFKA_ERROR_CODES.contains(&e.code) => {
@@ -77,7 +73,6 @@ pub fn is_dependency_unavailable(error: &anyhow::Error) -> bool {
     error.downcast_ref::<DependencyUnavailableError>().is_some()
 }
 
-/// `error instanceof Error ? error.name : 'UnknownError'`.
 pub fn error_name(error: &anyhow::Error) -> String {
     if let Some(e) = error.downcast_ref::<NamedError>() {
         return e.name.clone();

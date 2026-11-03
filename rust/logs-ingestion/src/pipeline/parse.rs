@@ -1,5 +1,3 @@
-//! Port of `pipeline/parse-logs-message-step.ts`.
-
 use std::sync::Arc;
 
 use ingestion_framework::{drop, ok, KafkaMessage, Outcome, PipelineResult, ProcessingStep};
@@ -101,8 +99,7 @@ async fn parse(
     }))
 }
 
-/// Reads the capture-logs headers and resolves the team. A failed quarantine is carried as a
-/// result, so the batch fails only once every message has settled.
+/// A failed quarantine is carried as a result, so the batch fails only once every message has settled.
 pub fn create_settled_parse_step(
     context: Arc<LogsPipelineContext>,
 ) -> ProcessingStep<Arc<KafkaMessage>, ParseOutcome> {

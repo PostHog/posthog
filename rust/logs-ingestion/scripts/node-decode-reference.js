@@ -1,9 +1,4 @@
-// Decodes every input message of the parity corpus the way the Node consumer does, and writes
-// the result per message: the error message, or a hash of the canonical decoded records.
-//
-// Run from the repository root:
-//   NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-decode-reference.js
-// The Rust test `tests/avro_parity.rs` reads the output.
+// Run from the repository root: NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-decode-reference.js
 const avro = require('avsc')
 const { compress, decompress } = require('@mongodb-js/zstd')
 const { Readable } = require('stream')
@@ -68,7 +63,6 @@ function zigzag(n) {
     return Buffer.from(bytes)
 }
 
-// A container with the given block bodies, each block written as (count, zstd(data), sync).
 async function container(schema, blocks, { sync = Buffer.alloc(16, 7), badSyncAt = -1, rawData = false } = {}) {
     const schemaText = Buffer.from(JSON.stringify(schema))
     const header = Buffer.concat([

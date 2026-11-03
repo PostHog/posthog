@@ -1,9 +1,6 @@
-//! JavaScript `parseFloat`.
-
 use crate::js::{CharOrSurrogate, JsString};
 
-/// ECMAScript WhiteSpace and LineTerminator, which `parseFloat` skips at the start.
-/// Rust's `char::is_whitespace` differs: it includes U+0085 and excludes U+FEFF.
+/// Rust's `char::is_whitespace` includes U+0085 and excludes U+FEFF, unlike ECMAScript.
 fn is_js_whitespace(c: char) -> bool {
     matches!(
         c,
@@ -26,8 +23,6 @@ fn is_js_whitespace(c: char) -> bool {
     )
 }
 
-/// `parseFloat(s)`: the longest prefix that is a StrDecimalLiteral, after leading whitespace.
-/// NaN when there is no such prefix.
 pub fn js_parse_float(s: &JsString) -> f64 {
     // Only ASCII can be part of the literal, so a lone surrogate ends it like any other char.
     let mut chars = s.chars_or_surrogates().peekable();

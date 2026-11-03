@@ -1,5 +1,3 @@
-//! Port of `tally.ts`, except `MetricSeriesAdmission` (see `admission`).
-
 use super::compile::CompiledMetricRule;
 use super::ordered::InsertionMap;
 use super::parse_float::js_parse_float;
@@ -15,7 +13,6 @@ pub const MAX_LABEL_SETS_PER_RULE: usize = 1000;
 /// Not valid JSON, so no real label set (always a JSON array) can collide with it.
 pub const OVERFLOW_LABEL_KEY: &str = "__overflow__";
 
-/// The OTel SDK default explicit bucket bounds.
 pub const DEFAULT_HISTOGRAM_BOUNDS: [f64; 15] = [
     0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0, 7500.0,
     10000.0,
@@ -27,7 +24,6 @@ pub const MAX_LABEL_VALUE_LENGTH: usize = 256;
 /// Older records never feed a metric, so a backfill cannot distort the current data point.
 pub const MAX_RECORD_AGE_MS: f64 = 20.0 * 60.0 * 1000.0;
 
-/// Pseudo value-attribute key for a span's `end_time - timestamp`, in milliseconds.
 pub const SPAN_VALUE_DURATION_MS: &str = "duration_ms";
 
 const ATTRIBUTES_PREFIX: &str = "attributes.";
@@ -53,8 +49,7 @@ fn span_kind_label(kind: i64) -> Option<&'static str> {
     }
 }
 
-/// A label value. Attribute maps are plain objects in Node, so `attributes.constructor` reads an
-/// `Object.prototype` member, and the label is that member instead of a string.
+/// Node attribute maps are plain objects, so `attributes.constructor` reads an `Object.prototype` member instead of a string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LabelValue {
     String(JsString),
@@ -69,7 +64,6 @@ impl LabelValue {
         LabelValue::String(JsString::new())
     }
 
-    /// The value as `JSON.stringify` sees it. `None` is a function.
     pub fn to_json(&self) -> Option<JsValue> {
         match self {
             LabelValue::String(s) => Some(JsValue::String(s.clone())),
@@ -102,7 +96,6 @@ pub struct BatchTallies {
     pub by_rule: InsertionMap<InsertionMap<MetricTallyEntry>>,
     pub series_overflow: InsertionMap<u64>,
     pub value_skipped: u64,
-    /// Filter evaluations that failed. The record is skipped for that rule only.
     pub eval_errors: u64,
 }
 
@@ -152,7 +145,7 @@ fn lookup_key(key: &JsString, record: &LogRecord) -> Result<Option<LabelValue>, 
     })
 }
 
-/// `decodedAttr`: attribute values are JSON-encoded on the wire, so a label reads the decoded value.
+/// Attribute values are JSON-encoded on the wire, so a label reads the decoded value.
 fn decoded_attr(map: Option<&AvroMap>, key: &str) -> Result<Option<LabelValue>, JsTypeError> {
     let Some(map) = map else {
         return Ok(None);
@@ -169,8 +162,7 @@ fn decoded_attr(map: Option<&AvroMap>, key: &str) -> Result<Option<LabelValue>, 
     })
 }
 
-/// `resolveLabelValue`: missing is `''`, and a string is cut at 256 UTF-16 units. The cut can
-/// split a surrogate pair; `JSON.stringify` then writes the lone half as `\udxxx`.
+/// The 256-unit cut can split a surrogate pair, and `JSON.stringify` then writes the lone half as `\udxxx`.
 pub fn resolve_label_value(key: &JsString, record: &LogRecord) -> Result<LabelValue, JsTypeError> {
     Ok(match lookup_key(key, record)? {
         Some(LabelValue::String(value)) if value.utf16_len() > MAX_LABEL_VALUE_LENGTH => {
@@ -243,8 +235,7 @@ fn resolve_numeric_value(key: &JsString, record: &LogRecord) -> Result<Option<f6
     Ok(parsed.is_finite().then_some(parsed))
 }
 
-/// Node's base64 decoder (`Buffer.from(s, 'base64')`): it skips characters outside the
-/// alphabet, accepts the URL-safe alphabet too, and stops at the first `=`.
+/// Node's `Buffer.from(s, 'base64')` skips characters outside the alphabet, accepts URL-safe too, and stops at the first `=`.
 fn node_base64_decode(input: &[u8]) -> Vec<u8> {
     fn sextet(c: u8) -> Option<u32> {
         Some(match c {
@@ -280,8 +271,7 @@ fn node_base64_decode(input: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `idToHex`: lowercase hex of a trace or span id, or `None` when absent, all zero, or
-/// unparseable. capture-logs writes the ids as base64 text, so a length mismatch decodes it.
+/// capture-logs writes the ids as base64 text, so a length mismatch decodes it.
 pub fn id_to_hex(buffer: Option<&[u8]>, expected_bytes: usize) -> Option<String> {
     let buffer = buffer.filter(|b| !b.is_empty())?;
     let decoded;
@@ -304,8 +294,7 @@ pub fn id_to_hex(buffer: Option<&[u8]>, expected_bytes: usize) -> Option<String>
 
 pub type AdmitLabelSet<'a> = &'a mut dyn FnMut(&str, &str) -> bool;
 
-/// `Err` is a throw that Node does not catch: a label or value read of a prototype member such as
-/// `attributes.__defineGetter__`. The tallies keep what the earlier records added, as in Node.
+/// `Err` is a throw that Node does not catch. The tallies keep what earlier records added, as in Node.
 pub fn tally_records(
     rules: &[CompiledMetricRule],
     records: &[LogRecord],
@@ -317,8 +306,7 @@ pub fn tally_records(
         return Ok(());
     }
     for record in records {
-        // A span's timestamp is its start, so gate on end_time to keep long spans.
-        // A null timestamp means "now" to ingestion, so it passes.
+        // A span's timestamp is its start, so gate on end_time. A null timestamp means "now", so it passes.
         let observed_at_micros = record.end_time().or_else(|| record.timestamp());
         if let Some(micros) = observed_at_micros {
             if now_ms - micros as f64 / 1000.0 > MAX_RECORD_AGE_MS {

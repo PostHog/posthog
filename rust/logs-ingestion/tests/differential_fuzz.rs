@@ -1,6 +1,4 @@
-//! Replays the seeded Node corpus in `tests/fixtures/fuzz` (from `scripts/fuzz-generate.ts`).
-//! The comparison is semantic, as the parity contract in PORTING.md states: numbers compare as
-//! doubles, also inside JSON text, and two errors match whatever their text.
+//! Numbers compare as doubles, also inside JSON text, and two errors match whatever their text, as the parity contract in PORTING.md states.
 
 mod common;
 
@@ -70,8 +68,6 @@ fn opt_string(v: &JsValue) -> Option<String> {
     (*v != JsValue::Null).then(|| string(v))
 }
 
-/// Deep equality where numbers compare as doubles and strings also match when both hold JSON
-/// that is the same in this sense.
 fn same(a: &JsValue, b: &JsValue) -> bool {
     match (a, b) {
         (JsValue::String(x), JsValue::String(y)) => same_text(x, y),

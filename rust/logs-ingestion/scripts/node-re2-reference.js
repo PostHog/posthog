@@ -1,8 +1,4 @@
-// Writes tests/fixtures/re2-reference.json: for each pattern and flag set, whether node-re2
-// compiles it, and `test` on each input. The Rust test `tests/re2_parity.rs` replays it.
-//
-// Run from the repository root:
-//   NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-re2-reference.js
+// Run from the repository root: NODE_PATH=nodejs/node_modules node rust/logs-ingestion/scripts/node-re2-reference.js
 const RE2 = require('re2')
 const fs = require('fs')
 const path = require('path')

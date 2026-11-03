@@ -1,6 +1,3 @@
-//! Replays the per-function vectors that the Node code recorded in
-//! `nodejs/src/logs/parity/fixtures/modules`.
-
 mod common;
 
 use common::{cases, get, string};

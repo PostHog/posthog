@@ -1,6 +1,3 @@
-//! Port of `nodejs/src/logs/pipeline/` and `logs-ingestion-consumer.ts`: the consumer on the
-//! ingestion framework, with the same steps, pipeline shapes and failure semantics.
-
 pub mod admission;
 pub mod app_metrics;
 pub mod buffer;

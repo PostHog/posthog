@@ -1,9 +1,4 @@
-//! JavaScript strings, which are UTF-16 and can hold a lone surrogate.
-//!
-//! `JSON.parse('"\\ud800"')` and `str.slice(0, n)` across an emoji both make a lone surrogate.
-//! `JSON.stringify` writes it back as `\ud800`, and `Buffer.from` writes it as U+FFFD. A Rust
-//! `String` cannot hold it, so `JsString` stores WTF-8: UTF-8 that also encodes a lone surrogate
-//! as its 3-byte generalized form (ED A0 80 to ED BF BF).
+//! A Rust `String` cannot hold a lone surrogate, so `JsString` stores WTF-8, where a lone surrogate takes its 3-byte form.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -32,8 +27,7 @@ impl JsString {
         if self.lone_surrogates > 0 {
             None
         } else {
-            // SAFETY: without a lone surrogate the bytes are valid UTF-8 by construction.
-            // A checked conversion would scan the whole string on every comparison and lookup.
+            // SAFETY: without a lone surrogate the bytes are valid UTF-8 by construction, and a checked conversion would rescan.
             // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             Some(unsafe { std::str::from_utf8_unchecked(&self.bytes) })
         }
@@ -94,8 +88,7 @@ impl JsString {
         }
     }
 
-    /// Appends one UTF-16 code unit. A low surrogate after a lone high surrogate joins it into
-    /// one code point, as concatenation does in JavaScript.
+    /// A low surrogate after a lone high surrogate joins it into one code point, as JavaScript concatenation does.
     pub fn push_code_unit(&mut self, unit: u16) {
         if !(0xD800..=0xDFFF).contains(&unit) {
             self.push(char::from_u32(unit as u32).expect("non-surrogate unit is a char"));
@@ -199,7 +192,6 @@ impl JsString {
         }
     }
 
-    /// `Buffer.byteLength(str)`: the UTF-8 length, three bytes per lone surrogate.
     pub fn utf8_byte_len(&self) -> usize {
         // WTF-8 encodes a lone surrogate in three bytes, the same as U+FFFD.
         self.bytes.len()
@@ -315,10 +307,7 @@ pub fn utf16_len(s: &str) -> usize {
     s.chars().map(char::len_utf16).sum()
 }
 
-/// `str.slice(0, end)` written out as `Buffer.from` would: a split surrogate pair leaves a
-/// lone high surrogate, which becomes U+FFFD. Use it only where the slice goes straight to
-/// bytes, such as the pattern output cap; use `JsString::utf16_slice` where it can reach
-/// `JSON.stringify`.
+/// Use it only where the slice goes straight to bytes. Use `JsString::utf16_slice` where it can reach `JSON.stringify`.
 pub fn utf16_slice_lossy(s: &str, start: usize, end: usize) -> String {
     if s.is_ascii() {
         let end = end.min(s.len());

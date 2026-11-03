@@ -1,21 +1,16 @@
-//! `JSON.parse` and `JSON.stringify` with V8's results.
-
 use thiserror::Error;
 
 use super::number::write_number;
 use super::{JsKey, JsObject, JsString, JsValue};
 
-/// `JSON.parse` threw. The message is not part of any output, so it stays short.
 #[derive(Debug, Error, PartialEq, Eq)]
 #[error("invalid JSON at byte {0}")]
 pub struct JsonError(pub usize);
 
-/// Past this depth `json_parse` checks an array or object but keeps an empty array in its place.
-/// A value that deep would overflow the stack when it is dropped or walked, and every reader
-/// stops before this depth. See PORTING.md.
+/// A deeper value would overflow the stack when dropped or walked, so it builds as an empty array. Every reader stops first.
 pub const MAX_BUILT_DEPTH: usize = 512;
 
-/// `JSON.parse(text)`. It accepts and rejects exactly what V8 does at any nesting depth.
+/// Accepts and rejects exactly what V8 does at any nesting depth.
 pub fn json_parse(text: &str) -> Result<JsValue, JsonError> {
     let mut parser = Parser {
         bytes: text.as_bytes(),
@@ -34,15 +29,13 @@ pub fn json_parse(text: &str) -> Result<JsValue, JsonError> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsonShape {
-    /// The top-level keys in source order, repeats included. A string value is kept for each
-    /// key the caller asked for, and `None` stands for any other value.
+    /// A string value is kept only for the keys the caller asked for, and `None` stands for any other value.
     Object(Vec<(JsString, Option<JsString>)>),
     Array,
     String(JsString),
     Primitive,
 }
 
-/// Accepts exactly the text `json_parse` accepts, and reports its shape.
 pub fn json_parse_shape(
     text: &str,
     keep_value: impl Fn(&JsString) -> bool,
@@ -77,7 +70,6 @@ struct Parser<'a> {
     bytes: &'a [u8],
     text: &'a str,
     pos: usize,
-    /// Open arrays and objects around the value that `value` builds now.
     depth: usize,
 }
 
@@ -233,8 +225,7 @@ impl Parser<'_> {
         }
     }
 
-    /// Checks one value without building it. The open containers are on a heap stack, so any
-    /// nesting depth is safe.
+    /// The open containers are on a heap stack, so any nesting depth is safe.
     fn skip_value(&mut self) -> Result<(), JsonError> {
         let mut open: Vec<u8> = Vec::new();
         loop {
@@ -508,8 +499,7 @@ fn push_escape(c: u32, out: &mut String) {
     }
 }
 
-/// `JSON.stringify` of a string. Lone surrogates are written as `\udXXX`, as in well-formed
-/// `JSON.stringify` (ES2019).
+/// Lone surrogates are written as `\udXXX`, as in well-formed `JSON.stringify` (ES2019).
 pub fn quote_js_string(s: &JsString, out: &mut String) {
     out.push('"');
     match s.as_str() {

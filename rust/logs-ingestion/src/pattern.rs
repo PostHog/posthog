@@ -1,11 +1,4 @@
-//! Port of `nodejs/src/logs/log-pattern-mask.ts` and the stamping in `log-pattern-stage.ts`.
-//!
-//! The masking regexes run on RE2 in Node. `pii::translate_re2` gives them the same semantics.
-//!
-//! node-re2's `String.prototype.replace` rebuilds the result from UTF-8, so it writes each lone
-//! surrogate as U+FFFD, also when no rule matches. Node gives `'x\ud800'.replace(re, f)` as
-//! `'x�'`. Thus every masked string is valid UTF-8, and this port masks the lossy UTF-8 form
-//! of its input. Lengths agree, because U+FFFD and a lone surrogate are both one UTF-16 unit.
+//! node-re2's `replace` writes each lone surrogate as U+FFFD, even with no match, so this port masks the lossy UTF-8 form.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -19,7 +12,7 @@ use crate::record::LogRecord;
 
 pub const PATTERN_VERSION: i64 = 6;
 
-/// `PATTERN_CAPS`. Both caps count UTF-16 units.
+/// Both caps count UTF-16 units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PatternCaps {
     pub max_input_chars: usize,
@@ -43,8 +36,7 @@ pub struct MaskRule {
     pub replacement: &'static str,
 }
 
-// The TypeScript builds these from the MONTH, WEEKDAY, DAY_OF_MONTH, TIME_OF_DAY, YEAR and ZONE
-// fragments. The text here is that expansion. A test in this file rebuilds it from the fragments.
+// The expansion of the TypeScript's date fragments. A test in this file rebuilds it from the fragments.
 #[cfg(test)]
 const MONTH: &str = "(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)";
 #[cfg(test)]
@@ -225,7 +217,6 @@ pub struct LogPatternResult {
     pub pattern: String,
     pub body_kind: PatternBodyKind,
     pub input_capped: bool,
-    /// UTF-16 length of the pattern before the output cap.
     pub masked_length: usize,
     pub json_key_count: Option<usize>,
     pub rule_fires: RuleFires,
@@ -267,8 +258,7 @@ fn utf16_order(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// `jsonKeySetPattern`: masks each key, dedupes, then sorts by UTF-16 units. Sorting first and
-/// then dropping repeats gives the same list as the TypeScript's dedupe in insertion order.
+/// Sorting first and then dropping repeats gives the same list as the TypeScript's dedupe in insertion order.
 fn json_key_set_pattern(raw_keys: impl Iterator<Item = String>) -> (String, RuleFires) {
     let mut rule_fires = [0; MASK_RULES.len()];
     let mut keys: Vec<String> = raw_keys
@@ -298,14 +288,12 @@ pub fn select_pattern_input(body: Option<&str>, message_keys: &[&str]) -> Patter
     };
 
     let input_capped = utf16_len(body) > PATTERN_CAPS.max_input_chars;
-    // A cut through a surrogate pair leaves a lone high surrogate at the end. That text is
-    // never valid JSON, and the mask writes it as U+FFFD, so the lossy slice gives the same result.
+    // A cut pair leaves a lone high surrogate, which is never valid JSON and masks as U+FFFD, so the lossy slice agrees.
     let capped_body: Cow<'_, str> = if input_capped {
         Cow::Owned(utf16_slice_lossy(body, 0, PATTERN_CAPS.max_input_chars))
     } else {
         Cow::Borrowed(body)
     };
-    // `parseLogBodyForIngestion`, reading only what the selection needs.
     let shape = json_parse_shape(&capped_body, |key| message_keys.iter().any(|m| *key == *m));
     let mask = |input: String, body_kind| PatternInputSelection::Mask {
         input,
@@ -328,9 +316,7 @@ pub fn select_pattern_input(body: Option<&str>, message_keys: &[&str]) -> Patter
             json_key_count: None,
         },
         Ok(JsonShape::Object(entries)) => {
-            // `extractJsonMessage`: the first message key whose value is a string. A repeated
-            // key holds its last value. A key lookup in JavaScript also reads
-            // `Object.prototype`, but no inherited property there is a string.
+            // A repeated key holds its last value. No inherited `Object.prototype` property is a string, so the lookup ignores them.
             let message = message_keys.iter().find_map(|key| {
                 match entries.iter().rev().find(|(k, _)| *k == **key) {
                     Some((_, Some(value))) => Some(value.to_utf8_lossy().into_owned()),
@@ -417,8 +403,7 @@ pub fn build_log_pattern(body: Option<&str>, message_keys: &[&str]) -> LogPatter
     }
 }
 
-/// The TypeScript catches a throw and counts `logs_ingestion_pattern_stage_error_total`. Nothing
-/// here can fail, so this port has no such path.
+/// The TypeScript catches a throw here, but nothing here can fail.
 pub fn stamp_pattern_batch(records: &mut [LogRecord], message_keys: &[&str]) {
     let mut kind_counts: Vec<(PatternBodyKind, u64)> = Vec::new();
     let mut rule_fires = [0u64; MASK_RULES.len()];
@@ -517,8 +502,7 @@ mod tests {
         assert_eq!(result.pattern, format!("{}\u{FFFD}", "z".repeat(1023)));
     }
 
-    /// node-re2 writes each lone surrogate as U+FFFD, so keys that differ only by a lone
-    /// surrogate merge into one key after the mask.
+    /// Keys that differ only by a lone surrogate merge after the mask, because node-re2 writes U+FFFD.
     #[test]
     fn lone_surrogate_keys_merge_after_the_mask() {
         let result = build_log_pattern(Some(r#"{"\ud800":1,"\ud801":2,"b":3}"#), &MESSAGE_KEYS);

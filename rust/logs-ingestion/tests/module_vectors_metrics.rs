@@ -1,7 +1,3 @@
-//! Replays `metric_tally.json` from `nodejs/src/logs/parity/fixtures/modules`, and pins the
-//! label truncation, `idToHex` and `MetricSeriesAdmission` against values from Node
-//! (`tests/fixtures/metric-rules-reference.json`, made by `scripts/node-metric-rules-reference.ts`).
-
 use std::cmp::Ordering;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,8 +66,7 @@ fn js_sort_cmp(a: &JsString, b: &JsString) -> Ordering {
     units(a).cmp(&units(b))
 }
 
-/// The harness's `canonicalizeAvroValue` on a plain JSON value: keys sorted, then assigned
-/// to a new object, which lists array-index keys first again.
+/// Keys sorted, then assigned to a new object, which lists array-index keys first again.
 fn canonicalize(value: &JsValue) -> JsValue {
     match value {
         JsValue::Array(items) => JsValue::Array(items.iter().map(canonicalize).collect()),
@@ -89,7 +84,6 @@ fn canonicalize(value: &JsValue) -> JsValue {
     }
 }
 
-/// A record from its vector JSON form: bytes as `{ $bytes: hex }`, map key order kept.
 fn record_from_json(value: &JsValue) -> LogRecord {
     let to_avro = |v: &JsValue| -> AvroValue {
         match v {

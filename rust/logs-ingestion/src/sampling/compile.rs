@@ -1,8 +1,4 @@
-//! Port of `nodejs/src/logs/sampling/compile-rules.ts`.
-//!
-//! Rule rows come from Postgres JSON, so the parsers accept any JSON shape and give the result
-//! that the TypeScript gives for it. Two shapes make `compileRuleSet` throw, and the port returns
-//! an error for them: a row whose `config` is null, and a `filter_group` group with a null child.
+//! The parsers accept any JSON shape. A null `config` or a null `filter_group` child throws in `compileRuleSet`, so both are errors here.
 
 use std::sync::Arc;
 
@@ -20,9 +16,8 @@ use super::evaluate::{
     RuleType, SeverityAction,
 };
 
-/// Bound on groups plus leaves in one `filter_group`.
 pub const MAX_FILTER_GROUP_NODES: usize = 256;
-/// Bound on leaf values in one `filter_group`; an array value counts as its length.
+/// An array value counts as its length.
 pub const MAX_FILTER_GROUP_LEAF_VALUES: usize = 256;
 
 const MAX_LOGS_PER_SECOND: f64 = 1_000_000.0;
@@ -43,8 +38,7 @@ pub struct SamplingRuleRow {
     pub version: Option<i64>,
 }
 
-/// An own property of a JSON object; `undefined` for anything else, including primitives,
-/// whose properties are never these names.
+/// Primitives read as `undefined`, because their properties are never these names.
 fn prop<'a>(value: &'a JsValue, name: &str) -> Option<&'a JsValue> {
     match value {
         JsValue::Object(o) => o.get(name),
@@ -71,8 +65,7 @@ fn children(value: &JsValue) -> &[JsValue] {
     }
 }
 
-/// `filterGroupDepth`. Reading `.values` of a null child at any depth throws. The walk uses a
-/// heap stack, so a deep rule cannot overflow the thread stack.
+/// Reading `.values` of a null child throws at any depth. A heap stack keeps a deep rule off the thread stack.
 fn group_depth(node: &JsValue, depth: usize) -> Result<usize, JsTypeError> {
     let mut max_depth = depth;
     let mut stack = vec![(node, depth)];
@@ -127,8 +120,7 @@ fn to_group(node: &JsValue) -> FilterGroupNode {
     }
 }
 
-/// `parseFilterGroup`: `Ok(None)` for a missing or malformed group, or one past the depth, node
-/// or value bounds. Pass `JsValue::Null` for `undefined`. Regex leaves compile here.
+/// `Ok(None)` for a missing or malformed group, or one past the bounds. Pass `JsValue::Null` for `undefined`.
 pub fn parse_filter_group(raw: &JsValue) -> Result<Option<FilterGroupNode>, JsTypeError> {
     if !matches!(raw, JsValue::Object(_)) || !is_group(raw) {
         return Ok(None);
@@ -334,7 +326,7 @@ pub fn compile_rule_set(rows: &[SamplingRuleRow]) -> Result<CompiledRuleSet, JsT
     })
 }
 
-/// The trimmed key. A key with a lone surrogate keeps it, so it can never equal a map key.
+/// A key with a lone surrogate keeps it, so it can never equal a map key.
 fn trimmed_js(original: &JsString, trimmed: &str) -> JsString {
     if original.as_str().is_some() {
         JsString::from(trimmed)

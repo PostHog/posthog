@@ -1,5 +1,3 @@
-//! Port of `pipeline/process-log-message-step.ts`.
-
 use std::sync::{Arc, Mutex};
 
 use ingestion_framework::{ok, OutputMessage, ProcessingStep};
@@ -43,8 +41,7 @@ pub struct LogsProcessingInput {
     pub pass: LogsProcessingPass,
 }
 
-/// A message never fails its pass on its own: a dependency outage or a failed quarantine is
-/// carried in `failure`, and the pass fails once every message has settled.
+/// A message never fails its pass on its own: `failure` fails the pass once every message has settled.
 pub struct LogsProcessingOutcome {
     pub message: LogsIngestionMessage,
     pub quarantined: bool,

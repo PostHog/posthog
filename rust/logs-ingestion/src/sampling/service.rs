@@ -1,6 +1,3 @@
-//! Port of `nodejs/src/logs/sampling/logs-sampling.service.ts`: the sampling `filter` stage, with
-//! per-rule drop accounting and Redis token buckets for `rate_limit` rules.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -34,7 +31,7 @@ fn count_eval_error(team_id: i64, phase: &'static str, error: &dyn std::fmt::Dis
     tracing::warn!(team_id, %error, "[logs-sampling] rule evaluation threw, keeping record");
 }
 
-/// `safeClassifySamplingRecord`: an evaluation error keeps the record.
+/// An evaluation error keeps the record.
 fn safe_classify(
     rule_set: &CompiledRuleSet,
     record: &LogRecord,
@@ -157,8 +154,7 @@ impl LogsSamplingService {
         Ok(FilterResult { kept, stats })
     }
 
-    /// `applyRateLimits`: per record index, `Some(true)` to keep, `Some(false)` to drop, `None`
-    /// when no decision was made (the record is kept).
+    /// `None` means no decision, and the record is kept.
     async fn apply_rate_limits(
         &self,
         team_id: i64,

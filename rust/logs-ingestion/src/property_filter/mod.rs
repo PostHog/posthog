@@ -1,10 +1,4 @@
-//! Port of `nodejs/src/logs/sampling/property-filter-match.ts`: one property filter leaf against
-//! one value read from a record.
-//!
-//! A leaf comes straight from rule JSON, so its fields can hold any JSON value. Every operator
-//! coerces with JavaScript's `String()` and `parseFloat`, in the same order as the TypeScript,
-//! because `String()` throws for an object with an own `toString` key and the caller then fails
-//! open.
+//! Operators coerce with `String()` and `parseFloat` in the TypeScript order, because `String()` can throw and the caller then fails open.
 
 pub mod coerce;
 pub mod re2;
@@ -39,12 +33,11 @@ enum Operator {
     Lte,
     In,
     NotIn,
-    /// Any other operator, including a non-string one. It never matches.
+    /// Includes a non-string operator. It never matches.
     Unknown,
 }
 
 impl Operator {
-    /// `filter.operator ?? 'exact'`.
     fn from_json(value: Option<&JsValue>) -> Operator {
         let name = match value {
             None | Some(JsValue::Null) => return Operator::Exact,
@@ -83,8 +76,7 @@ pub struct PropertyFilterLeaf {
     pub value: Option<JsValue>,
     pub filter_type: Option<JsValue>,
     op: Operator,
-    /// `_compiledRegex`: `Some(None)` when the pattern failed to compile, so the leaf never
-    /// matches. `None` for leaves that are not regex leaves.
+    /// `Some(None)` when the pattern failed to compile, so the leaf never matches.
     compiled_regex: Option<Option<Arc<Re2>>>,
 }
 
@@ -97,8 +89,7 @@ impl PropertyFilterLeaf {
         let operator = field("operator");
         let value = field("value");
         let op = Operator::from_json(operator.as_ref());
-        // `parseFilterGroup` stamps a compiled regex on every leaf whose operator is literally
-        // 'regex' or 'not_regex'. The result is the same as compiling at match time.
+        // `parseFilterGroup` compiles every leaf whose operator is literally 'regex' or 'not_regex', which equals compiling at match time.
         let compiled_regex = match operator.as_ref() {
             Some(JsValue::String(s)) if s == "regex" || s == "not_regex" => Some(match &value {
                 None | Some(JsValue::Null) => None,
@@ -133,14 +124,12 @@ impl PropertyFilterLeaf {
     }
 }
 
-/// `compileLeafRegex`: RE2 with the `i` and `s` flags, or `None` when it does not compile.
 pub fn compile_leaf_regex(pattern: &JsValue) -> Option<Arc<Re2>> {
     let text = js_to_string(pattern).ok()?;
     Re2::new(text.bytes_wtf8(), "is").ok().map(Arc::new)
 }
 
-/// `matchPropertyFilter`. `override_value` is `String()` of the value read from the record, or
-/// `None` for `undefined` and `null`.
+/// `override_value` is `String()` of the record value, or `None` for `undefined` and `null`.
 pub fn match_property_filter(
     filter: &PropertyFilterLeaf,
     override_value: Option<&JsString>,

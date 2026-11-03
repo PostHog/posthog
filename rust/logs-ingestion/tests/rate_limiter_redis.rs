@@ -1,7 +1,3 @@
-//! Replays `tests/fixtures/rate-limiter-reference.json` against the local Redis and compares every
-//! decision and the final bucket state with what the TypeScript produced. The fixture comes from
-//! `scripts/node-rate-limiter-reference.ts`.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

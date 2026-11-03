@@ -1,11 +1,5 @@
-//! Port of the normalize half of `nodejs/src/logs/log-record-avro.ts` (PII scrub, JSON attribute
-//! extraction from a selected attribute and from the body) and of `log-record-size.ts`.
-//!
-//! The flatten keeps or evicts attributes by JavaScript object key order: array-index keys come
-//! first in ascending order, then other keys in insertion order. `FlatAttributes` keeps that order.
-//!
-//! The TypeScript also adds each enrichment skip to an OpenTelemetry counter
-//! (`recordJsonEnrichmentSkipped`). This port emits only the Prometheus counter.
+//! The flatten keeps or evicts attributes by JavaScript key order: array-index keys first, then insertion order.
+//! Only the Prometheus counter counts enrichment skips, where the TypeScript also adds an OpenTelemetry counter.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -32,7 +26,7 @@ pub const MAX_JSON_DEPTH: usize = 128;
 // The flatten must stop before it can reach a value that `json_parse` did not build.
 const _: () = assert!(MAX_JSON_DEPTH < crate::js::MAX_BUILT_DEPTH);
 
-/// `LogsSettings` from `nodejs/src/types.ts`. A missing key reads as `undefined`.
+/// A missing key reads as `undefined`.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct LogsSettings {
     #[serde(default)]
@@ -50,7 +44,7 @@ pub struct LogsSettings {
 }
 
 impl LogsSettings {
-    /// `Boolean(settings.json_parse_logs_attribute_key)`: an empty key is off.
+    /// An empty key is off, as `Boolean(key)` is.
     pub fn attribute_key(&self) -> Option<&str> {
         self.json_parse_logs_attribute_key
             .as_deref()
@@ -58,8 +52,6 @@ impl LogsSettings {
     }
 }
 
-/// `logRecordSizeBytes`: UTF-8 bytes of the body, the severity text, and each key and value of
-/// `attributes` and `resource_attributes`.
 pub fn log_record_size_bytes(record: &LogRecord) -> usize {
     let mut bytes = 0;
     for value in [record.body(), record.severity_text()]
@@ -103,11 +95,7 @@ fn record_json_enrichment_skip(reason: &'static str, source: JsonEnrichmentSourc
     .increment(1);
 }
 
-/// The regex `/^[ \t\r\n]*"?(?:[ \t\r\n]|\\[nrt])*[{\[]/` on `value.slice(0, 64)`.
-///
-/// No piece of the regex can trade characters with another piece, so one forward scan decides
-/// it. Every character that the regex consumes is ASCII, so 64 UTF-16 units are 64 bytes up to
-/// the point where the scan stops.
+/// Every character the regex consumes is ASCII, so 64 UTF-16 units are 64 bytes up to where the scan stops.
 fn looks_like_json(value: &str) -> bool {
     let bytes = &value.as_bytes()[..value.len().min(64)];
     let is_space = |b: u8| matches!(b, b' ' | b'\t' | b'\r' | b'\n');
@@ -182,8 +170,7 @@ pub struct FlattenResult {
     pub attributes: FlatAttributes,
 }
 
-/// One key of the `result` and `attributes` objects of `flattenJsonWithBudget`, which always
-/// hold the same keys. `value` is kept only when the caller asks for `result`.
+/// `result` and `attributes` always hold the same keys, so one entry holds both.
 struct FlatEntry {
     key: JsString,
     value: Option<JsValue>,
@@ -287,9 +274,7 @@ enum Leaf<'a> {
     Stringified(String),
 }
 
-/// The state of `flattenJsonWithBudget`. The TypeScript walks an explicit stack that pops
-/// children in key order. This walk recurses in the same order and makes the same budget
-/// updates at each node, so it fails and evicts exactly where the TypeScript does.
+/// Recurses in the TypeScript stack order with the same budget updates per node, so it evicts exactly where the TypeScript does.
 struct Flattener {
     max_attributes: usize,
     max_bytes: usize,
@@ -550,8 +535,7 @@ pub fn extract_json_attributes_from_body(body: Option<&str>) -> FlatAttributes {
     json_attributes_from_body_parse(&parse_log_body_for_ingestion(body))
 }
 
-/// A key with a lone surrogate is a distinct key in JavaScript, and avsc writes it as U+FFFD. An
-/// `AvroMap` key is a Rust string, so such a key merges with a U+FFFD key here. See PORTING.md.
+/// A key with a lone surrogate merges here with a U+FFFD key, where JavaScript keeps two keys. See PORTING.md.
 fn add_json_attributes(
     record: &mut LogRecord,
     json_attributes: FlatAttributes,
@@ -587,7 +571,7 @@ fn add_json_attributes(
     record.set("attributes", AvroValue::Map(merged));
 }
 
-/// `enrichLogRecordWithJsonAttributes`. Pass `body_parse` to reuse a parse of the same body.
+/// Pass `body_parse` to reuse a parse of the same body.
 pub fn enrich_log_record_with_json_attributes(
     record: &mut LogRecord,
     body_parse: Option<&LogBodyParseResult>,
@@ -624,11 +608,7 @@ pub fn enrich_log_record_with_json_attributes(
     );
 }
 
-/// `JSON.parse` of a JavaScript string that can hold a lone surrogate.
-///
-/// A raw lone surrogate is valid only inside a JSON string literal, and there it means the same
-/// as its `\uXXXX` escape. So the text is rewritten with escapes. After an odd run of
-/// backslashes the raw surrogate would follow an escape, which `JSON.parse` rejects.
+/// A raw lone surrogate inside a string literal means its `\uXXXX` escape, so the text is rewritten with escapes.
 fn json_parse_js(text: &JsString) -> Option<JsValue> {
     if let Some(text) = text.as_str() {
         return json_parse(text).ok();
@@ -691,9 +671,7 @@ pub fn enrich_log_record_from_json_attribute(record: &mut LogRecord, key: &str) 
     }
 }
 
-/// `transformDecodedLogRecordsInPlace`: scrub first, then enrich from the selected attribute,
-/// then from the body. So sender attributes win over selected-attribute fields, and those win
-/// over body fields.
+/// Sender attributes win over selected-attribute fields, and those win over body fields.
 pub fn transform_decoded_log_records_in_place(
     records: &mut [LogRecord],
     settings: &LogsSettings,
@@ -710,8 +688,7 @@ pub fn transform_decoded_log_records_in_place(
         }
     }
     if settings.json_parse_logs.unwrap_or(false) {
-        // Node parses every body before it enriches any record. No enrichment changes a body,
-        // so one parse per record in the same loop gives the same result.
+        // No enrichment changes a body, so one parse per record in this loop equals Node's parse-all-first order.
         for record in records.iter_mut() {
             let parse = parse_log_body_for_ingestion(
                 record.body().filter(|b| b.len() <= MAX_LOG_RECORD_BYTES),
@@ -722,7 +699,7 @@ pub fn transform_decoded_log_records_in_place(
     pii
 }
 
-/// `BufferProcessingMode`, cheapest first.
+/// Cheapest first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BufferProcessingMode {
     Passthrough,

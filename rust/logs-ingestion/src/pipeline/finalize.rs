@@ -1,5 +1,3 @@
-//! Port of `pipeline/finalize-logs-batch.ts`.
-
 use metrics::counter;
 use uuid::Uuid;
 
@@ -33,7 +31,6 @@ pub fn queue_internal_logs_usage(context: &LogsPipelineContext, internal: &[Logs
     }
 }
 
-/// One OTLP payload per team. Emission is best effort and never fails log ingestion.
 pub async fn emit_metric_rule_tallies(
     context: &LogsPipelineContext,
     by_team: &MetricTalliesByTeam,

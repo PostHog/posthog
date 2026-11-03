@@ -1,5 +1,3 @@
-//! `MetricSeriesAdmission` from `tally.ts`.
-
 use std::collections::{HashMap, HashSet};
 
 use hmac::{Hmac, Mac};
@@ -13,15 +11,13 @@ const SERIES_WINDOW_MS: f64 = 60.0 * 60.0 * 1000.0;
 pub const MAX_ADMITTED_LABEL_SETS_PER_TEAM: usize = 5_000;
 pub const MAX_ADMITTED_LABEL_SETS: usize = 500_000;
 
-/// Bounds the label sets each rule admits per hour in this process. Batch tallies start empty,
-/// so without this bound a rule whose labels change every batch stores new series without limit.
+/// Batch tallies start empty, so without this bound a rule whose labels change every batch stores new series without limit.
 #[derive(Debug, Clone)]
 pub struct MetricSeriesAdmission {
     max_per_rule: usize,
     max_per_team: usize,
     max_total: usize,
-    /// A random key per process. A team cannot then make colliding labels offline, so a
-    /// collision cannot admit label sets past the cap.
+    /// A random key per process stops a team from making colliding labels offline to pass the cap.
     hash_key: [u8; 32],
     window: f64,
     admitted: HashMap<String, HashSet<u64>>,

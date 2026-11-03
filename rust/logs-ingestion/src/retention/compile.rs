@@ -1,5 +1,3 @@
-//! Port of `compile-retention-rules.ts`.
-
 use crate::js::JsValue;
 use crate::property_filter::coerce::JsTypeError;
 use crate::sampling::parse_filter_group;
@@ -16,7 +14,7 @@ pub struct RetentionRuleRow {
     pub version: Option<i64>,
 }
 
-/// `compileRetentionRuleSet`. A `filter_group` with a null child makes the TypeScript throw.
+/// A `filter_group` with a null child makes the TypeScript throw.
 pub fn compile_retention_rule_set(
     rows: &[RetentionRuleRow],
 ) -> Result<CompiledRetentionRuleSet, JsTypeError> {

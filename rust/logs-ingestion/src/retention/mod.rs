@@ -1,6 +1,3 @@
-//! Port of `nodejs/src/logs/retention/`: `compile-retention-rules.ts`, `evaluate-retention.ts`,
-//! `retention-stage.ts` and `retention-expired-stage.ts`.
-
 pub mod compile;
 pub mod evaluate;
 pub mod expired;

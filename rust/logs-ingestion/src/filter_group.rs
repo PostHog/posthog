@@ -1,9 +1,4 @@
-//! Port of `nodejs/src/logs/sampling/filter-group-match.ts`: the recursive AND/OR matcher for a
-//! drop rule's `filter_group`, and the key lookup against log and span records.
-//!
-//! An attribute map in Node is a plain object, so `map[key]` also finds `Object.prototype`
-//! members. A filter whose key is `constructor` or `toString` therefore reads a function, and
-//! `__defineGetter__` makes the attribute decoder throw. `lookup_attribute` reproduces this.
+//! Node attribute maps are plain objects, so `map[key]` also finds `Object.prototype` members, and `lookup_attribute` reproduces this.
 
 use std::borrow::Cow;
 
@@ -35,12 +30,10 @@ pub enum FilterNode {
     Leaf(Box<PropertyFilterLeaf>),
 }
 
-/// A `Object.prototype` member that `map[key]` returns when the map has no own `key`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InheritedMember {
-    /// `String(member)`.
     pub text: &'static str,
-    /// `member.length`, which `decodeLogAttributeValue` reads first. `None` for `__proto__`.
+    /// `decodeLogAttributeValue` reads this first. `None` for `__proto__`.
     pub length: Option<u32>,
 }
 

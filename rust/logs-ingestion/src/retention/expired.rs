@@ -1,5 +1,3 @@
-//! Port of `retention-expired-stage.ts`: drops rows whose timestamp plus retention is already past.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -27,8 +25,7 @@ pub fn can_hold_expired_row(
         .is_some_and(|ts| is_past_retention(ts, shortest_retention_days, now_micros))
 }
 
-/// `isExpired`: the row's `retention_days` when above 0, else the team default, as ClickHouse's
-/// `original_expiry_timestamp` does.
+/// The row's `retention_days` when above 0, else the team default, as ClickHouse's `original_expiry_timestamp` does.
 pub fn is_expired(record: &LogRecord, default_retention_days: f64, now_micros: f64) -> bool {
     let Some(timestamp) = record.timestamp() else {
         return false;

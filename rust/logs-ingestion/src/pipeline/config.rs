@@ -1,5 +1,3 @@
-//! The consumer settings that `LogsIngestionConsumer` reads from `LogsIngestionConsumerConfig`.
-
 use crate::js::{JsObject, JsValue};
 
 #[derive(Debug, Clone, Default, PartialEq)]

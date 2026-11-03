@@ -1,8 +1,4 @@
-//! JavaScript semantics that the Node consumer's output depends on.
-//!
-//! The Node consumer writes values that come from `JSON.parse`, `JSON.stringify`, JS object key
-//! order, UTF-16 string lengths and `Date.parse`. Rust defaults differ on each of these, so the
-//! port goes through this module wherever such a value reaches an output.
+//! Rust defaults differ from `JSON.parse`, `JSON.stringify`, JS key order, UTF-16 lengths and `Date.parse`, so outputs go through this module.
 
 mod date;
 mod json;

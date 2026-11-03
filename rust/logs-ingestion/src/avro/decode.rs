@@ -6,8 +6,7 @@ use super::schema::Schema;
 use super::value::{AvroMap, AvroValue};
 use super::{AvroError, Container, MAGIC};
 
-/// avsc's `Tap`. A read past the end does not fail: it moves the position past the end, and
-/// the caller checks `is_valid` afterwards, as avsc does.
+/// A read past the end moves the position past the end and does not fail. The caller checks `is_valid`, as avsc does.
 pub(crate) struct Tap<'a> {
     pub buf: &'a [u8],
     pub pos: usize,
@@ -18,8 +17,7 @@ const SAFE_LONG: f64 = 9007199254740990.0;
 
 const MAX_ARRAY_LENGTH: f64 = 4_294_967_295.0;
 
-/// A block of records that read no bytes repeats one value; Node runs out of memory on a large
-/// count of them, and this port stops instead.
+/// Node runs out of memory on a large count of empty records, and this port stops instead.
 const MAX_EMPTY_RECORDS: u64 = 1 << 20;
 
 fn precision_loss() -> AvroError {
@@ -46,9 +44,7 @@ impl<'a> Tap<'a> {
         b
     }
 
-    /// avsc's `readLong`: 32-bit integer steps for 28 bits, then float arithmetic. The Node
-    /// consumer patches avsc 5.7.9 to stop at 10 bytes: an 11th byte invalidates the tap and
-    /// gives 0. So every long is a finite integer. See PORTING.md.
+    /// The Node consumer patches avsc 5.7.9 to stop at 10 bytes, so an 11th byte invalidates the tap and every long is finite. See PORTING.md.
     pub fn read_long(&mut self) -> f64 {
         let mut n: i32 = 0;
         let mut k = 0;
@@ -89,8 +85,7 @@ impl<'a> Tap<'a> {
         while self.byte() & 0x80 != 0 {}
     }
 
-    /// A read past the end leaves the tap invalid. avsc moves `pos` by any length, but every
-    /// later read past the end gives zeros either way, so the exact position does not matter.
+    /// avsc moves `pos` by any length, but every later read past the end gives zeros, so the exact position does not matter.
     pub fn read_fixed(&mut self, len: usize) -> Option<&'a [u8]> {
         let start = self.pos;
         match start.checked_add(len) {
@@ -128,7 +123,7 @@ impl<'a> Tap<'a> {
         self.buf.len().saturating_sub(self.pos)
     }
 
-    /// avsc's `readArraySize`: a negative count carries a byte size, which it skips.
+    /// A negative count carries a byte size, which avsc skips.
     fn read_array_size(&mut self) -> f64 {
         let n = self.read_long();
         if n < 0.0 {
@@ -139,8 +134,7 @@ impl<'a> Tap<'a> {
     }
 }
 
-/// Reads one value of `schema`. Errors are the ones avsc throws while reading; running out of
-/// data is not an error here, the caller sees it through `is_valid`.
+/// Running out of data is not an error here, because the caller sees it through `is_valid`.
 pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, AvroError> {
     Ok(match schema {
         Schema::Null => AvroValue::Null,
@@ -235,8 +229,7 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
                     break;
                 }
                 for _ in 0..n as u64 {
-                    // avsc names a key it could not read `undefined`; the tap is invalid by then,
-                    // so the record fails as a truncated block either way.
+                    // avsc names an unreadable key `undefined`, and the record fails as a truncated block either way.
                     let key = tap.read_string().unwrap_or_else(|| "undefined".to_string());
                     let value = read_value(tap, values)?;
                     out.assign(key, value);
@@ -262,8 +255,7 @@ struct Header {
     sync: [u8; 16],
 }
 
-/// avsc's header read: magic, a `map<bytes>` of metadata, and the sync marker. `None` means it
-/// ran out of data, which avsc treats as "wait for more" and ends with no metadata.
+/// `None` means it ran out of data, which avsc treats as "wait for more" and ends with no metadata.
 fn read_header(tap: &mut Tap<'_>) -> Option<Header> {
     tap.read_fixed(4)?;
     let mut meta = Vec::new();
@@ -299,14 +291,12 @@ fn read_header(tap: &mut Tap<'_>) -> Option<Header> {
     })
 }
 
-/// A single frame that states its size beyond this goes through the streaming decoder, which
-/// grows its buffer as data arrives instead of trusting the header.
+/// A larger stated size goes through the streaming decoder, which grows its buffer instead of trusting the header.
 const MAX_PRESIZED_FRAME: u64 = 64 << 20;
 
 const DEFAULT_WINDOW_LOG_MAX: u32 = 27;
 
-/// The window a frame header declares. The one-shot decoder does not apply zstd's default window
-/// limit, which the streaming decoder and Node both enforce, so such frames take the streaming path.
+/// The one-shot decoder skips zstd's default window limit, which Node enforces, so such frames take the streaming path.
 fn declared_window_exceeds_default(data: &[u8]) -> bool {
     let Some(&descriptor) = data.get(4) else {
         return true;
@@ -327,8 +317,7 @@ thread_local! {
     static DECOMPRESSOR: RefCell<Option<zstd::bulk::Decompressor<'static>>> = const { RefCell::new(None) };
 }
 
-/// `zstd::stream::decode_all`. One frame with a stated size decodes in one call on a reused
-/// context. Any other input, or any failure there, takes the streaming path, whose result counts.
+/// Any input other than one sized frame, or a failure there, takes the streaming path, whose result counts.
 fn inflate(data: &[u8]) -> std::io::Result<Vec<u8>> {
     use zstd::zstd_safe::{find_frame_compressed_size, get_frame_content_size};
     if let (Ok(len), Ok(Some(size))) = (
@@ -355,7 +344,7 @@ fn inflate(data: &[u8]) -> std::io::Result<Vec<u8>> {
     zstd::stream::decode_all(data)
 }
 
-/// `decodeLogRecords` from `log-record-avro.ts`, which registers only the zstandard codec.
+/// Only the zstandard codec is registered, as in `decodeLogRecords`.
 pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
     if buf.len() < MAGIC.len() {
         return Err(AvroError::NoMetadata);
@@ -381,9 +370,7 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
         .ok_or_else(|| AvroError::Schema("missing avro.schema".to_string()))?;
     let schema = Schema::parse_json_cached(&schema_json)?;
 
-    // avsc reads every complete block and checks its sync marker before any block decompresses,
-    // so a bad marker anywhere wins over a bad block before it. An incomplete trailing block
-    // is never read, and the stream ends without an error.
+    // avsc checks every complete block's sync marker before any block decompresses, and it never reads an incomplete trailing block.
     let mut blocks = Vec::new();
     loop {
         // avsc reads the count as a `long`, which throws before the rest of the block is read.
@@ -412,8 +399,7 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
             inflate(data).map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
         // The sender controls `count`, so the reservation is bounded by bytes actually inflated.
         records.reserve(((count as i64).clamp(0, 4096) as usize).min(inflated.len()));
-        // avsc keeps `count | 0`. A negative count never counts down to 0, so avsc reads records
-        // until one fails.
+        // avsc keeps `count | 0`, and a negative count reads records until one fails.
         let mut remaining = i64::from((count as i64) as i32);
         let mut block = Tap::new(&inflated);
         while remaining != 0 {

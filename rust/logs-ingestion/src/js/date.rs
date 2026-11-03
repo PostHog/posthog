@@ -1,15 +1,7 @@
-//! `Date.parse` as V8 implements it (`src/date/dateparser-inl.h`).
-//!
-//! The consumer reads the `created_at` header with `Date.parse` for the rate limiter clock and
-//! the internal-logs signature window. V8 first tries the ES5 ISO format and falls back to a
-//! lenient legacy parser, so this is a port of both, not of the ISO grammar alone.
-//!
-//! A string without a time zone is local time in V8. The consumer runs with `TZ=UTC`, so this
-//! port reads local time as UTC.
+//! V8 tries the ES5 ISO format, then a lenient legacy parser, so both are ported. The consumer runs with `TZ=UTC`, so local time is UTC.
 
 const NONE: i64 = i64::MIN;
-/// V8 checks a few composed values against the small-integer range of a 64-bit build with
-/// pointer compression (31 bits).
+/// V8 checks some composed values against the 31-bit small-integer range of a pointer-compressed build.
 const SMI_MAX: i64 = (1 << 30) - 1;
 const SMI_MIN: i64 = -(1 << 30);
 
@@ -87,8 +79,7 @@ impl Token {
     }
 }
 
-/// V8's keyword table. Words match on their first three lower-cased letters; a longer word
-/// matches only a month name.
+/// Words match on their first three lower-cased letters, and a longer word matches only a month name.
 const KEYWORDS: &[(&str, KeywordType, i64)] = &[
     ("jan", KeywordType::MonthName, 1),
     ("feb", KeywordType::MonthName, 2),
@@ -132,7 +123,6 @@ fn lookup_keyword(prefix: &[u32; 3], len: usize) -> (KeywordType, i64) {
     (KeywordType::Invalid, 0)
 }
 
-/// `IsWhiteSpaceOrLineTerminator` from V8.
 fn is_js_white_space(c: char) -> bool {
     matches!(
         c,
@@ -148,7 +138,6 @@ fn is_js_white_space(c: char) -> bool {
     ) || (c != '\u{a0}' && c.is_whitespace() && general_category_zs(c))
 }
 
-/// Space separators (Unicode category Zs) beyond the ones listed above.
 fn general_category_zs(c: char) -> bool {
     matches!(
         c,
@@ -175,7 +164,7 @@ impl Tokenizer {
         self.chars.get(self.pos).copied()
     }
 
-    /// V8's `IsAsciiAlphaOrAbove`: any character from 'A' up, which takes in non-ASCII text.
+    /// Any character from 'A' up, which takes in non-ASCII text.
     fn is_alpha_or_above(c: char) -> bool {
         c >= 'A'
     }
@@ -185,8 +174,7 @@ impl Tokenizer {
             return Token::End;
         };
         if c.is_ascii_digit() {
-            // V8's `ReadUnsignedNumeral`: skip leading zeros, keep 9 significant digits, and
-            // count every digit in the length.
+            // Skip leading zeros, keep 9 significant digits, and count every digit in the length, as V8 does.
             let start = self.pos;
             while self.ch() == Some('0') {
                 self.pos += 1;
@@ -502,8 +490,7 @@ fn read_milliseconds(token: Token) -> i64 {
     number
 }
 
-/// V8's `ParseES5DateTime`. Returns the first token it did not handle, `End` when the whole
-/// string was an ES5 date, or `Invalid` for a strict rejection.
+/// Returns the first token it did not handle, `End` for a whole ES5 date, or `Invalid` for a strict rejection.
 fn parse_es5(
     s: &mut Tokenizer,
     day: &mut DayComposer,
@@ -686,8 +673,7 @@ fn parse_components(input: &str) -> Option<f64> {
                 } else if kind == KeywordType::TimeZoneName && has_read_number {
                     tz.set(value);
                 } else {
-                    // Garbage words are illegal once a number has been read, and the first
-                    // number must be separated from garbage words.
+                    // Garbage words are illegal after a number, and the first number must be separated from them.
                     if has_read_number || s.peek().is_number() {
                         return None;
                     }
@@ -732,14 +718,12 @@ fn parse_components(input: &str) -> Option<f64> {
     if let Some(offset) = offset_seconds {
         date -= offset as f64 * 1000.0;
     }
-    // TimeClip.
     if !date.is_finite() || date.abs() > 8.64e15 {
         return None;
     }
     Some(date)
 }
 
-/// ECMAScript `MakeDay`: the day number of a year, a 0-based month that may overflow, and a day.
 fn make_day(year: f64, month: f64, date: f64) -> f64 {
     let ym = year + (month / 12.0).floor();
     let mn = month.rem_euclid(12.0) as i64;
@@ -756,13 +740,11 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// `Date.parse(input)` in epoch milliseconds, or `None` where JavaScript returns NaN.
 pub fn date_parse(input: &str) -> Option<f64> {
     parse_utc_iso_millis(input).or_else(|| parse_components(input))
 }
 
-/// The `toISOString` form `YYYY-MM-DDTHH:mm:ss.sssZ`, which producers send, without the
-/// tokenizer. `None` hands any other text, and any field out of range, to the full parser.
+/// A fast path for the `toISOString` form that producers send. `None` hands anything else to the full parser.
 fn parse_utc_iso_millis(input: &str) -> Option<f64> {
     let b = input.as_bytes();
     if b.len() != 24 {

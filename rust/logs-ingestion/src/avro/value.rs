@@ -61,16 +61,13 @@ impl AvroValue {
     }
 }
 
-/// An Avro map as the plain JavaScript object avsc builds with `obj[key] = value`:
-/// array-index keys first in numeric order, other keys in insertion order, a repeated key keeps
-/// its first position and takes the last value, and a `__proto__` key is not an own property.
+/// As the plain object avsc builds: a repeated key keeps its first position and takes the last value, and `__proto__` is not an own key.
 #[derive(Debug, Clone, Default)]
 pub struct AvroMap {
     /// Array-index keys. A tree keeps a descending insert order from being quadratic.
     indexed: BTreeMap<u32, (String, AvroValue)>,
     named: Vec<(String, AvroValue)>,
-    /// Positions in `named`, built only for large maps, where a linear key search would be
-    /// quadratic.
+    /// Built only for large maps, where a linear key search would be quadratic.
     named_index: Option<HashTable<usize>>,
 }
 
@@ -95,8 +92,7 @@ impl AvroMap {
         self.define(key, value);
     }
 
-    /// Defines an own property, as object spread and `Object.fromEntries` do. Unlike `assign`,
-    /// this keeps a `__proto__` key.
+    /// Unlike `assign`, this keeps a `__proto__` key, as object spread and `Object.fromEntries` do.
     pub fn define(&mut self, key: String, value: AvroValue) {
         if let Some(n) = is_array_index(&key) {
             match self.indexed.entry(n) {

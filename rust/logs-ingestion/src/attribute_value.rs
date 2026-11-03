@@ -1,7 +1,4 @@
-//! Port of `nodejs/src/logs/attribute-value.ts`.
-//!
-//! Attribute values arrive JSON-encoded from capture: a string attribute is stored as `"error"`
-//! with quotes, a number as `123`. Matching, tallying and transformations read the decoded value.
+//! Capture stores attribute values JSON-encoded (`"error"` with quotes, `123`), so readers decode them first.
 
 use crate::js::{json_parse, json_stringify, JsString, JsValue};
 

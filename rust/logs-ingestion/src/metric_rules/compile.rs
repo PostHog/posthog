@@ -1,5 +1,3 @@
-//! Port of `compile-metric-rules.ts`.
-
 use std::sync::Arc;
 
 use super::filter::{parse_filter_group, FilterGroupMatcher, FilterGroupParser};
@@ -29,9 +27,7 @@ impl MetricRuleSource {
     }
 }
 
-/// A raw `logs_logsmetricrule` row. The untyped columns stay `JsValue`, because the
-/// TypeScript checks their runtime type. `JsValue::Null` stands for both null and a
-/// missing property: every check treats the two the same.
+/// `JsValue::Null` stands for both null and a missing property, because every TypeScript check treats the two the same.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MetricRuleRow {
     pub id: String,
@@ -85,7 +81,7 @@ fn is_one_of(k: &JsString, keys: &[&str]) -> bool {
     k.as_str().is_some_and(|k| keys.contains(&k))
 }
 
-/// `compileMetricRules`. `Err` is a throw from `parseFilterGroup`, which rejects the whole call.
+/// `Err` is a throw from `parseFilterGroup`, which rejects the whole call.
 pub fn compile_metric_rules(
     rows: &[MetricRuleRow],
 ) -> Result<Vec<CompiledMetricRule>, JsTypeError> {

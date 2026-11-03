@@ -1,5 +1,4 @@
-//! Port of `pipeline/logs-pipelines.ts`. Every pipeline is built once per batch: background
-//! passes of consecutive batches overlap, and a chunk pipeline must not have concurrent callers.
+//! Every pipeline is built per batch, because background passes overlap and a chunk pipeline must not have concurrent callers.
 
 use std::sync::Arc;
 

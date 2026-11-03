@@ -1,5 +1,3 @@
-//! Port of the client side of `nodejs/src/common/services/keyed-rate-limiter.service.ts`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -44,7 +42,6 @@ pub enum ScriptVersion {
 
 #[derive(Debug, Clone)]
 pub struct KeyedRateLimiterConfig {
-    /// Produces `<root>/<name>/tokens/<id>` keys.
     pub name: String,
     pub key_root: KeyRoot,
     pub bucket_size: Option<f64>,
@@ -77,7 +74,7 @@ pub struct KeyedRateLimitRequest {
     pub bucket_size: Option<f64>,
     pub refill_rate: Option<f64>,
     pub ttl_seconds: Option<f64>,
-    /// The request time in seconds. Default: `Math.round(Date.now() / 1000)`.
+    /// Default: `Math.round(Date.now() / 1000)`.
     pub now: Option<f64>,
 }
 
@@ -180,8 +177,7 @@ impl KeyedRateLimiter {
         })
     }
 
-    /// `rateLimitArgs`. `None` is the throw inside the pipeline callback, which `usePipeline`
-    /// catches and reports as a failed pipeline.
+    /// `None` is the throw inside the pipeline callback, which `usePipeline` reports as a failed pipeline.
     fn call(&self, req: &KeyedRateLimitRequest) -> Option<ScriptCall> {
         let now = req
             .now
@@ -198,7 +194,7 @@ impl KeyedRateLimiter {
         })
     }
 
-    /// `usePipeline` with `failOpen: true`: `None` when the pipeline or its callback fails.
+    /// `None` when the pipeline or its callback fails, as `usePipeline` with `failOpen: true` gives.
     async fn run(
         &self,
         script: &LuaScript,
@@ -301,8 +297,7 @@ impl KeyedRateLimiter {
         Ok(out)
     }
 
-    /// `rateLimitGrouped`: one v3 call per distinct id, decisions fanned out per input. Bucket
-    /// parameters come from the first request for each id.
+    /// Bucket parameters come from the first request for each id.
     pub async fn rate_limit_grouped(
         &self,
         requests: &[KeyedRateLimitRequest],

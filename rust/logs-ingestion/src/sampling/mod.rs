@@ -1,6 +1,3 @@
-//! Port of `nodejs/src/logs/sampling/`: `compile-rules.ts`, `evaluate.ts` and
-//! `logs-sampling.service.ts`.
-
 pub mod compile;
 pub mod evaluate;
 pub mod service;

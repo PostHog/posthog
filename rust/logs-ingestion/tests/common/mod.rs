@@ -1,5 +1,4 @@
-//! Helpers shared by the parity tests. Fixtures are read with the crate's own `json_parse`,
-//! because Node writes lone surrogates as `\udXXX`, which serde_json rejects.
+//! Fixtures are read with the crate's `json_parse`, because Node writes lone surrogates as `\udXXX`, which serde_json rejects.
 #![allow(dead_code)]
 
 use std::cmp::Ordering;
@@ -56,7 +55,6 @@ pub fn string(value: &JsValue) -> String {
     }
 }
 
-/// `{ cases: [{ input, output }] }` from a module vector file.
 pub fn cases(name: &str) -> Vec<(JsValue, JsValue)> {
     let file = load_json(&modules_dir().join(format!("{name}.json")));
     array(get(&file, "cases"))
@@ -70,8 +68,7 @@ pub fn js_sort_cmp(a: &str, b: &str) -> Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
 
-/// The Node harness's `canonicalizeAvroValue`: keys sorted, then assigned to a plain object
-/// (which lists array-index keys first again), bytes as `{ $bytes: hex }`.
+/// Keys sorted, then assigned to a plain object, which lists array-index keys first again, as `canonicalizeAvroValue` does.
 pub fn canonical(value: &AvroValue) -> JsValue {
     let object = |entries: Vec<(String, JsValue)>| {
         let mut entries = entries;

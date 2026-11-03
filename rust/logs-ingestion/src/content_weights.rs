@@ -1,9 +1,4 @@
-//! Port of `nodejs/src/logs/pipeline/log-processing-pipeline.ts`: content weights, the stage model
-//! and `runPipelineStages` with its drop accounting.
-//!
-//! Node keys the content weights by record object identity. A stage that puts a new record object
-//! in the batch gets weight 0 for it. `StagedRecord` carries that identity: a record from the
-//! decode keeps its origin index, and `StagedRecord::fresh` makes one without an origin.
+//! Node keys content weights by record identity, so `StagedRecord` keeps the decode origin and a stage-made record weighs 0.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,9 +22,7 @@ fn map_bytes(map: Option<&AvroMap>) -> f64 {
     total
 }
 
-/// The resource attributes as a set of string pairs, sorted by key. Two maps get the same
-/// `JSON.stringify(Object.entries(map).sort(byKey))` exactly when these are equal: a map has
-/// distinct keys, so any fixed key order gives a canonical list.
+/// A map has distinct keys, so the sorted pairs are equal exactly when the TypeScript's sorted `JSON.stringify` texts are.
 fn resource_entries(map: Option<&AvroMap>) -> Vec<(&str, &str)> {
     let mut entries: Vec<(&str, &str)> =
         map.map(|m| m.iter_strings().collect()).unwrap_or_default();
@@ -37,8 +30,7 @@ fn resource_entries(map: Option<&AvroMap>) -> Vec<(&str, &str)> {
     entries
 }
 
-/// `measureContentWeights`: one weight per record, in input order. Resource and scope bytes are
-/// split across the rows that share them, so the weights are fractional.
+/// Resource and scope bytes are split across the rows that share them, so the weights are fractional.
 pub fn measure_content_weights(records: &[LogRecord]) -> Vec<f64> {
     let mut resource_ids: HashMap<Vec<(&str, &str)>, usize, ahash::RandomState> =
         HashMap::default();

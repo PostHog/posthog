@@ -1,5 +1,3 @@
-//! Port of `logs-ingestion-types.ts` and `types.ts`.
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -70,7 +68,7 @@ pub const DEFAULT_USAGE_STATS: UsageStats = UsageStats {
     retention_days: DEFAULT_LOGS_RETENTION_DAYS,
 };
 
-/// `UsageStatsByTeam`: a `Map`, so iteration follows insertion order.
+/// A `Map`, so iteration follows insertion order.
 #[derive(Debug, Clone, Default)]
 pub struct UsageStatsByTeam(pub Vec<(i64, UsageStats)>);
 
@@ -133,7 +131,6 @@ pub fn parse_min_timestamp_header(raw: Option<&str>) -> Option<f64> {
     (n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0).then_some(n)
 }
 
-/// ECMAScript `StringToNumber`.
 pub fn js_string_to_number(raw: &str) -> f64 {
     let s = raw.trim_matches(is_js_whitespace);
     if s.is_empty() {

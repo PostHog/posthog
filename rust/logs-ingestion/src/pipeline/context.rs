@@ -1,5 +1,3 @@
-//! Port of `pipeline/logs-pipeline-context.ts`.
-
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
@@ -37,13 +35,12 @@ pub fn team_id_matches_csv(raw: &str, team_id: i64) -> bool {
         .any(|n| n == team_id as f64)
 }
 
-/// `parseKafkaHeaders`: assigned onto a plain object, so a repeated key keeps its first
-/// position and takes the last value, and `__proto__` is lost.
+/// Assigned onto a plain object, so a repeated key keeps its first position and takes the last value, and `__proto__` is lost.
 pub fn parse_kafka_headers(message: &KafkaMessage) -> Headers {
     parse_kafka_headers_except(message, &[], 0)
 }
 
-/// `parseKafkaHeaders(message.headers)[name]` without building the map: the last value wins.
+/// The last value wins, without building the map.
 pub fn kafka_header<'a>(message: &'a KafkaMessage, name: &str) -> Option<Cow<'a, str>> {
     if name == "__proto__" {
         return None;
@@ -90,7 +87,7 @@ impl AppSource {
     }
 }
 
-/// What differs between the logs and traces consumers. Both bill against `logs_mb_ingested`.
+/// Both consumers bill against `logs_mb_ingested`.
 #[derive(Debug, Clone)]
 pub struct LogsConsumerIdentity {
     pub name: String,
@@ -198,7 +195,7 @@ pub fn is_unbilled_internal(message: &LogsIngestionMessage) -> bool {
     message.internal_logs.as_ref().is_some_and(|i| !i.billed)
 }
 
-/// `quarantineLogMessage`: the DLQ headers are the replay contract. A failed DLQ write fails.
+/// The DLQ headers are the replay contract. A failed DLQ write fails.
 pub async fn quarantine_log_message(
     context: &LogsPipelineContext,
     message: &KafkaMessage,

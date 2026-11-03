@@ -1,13 +1,4 @@
-/**
- * Writes tests/fixtures/rate-limiter-reference.json: a fixed sequence of calls through the
- * TypeScript KeyedRateLimiterService, LogsRateLimiterService and the sampling stage against a real
- * Redis, with every decision and the final bucket state. `tests/rate_limiter_redis.rs` replays the
- * same calls through the Rust port and compares.
- *
- * Needs Redis at 127.0.0.1:6379. Run from the repository root:
- *
- *   cd nodejs && NODE_ENV=test npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/node-rate-limiter-reference.ts
- */
+// Needs Redis at 127.0.0.1:6379. Run: cd nodejs && NODE_ENV=test npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/node-rate-limiter-reference.ts
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 
@@ -74,7 +65,6 @@ const iso = (s: number): string => new Date(T0 + s * 1000).toISOString()
 
 const keyedSteps: { limiter: keyof typeof keyedLimiters; method: 'many' | 'grouped'; nowMs: number; requests: Req[] }[] =
     [
-        // First call fills the bucket, an impossible cost does not burn credit.
         {
             limiter: 'v3',
             method: 'many',
@@ -95,7 +85,6 @@ const keyedSteps: { limiter: keyof typeof keyedLimiters; method: 'many' | 'group
                 { id: 'c', cost: 1, bucketSize: 7.5, refillRate: 0.5, now: sec(3) },
             ],
         },
-        // Time goes backwards, then a long gap gives uncapped accrued credit.
         {
             limiter: 'v3',
             method: 'many',
@@ -106,7 +95,6 @@ const keyedSteps: { limiter: keyof typeof keyedLimiters; method: 'many' | 'group
                 { id: 'c', cost: 0.25, bucketSize: 7.5, refillRate: 0.5, now: sec(4) },
             ],
         },
-        // `now` from the clock: Math.round of fractional seconds.
         {
             limiter: 'v3',
             method: 'many',

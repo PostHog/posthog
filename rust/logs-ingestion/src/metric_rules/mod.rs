@@ -1,5 +1,3 @@
-//! Port of `nodejs/src/logs/metrics-rules/`: log-generated metrics.
-
 mod admission;
 mod compile;
 mod defaults;

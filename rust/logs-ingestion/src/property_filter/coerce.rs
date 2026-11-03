@@ -1,14 +1,10 @@
-//! JavaScript coercions that the filter and rule code depends on: `String(v)`, `parseFloat`,
-//! `parseInt`, `String#trim`, `String#toLowerCase`, and string comparison by UTF-16 code unit.
-//!
-//! The TypeScript applies these to values from rule JSON, so each one follows the ECMAScript
-//! algorithm for every JSON value shape, including the ones that throw.
+//! Rule JSON can hold any value, so each coercion follows the ECMAScript algorithm for every JSON shape, including the ones that throw.
 
 use std::cmp::Ordering;
 
 use crate::js::{number_to_string, CharOrSurrogate, JsString, JsValue};
 
-/// A `TypeError` that the TypeScript throws. The callers catch it and fail open.
+/// The callers catch this and fail open, as the TypeScript does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsTypeError(pub &'static str);
 
@@ -20,8 +16,7 @@ impl std::fmt::Display for JsTypeError {
 
 impl std::error::Error for JsTypeError {}
 
-/// An object with an own `toString` property throws: JSON cannot make that property callable, so
-/// `OrdinaryToPrimitive` falls through to `valueOf`, which returns the object itself.
+/// JSON cannot make an own `toString` callable, so `OrdinaryToPrimitive` reaches `valueOf` and throws.
 pub fn js_to_string(value: &JsValue) -> Result<JsString, JsTypeError> {
     match value {
         JsValue::Null => Ok(JsString::from("null")),
@@ -58,7 +53,6 @@ pub fn js_to_string_opt(value: Option<&JsValue>) -> Result<JsString, JsTypeError
     }
 }
 
-/// ECMAScript `WhiteSpace` and `LineTerminator`, which `trim`, `parseInt` and `parseFloat` skip.
 pub fn is_js_whitespace(c: char) -> bool {
     matches!(
         c,
@@ -91,7 +85,6 @@ fn trim_start_js(s: &JsString) -> String {
     text.trim_start_matches(is_js_whitespace).to_string()
 }
 
-/// `parseFloat(string)`: the longest prefix that is a `StrDecimalLiteral`, else NaN.
 pub fn js_parse_float(s: &JsString) -> f64 {
     parse_float_str(&trim_start_js(s))
 }
@@ -157,7 +150,6 @@ fn parse_float_str(t: &str) -> f64 {
     literal.parse::<f64>().unwrap_or(f64::NAN)
 }
 
-/// `parseInt(string, radix)` for radix 10 or 16, or auto-detection when `radix` is `None`.
 pub fn js_parse_int(s: &str, radix: Option<u32>) -> f64 {
     let t = if s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric) {
         s
@@ -208,9 +200,7 @@ pub fn js_parse_int(s: &str, radix: Option<u32>) -> f64 {
     }
 }
 
-/// `str.toLowerCase()`. Rust's full lowercase mapping includes the final-sigma rule, as V8 does.
-/// A lone surrogate has no case and breaks the sigma context on both sides, so each valid run
-/// lowercases on its own.
+/// A lone surrogate breaks the final-sigma context, so each valid run lowercases on its own.
 pub fn js_to_lower(s: &JsString) -> JsString {
     if let Some(text) = s.as_str() {
         return JsString::from(text.to_lowercase());
@@ -245,8 +235,7 @@ pub fn utf16_units(s: &JsString) -> Vec<u16> {
     out
 }
 
-/// `a < b` and friends on strings: UTF-16 code unit order, which differs from UTF-8 byte order
-/// above U+FFFF.
+/// UTF-16 code unit order, which differs from UTF-8 byte order above U+FFFF.
 pub fn js_compare(a: &JsString, b: &JsString) -> Ordering {
     match (a.as_str(), b.as_str()) {
         (Some(x), Some(y)) => x.encode_utf16().cmp(y.encode_utf16()),
@@ -254,9 +243,7 @@ pub fn js_compare(a: &JsString, b: &JsString) -> Ordering {
     }
 }
 
-/// `haystack.includes(needle)`. A match of a valid needle starts and ends on character
-/// boundaries, so the byte search agrees with UTF-16. A needle with a lone surrogate can match
-/// half of a pair, which needs the UTF-16 search.
+/// A needle with a lone surrogate can match half of a pair, so it needs the UTF-16 search.
 pub fn js_includes(haystack: &JsString, needle: &JsString) -> bool {
     match (haystack.as_str(), needle.as_str()) {
         (Some(h), Some(n)) => h.contains(n),

@@ -1,5 +1,4 @@
-//! Decodes the corpus inputs and crafted edge containers, and compares with what Node's avsc
-//! decodes (`tests/fixtures/input-decodes.json`, from `scripts/node-decode-reference.js`).
+//! Compares with avsc's decodes in `tests/fixtures/input-decodes.json`, from `scripts/node-decode-reference.js`.
 
 mod common;
 
@@ -105,8 +104,7 @@ fn as_serde(value: &JsValue) -> serde_json::Value {
     serde_json::from_str(&json_stringify(value)).unwrap()
 }
 
-/// avsc writes the schema it read back with its own export rules. The production schema files
-/// have the logical types and the record doc first, as capture-logs writes them.
+/// The production schema files have the logical types and the record doc first, as capture-logs writes them.
 #[test]
 fn schema_export_matches_avsc_for_the_production_schemas() {
     let mut expected_by_name = std::collections::HashMap::new();

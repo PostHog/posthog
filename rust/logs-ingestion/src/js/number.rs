@@ -1,8 +1,4 @@
-//! ECMAScript `Number::toString(10)`, which `String(n)` and `JSON.stringify` use.
-//!
-//! Rust's `{:e}` gives the shortest round-trip digit count. ECMAScript breaks a tie between two
-//! equally close shortest candidates toward the even digit, so an odd last digit is checked
-//! against the exactly rounded form, which rounds ties to even.
+//! ECMAScript breaks a tie between two shortest candidates toward even, so an odd last digit is checked against the exactly rounded form.
 
 use std::fmt::Write;
 

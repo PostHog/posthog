@@ -1,6 +1,4 @@
-//! Replays the Node vectors in `nodejs/src/logs/parity/fixtures/modules` for the rule modules:
-//! sampling, retention, the internal-logs verifier and content weights. The inputs mirror
-//! `buildCases` in `nodejs/src/logs/parity/logs-module-parity.test.ts`.
+//! The inputs mirror `buildCases` in `nodejs/src/logs/parity/logs-module-parity.test.ts`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -54,7 +52,6 @@ fn opt_string(v: &JsValue) -> Option<String> {
     }
 }
 
-/// A record in the vectors: bytes as `{ $bytes: hex }`, map key order kept.
 fn record_from_json(v: &JsValue) -> LogRecord {
     let JsValue::Object(o) = v else {
         panic!("record is not an object")

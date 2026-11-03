@@ -1,8 +1,4 @@
-//! Port of `nodejs/src/common/services/keyed-rate-limiter.service.ts` (the client side of the
-//! keyed token bucket) and `nodejs/src/logs/services/logs-rate-limiter.service.ts`.
-//!
-//! Both implementations use the same keys, script text, argument order and time source, so a
-//! Rust and a Node consumer that share a Redis also share bucket state.
+//! Both implementations use the same keys, script text, argument order and time source, so consumers that share a Redis share bucket state.
 
 pub mod keyed;
 pub mod logs;

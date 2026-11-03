@@ -1,8 +1,4 @@
-//! Port of `nodejs/src/logs/log-pii-scrub.ts`: the lossy redaction of secrets and emails in
-//! `body` and in each `attributes` value.
-//!
-//! Node runs these rules with RE2 (`createTrackedRE2`), not with the JavaScript regex engine.
-//! `translate_re2` gives the Rust `regex` crate the same semantics. See its comment.
+//! Node runs these rules with RE2, so `translate_re2` gives the `regex` crate the same semantics.
 
 use std::sync::LazyLock;
 
@@ -35,8 +31,7 @@ pub struct PiiRule {
     pub replacement: &'static str,
 }
 
-/// One capture group per rule, in this order. The scrub loop reads the fired rule from the group
-/// index, and the earlier alternative wins a tie at one offset.
+/// The scrub reads the fired rule from the group index, and the earlier alternative wins a tie at one offset.
 pub const PII_RULES: [PiiRule; 7] = [
     PiiRule {
         name: "bearer",
@@ -75,19 +70,8 @@ pub const PII_RULES: [PiiRule; 7] = [
     },
 ];
 
-/// Rewrites an RE2 pattern so that the `regex` crate matches the same text.
-///
-/// Both engines use leftmost-first alternation, so only the character classes differ.
-/// node-re2 matches in UTF-8 mode, and RE2 keeps its Perl classes ASCII there:
-/// - `\d` is `[0-9]`, and `\w` is `[0-9A-Za-z_]`.
-/// - `\s` is `[\t\n\f\r ]`. It excludes `\v`, which the `regex` crate's ASCII `\s` includes.
-/// - `\b` is an ASCII word boundary, so a non-ASCII letter is a non-word character.
-///
-/// `(?i:` keeps Unicode simple case folding in both engines. For example, `(?i:[a-z])` also
-/// matches U+017F and U+212A. The `regex` crate does the same in its default Unicode mode.
-///
-/// The rules use none of these escapes inside a bracket class, so the rewrite does not
-/// track classes. A test checks the class membership against values recorded from node-re2.
+/// RE2 keeps `\d`, `\w`, `\s` and `\b` ASCII in UTF-8 mode, and its `\s` excludes `\v`, so these become explicit classes.
+/// The rules use none of these escapes inside a bracket class, so the rewrite does not track classes.
 pub fn translate_re2(pattern: &str) -> String {
     let mut out = String::with_capacity(pattern.len() + 16);
     let mut chars = pattern.chars();
@@ -111,7 +95,6 @@ pub fn translate_re2(pattern: &str) -> String {
     out
 }
 
-/// Joins the rules as `(p1)|(p2)|...`, as the TypeScript does for its combined regex.
 pub fn combined_regex(patterns: impl IntoIterator<Item = &'static str>) -> Regex {
     let joined = patterns
         .into_iter()
@@ -125,9 +108,7 @@ pub fn combined_regex(patterns: impl IntoIterator<Item = &'static str>) -> Regex
         .expect("combined rule regex compiles")
 }
 
-/// The rules as one multi-pattern regex with leftmost-first priority. It finds the same
-/// matches as `combined_regex`, whose `(p1)|(p2)|...` alternation has the same priority, and it
-/// reports the matching rule from the DFA, so no capture search runs.
+/// The DFA reports the matching rule with the alternation's priority, so no capture search runs.
 pub struct RuleRegex(regex_automata::meta::Regex);
 
 impl RuleRegex {
@@ -145,7 +126,6 @@ impl RuleRegex {
         Self(regex)
     }
 
-    /// `(start, end, rule index)` of each match, left to right.
     pub fn matches<'h>(
         &'h self,
         haystack: &'h str,
@@ -179,10 +159,7 @@ fn scrub_str(input: &str) -> (Option<String>, u64) {
     (out, replacements)
 }
 
-/// `scrubPlainStringWithStats`: one pass over the string. The count includes only matches
-/// that a rule group claims.
-///
-/// The TypeScript skips an empty match, but no rule can match an empty string.
+/// The count includes only matches that a rule group claims. No rule can match an empty string.
 pub fn scrub_plain_string_with_stats(input: &str) -> (String, u64) {
     let (out, replacements) = scrub_str(input);
     (out.unwrap_or_else(|| input.to_string()), replacements)
@@ -192,8 +169,7 @@ pub fn scrub_plain_string(input: &str) -> String {
     scrub_plain_string_with_stats(input).0
 }
 
-/// Decoded record strings are valid UTF-8, because the Avro decoder writes U+FFFD for invalid
-/// bytes. So this port does not need the lone-surrogate handling of `JsString`.
+/// The Avro decoder writes U+FFFD for invalid bytes, so no lone-surrogate handling is needed here.
 pub fn scrub_log_record(record: &mut LogRecord) -> PiiScrubStats {
     let mut total = 0u64;
 
@@ -241,9 +217,7 @@ mod tests {
         members(pattern, 0x80..0x110000)
     }
 
-    /// node-re2 1.22.1 gives these memberships when it enumerates every code point.
-    /// `(?i:[-A-Za-z0-9._~+/])` adds U+017F and U+212A, `\s` is five ASCII characters, and
-    /// `\d`, `\w` and `[Bbear]` under `(?i:` add nothing outside ASCII.
+    /// Memberships recorded from node-re2 1.22.1 over every code point.
     #[test]
     fn class_membership_matches_node_re2() {
         assert_eq!(non_ascii_members("(?i:[-A-Za-z0-9._~+/])"), [0x17F, 0x212A]);
@@ -255,7 +229,6 @@ mod tests {
         assert_eq!(ascii_space, [0x09, 0x0A, 0x0C, 0x0D, 0x20]);
     }
 
-    /// `RuleRegex` must find what the `(p1)|(p2)|...` alternation finds, with the same rule.
     #[test]
     fn rule_regex_matches_the_alternation() {
         const PARTS: &[&str] = &[
@@ -319,8 +292,6 @@ mod tests {
         }
     }
 
-    /// Node gives `X` for `'bearer \u212Aabc'`, `'éX Xé'` for `\bab\b` on `'éab abé'`, and keeps
-    /// `'Bearer\vab'` unchanged.
     #[test]
     fn re2_edge_cases_match_node() {
         assert_eq!(

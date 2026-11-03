@@ -1,8 +1,4 @@
-//! A hand-written Avro object container codec that matches avsc, which the Node consumer uses.
-//!
-//! The output must decode to what Node writes, and decode errors become the DLQ
-//! `error_message`, so the codec reproduces avsc's header export, map semantics and error
-//! strings. A general Avro library controls none of those.
+//! Decode errors become the DLQ `error_message`, so this codec reproduces avsc's header export, map semantics and error strings.
 
 mod decode;
 mod encode;
@@ -18,7 +14,7 @@ pub use value::{AvroMap, AvroValue};
 
 pub(crate) const MAGIC: [u8; 4] = *b"Obj\x01";
 
-/// A decoded container. `schema_json` is the header text exactly as the writer wrote it.
+/// `schema_json` is the header text exactly as the writer wrote it.
 #[derive(Debug, Clone)]
 pub struct Container {
     pub schema_json: String,
@@ -27,8 +23,7 @@ pub struct Container {
     pub records: Vec<AvroValue>,
 }
 
-/// The `Display` text is what the consumer writes to the DLQ `error_message` header, so each
-/// one matches the Node message.
+/// The `Display` text goes to the DLQ `error_message` header, so each one matches the Node message.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum AvroError {
     /// `decodeLogRecords` found no header: under 4 bytes, or a header that runs past the end.
@@ -47,8 +42,7 @@ pub enum AvroError {
     Decode(String),
     #[error("{0}")]
     Encode(String),
-    /// A writer schema that does not parse. avsc's text here comes from `JSON.parse` or
-    /// `Type.forSchema`, and this port does not reproduce it.
+    /// avsc's text here comes from `JSON.parse` or `Type.forSchema`, which this port does not reproduce.
     #[error("{0}")]
     Schema(String),
 }

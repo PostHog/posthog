@@ -1,8 +1,4 @@
-//! A decoded log or span record, read and written by field name as the TypeScript does.
-//!
-//! In JavaScript a decoded record is a plain object. A stage can set a property that the writer
-//! schema lacks (for example `pattern` on a schema without it): later stages read it, and the
-//! encoder ignores it. `LogRecord` keeps such properties in `extra` for the same result.
+//! A stage can set a property the writer schema lacks, which later stages read and the encoder ignores, so `LogRecord` keeps it in `extra`.
 
 use std::sync::Arc;
 
@@ -35,7 +31,7 @@ impl LogRecord {
         AvroValue::Record(self.fields.clone())
     }
 
-    /// `record[name]`: `None` for a missing property (JavaScript `undefined`).
+    /// `None` for a missing property (JavaScript `undefined`).
     pub fn get(&self, name: &str) -> Option<&AvroValue> {
         self.fields
             .iter()

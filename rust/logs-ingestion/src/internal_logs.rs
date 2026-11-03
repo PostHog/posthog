@@ -1,6 +1,3 @@
-//! Port of `nodejs/src/logs/internal-logs.ts`: the signed `posthog-internal` header that marks a
-//! batch from a PostHog-owned producer.
-
 use std::collections::HashMap;
 
 use hmac::{Hmac, Mac};
@@ -44,7 +41,6 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
     )])
 }
 
-/// `/^[a-z0-9_]{1,64}$/`.
 fn is_valid_source(source: &str) -> bool {
     (1..=64).contains(&source.len())
         && source
@@ -103,7 +99,7 @@ impl std::fmt::Display for SignError {
 
 impl std::error::Error for SignError {}
 
-/// `signInternalLogs`, with the newest (first) key. `signed_at_ms` is `Date#getTime()`.
+/// Signs with the newest (first) key.
 pub fn sign_internal_logs(
     comma_separated_keys: &str,
     source: &str,
@@ -207,7 +203,7 @@ impl InternalLogsVerifier {
         }
     }
 
-    /// `verify`. `created_at` is the `created_at` Kafka header that capture-logs sets.
+    /// `created_at` is the Kafka header that capture-logs sets.
     pub fn verify(
         &self,
         signature: Option<&str>,

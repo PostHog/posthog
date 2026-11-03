@@ -1,5 +1,3 @@
-//! Port of `pipeline/admission-steps.ts`.
-
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +9,7 @@ use crate::rate_limiter::RateLimitedMessage;
 use super::context::{is_unbilled_internal, team_id_matches_csv, LogsPipelineContext};
 use super::types::{LogsIngestionMessage, UsageStatsByTeam};
 
-/// Usage for one Kafka batch. Only billed messages reach it.
+/// Only billed messages reach it.
 pub type LogsBatchUsage = Arc<Mutex<UsageStatsByTeam>>;
 
 pub struct LogsAdmissionInput {
@@ -214,7 +212,7 @@ pub fn create_rate_limit_step(context: Arc<LogsPipelineContext>) -> AdmissionSte
     })
 }
 
-/// Records the billed messages that passed every gate. Allowed is gross here.
+/// Allowed is gross here, because processing takes off the drop-rule credit.
 pub fn create_record_allowed_usage_step() -> AdmissionStep {
     ChunkProcessingStep::sync(
         "recordAllowedUsageStep",

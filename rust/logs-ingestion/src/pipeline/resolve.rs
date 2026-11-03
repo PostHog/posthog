@@ -1,5 +1,3 @@
-//! Port of `pipeline/resolve-log-buffer.ts`.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

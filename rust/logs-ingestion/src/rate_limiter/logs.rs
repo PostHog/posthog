@@ -1,5 +1,4 @@
-//! Port of `nodejs/src/logs/services/logs-rate-limiter.service.ts`: per-team KB/s buckets on the
-//! v2 script, with a partial batch let through up to the bucket's pre-call balance.
+//! A partial batch is let through up to the bucket's pre-call balance, as in Node.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -75,7 +74,7 @@ fn parse_team_id_list(config: &str) -> Option<TeamList> {
     ))
 }
 
-/// `parseTeamConfig`: `team:value` pairs; a later pair for a team replaces the earlier value.
+/// A later pair for a team replaces the earlier value.
 fn parse_team_config(config: &str) -> Vec<(f64, f64)> {
     let mut result: Vec<(f64, f64)> = Vec::new();
     if config.is_empty() {
@@ -154,7 +153,6 @@ impl LogsRateLimiter {
         self.now_seconds()
     }
 
-    /// `rateLimitMany(idCosts)`: `(team id, cost in KB, now in seconds)`.
     pub async fn rate_limit_many(
         &self,
         id_costs: &[(String, f64, f64)],

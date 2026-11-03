@@ -1,6 +1,4 @@
-// Differential fuzz corpus: runs the Node logs modules on seeded random inputs and writes
-// `{ cases: [{ input, output }] }` per section for `tests/differential_fuzz.rs`.
-// See the "Regenerating references" section of PORTING.md for the command.
+// See "Regenerating references" in PORTING.md for the command.
 import avro from "avsc";
 import { createHash } from "crypto";
 import { existsSync, readFileSync, writeFileSync } from "fs";
@@ -60,8 +58,7 @@ const REGRESSIONS: { numbers: string[]; dates: string[]; avro: string[] } =
         ? JSON.parse(readFileSync(join(OUT, "regression-inputs.json"), "utf8"))
         : { numbers: [], dates: [], avro: [] };
 
-// The PII rules need secret-shaped tokens, which secret scanners reject in a commit. U+E000 after the
-// first character breaks each prefix in the file; tests/common/mod.rs removes it before parsing.
+// Secret scanners reject secret-shaped tokens, so U+E000 breaks each prefix in the file, and tests/common/mod.rs removes it.
 const SECRET_PREFIXES = /(sk|rk|pk)(_(?:live|test)_)|(gh)([pousr]_)|(xo)(x[abpr]-)|(AK|AS)(IA)|(AI)(za)|(gl)(pat-)|(-----)(BEGIN)/g
 
 function defuseSecrets(text: string): string {
@@ -103,7 +100,7 @@ function recordToJson(record: Record<string, unknown>): unknown {
 
 const lossy = (s: string): string => Buffer.from(s).toString();
 
-/** The record as avsc would write it: strings and map keys lossy. `gap` marks merged keys. */
+/** avsc writes strings and map keys lossy. `gap` marks merged keys. */
 function recordToLossyJson(record: Record<string, unknown>): {
     json: unknown;
     gap: boolean;
@@ -566,7 +563,6 @@ function randSpanRecord(rng: Rng, i: number): Record<string, unknown> {
 function bigBody(rng: Rng): string {
     const r = rng.int(8);
     if (r === 0) {
-        // Many keys mixing indices and names: eviction order.
         const o: Record<string, unknown> = {};
         const n = 40 + rng.int(80);
         for (let i = 0; i < n; i++) {
@@ -588,7 +584,6 @@ function bigBody(rng: Rng): string {
         return JSON.stringify(o);
     }
     if (r === 1) {
-        // Arrays near the node budget.
         const n = rng.pick([9997, 9998, 9999, 10000, 10001, 4999, 5000]);
         return JSON.stringify(
             rng.bool()
@@ -597,7 +592,6 @@ function bigBody(rng: Rng): string {
         );
     }
     if (r === 2) {
-        // Object keys near the node budget.
         const n = rng.pick([9997, 9998, 9999, 10000]);
         return JSON.stringify(
             Object.fromEntries(
@@ -606,7 +600,6 @@ function bigBody(rng: Rng): string {
         );
     }
     if (r === 3 && rng.bool(0.3)) {
-        // Attribute bytes near 1 MiB.
         const total = 1024 * 1024 - rng.int(200);
         const n = rng.int(3) + 1;
         const o: Record<string, string> = {};
@@ -617,7 +610,6 @@ function bigBody(rng: Rng): string {
         return JSON.stringify(o);
     }
     if (r === 4) {
-        // Path bytes: deep keys.
         const k = "k".repeat(rng.pick([4000, 8000, 9000]));
         let v: unknown = 1;
         for (let i = 0; i < rng.pick([100, 120, 127, 128, 129]); i++)
@@ -628,7 +620,6 @@ function bigBody(rng: Rng): string {
         return deepJson(rng);
     }
     if (r === 6) {
-        // Array of objects: many flattened leaves.
         return JSON.stringify(
             Array.from({ length: rng.pick([3, 30, 60]) }, (_, i) => ({
                 id: i,
@@ -636,7 +627,6 @@ function bigBody(rng: Rng): string {
             })),
         );
     }
-    // Index keys around the eviction boundary.
     const o: Record<string, unknown> = {};
     for (let i = 0; i < 48 + rng.int(6); i++) o[`n${i}`] = i;
     for (let i = 0; i < 6; i++)
@@ -706,7 +696,6 @@ async function sectionNormalize(rng: Rng): Promise<void> {
             record.attributes[key] = randSelected(rng);
         }
         if (record.attributes && rng.bool(0.3)) {
-            // Collide sender attributes with flattened keys.
             for (const k of [
                 "a",
                 "payload.a",
@@ -868,7 +857,6 @@ function sectionText(rng: Rng): void {
             if (rng.bool(0.3)) body = sprinkleEscapes(rng, body);
         } else if (r < 7) body = JSON.stringify(logLike(rng));
         else if (r < 8) {
-            // Around the input cap (8192) and output cap (1024), splitting pairs.
             const unit = rng.pick([
                 "🚀",
                 "x",

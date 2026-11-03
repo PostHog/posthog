@@ -1,6 +1,3 @@
-//! Replays `tests/fixtures/re2-reference.json`, which `scripts/node-re2-reference.js` records from
-//! node-re2: whether each pattern compiles, and `test` on each input.
-
 use std::path::PathBuf;
 
 use logs_ingestion::js::{json_parse, JsValue};

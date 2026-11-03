@@ -1,5 +1,3 @@
-//! Port of `logs-ingestion-consumer.ts` and `traces-ingestion-consumer.ts`.
-
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
@@ -181,8 +179,7 @@ impl LogsIngestionConsumer {
         })
     }
 
-    /// `processKafkaBatch`. A batch failure is returned, not quarantined: everything on this path
-    /// is infrastructure-scoped.
+    /// A batch failure is returned, not quarantined, because everything on this path is infrastructure-scoped.
     pub async fn process_kafka_batch(
         &self,
         messages: Vec<KafkaMessage>,

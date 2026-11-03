@@ -1,4 +1,4 @@
-//! The interface of `metric-rules-cache.ts`. The Postgres-backed cache is not ported.
+//! Only the interface of `metric-rules-cache.ts` is ported, not its Postgres-backed cache.
 
 use std::sync::Arc;
 
@@ -6,9 +6,7 @@ use async_trait::async_trait;
 
 use super::compile::CompiledMetricRule;
 
-/// Per-team compiled metric rules. The Node `MetricRulesCache` reads enabled rows from
-/// `logs_logsmetricrule` ordered by `created_at`, compiles them with `compileMetricRules`,
-/// and keeps them for 30 seconds.
+/// Node reads enabled rows ordered by `created_at` and keeps the compiled rules for 30 seconds.
 #[async_trait]
 pub trait MetricRulesSource: Send + Sync {
     async fn get_compiled_rules(

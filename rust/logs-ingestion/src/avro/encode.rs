@@ -36,7 +36,7 @@ fn is_safe_long(n: i64) -> bool {
     (-9_007_199_254_740_990..=9_007_199_254_740_990).contains(&n)
 }
 
-/// The union branch avsc picks for a value: by the value's JavaScript type.
+/// avsc picks the branch by the value's JavaScript type.
 fn union_branch<'s>(branches: &'s [Schema], value: &AvroValue) -> Option<(usize, &'s Schema)> {
     branches.iter().enumerate().find(|(_, b)| {
         matches!(
@@ -162,17 +162,14 @@ pub(crate) fn write_value(
         },
         Schema::Record(record) => match value {
             AvroValue::Record(fields) => {
-                // A decoded record holds the schema's fields in schema order, so each lookup
-                // first tries the same position. With unique names, a match there while every
-                // earlier position matched is also the first field of that name.
+                // Fields are in schema order, so each lookup tries the same position first. With unique names that match is the first field of the name.
                 let mut aligned = record.field_index.len() == record.fields.len();
                 for (i, field) in record.fields.iter().enumerate() {
                     let positional = match fields.get(i) {
                         Some((name, v)) if aligned && name == &field.name => Some(v),
                         _ => None,
                     };
-                    // A field the value lacks encodes as `undefined`, which a nullable union
-                    // writes as null, as avsc does.
+                    // A missing field encodes as `undefined`, which a nullable union writes as null, as avsc does.
                     let v = match positional {
                         Some(v) => v,
                         None => {
@@ -217,9 +214,7 @@ fn compress(codec: &str, data: &[u8]) -> Result<Vec<u8>, AvroError> {
     }
 }
 
-/// `encodeLogRecords`: a header with avsc's schema JSON, then records in blocks of at most
-/// 64 KiB of serialized data. A record larger than the block size gets a block of its own and
-/// doubles the block size, as in avsc.
+/// A record larger than the block size gets a block of its own and doubles the block size, as in avsc.
 pub fn encode_container(
     schema: &Schema,
     codec: &str,

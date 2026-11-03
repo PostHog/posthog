@@ -1,5 +1,3 @@
-//! Port of `processLogMessageBuffer` in `log-record-avro.ts`.
-
 use std::time::Instant;
 
 use metrics::histogram;

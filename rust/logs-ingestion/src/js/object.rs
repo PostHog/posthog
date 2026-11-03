@@ -1,8 +1,4 @@
-//! A plain JavaScript object with ECMAScript own-property key order.
-//!
-//! `Object.keys`, `for...in` and `JSON.stringify` list array-index keys first, in ascending
-//! numeric order, and then every other key in insertion order. The flatten step picks which
-//! attributes survive from that order, so the port must keep it.
+//! Own-property key order: array-index keys first in numeric order, then insertion order. The flatten picks survivors from that order.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -72,8 +68,7 @@ pub struct JsObject {
     /// Array-index keys. A tree keeps a descending insert order from being quadratic.
     indexed: BTreeMap<u32, JsValue>,
     named: Vec<(JsString, JsValue)>,
-    /// Positions in `named`, built only for large objects, where a linear key search would
-    /// be quadratic.
+    /// Built only for large objects, where a linear key search would be quadratic.
     named_index: Option<HashTable<usize>>,
 }
 

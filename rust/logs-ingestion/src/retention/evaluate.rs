@@ -1,5 +1,3 @@
-//! Port of `evaluate-retention.ts`.
-
 use std::sync::Arc;
 
 use metrics::counter;

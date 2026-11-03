@@ -35,7 +35,7 @@ pub struct RecordSchema {
     pub(crate) avsc_json: AvscJsonMemo,
 }
 
-/// `to_avsc_json` of a top-level record, computed once. It takes no part in equality.
+/// Computed once. It takes no part in equality.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AvscJsonMemo(OnceLock<String>);
 
@@ -247,8 +247,7 @@ impl Parser {
                     namespace,
                 )?,
             ))),
-            // A primitive written as an object, for example with a logical type that avsc does
-            // not register. avsc reads it as the plain primitive and drops the annotation.
+            // avsc reads a primitive written as an object as the plain primitive and drops an unregistered logical type.
             primitive => self.parse_name(primitive, namespace),
         }
     }
@@ -263,8 +262,7 @@ impl Schema {
         .parse(&value, None)
     }
 
-    /// `parse_json` through a process-wide cache keyed by the exact text. A parse is a pure
-    /// function of the text, so a cached schema is the same value. Errors are not cached.
+    /// A parse is a pure function of the text, so a cached schema is the same value. Errors are not cached.
     pub fn parse_json_cached(text: &str) -> Result<Schema, AvroError> {
         if let Some(schema) = SCHEMA_CACHE.lock().unwrap().get(text) {
             return Ok(schema.clone());
@@ -278,10 +276,7 @@ impl Schema {
         Ok(schema)
     }
 
-    /// The schema JSON avsc writes into a container header:
-    /// `JSON.stringify(type.getSchema({ exportAttrs: true }))`. It keeps docs, defaults, aliases
-    /// and a non-default field order, drops unregistered logical types and custom attributes,
-    /// writes full names, and refers to a named type by name after its first definition.
+    /// As avsc's `getSchema({ exportAttrs: true })`: it drops unregistered logical types and custom attributes, and names a type after its first definition.
     pub fn to_avsc_json(&self) -> String {
         self.avsc_json_str().to_string()
     }

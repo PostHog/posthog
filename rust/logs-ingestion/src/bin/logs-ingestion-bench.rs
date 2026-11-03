@@ -1,11 +1,4 @@
-//! Throughput benchmark of the Rust logs consumer. `run-logs-bench.sh` runs it beside the Node
-//! benchmark on the same workload files and reads the result JSON from stdout.
-//!
-//!   logs-ingestion-bench <workload.json> <measured passes> <warmup passes>
-//!
-//! It uses jemalloc, as every long-lived PostHog Rust service does. A production binary of this
-//! consumer must call `common_alloc::used!()` too: the consumer allocates per record, and the
-//! glibc allocator costs about a quarter of its CPU time.
+//! A production binary of this consumer must use jemalloc too, because the glibc allocator costs a large share of its CPU.
 
 use std::sync::Arc;
 use std::time::Instant;

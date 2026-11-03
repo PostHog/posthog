@@ -1,8 +1,4 @@
-//! Port of `metrics-emitter.ts`.
-//!
-//! The crate has no HTTP client dependency, so the POST itself is behind `OtlpTransport`.
-//! `LogsMetricsEmitter` keeps the Node behavior around it: one JSON body, two attempts, a
-//! 2xx check, and the failure counter.
+//! The crate has no HTTP client, so the POST is behind `OtlpTransport`. `LogsMetricsEmitter` keeps Node's two attempts and 2xx check.
 
 use std::sync::Arc;
 
@@ -10,7 +6,6 @@ use async_trait::async_trait;
 
 use crate::js::{json_stringify, JsValue};
 
-/// `logsMetricRulesExportFailedCounter`, labeled by `team_id`.
 pub const EXPORT_FAILED_COUNTER: &str = "logs_metrics_rules_export_failed_total";
 
 const EXPORT_ATTEMPTS: u32 = 2;
@@ -20,16 +15,13 @@ pub trait MetricsEmitter: Send + Sync {
     async fn emit(&self, token: &str, team_id: i64, payload: &JsValue) -> bool;
 }
 
-/// One HTTP POST. The implementation reads the whole response body before it returns,
-/// as `response.dump()` does in Node.
+/// The implementation reads the whole response body before it returns, as `response.dump()` does in Node.
 #[async_trait]
 pub trait OtlpTransport: Send + Sync {
     async fn post(&self, url: &str, headers: &[(&str, String)], body: &str) -> anyhow::Result<u16>;
 }
 
-/// `LogsMetricsEmitter`: posts with the team's own token, so the series goes through the
-/// same capture pipeline as metrics that customers send. It is best effort: after one retry
-/// the window is dropped, and emission never buffers or blocks log ingestion.
+/// Posts with the team's own token, so the series goes through the customer capture pipeline. After one retry the window is dropped.
 pub struct LogsMetricsEmitter<T: OtlpTransport> {
     url: String,
     transport: T,

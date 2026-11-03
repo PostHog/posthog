@@ -1,7 +1,4 @@
-//! Port of `otlp-payload.ts`: a hand-built OTLP/JSON `ExportMetricsServiceRequest`.
-//!
-//! The result is a `JsValue` with the TypeScript key order, so `json_stringify` gives the
-//! bytes that Node sends.
+//! The result keeps the TypeScript key order, so `json_stringify` gives the bytes that Node sends.
 
 use super::compile::{starts_with, CompiledMetricRule};
 use super::ordered::InsertionMap;
@@ -36,7 +33,7 @@ fn string_attribute(key: JsString, value: JsString) -> JsValue {
     JsValue::Object(o)
 }
 
-/// `{ key, value: { stringValue } }`. `JSON.stringify` omits a function-valued property.
+/// `JSON.stringify` omits a function-valued property.
 fn label_attribute(key: JsString, value: &LabelValue) -> JsValue {
     let mut inner = JsObject::new();
     if let Some(v) = value.to_json() {
@@ -48,7 +45,6 @@ fn label_attribute(key: JsString, value: &LabelValue) -> JsValue {
     JsValue::Object(o)
 }
 
-/// The OTel SDK attribute for the series past a cardinality limit.
 fn overflow_attribute() -> JsValue {
     object(vec![
         ("key", JsValue::string("otel.metric.overflow")),
@@ -73,7 +69,6 @@ fn label_name(group_by_key: &JsString) -> JsString {
     group_by_key.clone()
 }
 
-/// `BigInt(Math.floor(nowMs / 10000) * 10000) * 1_000_000n`.
 fn snap_to_bucket_nanos(now_ms: f64) -> i128 {
     ((now_ms / TIME_BUCKET_MS).floor() * TIME_BUCKET_MS) as i128 * 1_000_000
 }

@@ -1,8 +1,4 @@
-//! The Redis side of the keyed token bucket: the Lua scripts that `redis-token-bucket-v2.lua.ts`
-//! and `redis-token-bucket-v3.lua.ts` register, and a pipeline of `EVALSHA` calls.
-//!
-//! The script text is byte-identical to the TypeScript, so both consumers load the same SHA and
-//! share bucket state. Redis returns each Lua number truncated to an integer.
+//! The script text is byte-identical to the TypeScript, so both consumers load the same SHA and share bucket state.
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -36,9 +32,7 @@ fn script(name: &'static str, source: &'static str) -> LuaScript {
     }
 }
 
-/// The JavaScript number that ioredis (redis-parser 3) reads for an integer reply. It adds one
-/// decimal digit at a time in floating point, so a value above 2^53 can round differently from a
-/// direct conversion: `-9223372036854775808` reads as `-9223372036854778000`.
+/// ioredis adds one decimal digit at a time in floating point, so a reply above 2^53 can round differently from a direct conversion.
 pub fn ioredis_integer(n: i64) -> f64 {
     let mut number = 0f64;
     for digit in n.unsigned_abs().to_string().bytes() {
@@ -51,7 +45,7 @@ pub fn ioredis_integer(n: i64) -> f64 {
     }
 }
 
-/// One script call: `KEYS[1]` and `ARGV`, already written as ioredis writes numbers (`String(n)`).
+/// `ARGV` is already written as ioredis writes numbers (`String(n)`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptCall {
     pub key: String,
@@ -62,8 +56,7 @@ pub type ScriptReply = Result<Vec<i64>, String>;
 
 #[async_trait]
 pub trait TokenBucketRedis: Send + Sync {
-    /// Runs one `EVALSHA` per call in one pipeline. `Err` means the pipeline failed as a whole,
-    /// which `usePipeline({ failOpen: true })` turns into `null`.
+    /// `Err` means the whole pipeline failed, which `usePipeline({ failOpen: true })` turns into `null`.
     async fn eval_pipeline(
         &self,
         script: &LuaScript,
@@ -71,10 +64,7 @@ pub trait TokenBucketRedis: Send + Sync {
     ) -> Result<Vec<ScriptReply>, String>;
 }
 
-/// Like ioredis, it runs `SCRIPT EXISTS` and `SCRIPT LOAD` before it sends bare `EVALSHA`. If Redis
-/// loses the script, each call of that pipeline replies `NOSCRIPT`, which the limiter treats as a
-/// missing reply, as Node does. The next pipeline loads the script again. ioredis clears its
-/// script cache every 60 seconds, so Node recovers within that time; see PORTING.md.
+/// A lost script makes each call of that pipeline reply `NOSCRIPT`, a missing reply as in Node, and the next pipeline reloads it. See PORTING.md.
 pub struct RedisTokenBucket<C> {
     conn: C,
     loaded: Mutex<HashSet<String>>,
@@ -172,7 +162,6 @@ mod tests {
 
     use super::*;
 
-    /// A Redis that answers the script commands and can lose its script cache.
     #[derive(Clone, Default)]
     struct FakeRedis {
         state: Arc<Mutex<(bool, usize)>>,

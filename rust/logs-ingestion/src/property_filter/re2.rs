@@ -1,24 +1,5 @@
-//! `new RE2(pattern, flags).test(str)` from node-re2 1.22.1, on the Rust `regex` engine.
-//!
-//! node-re2 first rewrites the JavaScript pattern text (`translateRegExp` in `lib/new.cc`), then
-//! RE2 parses it in Perl mode. This module ports both steps. The RE2 step is a parser that accepts
-//! exactly what RE2's `parse.cc` accepts and writes an equivalent Rust pattern. A pattern that RE2
-//! rejects (look-around, back-references, `\Z`, `(?x)`, stacked repetition, a count above 1000)
-//! gives an error here too, so the caller sees the same "fails to compile" result.
-//!
-//! The Rust pattern differs from the RE2 text where the two engines disagree on syntax:
-//! - `\d`, `\s`, `\w` and `\b` are ASCII in RE2 and Unicode in Rust, so they become explicit
-//!   classes and `(?-u:\b)`. RE2's `\s` has no `\v`.
-//! - RE2 reads `[a[b]]` as the class `[a[b]` and a literal `]`, and treats `&&`, `--`, `~~`
-//!   in a class as literal text. Every class is written again with explicit escapes.
-//! - RE2 reads a `{` that does not start a valid count as a literal.
-//! - RE2 accepts surrogate code points (`\x{D800}`, or a lone surrogate in the pattern); they can
-//!   never match valid UTF-8. Rust rejects them, so they become a class that matches nothing.
-//! - `\p{C}` in RE2 has no unassigned code points; `\p{Cs}` is not a Rust class.
-//!
-//! Not reproduced: RE2's program size limit (`max_mem`, 8 MiB) and Rust's size and nesting
-//! limits differ, so a very large pattern can compile in one engine and fail in the other.
-//! Unicode table versions can also differ between the vendored RE2 and the `regex` crate.
+//! Ports node-re2's pattern rewrite and RE2's parser onto the `regex` crate, so a pattern that RE2 rejects fails to compile here too.
+//! Not reproduced: RE2's program size limit and its Unicode table version, so a very large pattern can compile in one engine only.
 
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -42,9 +23,7 @@ impl std::fmt::Display for Re2Error {
 impl std::error::Error for Re2Error {}
 
 impl Re2 {
-    /// `new RE2(pattern, flags)`. `pattern` is the UTF-8 that V8 writes for the JavaScript string:
-    /// WTF-8, where a lone surrogate takes its 3-byte form. Only the `i`, `m` and `s` flags change
-    /// what `test` returns.
+    /// `pattern` is V8's WTF-8, where a lone surrogate takes its 3-byte form. Only the `i`, `m` and `s` flags change `test`.
     pub fn new(pattern: &[u8], flags: &str) -> Result<Re2, Re2Error> {
         let ignore_case = flags.contains('i');
         let multiline = flags.contains('m');
@@ -70,13 +49,11 @@ impl Re2 {
         Ok(Re2 { regex })
     }
 
-    /// `new RE2(pattern)` with no flags, as `createTrackedRE2(pattern, undefined)` calls it.
     pub fn without_flags(pattern: &str) -> Result<Re2, Re2Error> {
         Re2::new(pattern.as_bytes(), "")
     }
 
-    /// `re.test(input)` for a regex without the `g` or `y` flag. node-re2 writes the input as
-    /// UTF-8 with U+FFFD for a lone surrogate, so callers pass the lossy UTF-8 form.
+    /// node-re2 writes the input with U+FFFD for a lone surrogate, so callers pass the lossy UTF-8 form.
     pub fn test(&self, input: &str) -> bool {
         self.regex.is_match(input.as_bytes())
     }
@@ -92,7 +69,6 @@ fn utf8_char_size(ch: u8) -> usize {
     (((0xE500_0000u32 >> ((ch >> 3) & 0x1E)) & 3) + 1) as usize
 }
 
-/// The long Unicode property names that node-re2 maps to RE2's short names.
 fn unicode_class_alias(name: &[u8]) -> Option<&'static str> {
     Some(match name {
         b"Uppercase_Letter" => "Lu",
@@ -137,8 +113,7 @@ fn unicode_class_alias(name: &[u8]) -> Option<&'static str> {
     })
 }
 
-/// node-re2's `translateRegExp`: a text rewrite before RE2 sees the pattern. It runs on the raw
-/// text, so it also rewrites inside character classes (`[(?<a]` gains a `P`).
+/// It runs on the raw text, so it also rewrites inside character classes (`[(?<a]` gains a `P`).
 fn node_translate(data: &[u8], multiline: bool) -> Vec<u8> {
     let size = data.len();
     let mut out: Vec<u8> = Vec::with_capacity(size + 8);
@@ -312,7 +287,6 @@ fn literal(r: u32) -> String {
     }
 }
 
-/// One member of a character class, in Rust syntax that is valid inside `[...]`.
 enum ClassItem {
     Range(u32, u32),
     Nested(String),
@@ -348,7 +322,7 @@ fn class_text(negated: bool, items: &[ClassItem]) -> String {
     format!("[{}{}]", if negated { "^" } else { "" }, body)
 }
 
-/// RE2's Perl classes. `\s` has no `\v`.
+/// RE2's `\s` has no `\v`.
 fn perl_class(c: u8) -> Option<(bool, &'static str)> {
     Some(match c {
         b'd' => (false, r"0-9"),
@@ -361,7 +335,6 @@ fn perl_class(c: u8) -> Option<(bool, &'static str)> {
     })
 }
 
-/// RE2's POSIX classes, all ASCII.
 fn posix_class(name: &[u8]) -> Option<&'static str> {
     Some(match name {
         b"alnum" => r"0-9A-Za-z",
@@ -382,7 +355,6 @@ fn posix_class(name: &[u8]) -> Option<&'static str> {
     })
 }
 
-/// The scripts and general categories in RE2's `unicode_groups.cc`, plus `Any`.
 const UNICODE_GROUPS: &[&str] = &[
     "Adlam",
     "Ahom",
@@ -586,7 +558,7 @@ const UNICODE_GROUPS: &[&str] = &[
     "Any",
 ];
 
-/// A Unicode group as a class member. `Cs` is empty in valid UTF-8, so it matches nothing.
+/// `Cs` is empty in valid UTF-8, so it matches nothing.
 fn unicode_group_item(name: &str, negated: bool) -> ClassItem {
     let positive = match name {
         // RE2's C has no unassigned code points; Rust's does.
@@ -617,11 +589,9 @@ enum PieceKind {
     Atom,
     /// An empty-width assertion. Rust needs a group around it before a repetition.
     Assertion,
-    /// `(?i)` and friends: not a repetition argument.
     Flags,
 }
 
-/// A counted repetition in the tree, for RE2's `RepetitionWalker`.
 #[derive(Clone)]
 struct RepNode {
     divisor: u32,
@@ -629,9 +599,7 @@ struct RepNode {
     children: Vec<RepNode>,
 }
 
-/// The `nest_limit` that `Re2::new` gives the Rust regex builder. Each group and each nested
-/// repetition is one level there, so a pattern past this depth fails to compile either way.
-/// The parser stops at it first, so deep input cannot overflow the stack. See PORTING.md.
+/// The parser stops at the regex builder's nest limit first, so deep input cannot overflow the stack.
 const MAX_NESTING: usize = 1000;
 
 fn walk(node: &RepNode, arg: u32) -> u32 {
@@ -902,7 +870,7 @@ impl<'a> Parser<'a> {
         Some(n)
     }
 
-    /// RE2's `MaybeParseRepetition`. `None` means the `{` is a literal.
+    /// `None` means the `{` is a literal.
     fn maybe_parse_repetition(&mut self) -> Option<(u32, Option<u32>)> {
         let s = self.s;
         let mut at = self.pos + 1;
@@ -960,7 +928,6 @@ impl<'a> Parser<'a> {
         self.pos += 2;
         let mut negated = false;
         let mut saw_flags = false;
-        // The final value of each flag the group names, in the order i, m, s, U.
         let mut set: [Option<bool>; 4] = [None; 4];
         loop {
             if self.pos >= self.s.len() {
@@ -981,7 +948,6 @@ impl<'a> Parser<'a> {
             }
             match c {
                 0x2D => {
-                    // '-'
                     if negated {
                         return err("invalid perl operator");
                     }
@@ -989,7 +955,6 @@ impl<'a> Parser<'a> {
                     saw_flags = false;
                 }
                 0x3A | 0x29 => {
-                    // ':' or ')'
                     if negated && !saw_flags {
                         return err("invalid perl operator");
                     }
@@ -1085,7 +1050,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// RE2's `ParseUnicodeGroup`, at `\p` or `\P`.
     fn parse_unicode_group(&mut self) -> Result<ClassItem, Re2Error> {
         let mut negated = self.peek(1) == Some(b'P');
         self.pos += 2;
@@ -1116,7 +1080,6 @@ impl<'a> Parser<'a> {
         Ok(unicode_group_item(name, negated))
     }
 
-    /// RE2's `ParseEscape` for a single rune.
     fn parse_escape(&mut self) -> Result<u32, Re2Error> {
         self.pos += 1;
         if self.pos >= self.s.len() {
@@ -1141,7 +1104,6 @@ impl<'a> Parser<'a> {
                 Ok(code)
             }
             0x78 => {
-                // 'x'
                 if self.pos >= self.s.len() {
                     return err("invalid escape sequence");
                 }
@@ -1187,7 +1149,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// RE2's `ParseCharClass`, at `[`.
     fn parse_char_class(&mut self) -> Result<String, Re2Error> {
         self.pos += 1;
         let mut negated = false;

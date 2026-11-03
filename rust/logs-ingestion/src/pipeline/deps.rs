@@ -1,5 +1,3 @@
-//! The dependencies of the consumer, as traits mirroring `LogsIngestionConsumerDeps`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -45,7 +43,7 @@ pub trait UsageRecordBatch: Send + Sync {
     async fn flush(&self) -> anyhow::Result<()>;
 }
 
-/// `SamplingRulesCache`. `Err` is a throw, including one from `compileRuleSet`.
+/// `Err` is a throw, including one from `compileRuleSet`.
 #[async_trait]
 pub trait SamplingRulesSource: Send + Sync {
     async fn get_compiled_rule_set(&self, team_id: i64) -> anyhow::Result<Arc<CompiledRuleSet>>;
@@ -70,8 +68,7 @@ pub trait TracingConfigSource: Send + Sync {
     async fn get_retention_days(&self, team_id: i64) -> anyhow::Result<f64>;
 }
 
-/// The slot for hog log transformations (`LogsTransformerService`). The Rust port does not run
-/// hog yet, so no implementation exists; the consumer runs the stage only when one is given.
+/// The Rust port does not run hog, so no implementation exists, and the consumer runs the stage only when one is given.
 #[async_trait]
 pub trait LogsTransformer: Send + Sync {
     async fn team_has_transformations(&self, team_id: i64) -> anyhow::Result<bool>;
@@ -83,8 +80,7 @@ pub trait LogsTransformer: Send + Sync {
     async fn flush(&self) -> anyhow::Result<()>;
 }
 
-/// `LogsIngestionConsumerDeps`. Node builds the Redis client from config; here the caller
-/// passes the token-bucket transport, the key root and the clock, so tests can pin all three.
+/// The caller passes the token-bucket transport, the key root and the clock, so tests can pin all three.
 #[derive(Clone)]
 pub struct LogsIngestionConsumerDeps {
     pub team_manager: Arc<dyn TeamManager>,

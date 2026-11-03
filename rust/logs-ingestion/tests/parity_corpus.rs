@@ -1,6 +1,3 @@
-//! Replays the shared parity corpus (`nodejs/src/logs/parity/fixtures/scenarios`) through the Rust
-//! consumer and compares every output with what the Node consumer recorded.
-
 mod common;
 
 use std::sync::Arc;
@@ -30,7 +27,7 @@ fn num(n: f64) -> JsValue {
     JsValue::Number(n)
 }
 
-/// `canonicalizeAvroValue` over plain JSON: keys sorted, then assigned to an object.
+/// Keys sorted, then assigned to an object, as `canonicalizeAvroValue` does.
 fn sort_keys(value: &JsValue) -> JsValue {
     match value {
         JsValue::Array(items) => JsValue::Array(items.iter().map(sort_keys).collect()),

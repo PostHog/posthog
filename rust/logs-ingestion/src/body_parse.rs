@@ -1,5 +1,3 @@
-//! Port of `nodejs/src/logs/log-body-parse.ts`: one `JSON.parse` of a log body, classified.
-
 use crate::js::{json_parse, JsString, JsValue};
 
 #[derive(Debug, Clone, PartialEq)]

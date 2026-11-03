@@ -1,9 +1,4 @@
-/**
- * Writes tests/fixtures/metric-rules-reference.json from the TypeScript metric-rules code.
- * Run from the repository root:
- *
- *   cd nodejs && npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/node-metric-rules-reference.ts
- */
+// Run from the repository root: cd nodejs && npx tsx --tsconfig tsconfig.json ../rust/logs-ingestion/scripts/node-metric-rules-reference.ts
 import { createHmac } from 'crypto'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
@@ -21,7 +16,6 @@ import {
 const NOW_MS = Date.UTC(2025, 0, 15, 12, 37, 13, 250)
 const HOUR_MS = 60 * 60 * 1000
 
-// Label truncation, through tallyRecords so the real resolveLabelValue runs.
 const rules = compileMetricRules([
     { id: 'r', metric_name: 'm', filter_group: null, value_attribute: null, group_by: ['attributes.v'] },
 ])
@@ -131,8 +125,7 @@ const admission = [
     ]),
 ]
 
-// Whole payloads, exact bytes: histograms, spans, exemplars and the overflow series. The module
-// vectors cover none of these, as their value attributes never resolve.
+// The module vectors cover none of these, because their value attributes never resolve.
 const spanRecord = (i: number, extra: Record<string, unknown>): Record<string, unknown> => ({
     uuid: `s${i}`,
     trace_id: i % 3 === 0 ? null : Buffer.from(Array.from({ length: 16 }, (_, j) => (i * 31 + j) & 0xff)),
@@ -238,7 +231,6 @@ const payloads = payloadCases.map(({ rows, defaults, records }) => {
     }
 })
 
-// Row validation in compileMetricRules, for rows without a filter group.
 const compileRows = [
     { id: 'a', metric_name: '', filter_group: null, value_attribute: null, group_by: [] },
     { id: 'b', metric_name: 5, filter_group: null, value_attribute: null, group_by: [] },

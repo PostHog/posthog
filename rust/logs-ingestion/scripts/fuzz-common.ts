@@ -1,4 +1,3 @@
-// Shared generators for the differential fuzz. Deterministic per seed.
 export class Rng {
     constructor(private state: number) {}
     next(): number {
@@ -75,7 +74,6 @@ export const KEY_POOL = [
     "host.example.com",
 ];
 
-// JSON text pieces (escapes included) that a body can carry verbatim.
 export const RAW_KEY_ESCAPES = [
     "\\ud800",
     "\\udfff",
@@ -273,7 +271,6 @@ export function randValue(
     }
 }
 
-/** Insert a raw JSON escape into some string literal of a JSON text, or into a key. */
 export function sprinkleEscapes(rng: Rng, text: string): string {
     const times = rng.int(3);
     for (let t = 0; t < times; t++) {
@@ -304,7 +301,6 @@ export function validJsonOrNull(text: string): boolean {
     }
 }
 
-/** Deep JSON text, arrays or objects, close to MAX_JSON_DEPTH. */
 export function deepJson(rng: Rng): string {
     const depth = rng.pick([126, 127, 128, 129, 130, 200]);
     let open = "";

@@ -1,5 +1,3 @@
-//! Port of `default-metric-rules.ts`.
-
 use std::collections::HashSet;
 use std::sync::OnceLock;
 

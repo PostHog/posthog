@@ -1,6 +1,3 @@
-//! Port of `common/services/app-metrics-aggregator.ts`, and the usage-row helpers of
-//! `logs-pipeline-context.ts` (`LogsUsageMetricsQueue`).
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,7 +21,6 @@ pub fn clickhouse_timestamp(at: DateTime<Utc>) -> String {
     at.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
 }
 
-/// `new Date().toISOString()`.
 pub fn iso_timestamp(ms: f64) -> String {
     datetime_from_ms(ms)
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -158,8 +154,7 @@ impl AppMetricsAggregator {
     }
 }
 
-/// `LogsUsageMetricsQueue`. One instance lives as long as the consumer: rows a failed batch
-/// queued are flushed with the next batch that succeeds.
+/// Lives as long as the consumer, so rows a failed batch queued flush with the next batch that succeeds.
 pub struct LogsUsageMetricsQueue {
     aggregator: AppMetricsAggregator,
     app_source: String,

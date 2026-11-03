@@ -1,5 +1,3 @@
-//! Port of `retention-stage.ts`: stamps `retention_days` on every surviving record.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;

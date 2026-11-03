@@ -1,7 +1,4 @@
-//! Port of `nodejs/src/logs/sampling/evaluate.ts`: the stateless per-record rule walk.
-//!
-//! `getAttribute` reads the raw (JSON-encoded) attribute value and does not decode it, unlike the
-//! filter-group lookup. A rule key that names an `Object.prototype` member reads that member.
+//! `getAttribute` reads the raw JSON-encoded value, unlike the filter-group lookup, and a key that names an `Object.prototype` member reads it.
 
 use std::sync::Arc;
 
@@ -43,7 +40,6 @@ impl SamplingDecision {
 pub enum SeverityAction {
     Keep,
     Drop,
-    /// Keep the record with this probability, in [0, 1].
     Sample(f64),
 }
 
@@ -88,7 +84,6 @@ pub struct CompiledSamplingRule {
     pub scope_service: Option<String>,
     pub path_regex: Option<Arc<Re2>>,
     pub path_drop_patterns: Option<Vec<Arc<Re2>>>,
-    /// When set, path_drop regexes match only this attribute.
     pub path_drop_match_attribute_key: Option<JsString>,
     pub filter_group: Option<FilterGroupNode>,
     pub severity_actions: [SeverityAction; 4],
@@ -142,10 +137,7 @@ pub fn severity_ordinal_from_record(record: &LogRecord) -> usize {
     }
 }
 
-/// `hash01FromTraceId`: the first four SHA-256 bytes over `0xffffffff`.
-///
-/// With no trace id Node uses `Math.random()`. This is the one path that no vector can pin, so
-/// it uses `rand` and tests check only its range.
+/// With no trace id Node uses `Math.random()`, which no vector can pin, so this uses `rand` and tests check only its range.
 pub fn hash01_from_trace_id(trace_id: Option<&[u8]>) -> f64 {
     match trace_id {
         Some(id) if !id.is_empty() => {
@@ -161,12 +153,11 @@ fn get_attribute<'a>(record: &'a LogRecord, key: &str) -> Option<AttrLookup<'a>>
     lookup_attribute(record.attributes()?, key)
 }
 
-/// `getAttribute` with a key from rule JSON. A key with a lone surrogate finds nothing.
+/// A key with a lone surrogate finds nothing.
 fn get_attribute_js<'a>(record: &'a LogRecord, key: &JsString) -> Option<AttrLookup<'a>> {
     get_attribute(record, key.as_str()?)
 }
 
-/// The first truthy attribute: `a || b`.
 fn truthy<'a>(v: Option<AttrLookup<'a>>) -> Option<AttrLookup<'a>> {
     v.filter(|a| !matches!(a, AttrLookup::Own("")))
 }
@@ -271,8 +262,7 @@ fn severity_decision(action: SeverityAction, record: &LogRecord) -> SamplingDeci
     }
 }
 
-/// `classifySamplingRecord`: deterministic rules win over `rate_limit` in any order; the first
-/// applicable `rate_limit` rule is returned only when no deterministic rule resolves the record.
+/// Deterministic rules win over `rate_limit` in any order. The first applicable `rate_limit` applies only when none resolves the record.
 pub fn classify_sampling_record(
     rule_set: Option<&CompiledRuleSet>,
     record: &LogRecord,

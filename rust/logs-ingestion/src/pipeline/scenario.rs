@@ -1,5 +1,4 @@
-//! In-memory dependencies built from a parity scenario (`nodejs/src/logs/parity/parity-types.ts`),
-//! mirroring `parity-harness.ts`. The parity test and the benchmark binary both use them.
+//! Mirrors `parity-harness.ts`. The parity test and the benchmark binary both use it.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -325,8 +324,7 @@ fn team_rows(v: Option<&JsValue>, team_id: i64) -> Vec<JsValue> {
         .unwrap_or_default()
 }
 
-/// Compiled rules per key. A scenario's rule rows never change, and production reads compiled
-/// rules from a cache, so the harness compiles each set once.
+/// Production reads compiled rules from a cache, so the harness compiles each set once.
 struct Compiled<K, V>(Mutex<HashMap<K, Arc<V>>>);
 
 impl<K: std::hash::Hash + Eq, V> Default for Compiled<K, V> {
@@ -517,7 +515,7 @@ pub struct ScenarioConsumer {
     pub recorded: Arc<Recorded>,
 }
 
-/// `buildParityConsumer`. `discard` counts produced messages instead of keeping them.
+/// `discard` counts produced messages instead of keeping them.
 pub fn build_scenario_consumer(
     scenario: &JsValue,
     redis: Arc<dyn TokenBucketRedis>,
