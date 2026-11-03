@@ -323,6 +323,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             environment=self.environment,
             limit_context=self.limit_context,
             modifiers=self.modifiers,
+            user=self.user,
         )
 
     def _execute(self, query: ast.SelectQuery) -> list:
@@ -331,6 +332,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             query=query,
             modifiers=self.modifiers,
             team=self.team,
+            user=self.user,
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
