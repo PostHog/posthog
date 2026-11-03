@@ -23,9 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.supabase import (
     SupabaseSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vitally import (
-    VitallySourceConfig,
-)
 from products.warehouse_sources.sources.beamer._config import BeamerSourceConfig
 from products.warehouse_sources.sources.chargebee._config import ChargebeeSourceConfig
 from products.warehouse_sources.sources.doit._config import DoItSourceConfig
@@ -395,16 +392,6 @@ def test_shopify_config(stored, expected_auth_method_attrs):
     assert config.shopify_store_id == "store_id"
     for attr, expected in expected_auth_method_attrs.items():
         assert getattr(config.auth_method, attr) == expected
-
-
-def test_vitally_config():
-    config = VitallySourceConfig.from_dict(
-        {"secret_token": "secret_token", "region": {"selection": "US", "subdomain": "subdomain"}}
-    )
-    assert config.secret_token == "secret_token"
-    assert config.region is not None
-    assert config.region.selection == "US"
-    assert config.region.subdomain == "subdomain"
 
 
 def test_get_config_for_source_resolves_every_registered_source():

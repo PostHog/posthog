@@ -384,3 +384,14 @@ class TestVitallySourceGetSchemas:
         assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
         mock_capture.assert_not_called()
+
+
+def test_config_reads_the_region_selection() -> None:
+    config = VitallySourceConfig.from_dict(
+        {"secret_token": "secret_token", "region": {"selection": "US", "subdomain": "subdomain"}}
+    )
+
+    assert config.secret_token == "secret_token"
+    assert config.region is not None
+    assert config.region.selection == "US"
+    assert config.region.subdomain == "subdomain"

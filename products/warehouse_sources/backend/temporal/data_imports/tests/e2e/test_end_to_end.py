@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import functools
 import contextlib
@@ -2918,8 +2919,22 @@ async def test_worker_shutdown_desc_sort_order(team):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
-    def mock_get_rows(*args, **kwargs):
-        yield [{"_board_id": "1", "id": "test-log-id", "created_at": datetime.now().isoformat()}]
+    # A custom source is not resumable, and its manifest can declare the descending sort mode.
+    manifest = {
+        "client": {"base_url": "https://api.example.com", "auth": {"type": "bearer"}},
+        "resources": [
+            {
+                "name": "logs",
+                "primary_key": "id",
+                "sort_mode": "desc",
+                "endpoint": {
+                    "path": "/logs",
+                    "data_selector": "data",
+                    "incremental": {"cursor_path": "created_at", "start_param": "since"},
+                },
+            }
+        ],
+    }
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -2929,18 +2944,14 @@ async def test_worker_shutdown_desc_sort_order(team):
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
-        mock.patch(
-            "products.warehouse_sources.sources.monday.monday.get_rows",
-            mock_get_rows,
-        ),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="board_activity_logs",
-            table_name="monday_board_activity_logs",
-            source_type="Monday",
-            job_inputs={"api_token": "test_token"},
-            mock_data_response=[],
+            schema_name="logs",
+            table_name="custom_logs",
+            source_type="Custom",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_token": "test_token"},
+            mock_data_response=[{"id": "test-log-id", "created_at": datetime.now().isoformat()}],
             sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
