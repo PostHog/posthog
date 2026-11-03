@@ -16,10 +16,10 @@ export function storedPath(root: string, path: string): string {
 
 // hog's own folder, where it keeps its settings, the approvals it waits for and, without a keychain,
 // its credentials. posthog-cli's ~/.posthog folder is not hog's: only `hog auth migrate` reads it.
-export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'fromSource'>): string {
+export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'isDevelopment'>): string {
     const { env, platform } = runtime
     const home = runtime.homeDir()
-    const name = runtime.fromSource ? 'hog-dev' : 'hog'
+    const name = runtime.isDevelopment ? 'hog-dev' : 'hog'
     let folder: string | undefined
     if (platform === 'win32') {
         folder = env.APPDATA ? win32.join(env.APPDATA, name) : home && win32.join(home, 'AppData', 'Roaming', name)
@@ -40,7 +40,10 @@ export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | '
     return folder
 }
 
-export function hogFile(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'fromSource'>, name: string): string {
+export function hogFile(
+    runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'isDevelopment'>,
+    name: string
+): string {
     const folder = hogDir(runtime)
     return runtime.platform === 'win32' ? win32.join(folder, name) : posix.join(folder, name)
 }
