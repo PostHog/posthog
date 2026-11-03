@@ -122,6 +122,7 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "team_id": self.team.id,
             "outcome": "found",
             "status": expected_status,
+            "auth_method": "project_secret_api_key",
             "authorized_by": "hog_flow",
         }
         assert response.json() == {

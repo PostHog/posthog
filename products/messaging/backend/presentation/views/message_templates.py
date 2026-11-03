@@ -513,7 +513,7 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     rate = "20000/hour"
 
 
-# LEGACY_SCOPE_FALLBACKS lets `hog_flow` satisfy these scopes, for keys made before they existed.
+# LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
 TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
 TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
 

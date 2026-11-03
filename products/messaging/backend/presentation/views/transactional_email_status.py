@@ -145,6 +145,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "team_id": self.team_id,
                     "outcome": "not_found" if email_status is None else "found",
                     "status": email_status.status if email_status else None,
+                    "auth_method": "project_secret_api_key",
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_STATUS_SCOPE),
                 },
                 groups=groups(self.organization, self.team),

@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PersonalAPIKey, ProjectSecretAPIKey, Team, User
+from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
@@ -97,15 +97,6 @@ class TestTransactionalEmail(APIBaseTest):
             secure_value=hash_key_value(raw_token),
             scopes=scopes,
             mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
-        return client
-
-    def _personal_key_client(self, scopes: list[str]) -> APIClient:
-        raw_token = generate_random_token_secret()
-        PersonalAPIKey.objects.create(
-            user=self.user, label="transactional email", secure_value=hash_key_value(raw_token), scopes=scopes
         )
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
@@ -249,7 +240,10 @@ class TestTransactionalEmail(APIBaseTest):
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
-        client = self._personal_key_client(["transactional_email:write"])
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['transactional_email:write'])}"
+        )
         template_url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
 
         send = client.post(self.url, self.body, format="json")
