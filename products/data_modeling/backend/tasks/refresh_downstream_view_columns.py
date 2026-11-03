@@ -17,6 +17,8 @@ from products.data_modeling.backend.logic import view_column_refresh
 def refresh_downstream_view_columns(team_id: int, saved_query_id: str, user_id: int | None) -> None:
     team = Team.objects.get(pk=team_id)
     user = User.objects.filter(pk=user_id).first() if user_id is not None else None
+    if user_id is not None and user is None:
+        return
     view_column_refresh.refresh_downstream_view_columns(team, saved_query_id, user)
 
 

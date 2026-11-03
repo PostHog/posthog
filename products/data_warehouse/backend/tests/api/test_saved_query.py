@@ -1950,7 +1950,8 @@ class TestSavedQuery(APIBaseTest):
         assert downstream.column_order == expected_downstream_columns
         assert delay.called == refreshes
 
-    def test_update_skips_downstream_views_the_editor_cannot_read(self) -> None:
+    @parameterized.expand([("editor_exists", False), ("editor_deleted_before_refresh", True)])
+    def test_update_skips_downstream_views_the_editor_cannot_read(self, _name: str, delete_editor: bool) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -1967,7 +1968,7 @@ class TestSavedQuery(APIBaseTest):
         )
         self.client.force_login(editor)
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.captureOnCommitCallbacks() as on_commit_callbacks:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
                 {
@@ -1975,6 +1976,10 @@ class TestSavedQuery(APIBaseTest):
                     "edited_history_id": upstream["latest_history_id"],
                 },
             )
+        if delete_editor:
+            editor.delete()
+        for callback in on_commit_callbacks:
+            callback()
 
         self.assertEqual(response.status_code, 200, response.content)
         assert DataWarehouseSavedQuery.objects.get(pk=downstream["id"]).column_order == ["old_id"]
