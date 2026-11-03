@@ -495,11 +495,12 @@ class TestFacadeReadsAndMappers(TestCase):
         self, _name: str, older_columns: str, newer_columns: str
     ):
         def flow_columns(flow_id: UUID, columns: str) -> dict:
-            return {
+            columns_by_name: dict[str, dict] = {
                 "old": {"hog_flow_id": flow_id},
                 "new": {"source_kind": "hog_flow", "source_id": str(flow_id)},
                 "kind_only": {"source_kind": "hog_flow", "hog_flow_id": flow_id},
-            }[columns]
+            }
+            return columns_by_name[columns]
 
         now = django_timezone.now()
         flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
