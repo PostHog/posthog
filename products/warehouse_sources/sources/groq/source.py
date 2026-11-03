@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.groq._config import GroqSourceConfig
 from products.warehouse_sources.sources.groq.groq import (
+    GroqResumeConfig,
     groq_source,
     validate_credentials as validate_groq_credentials,
 )
@@ -12,7 +13,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -25,7 +27,7 @@ from products.warehouse_sources.sources.sdk import (
 
 
 @SourceRegistry.register
-class GroqSource(SimpleSource[GroqSourceConfig]):
+class GroqSource(ResumableSource[GroqSourceConfig, GroqResumeConfig]):
     codebase_detection = detect(env=("^GROQ_",), npm=("groq-sdk",), pypi=("groq",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -120,10 +122,19 @@ Create an API key in the [Groq console](https://console.groq.com/keys). Groq exp
             return False, "Your Groq API key is missing the permissions needed to sync this data"
         return False, "Could not connect to Groq with the provided API key"
 
-    def source_for_pipeline(self, config: GroqSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GroqResumeConfig]:
+        return ResumableSourceManager[GroqResumeConfig](inputs, GroqResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: GroqSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GroqResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return groq_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )
