@@ -5839,20 +5839,9 @@ export interface WorkloadProviderApi {
     condition_claims: WorkloadClaimApi[]
 }
 
-export interface UnsupportedWorkloadProviderApi {
-    /** Stable identifier of the provider. */
-    key: string
-    /** Display name of the provider. */
-    name: string
-    /** Why the provider can't be used. */
-    reason: string
-}
-
 export interface WorkloadProvidersResponseApi {
     /** Providers a policy can trust. */
     supported: WorkloadProviderApi[]
-    /** Known providers that can't be trusted. */
-    unsupported: UnsupportedWorkloadProviderApi[]
     /** Every scope a policy's ceiling may hold. */
     grantable_scopes: string[]
     /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
@@ -5922,7 +5911,7 @@ export interface WorkloadTrustPolicyRequestApi {
     scopes: string[]
     /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
     readonly risky_scopes: WorkloadTrustPolicyRequestApiRiskyScopes
-    /** Where the request stands. A request expires after 7 days. */
+    /** Where the request stands. A request expires after 24 hours. */
     readonly status: WorkloadTrustPolicyRequestStatusEnumApi
     /** The link to send to an admin to approve the request. */
     readonly approval_url: string
@@ -5931,10 +5920,13 @@ export interface WorkloadTrustPolicyRequestApi {
     /** Names of the organization admins and owners who can approve, when the current user cannot. */
     readonly approvers: readonly string[]
     readonly requested_by: UserBasicApi | null
-    /** The client the request came through, for example hog. */
-    readonly requested_via: string
     /**
-     * Whether PostHog verified the OAuth app the request came through, or null for other clients.
+     * The name of the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via: string | null
+    /**
+     * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
      * @nullable
      */
     readonly requested_via_verified: boolean | null

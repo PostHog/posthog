@@ -26,12 +26,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import (
     OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
     SessionAuthentication,
     WorkloadAccessTokenAuthentication,
 )
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.oauth import OAuthApplication
 from posthog.models.workload_trust_policy import (
     CONDITION_VALUE_MAX_LENGTH,
     CONDITIONS_MAX_BYTES,
@@ -54,7 +54,6 @@ from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_p
 from posthog.workload_identity.providers import (
     WorkloadProvider,
     get_supported_workload_providers,
-    get_unsupported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
 )
@@ -316,15 +315,8 @@ class WorkloadProviderSerializer(serializers.Serializer):
     )
 
 
-class UnsupportedWorkloadProviderSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Stable identifier of the provider.")
-    name = serializers.CharField(help_text="Display name of the provider.")
-    reason = serializers.CharField(help_text="Why the provider can't be used.")
-
-
 class WorkloadProvidersResponseSerializer(serializers.Serializer):
     supported = WorkloadProviderSerializer(many=True, help_text="Providers a policy can trust.")
-    unsupported = UnsupportedWorkloadProviderSerializer(many=True, help_text="Known providers that can't be trusted.")
     grantable_scopes = serializers.ListField(
         child=serializers.CharField(), help_text="Every scope a policy's ceiling may hold."
     )
@@ -412,34 +404,30 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         grantable = workload_trust_policy_grantable_scopes()
         payload = {
             "supported": get_supported_workload_providers(),
-            "unsupported": get_unsupported_workload_providers(),
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
         return Response(WorkloadProvidersResponseSerializer(payload).data)
 
 
-def requested_via(request: Request) -> tuple[str, bool | None]:
-    """The client a request came through, and whether PostHog verified it. Only an OAuth app has a
-    verification state, so the second value is None for the other credentials."""
+def requesting_application(request: Request) -> OAuthApplication | None:
     authenticator = request.successful_authenticator
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        application = authenticator.access_token.application
-        if application is None:
-            return "an OAuth app", False
-        return application.name, application.is_verified or application.is_first_party
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        return "a personal API key", None
-    if isinstance(authenticator, SessionAuthentication):
-        return "the PostHog app", None
-    return "an API token", None
+        return authenticator.access_token.application
+    return None
 
 
 class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
     name = serializers.CharField(max_length=200, help_text="The name the policy gets once approved.")
     provider_name = serializers.SerializerMethodField(help_text="The display name of the workload provider, or null.")
     scopes = CIScopeListField(help_text="The scopes the policy's tokens would carry.")
-    status = serializers.SerializerMethodField(help_text="Where the request stands. A request expires after 7 days.")
+    status = serializers.SerializerMethodField(help_text="Where the request stands. A request expires after 24 hours.")
+    requested_via = serializers.SerializerMethodField(
+        help_text="The name of the OAuth app the request came through, or null for other credentials."
+    )
+    requested_via_verified = serializers.SerializerMethodField(
+        help_text="Whether PostHog verified the OAuth app the request came through, or null for other credentials."
+    )
     approval_url = serializers.SerializerMethodField(help_text="The link to send to an admin to approve the request.")
     can_approve = serializers.SerializerMethodField(
         help_text="Whether the current user's role lets them approve the request, in the browser."
@@ -501,14 +489,18 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "policy_id",
         ]
         extra_kwargs = {
-            "requested_via": {"help_text": "The client the request came through, for example hog."},
-            "requested_via_verified": {
-                "help_text": "Whether PostHog verified the OAuth app the request came through, or null for other clients."
-            },
             "created_at": {"help_text": "When the request was made."},
             "expires_at": {"help_text": "When a pending request stops being approvable."},
             "resolved_at": {"help_text": "When an admin approved or rejected the request."},
         }
+
+    def get_requested_via(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
+        application = policy_request.requested_via_application
+        return application.name if application else None
+
+    def get_requested_via_verified(self, policy_request: WorkloadTrustPolicyRequest) -> bool | None:
+        application = policy_request.requested_via_application
+        return bool(application.is_verified or application.is_first_party) if application else None
 
     def get_provider_name(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
         provider = get_workload_provider_by_issuer(policy_request.issuer)
@@ -606,7 +598,7 @@ class WorkloadTrustPolicyRequestViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
             WorkloadTrustPolicyRequest.objects.all()
-            .select_related("requested_by", "resolved_by")
+            .select_related("requested_by", "resolved_by", "requested_via_application")
             .order_by("-created_at")
         )
 
@@ -638,9 +630,10 @@ class WorkloadTrustPolicyRequestViewSet(
         return context
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        via, via_verified = requested_via(self.request)
         serializer.save(
-            team=self.team, requested_by=self.request.user, requested_via=via, requested_via_verified=via_verified
+            team=self.team,
+            requested_by=self.request.user,
+            requested_via_application=requesting_application(self.request),
         )
 
     def _resolve(self, approve: bool) -> Response:

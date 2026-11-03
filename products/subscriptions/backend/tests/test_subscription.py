@@ -1048,6 +1048,49 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.json()["attr"] == "target_value"
         assert response.json()["detail"] == TEAMS_WEBHOOK_URL_ERROR
 
+    @parameterized.expand(
+        [
+            ("slack_disable", "slack", "C123|#reports", {"enabled": False}, 200),
+            ("slack_delete", "slack", "C123|#reports", {"deleted": True}, 200),
+            ("teams_disable", "teams", "https://example.com/expired-webhook", {"enabled": False}, 200),
+            ("teams_delete", "teams", "https://example.com/expired-webhook", {"deleted": True}, 200),
+            (
+                "slack_destination_edit",
+                "slack",
+                "C123|#reports",
+                {"enabled": False, "target_value": "C456|#other"},
+                400,
+            ),
+            (
+                "teams_destination_edit",
+                "teams",
+                "https://example.com/expired-webhook",
+                {"enabled": False, "target_value": "https://example.com/another-webhook"},
+                400,
+            ),
+        ]
+    )
+    def test_turning_off_invalid_destination_only_skips_validation_for_unchanged_destination(
+        self, _name: str, target_type: str, target_value: str, payload: dict[str, bool | str], expected_status: int
+    ) -> None:
+        subscription = Subscription.objects.create(
+            team=self.team,
+            created_by=self.user,
+            insight=self.insight,
+            target_type=target_type,
+            target_value=target_value,
+            frequency="daily",
+            start_date=timezone.now(),
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", payload)
+        assert response.status_code == expected_status, response.json()
+        subscription.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            assert not subscription.enabled or subscription.deleted
+        else:
+            assert subscription.enabled and not subscription.deleted
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
         rejected up front — otherwise the next delivery would auto-disable it again
