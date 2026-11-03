@@ -27871,7 +27871,7 @@
         },
         "ExperimentWarehouseNativeExposureConfig": {
             "additionalProperties": false,
-            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection with the same unit binding.",
             "properties": {
                 "connection_id": {
                     "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
@@ -27888,12 +27888,15 @@
                 "response": {
                     "type": "object"
                 },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeUnitBinding"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "query"],
+            "required": ["connection_id", "kind", "query", "unit"],
             "type": "object"
         },
         "ExperimentWarehouseNativeMathType": {
@@ -27931,12 +27934,31 @@
                 "response": {
                     "type": "object"
                 },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeUnitBinding"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "query"],
+            "required": ["connection_id", "kind", "query", "unit"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeUnitBinding": {
+            "additionalProperties": false,
+            "description": "What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on `entity_id` inside the warehouse, and the same connection does not make two queries compatible: one can return account ids and another customer ids. Every warehouse-native source stores its binding so a saved metric keeps it when it is attached to another experiment, and so attachment can compare bindings instead of guessing from SQL. Equal labels are required for compatibility but cannot prove the SQL returns the same identities; the author confirms that.",
+            "properties": {
+                "id_namespace": {
+                    "description": "Which ids represent that unit, such as `billing_customer_id`.",
+                    "type": "string"
+                },
+                "unit_type": {
+                    "description": "What was randomized, as a stable project-scoped label such as `customer` or `account`.",
+                    "type": "string"
+                }
+            },
+            "required": ["unit_type", "id_namespace"],
             "type": "object"
         },
         "ExternalQueryError": {

@@ -884,6 +884,7 @@ class TestExperimentService(APIBaseTest):
                         "kind": "ExperimentWarehouseNativeExposureConfig",
                         "connection_id": "00000000-0000-0000-0000-000000000000",
                         "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
                     }
                 },
                 "exposure_criteria.exposure_config: warehouse-native exposures are not supported yet",
@@ -895,6 +896,7 @@ class TestExperimentService(APIBaseTest):
                         "kind": "ExperimentWarehouseNativeExposureConfig",
                         "connection_id": "00000000-0000-0000-0000-000000000000",
                         "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
                     }
                 },
                 "exposure_criteria.activation_config.kind must be one of "
@@ -903,6 +905,17 @@ class TestExperimentService(APIBaseTest):
             (
                 "exposure_config_warehouse_native_missing_query",
                 {"exposure_config": {"kind": "ExperimentWarehouseNativeExposureConfig", "connection_id": "c"}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseNativeExposureConfig')",
+            ),
+            (
+                "exposure_config_warehouse_native_missing_unit",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentWarehouseNativeExposureConfig",
+                        "connection_id": "c",
+                        "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                    }
+                },
                 "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseNativeExposureConfig')",
             ),
             (
