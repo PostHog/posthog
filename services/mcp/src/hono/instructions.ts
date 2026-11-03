@@ -31,6 +31,16 @@ import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
+export type ExecToolState = Pick<
+    ResolvedState,
+    | 'renderUiEnabled'
+    | 'businessKnowledgeContent'
+    | 'clientProfile'
+    | 'requestContext'
+    | 'sessionContext'
+    | 'toolFeatureFlags'
+> & { allTools: readonly { name: string }[] }
+
 /** Presence of this tool is the runtime signal that the notebook cell surface
  *  (the `revamped-py-notebooks` flag) is live for this client. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
@@ -73,7 +83,7 @@ export class InstructionsBuilder {
         return this.formatter.buildToolsInstructions(ctx)
     }
 
-    buildContext(state: ResolvedState): InstructionsContext {
+    buildContext(state: ExecToolState): InstructionsContext {
         return {
             guidelines: this.guidelines,
             tools: state.allTools.map((t) => ({
@@ -94,10 +104,11 @@ export class InstructionsBuilder {
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
             notebookRunEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_RUN_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
+            businessKnowledgeContent: state.businessKnowledgeContent,
         }
     }
 
-    buildExecToolEntry(state: ResolvedState): McpTool {
+    buildExecToolEntry(state: ExecToolState): McpTool {
         const commandReference = this.buildExecCommandReference(state)
         const ExecSchema = { command: { type: 'string', description: commandReference } }
 
@@ -131,7 +142,7 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecCommandReference(state: ResolvedState): string {
+    buildExecCommandReference(state: ExecToolState): string {
         // Claude web/desktop never show `instructions` to the model, so their reference carries the domain index.
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
         const ctx = this.buildContext(state)
@@ -177,7 +188,7 @@ export class InstructionsBuilder {
         )
     }
 
-    buildExecToolDescription(state?: ResolvedState): string {
+    buildExecToolDescription(state?: ExecToolState): string {
         const skillsEnabled = state ? this.getExecLearnCapabilities(state).skillsEnabled : false
         const docsSearchEnabled = state?.allTools.some(({ name }) => name === DOCS_SEARCH_TOOL)
         const businessKnowledgeSearchEnabled = state?.allTools.some(
@@ -191,10 +202,11 @@ export class InstructionsBuilder {
             docsSearchEnabled,
             businessKnowledgeSearchEnabled,
             businessKnowledgeRepoSearchEnabled,
+            businessKnowledgeContent: state?.businessKnowledgeContent,
         })
     }
 
-    execSkillsEnabled(state: ResolvedState): boolean {
+    execSkillsEnabled(state: ExecToolState): boolean {
         return this.getExecLearnCapabilities(state).skillsEnabled
     }
 
@@ -212,7 +224,7 @@ export class InstructionsBuilder {
         })
     }
 
-    private getExecLearnCapabilities(state: ResolvedState): { guidesEnabled: boolean; skillsEnabled: boolean } {
+    private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
         // The plugin and PostHog Code sandboxes bundle their own skill context, so
         // learn stays off for them regardless of the feature flag.

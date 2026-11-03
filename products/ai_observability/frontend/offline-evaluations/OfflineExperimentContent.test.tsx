@@ -24,9 +24,17 @@ describe('OfflineExperimentContent', () => {
         initKeaTests()
         jest.clearAllMocks()
         jest.mocked(api.aiObservabilityOfflineExperimentsRetrieve).mockResolvedValue(detailExperiment)
-        readSummaries.mockResolvedValue({ count: 25, next_cursor: null, results: detailSummaries })
+        readSummaries.mockResolvedValue({
+            count: 25,
+            next: null,
+            previous: null,
+            next_cursor: null,
+            results: detailSummaries,
+        })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsList).mockResolvedValue({
             count: 8,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: detailItems,
             scorer_versions: [],
@@ -41,6 +49,8 @@ describe('OfflineExperimentContent', () => {
         const fullName = 'Checks whether the answer is supported by the supplied reference material'
         readSummaries.mockResolvedValue({
             count: 1,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: [
                 {

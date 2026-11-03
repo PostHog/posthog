@@ -1845,6 +1845,18 @@
   GROUP BY team_id
   '''
 # ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.65]
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events_json
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND startsWith(event, '$mcp_')
+  GROUP BY team_id
+  '''
+# ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests[new_events_schema.6]
   '''
   

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { IconChevronDown, IconExpand45 } from '@posthog/icons'
 import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'

@@ -576,53 +576,80 @@ describe('Inbox setup', () => {
         }
     })
 
-    it.each([true, false])('retries partial activation with usage-based pricing %s', async (usageBasedPricing) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing })
-        const capture = jest.spyOn(posthog, 'capture')
-        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-        expect(logic.values.activationDisabledReason).toBeUndefined()
-        expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(0)
-        await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
-        expect(logic.values.completed).toBe(false)
-        expect(logic.values.inProgress).toBe(true)
-        expect(logic.values.draft).toEqual({ ...draft, automatic_implementation: !usageBasedPricing })
-        expect(logic.values.error).toBeTruthy()
-        expect(createdSources).toBe(1)
+    it.each([
+        { usageBasedPricing: true, detail: 'Activation interrupted', status: 400 },
+        { usageBasedPricing: false, detail: 'Activation interrupted', status: 503 },
+        { usageBasedPricing: true, detail: null, status: 503 },
+        { usageBasedPricing: true, detail: ' ', status: 500 },
+    ])(
+        'retries partial activation with pricing $usageBasedPricing and detail $detail',
+        async ({ usageBasedPricing, detail, status }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing })
+            const capture = jest.spyOn(posthog, 'capture')
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+            useMocks({
+                post: {
+                    '/api/projects/:id/signals/onboarding/complete/': () =>
+                        failCompletion
+                            ? [status, { detail, code: 'activation_interrupted' }]
+                            : [200, { draft: savedDraft, completed_at: '2026-10-14T12:00:00Z' }],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+            expect(logic.values.activationDisabledReason).toBeUndefined()
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(0)
+            await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
+            expect(logic.values.completed).toBe(false)
+            expect(logic.values.inProgress).toBe(true)
+            expect(logic.values.draft).toEqual({ ...draft, automatic_implementation: !usageBasedPricing })
+            const message = detail?.trim() || 'Could not finish setup. Your choices are saved. Retry activation.'
+            expect(logic.values.error).toBe(message)
+            expect(logic.values.failedOperation).toBe('activation')
+            expect(logic.values.saving).toBe(false)
+            expect(captureException).toHaveBeenCalledWith(
+                expect.objectContaining({ status, code: 'activation_interrupted' }),
+                { operation: 'inbox_activation', http_status: status, error_code: 'activation_interrupted' }
+            )
+            expect(createdSources).toBe(1)
 
-        failCompletion = false
-        await expectLogic(logic, () => logic.actions.retry()).toFinishAllListeners()
-        expect(savedDraft?.automatic_implementation).toBe(!usageBasedPricing)
-        expect(logic.values.completed).toBe(true)
-        expect(logic.values.inProgress).toBe(false)
-        expect(createdSources).toBe(1)
-        expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(1)
-        expect(capture.mock.calls.filter(([event]) => event === 'Signal source connected')).toEqual([
-            [
-                'Signal source connected',
-                expect.objectContaining({
-                    source_product: 'error_tracking',
-                    is_first_connection: true,
-                    setup_mode: 'guided',
-                }),
-                undefined,
-            ],
-        ])
-        expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding failed')).toEqual([
-            [
-                'self-driving onboarding failed',
-                expect.objectContaining({
-                    failed_operation: 'activation',
-                    step: 'github',
-                    flow_version: 'ui-first-v1',
-                }),
-            ],
-        ])
-        expect(capture).toHaveBeenCalledWith(
-            'self-driving onboarding activation requested',
-            expect.objectContaining({ activation_source: 'retry' })
-        )
-        capture.mockRestore()
-    })
+            failCompletion = false
+            await expectLogic(logic, () => logic.actions.retry()).toFinishAllListeners()
+            expect(savedDraft?.automatic_implementation).toBe(!usageBasedPricing)
+            expect(logic.values.completed).toBe(true)
+            expect(logic.values.inProgress).toBe(false)
+            expect(createdSources).toBe(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding started')).toHaveLength(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'Signal source connected')).toEqual([
+                [
+                    'Signal source connected',
+                    expect.objectContaining({
+                        source_product: 'error_tracking',
+                        is_first_connection: true,
+                        setup_mode: 'guided',
+                    }),
+                    undefined,
+                ],
+            ])
+            expect(capture.mock.calls.filter(([event]) => event === 'self-driving onboarding failed')).toEqual([
+                [
+                    'self-driving onboarding failed',
+                    expect.objectContaining({
+                        failed_operation: 'activation',
+                        step: 'github',
+                        flow_version: 'ui-first-v1',
+                        http_status: status,
+                        error_code: 'activation_interrupted',
+                        error_message: message,
+                    }),
+                ],
+            ])
+            expect(capture).toHaveBeenCalledWith(
+                'self-driving onboarding activation requested',
+                expect.objectContaining({ activation_source: 'retry' })
+            )
+            capture.mockRestore()
+        }
+    )
 
     it('preserves a committed activation when its completion response was lost', async () => {
         await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
@@ -742,7 +769,7 @@ describe('Inbox setup', () => {
         }
     )
 
-    it.each(['product-analytics', 'general'])('offers %s and enables it only at activation', async (name) => {
+    it.each(['product-analytics', 'general'])('keeps %s scout edits during reloads until activation', async (name) => {
         hasEvents = name === 'product-analytics'
         const skillName = `signals-scout-${name}`
         canonicalScouts = [{ ...mockScoutConfigs[0], skill_name: skillName, enabled: false }]
@@ -753,6 +780,27 @@ describe('Inbox setup', () => {
         await expectLogic(logic, () => logic.actions.toggleSuggestion(suggestion!)).toFinishAllListeners()
         expect(savedDraft?.suggestions).toEqual([suggestion])
         expect(enabledScouts).toEqual([])
+        const selectedState: InboxOnboardingStateApi = { draft: savedDraft, completed_at: null }
+        let finishReload!: (state: InboxOnboardingStateApi) => void
+        jest.spyOn(signalsApi, 'signalsOnboardingList').mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishReload = resolve
+                })
+        )
+        logic.actions.loadSetup()
+        logic.actions.toggleSuggestion(suggestion!)
+        expect(logic.values.draft.suggestions).toEqual([])
+        finishReload(selectedState)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.draft.suggestions).toEqual([])
+        expect(savedDraft?.suggestions).toEqual([])
+        logic.unmount()
+        logic = inboxSetupLogic()
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
+        expect(logic.values.draft.suggestions).toEqual([])
+        await expectLogic(logic, () => logic.actions.toggleSuggestion(suggestion!)).toFinishAllListeners()
         await expectLogic(logic, () => logic.actions.goToStep('github')).toFinishAllListeners()
         failCompletion = false
         await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()

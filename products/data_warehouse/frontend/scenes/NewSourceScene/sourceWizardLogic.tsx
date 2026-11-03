@@ -12,8 +12,8 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +24,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     IncrementalField,
     ManualLinkSourceType,
     manualLinkSources,
@@ -32,7 +33,6 @@ import {
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
-    ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
@@ -277,6 +277,11 @@ export function buildCreateSourcePayload(
     }
 }
 
+function withoutColumns(columns: string[] | null | undefined, removed: (string | null)[]): string[] | null | undefined {
+    const names = new Set(removed.filter((name): name is string => !!name).map((name) => name.toLowerCase()))
+    return columns?.filter((column) => !names.has(column.toLowerCase())) ?? columns
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -502,6 +507,7 @@ export interface sourceWizardLogicValues {
     nextButtonDisabledReason: string | null
     nextButtonText: string
     oauthRedirectUrl: string | undefined
+    objectStorageSourcesEnabled: boolean
     prefixRequired: boolean
     requiredTables: any
     returnConfig: {
@@ -664,11 +670,11 @@ export interface sourceWizardLogicActions {
         value: true
     }
     handleRedirect: (
-        source: ExternalDataSourceTypeEnumApi,
+        source: ExternalDataSourceType,
         searchParams?: any
     ) => {
         searchParams: any
-        source: ExternalDataSourceTypeEnumApi
+        source: string
     }
     onBack: () => {
         value: true
@@ -995,6 +1001,11 @@ export interface sourceWizardLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
         ) => SourceConfigResponseApi[]
+        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
+            name: string
+            type: ManualLinkSourceType
+        }[]
         isSelfManagedSource: (
             manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
         ) => boolean
@@ -1067,7 +1078,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setInitialConnector: (connector: SourceConfigResponseApi | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (source: ExternalDataSourceTypeEnumApi, searchParams?: any) => ({
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
             source,
             searchParams,
         }),
@@ -1301,6 +1312,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 ? (incrementalFieldLookbackSeconds ?? null)
                                 : s.incremental_field_lookback_seconds,
                         primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
+                        // The server refuses to mask a cursor or key column, which would fail the whole source creation.
+                        masked_columns:
+                            s.table === schema.table
+                                ? withoutColumns(s.masked_columns, [incrementalField, ...(primaryKeyColumns ?? [])])
+                                : s.masked_columns,
                         ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
                             ? { cdc_table_mode: cdcTableMode }
                             : {}),
@@ -1482,8 +1498,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: (values.selectedConnector?.name ||
-                                    'Postgres') as ExternalDataSourceTypeEnumApi,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...payload,
                                 cdc_management_mode: mode,
                                 tables: [],
@@ -1520,8 +1535,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: (values.selectedConnector?.name ||
-                                    'Postgres') as ExternalDataSourceTypeEnumApi,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...connectionPayload,
                                 cdc_management_mode: 'self_managed',
                                 // PostHog creates the slot itself — only verify the publication.
@@ -1840,13 +1854,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }))
             },
         ],
+        // The managed object storage sources replace self-managed tables, so no new ones are created.
+        objectStorageSourcesEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES],
+        ],
         manualConnectors: [
-            () => [],
-            (): { name: string; type: ManualLinkSourceType }[] =>
-                manualLinkSources.map((source) => ({
-                    name: MANUAL_LINK_SOURCE_LABELS[source],
-                    type: source,
-                })),
+            (s) => [s.objectStorageSourcesEnabled],
+            (objectStorageSourcesEnabled: boolean): { name: string; type: ManualLinkSourceType }[] =>
+                objectStorageSourcesEnabled
+                    ? []
+                    : manualLinkSources.map((source) => ({
+                          name: MANUAL_LINK_SOURCE_LABELS[source],
+                          type: source,
+                      })),
         ],
         isSelfManagedSource: [
             (s) => [s.manualLinkingProvider],
@@ -2442,8 +2464,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         handleRedirect: async ({ source }) => {
-            // By default, we assume the source is a valid external data source
-            if (Object.values(ExternalDataSourceTypeEnumApi).includes(source)) {
+            // The redirect names the source it came back for. Only a source the catalog lists can continue.
+            if (values.availableSources?.[source]) {
                 actions.updateSource({
                     source_type: source,
                 })
@@ -2681,10 +2703,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        toggleAllTables: () => {
+        toggleAllTables: ({ selectAll, tableNames }) => {
             // databaseSchema reducer already applied the toggle; re-emit so the
             // setDatabaseSchemas listener (syncExpandedSchemaGroupKeys) fires.
             actions.setDatabaseSchemas(values.databaseSchema)
+
+            if (selectAll) {
+                // Select all leaves default-off tables off, so the header checkbox never fills.
+                // Say why, otherwise it reads as a checkbox that ignores clicks.
+                const targetSet = tableNames ? new Set(tableNames) : null
+                const skippedDefaultOff = values.databaseSchema.some(
+                    (schema) =>
+                        (!targetSet || targetSet.has(schema.table)) &&
+                        schema.should_sync_default === false &&
+                        !schema.should_sync &&
+                        !schema.permission_error
+                )
+                if (skippedDefaultOff) {
+                    lemonToast.info(
+                        'Select all skips tables that are off by default. Check those tables one at a time to sync them.'
+                    )
+                }
+            }
         },
     })),
     urlToAction(({ actions, values }) => {
@@ -2708,6 +2748,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
                 actions.selectConnector(FILE_UPLOAD_SOURCE_CONFIG)
                 actions.setStep(2)
+                return
+            }
+
+            if (values.objectStorageSourcesEnabled && manualLinkSources.some((type) => type === kind)) {
+                actions.selectConnector(null)
+                actions.setStep(1)
+                router.actions.replace(urls.dataWarehouseSourceNew())
                 return
             }
 

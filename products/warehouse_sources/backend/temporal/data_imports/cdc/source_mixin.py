@@ -89,6 +89,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import kept_history_naming
         from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
@@ -100,7 +101,8 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
             served_lanes,
         )
 
-        if not served_lanes(schema):
+        history = kept_history_naming(schema)
+        if not served_lanes(schema, history):
             raise ValueError(
                 f"CDC schema {schema.name} has cdc_table_mode {schema.cdc_table_mode!r}, which no buffer lane "
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
@@ -113,7 +115,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
             # of that attempt failing later would leave a Completed job proving a listing nothing
             # drained.
             clear_listing(inputs.job_id, inputs.team_id)
-            first_lane = served_lanes(schema)[0]
+            first_lane = served_lanes(schema, history)[0]
             return SourceResponse(
                 name=first_lane.resource_name,
                 items=lambda: iter(()),
@@ -167,7 +169,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
 
         # Every table this schema's changes feed, written from one read of the buffer. Each lane
         # carries where its own table stops, because a failed run can leave one ahead of the other.
-        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
+        lanes, deletion_floor = async_to_sync(build_output_lanes)(schema, job, inputs.logger, history)
         manager = CDCSourceManager(
             inputs,
             inputs.logger,

@@ -64,7 +64,7 @@ _FORMATS: dict[str, FileFormatChoice] = {
     "Delta": "delta",
     "DeltaS3Wrapper": "delta",
 }
-# Column types the import pipeline writes as JSON strings, which breaks queries that read their parts.
+# Column types the import pipeline stores as JSON text.
 _NESTED_TYPES = frozenset({"Array", "Map", "Tuple", "Nested", "JSON", "Object", "Variant", "Dynamic"})
 # Columns the import adds to every row. A stored column of the same name would lose its values to them.
 _FILE_COLUMNS = frozenset({FILE_PATH_COLUMN, FILE_MODIFIED_AT_COLUMN, FILE_ROW_NUMBER_COLUMN})
@@ -168,13 +168,13 @@ def needs_preserved_column_names(column_names: Iterable[str]) -> bool:
     return any(normalize_column_name(name) != name for name in column_names)
 
 
-def _refuse_nested_columns(columns: Mapping[str, Any] | None) -> None:
-    for name, clickhouse_type in stored_clickhouse_types(columns).items():
-        base = clickhouse_base_type(clickhouse_type)
-        if base in _NESTED_TYPES:
-            raise UnmappableTableError(
-                f"the column '{name}' is a {base}, and the import would store it as text, not as a {base}"
-            )
+def nested_text_columns(columns: Mapping[str, Any] | None) -> dict[str, str]:
+    """Return columns whose nested types the import stores as JSON text, with their ClickHouse types."""
+    return {
+        name: clickhouse_type
+        for name, clickhouse_type in stored_clickhouse_types(columns).items()
+        if clickhouse_base_type(clickhouse_type) in _NESTED_TYPES
+    }
 
 
 def _refuse_file_column_names(columns: Mapping[str, Any] | None) -> None:
@@ -195,8 +195,7 @@ def _refuse_padded_header_names(columns: Mapping[str, Any] | None) -> None:
 
 
 def refuse_columns_an_import_changes(columns: Mapping[str, Any] | None, file_format: FileFormatChoice) -> None:
-    """Refuse a file whose import would change the columns a table read in place exposes."""
-    _refuse_nested_columns(columns)
+    """Refuse column names that the import would change or replace."""
     _refuse_file_column_names(columns)
     if file_format == "csv":
         _refuse_padded_header_names(columns)
@@ -211,7 +210,6 @@ def table_definition_for(
 ) -> TableDefinition:
     """The schema contract that imports exactly the files the table's URL pattern reads."""
     file_format = source_format_for(table_format)
-    _refuse_nested_columns(columns)
     _refuse_file_column_names(columns)
     preserve = needs_preserved_column_names((columns or {}).keys())
     if file_format == "delta":

@@ -19,12 +19,12 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { captureAccessControlEvent, resourceLabel } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { membersLogic } from '~/models/membersLogic'
 import {
     APIScopeObject,
     AccessControlDefaultsResponse,
@@ -778,12 +778,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                           )
                           .map((resource) => ({
                               key: resource as APIScopeObject,
-                              label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                              label: resourceLabel(resource as APIScopeObject),
                           }))
                     : // Fallback to list of all resources while loading
                       resources.map((resource) => ({
                           key: resource,
-                          label: toSentenceCase(pluralizeResource(resource)),
+                          label: resourceLabel(resource),
                       }))
                 return rows.sort((a, b) => a.label.localeCompare(b.label))
             },

@@ -1064,6 +1064,7 @@ describe('sourceWizardLogic', () => {
                 buildSchema({ table: 'vault.decrypted_secrets', should_sync_default: false }),
                 buildSchema({ table: 'vault.secrets', should_sync_default: false, should_sync: true }),
             ])
+            const toastInfo = jest.spyOn(lemonToast, 'info').mockImplementation(() => ({ id: 'x' }) as any)
 
             try {
                 logic.actions.toggleAllTables(true)
@@ -1071,11 +1072,15 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['Customer'].should_sync).toBe(true)
                 expect(byTable['vault.decrypted_secrets'].should_sync).toBe(false)
                 expect(byTable['vault.secrets'].should_sync).toBe(true)
+                expect(toastInfo).toHaveBeenCalledWith(expect.stringContaining('off by default'))
 
+                toastInfo.mockClear()
                 logic.actions.toggleAllTables(false)
                 byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
                 expect(byTable['vault.secrets'].should_sync).toBe(false)
+                expect(toastInfo).not.toHaveBeenCalled()
             } finally {
+                toastInfo.mockRestore()
                 unmount()
             }
         })
@@ -1122,6 +1127,36 @@ describe('sourceWizardLogic', () => {
                 unmount()
             }
         })
+
+        it.each([
+            { name: 'cursor', incrementalField: 'Updated_At', primaryKeyColumns: null, kept: ['email'] },
+            { name: 'primary key', incrementalField: null, primaryKeyColumns: ['email'], kept: ['updated_at'] },
+        ])(
+            'choosing a masked column as the $name drops its mask, since the server refuses it',
+            ({ incrementalField, primaryKeyColumns, kept }) => {
+                const users = buildSchema({ table: 'users' })
+                const orders = buildSchema({ table: 'orders' })
+                const { logic, unmount } = mountWithSchemas([users, orders])
+
+                try {
+                    logic.actions.setSchemaMaskedColumns(users, ['email', 'updated_at'])
+                    logic.actions.setSchemaMaskedColumns(orders, ['email'])
+                    logic.actions.updateSchemaSyncType(
+                        users,
+                        'incremental',
+                        incrementalField,
+                        'datetime',
+                        primaryKeyColumns
+                    )
+
+                    const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                    expect(byTable['users'].masked_columns).toEqual(kept)
+                    expect(byTable['orders'].masked_columns).toEqual(['email'])
+                } finally {
+                    unmount()
+                }
+            }
+        )
 
         it('toggleSchemaGroup skips permission_error rows in a group', () => {
             const { logic, unmount } = mountWithSchemas([
