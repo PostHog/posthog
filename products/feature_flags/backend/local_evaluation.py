@@ -992,9 +992,11 @@ def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
 def team_deleted(sender, instance: Team, **kwargs) -> None:
     # The S3 copy has no TTL, and /flags/definitions falls back to it when Redis misses,
     # so without this a deleted team's definitions stay served indefinitely.
-    # robust=True so a storage error cannot fail the team deletion that already committed.
+    # The task retries, because no rebuild can repair the entry once the Team row is gone.
+    from products.feature_flags.backend.tasks import clear_team_definitions_cache
+
     team_id = instance.id
-    transaction.on_commit(lambda: clear_flag_definition_caches(team_id), robust=True)
+    transaction.on_commit(lambda: clear_team_definitions_cache.delay(team_id))
 
 
 @receiver(post_save, sender=Experiment)

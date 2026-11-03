@@ -234,10 +234,16 @@ def clear_team_evaluation_cache(team_id: int) -> None:
     clear_flags_cache(team_id)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @skip_team_scope_audit
 def clear_team_definitions_cache(team_id: int) -> None:
-    """Clear the /flags/definitions local-eval cache for a specific team, enqueued by staff tooling."""
+    """Clear the /flags/definitions local-eval cache for a team, on team deletion or from staff tooling."""
     clear_flag_definition_caches(team_id)
 
 
