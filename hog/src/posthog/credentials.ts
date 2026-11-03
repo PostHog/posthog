@@ -79,6 +79,9 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
     }
 }
 
+const NO_HOME_HINT =
+    'Set HOG_HOME to a folder hog can write to, or set HOG_API_KEY and HOG_PROJECT_ID to skip logging in.'
+
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.HOG_HOME) {
         return env.HOG_HOME
@@ -92,7 +95,7 @@ export function posthogFile(runtime: Runtime, name: string): string {
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to store credentials in.",
-            'Set HOG_HOME to the folder to use.'
+            NO_HOME_HINT
         )
     }
     return join(home, name)
@@ -191,21 +194,26 @@ export async function resolveCredentials(
     }
 
     const home = posthogHomeDir(runtime.env, runtime.homeDir())
-    if (home !== undefined) {
-        let stored: { token?: unknown; env_id?: unknown; host?: unknown } | undefined
-        try {
-            stored = JSON.parse(await runtime.readFile(join(home, 'credentials.json')))
-        } catch {
-            stored = undefined
+    if (home === undefined) {
+        throw new HogError(
+            'not_authenticated',
+            "hog couldn't find PostHog credentials or a home folder to read them from.",
+            NO_HOME_HINT
+        )
+    }
+    let stored: { token?: unknown; env_id?: unknown; host?: unknown } | undefined
+    try {
+        stored = JSON.parse(await runtime.readFile(join(home, 'credentials.json')))
+    } catch {
+        stored = undefined
+    }
+    if (stored && typeof stored.token === 'string' && stored.env_id !== undefined) {
+        const raw = {
+            apiKey: stored.token,
+            projectId: String(stored.env_id),
+            host: typeof stored.host === 'string' ? stored.host : undefined,
         }
-        if (stored && typeof stored.token === 'string' && stored.env_id !== undefined) {
-            const raw = {
-                apiKey: stored.token,
-                projectId: String(stored.env_id),
-                host: typeof stored.host === 'string' ? stored.host : undefined,
-            }
-            return withHost(raw, 'credentials-file')
-        }
+        return withHost(raw, 'credentials-file')
     }
 
     throw new HogError(

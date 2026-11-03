@@ -46,17 +46,32 @@ with temporalio.workflow.unsafe.imports_passed_through():
 
 @frozen
 class _CalcDispatch:
-    """Where one metric's calc activity runs, and the precompute mode it passes."""
+    """Where one metric's calc activity runs, the precompute mode it passes, and its total time budget."""
 
     task_queue: str | None
     precomputation_mode: PrecomputationMode | None
+    schedule_to_close_timeout: timedelta | None
+
+
+def _calc_schedule_to_close_timeout(task_queue: str | None) -> timedelta | None:
+    # The activity and precompute queues have a fixed slot count, so a calc there waits for a slot instead of
+    # failing when the queue is full. Only a calc on the workflow's own queue keeps the total budget.
+    return None if task_queue else timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS)
 
 
 def _calc_dispatch(metric: ExperimentMetricToRecalculate, activity_task_queue: str | None) -> _CalcDispatch:
     # Only a run on the activity queue flag uses the route that discovery set.
     if activity_task_queue and metric.task_queue:
-        return _CalcDispatch(task_queue=metric.task_queue, precomputation_mode=metric.precomputation_mode)
-    return _CalcDispatch(task_queue=activity_task_queue, precomputation_mode=None)
+        return _CalcDispatch(
+            task_queue=metric.task_queue,
+            precomputation_mode=metric.precomputation_mode,
+            schedule_to_close_timeout=_calc_schedule_to_close_timeout(metric.task_queue),
+        )
+    return _CalcDispatch(
+        task_queue=activity_task_queue,
+        precomputation_mode=None,
+        schedule_to_close_timeout=_calc_schedule_to_close_timeout(activity_task_queue),
+    )
 
 
 def _calc_args(
@@ -199,7 +214,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     calculate_experiment_metric_for_recalculation,
                     args=_calc_args(metric, recalculation_id, query_to, dispatch),
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
-                    schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
+                    schedule_to_close_timeout=dispatch.schedule_to_close_timeout,
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
                     task_queue=dispatch.task_queue,
