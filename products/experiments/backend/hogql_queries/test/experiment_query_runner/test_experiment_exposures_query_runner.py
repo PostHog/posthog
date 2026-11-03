@@ -2637,18 +2637,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertLess(result.p_value, 0.01)
 
     def test_bias_risk_skipped_when_experiment_has_ended(self):
-        # Shipping a variant rewrites the flag to 100/0 — that uneven post-ship split
-        # plus historical $multiple exposures would otherwise produce a false positive.
         feature_flag = FeatureFlag.objects.create(
-            name="Test flag (post-ship)",
+            name="Test flag (uneven)",
             key="test-bias-stopped",
             team=self.team,
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "control", "rollout_percentage": 100},
-                        {"key": "test", "rollout_percentage": 0},
+                        {"key": "control", "rollout_percentage": 80},
+                        {"key": "test", "rollout_percentage": 20},
                     ]
                 },
             },
