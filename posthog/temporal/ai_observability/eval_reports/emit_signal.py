@@ -270,5 +270,7 @@ class EmitEvalReportSignalWorkflow(PostHogWorkflow):
             emit_eval_report_signal_activity,
             inputs,
             schedule_to_close_timeout=timedelta(seconds=180),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, non_retryable_error_types=[GatewayNotConfiguredError.__name__]
+            ),
         )
