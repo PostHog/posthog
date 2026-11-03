@@ -281,7 +281,11 @@ describe('tileCanvasLogic', () => {
                     logic.actions.dropAt(edge)
                 }
 
-                await expectLogic(logic, () => dragEnds && logic.actions.endDraggingNewStep()).toMatchValues({
+                await expectLogic(logic, () => {
+                    if (dragEnds) {
+                        logic.actions.endDraggingNewStep()
+                    }
+                }).toMatchValues({
                     nodeToBeAdded: null,
                     isDraggingNewStep: false,
                 })
