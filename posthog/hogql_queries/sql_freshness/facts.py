@@ -244,6 +244,10 @@ class _QueryScan(TraversingVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
+        for order in node.order_by or []:
+            position = _int_constant(order.expr)
+            if order.order == "DESC" and position is not None and 0 < position <= len(node.select):
+                self.latest_event_candidates.append(node.select[position - 1])
         super().visit_select_query(node)
 
     def visit_field(self, node: ast.Field) -> None:
@@ -256,6 +260,14 @@ class _QueryScan(TraversingVisitor):
         if node.name.lower().startswith(_LATEST_EVENT_FUNCTION_PREFIXES):
             self.latest_event_candidates.extend(node.args)
         super().visit_call(node)
+
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        if node.name.lower().startswith(_LATEST_EVENT_FUNCTION_PREFIXES):
+            window_order = node.over_expr.order_by if node.over_expr is not None else None
+            self.latest_event_candidates.extend(
+                [*(node.exprs or []), *(node.args or []), *(order.expr for order in window_order or [])]
+            )
+        super().visit_window_function(node)
 
     def visit_order_expr(self, node: ast.OrderExpr) -> None:
         if node.order == "DESC":

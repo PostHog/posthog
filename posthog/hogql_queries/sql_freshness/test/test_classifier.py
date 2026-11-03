@@ -170,6 +170,19 @@ class TestClassify(BaseTest):
                 {"fresh_until": NOW + timedelta(minutes=5)},
             ),
             (
+                "latest_value_in_a_window_function",
+                "select last_value(event) over (partition by person_id order by timestamp) from events "
+                "where timestamp > now() - interval 7 day",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
+                "latest_rows_by_position",
+                "select timestamp, event from events where timestamp > now() - interval 7 day order by 1 desc limit 10",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
                 "latest_event_time_through_a_subquery",
                 "select max(ts) from (select toStartOfMinute(timestamp) as ts from events "
                 "where timestamp > now() - interval 7 day)",
