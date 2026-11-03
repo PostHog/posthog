@@ -312,6 +312,18 @@ pub enum Decline {
 }
 
 impl Decline {
+    pub const ALL: [Decline; 9] = [
+        Decline::TooLong,
+        Decline::NotAbsolute,
+        Decline::BadScheme,
+        Decline::BadPort,
+        Decline::NoHost,
+        Decline::NonPublicHost,
+        Decline::Credential,
+        Decline::InvalidQuery,
+        Decline::TrackingBeacon,
+    ];
+
     /// True for a URL the policy refuses because nobody wants it fetched, not because it is
     /// malformed or unsafe. A consumer that reads jobs from a queue drops only that job for such a
     /// decline, and rejects the whole record for every other one.
@@ -319,26 +331,36 @@ impl Decline {
         matches!(self, Decline::TrackingBeacon)
     }
 
-    /// The metric label. Stable, because a dashboard and an alert both key on it.
+    /// The metric label, and the reason in a v4 URL decline marker. Stable, because a dashboard, an
+    /// alert and a reader of v4 blocks all key on it.
     pub fn label(self) -> &'static str {
-        posthog_replay_anonymizer::Decline::from(self).label()
+        match self {
+            Decline::TooLong => "too_long",
+            Decline::NotAbsolute => "not_absolute",
+            Decline::BadScheme => "bad_scheme",
+            Decline::BadPort => "bad_port",
+            Decline::NoHost => "no_host",
+            Decline::NonPublicHost => "non_public_host",
+            Decline::Credential => "credential",
+            Decline::InvalidQuery => "invalid_query",
+            Decline::TrackingBeacon => "tracking_beacon",
+        }
     }
 }
 
-impl From<Decline> for posthog_replay_anonymizer::Decline {
-    fn from(decline: Decline) -> Self {
-        match decline {
-            Decline::TooLong => Self::TooLong,
-            Decline::NotAbsolute => Self::NotAbsolute,
-            Decline::BadScheme => Self::BadScheme,
-            Decline::BadPort => Self::BadPort,
-            Decline::NoHost => Self::NoHost,
-            Decline::NonPublicHost => Self::NonPublicHost,
-            Decline::Credential => Self::Credential,
-            Decline::InvalidQuery => Self::InvalidQuery,
-            Decline::TrackingBeacon => Self::TrackingBeacon,
-        }
+/// The URL as a reference names it, or why the policy declines it. It checks the host and path again as `Url` serializes them.
+pub fn checked_url(raw: &str) -> Result<CanonicalUrl, Decline> {
+    let url = try_canonicalize(raw)?;
+    let path = Url::parse(&url.fetch)
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    if !is_public_host(&url.host) {
+        return Err(Decline::NonPublicHost);
     }
+    if is_tracking_beacon(&url.host, &path) {
+        return Err(Decline::TrackingBeacon);
+    }
+    Ok(url)
 }
 
 /// Canonicalize a remote image URL into its fetch and dedup forms, or say why it was refused.

@@ -1009,6 +1009,41 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
+    it.each([true, false])(
+      "applies the caller's skill setting (%s)",
+      async (disableSkills) => {
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+            () =>
+              HttpResponse.json(
+                createTaskRun({
+                  id: "test-run-id",
+                  state: { disable_skills: disableSkills },
+                }),
+              ),
+          ),
+        );
+        mockedClaudeSdk.query.mockClear();
+        const s = createServer({
+          runtimeAdapter: "claude",
+          reasoningEffort: "high",
+        });
+        await s.start();
+        const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+          options: { skills?: string[]; effort?: string; tools?: unknown };
+        };
+        expect(request?.options?.skills).toEqual(
+          disableSkills ? [] : undefined,
+        );
+        expect(request?.options?.effort).toBe("high");
+        expect(request?.options?.tools).toEqual({
+          type: "preset",
+          preset: "claude_code",
+        });
+      },
+    );
+
     it("keeps the run-state system prompt after a transient run fetch failure", async () => {
       let attempts = 0;
       mswServer.use(
