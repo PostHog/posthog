@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { IconBug, IconPulse } from '@posthog/icons'
 
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
-import { PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
+import { PaneTab, PaneTabBar } from 'scenes/session-recordings/components/PaneTabBar'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
@@ -31,6 +31,13 @@ const DEBUG_TABS: Partial<Record<SessionRecordingSidebarTab, { label: string; ic
     },
 }
 
+export function debugPaneTabs<K extends SessionRecordingSidebarTab>(tabs: K[]): PaneTab<K>[] {
+    return tabs.flatMap((tab) => {
+        const debugTab = DEBUG_TABS[tab]
+        return debugTab ? [{ key: tab, ...debugTab }] : []
+    })
+}
+
 export function DebugTabBar({
     tabs,
     activeTab,
@@ -42,12 +49,8 @@ export function DebugTabBar({
     onChange: (tab: SessionRecordingSidebarTab) => void
     children?: ReactNode
 }): JSX.Element {
-    const paneTabs = tabs.flatMap((tab) => {
-        const debugTab = DEBUG_TABS[tab]
-        return debugTab ? [{ key: tab, ...debugTab }] : []
-    })
     return (
-        <PaneTabBar tabs={paneTabs} activeKey={activeTab} onChange={onChange}>
+        <PaneTabBar tabs={debugPaneTabs(tabs)} activeKey={activeTab} onChange={onChange}>
             {children}
         </PaneTabBar>
     )
