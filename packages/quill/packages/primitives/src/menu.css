@@ -60,6 +60,11 @@
         overflow: hidden auto;
     }
 
+    .quill-menu__content[data-flush] .quill-menu__scroller {
+        padding: 0;
+        overflow: hidden;
+    }
+
     .quill-menu__content[data-closed] .quill-menu__scroller,
     .quill-menu__sub-content[data-closed] .quill-menu__scroller {
         overflow: hidden;
