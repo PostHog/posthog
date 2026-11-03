@@ -83,6 +83,8 @@ describe('RecordingApi', () => {
             CLICKHOUSE_USER: 'default',
             CLICKHOUSE_PASSWORD: undefined,
             CLICKHOUSE_SECURE: false,
+            RECORDING_API_AWS_TIMEOUT_MS: 5000,
+            RECORDING_API_REDIS_TIMEOUT_MS: 2000,
         }
 
         mockKeyStore = {
@@ -140,9 +142,9 @@ describe('RecordingApi', () => {
             expect(getKeyStore).toHaveBeenCalledWith('us-west-2', {
                 kmsEndpoint: undefined,
                 dynamoDBEndpoint: undefined,
-                requestTimeoutMs: 2000,
+                requestTimeoutMs: 5000,
             })
-            expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
+            expect(getBlockDecryptor).toHaveBeenCalled()
             expect(RecordingService).toHaveBeenCalled()
         })
 

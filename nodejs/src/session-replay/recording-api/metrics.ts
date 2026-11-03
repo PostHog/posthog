@@ -10,12 +10,27 @@ export class RecordingApiMetrics {
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
 
+    private static readonly keyStoreDuration = new Histogram({
+        name: 'recording_api_keystore_duration_seconds',
+        help: 'Time taken by one call to the KMS and DynamoDB key store, below the Redis cache',
+        labelNames: ['operation', 'result'],
+        buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 5, 10],
+    })
+
     private static readonly deleteRecordingsDuration = new Histogram({
         name: 'recording_api_delete_recordings_duration_seconds',
         help: 'Time taken to delete recordings',
         labelNames: ['result'],
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
+
+    public static observeKeyStore(
+        operation: 'generate' | 'get' | 'delete',
+        result: 'ok' | 'error',
+        seconds: number
+    ): void {
+        this.keyStoreDuration.observe({ operation, result }, seconds)
+    }
 
     public static observeGetBlock(
         result: string,

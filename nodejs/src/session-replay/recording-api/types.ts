@@ -83,6 +83,10 @@ export type RecordingApiBlocksConfig = {
     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: boolean
     // JSON object of tier -> [bucket size, refill per second].
     RECORDING_API_BLOCK_RATE_LIMITS: string
+    // Deadline for one KMS or DynamoDB attempt. The SDK makes two attempts.
+    RECORDING_API_AWS_TIMEOUT_MS: number
+    // Deadline for a Redis command and for checking a connection out of the pool.
+    RECORDING_API_REDIS_TIMEOUT_MS: number
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
@@ -97,6 +101,9 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
             paid: [1200, 6000 / 3600],
             enterprise: [2000, 8000 / 3600],
         }),
+        // Deletes, which are mostly KMS and DynamoDB calls, almost never take over 2.5s in total.
+        RECORDING_API_AWS_TIMEOUT_MS: 5000,
+        RECORDING_API_REDIS_TIMEOUT_MS: 2000,
     }
 }
 
