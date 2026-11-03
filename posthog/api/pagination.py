@@ -11,7 +11,7 @@ from django.core.exceptions import (
 )
 
 from rest_framework import serializers
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination, PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -278,6 +278,19 @@ class PageCursor:
     drf_offset: int = 0
 
 
+def _first_term_per_field(ordering: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """Keep the first term for each field. A later term on a field that is already sorted cannot change the order."""
+    seen: set[str] = set()
+    kept: list[str] = []
+    for term in ordering:
+        field = term.lstrip("-")
+        if field in seen:
+            continue
+        seen.add(field)
+        kept.append(term)
+    return tuple(kept)
+
+
 class StableCursorPagination(CursorPagination):
     """Cursor pages with a total row order, and a `count` like the limit/offset response.
 
@@ -295,12 +308,16 @@ class StableCursorPagination(CursorPagination):
     include_count: bool = True
     # Breaks ties when the list has no queryset model, as for a facade list. Contracts name the primary key `id`.
     tiebreak_field = "id"
+    max_ordering_fields = 4
     request: Optional[Request] = None
     # The URL of the current page, which every link starts from.
     page_url = ""
 
     def get_ordering(self, request: Request, queryset: Any, view: Any) -> tuple[str, ...]:
-        ordering = super().get_ordering(request, queryset, view)
+        ordering = _first_term_per_field(super().get_ordering(request, queryset, view))
+        # The cursor filter grows with the square of the field count, so a request cannot ask for many fields.
+        if len(ordering) > self.max_ordering_fields:
+            raise ValidationError({"ordering": f"Order by at most {self.max_ordering_fields} fields."})
         model = getattr(queryset, "model", None)
         primary_key = model._meta.pk.name if model is not None else self.tiebreak_field
         if any(term.lstrip("-") in {"pk", primary_key} for term in ordering):
