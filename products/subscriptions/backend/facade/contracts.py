@@ -204,14 +204,6 @@ class SubscriptionRef:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SubscriptionPage:
-    """One page of subscriptions, and how many match in total."""
-
-    count: int
-    results: tuple[SubscriptionRecord, ...]
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
 class SubscriptionFilters:
     """Narrows the subscriptions a read can see. A None filter does not filter.
 
@@ -241,21 +233,6 @@ class SubscriptionListQuery:
     # The object-level access filter that lists apply to their rows. Service credentials skip it.
     filter_by_object_access: bool = True
     include_all_if_admin: bool = False
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class CreatedAtCursorWindow:
-    """One window of a list ordered by creation time, as cursor pagination asks for it.
-
-    `created_before` and `created_after` are the cursor position as the cursor carries it, a
-    timestamp string. `limit` rows are returned from `offset` on.
-    """
-
-    newest_first: bool
-    created_before: str | None = None
-    created_after: str | None = None
-    offset: int
-    limit: int
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

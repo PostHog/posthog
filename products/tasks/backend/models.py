@@ -962,6 +962,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state["sandbox_template"] = previous_state["sandbox_template"]
             elif carry_sandbox_template and (stored_profile := task.stored_profile) is not None:
                 state["sandbox_template"] = stored_profile.sandbox_templates[0]
+            if task.origin_product == Task.OriginProduct.KNOWLEDGE_WRITER:
+                state["include_live_context"] = False
             if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,

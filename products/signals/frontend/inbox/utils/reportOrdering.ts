@@ -59,6 +59,25 @@ export function rankingPrediction(
     return ranking?.predictions.find((prediction) => prediction.outcome === outcome)
 }
 
+export interface RankingPillLifts {
+    open: number | null
+    action: number | null
+    fix: number | null
+}
+
+/** The lifts the Recommended pill shows, or null when the report has no current score to show. */
+export function rankingPillLifts(report: SignalReport): RankingPillLifts | null {
+    if (report.ranking?.status !== 'scored') {
+        return null
+    }
+    const lift = (outcome: string): number | null => {
+        const value = rankingPrediction(report.ranking, outcome)?.lift
+        return typeof value === 'number' && Number.isFinite(value) ? value : null
+    }
+    const lifts = { open: lift('open'), action: lift('action'), fix: lift('fix') }
+    return lifts.open === null && lifts.action === null && lifts.fix === null ? null : lifts
+}
+
 /** The served probability a model sort orders by, or null when the report has no score for that outcome or the score is stale. */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
     if (report.ranking?.status !== 'scored') {
@@ -69,8 +88,8 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
 }
 
 /**
- * The Recommended sort's comparator. The server orders each response by the ranker's fine-grained
- * order and gives each row only a coarse merge key, so rows with equal keys keep their input order.
+ * The Recommended sort's comparator. The server gives each row a merge key that follows the ranker's
+ * order, so rows from several responses merge in one order. Rows with equal keys keep their input order.
  * A row without a key sorts last.
  */
 export function compareInboxMergeKeys(a: SignalReport, b: SignalReport): number {
