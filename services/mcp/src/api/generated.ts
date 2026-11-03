@@ -11013,6 +11013,7 @@ export namespace Schemas {
 
     export interface ChartSettingsDisplay {
       color?: string | null;
+      description?: string | null;
       displayType?: DisplayType | null;
       /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
       excludeFromTotal?: boolean | null;
@@ -53789,6 +53790,8 @@ export namespace Schemas {
       customerTable?: string | null;
       /** Google Ads search term table for Performance Max campaigns. */
       performanceMaxSearchTermTable?: string | null;
+      /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+      queryPageTable?: string | null;
       /** Google Search Console table with one row per query, or per query and page. */
       queryTable?: string | null;
       /** Google Ads search term table split by the keyword that matched each term. */
@@ -58438,6 +58441,11 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect: boolean | null;
     }
 
     /**
@@ -58518,6 +58526,11 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect: boolean | null;
     }
 
     export interface RecommendedAction {
@@ -82183,6 +82196,11 @@ export namespace Schemas {
       readonly installation_shared?: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status?: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect?: boolean | null;
     }
 
     export interface PatchedJsSnippetVersion {
