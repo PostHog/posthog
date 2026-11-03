@@ -63,6 +63,16 @@ class TestNormalizeIssue:
             _normalize_issue({"id": "1"})
 
 
+class TestPastedSiteUrl:
+    def test_sync_requests_the_site_named_by_a_pasted_url(self) -> None:
+        driver = SourceDriver(
+            JiraSource(),
+            JiraSourceConfig(subdomain="https://acme.atlassian.net/jira/your-work", email="e@x.com", api_token="token"),
+        )
+        result = driver.run("issues", [ScriptedResponse(json={"issues": [], "isLast": True})])
+        assert {request.origin for request in result.requests} == {"https://acme.atlassian.net"}
+
+
 class TestTokenPagination:
     def test_walks_pages_and_lifts_timestamps(self) -> None:
         result = _driver().run(
@@ -166,6 +176,13 @@ class TestValidateCredentials:
         assert ok is expected_ok
         assert status == status_code
         assert [request.path for request in network.requests_log] == ["/rest/api/3/myself"]
+
+    @parameterized.expand([("acme.atlassian.net",), ("https://acme.atlassian.net/jira/your-work?page=1",)])
+    def test_probes_the_site_named_by_a_pasted_host_or_url(self, subdomain: str) -> None:
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            ok, _ = validate_credentials(subdomain, "e@x.com", "token")
+        assert ok is True
+        assert [request.origin for request in network.requests_log] == ["https://acme.atlassian.net"]
 
 
 def _worklog(worklog_id: int, updated: str) -> dict[str, Any]:

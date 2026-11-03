@@ -233,6 +233,19 @@ def evaluate_final_metric(
             evidence_refs=references,
         )
     explanation = f"{verdict.explanation}. Query measured at {measurement.measured_at.isoformat()}."
+    if config.monitoring.purpose == "minimum_evidence" and verdict.outcome == "failed":
+        return replace(
+            evaluation,
+            evidence_status="insufficient",
+            evidence_reason="minimum_evidence_not_met",
+            expectation_matches=None,
+            explanation=(
+                f"The final sample count was {measurement.value}, below the required {comparison.value}, "
+                f"measured at {measurement.measured_at.isoformat()}. "
+                "There is insufficient evidence to judge the implementation. Scout assessment is required."
+            ),
+            evidence_refs=references,
+        )
     if qualification.reason == "empty_denominator":
         explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. The rate's denominator was zero in the observation window; the value cannot establish success or failure."
     elif qualification.status == "insufficient":

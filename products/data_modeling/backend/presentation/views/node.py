@@ -44,7 +44,11 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import (
+    DELETE_DENIED,
+    EDIT_DENIED,
+    MetricNodeVisibilityMixin,
+)
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -55,7 +59,6 @@ CADENCE_CHOICES = [NEVER] + [
     sync_frequency_interval_to_sync_frequency(bucket) for bucket in sorted(SCHEDULABLE_BUCKETS)
 ]
 PIN_NEEDS_A_CADENCE = "Pick how often this view refreshes before pinning it."
-CADENCE_DENIED = "Changing how often a view refreshes requires data warehouse write access."
 
 
 class NodeSuspensionSerializer(serializers.Serializer):
@@ -509,12 +512,14 @@ class NodeViewSet(
         return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_warehouse_access(level="editor", message=EDIT_DENIED)
+        node = cast(Node, serializer.instance)
+        self._require_view_edit_access(node.saved_query)
         if not NodeSerializer.writes_cadence(serializer.validated_data):
             serializer.save()
             return
-        self._require_warehouse_access(level="editor", message=CADENCE_DENIED)
         # A refusal names what blocks the cadence, so it names only nodes this caller can list.
-        serializer.save(visible_names=self._visible_names_around(cast(Node, serializer.instance)))
+        serializer.save(visible_names=self._visible_names_around(node))
 
     def _visible_names_around(self, node: Node) -> dict[str, str]:
         dag_ids = Node.objects.filter(team_id=self.team_id, saved_query_id=node.saved_query_id).values("dag_id")
@@ -556,6 +561,7 @@ class NodeViewSet(
 
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
+        self._require_view_edit_access(instance.saved_query)
         if instance.belongs_to_managed_viewset:
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
         if _feeds_a_managed_view(instance):
@@ -752,9 +758,10 @@ class NodeViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Publishes the same rows as a DAG run of this node, so it needs the same check as `run`.
+        # Publishes the same rows as a DAG run of this node, so it needs the same checks as `run`.
         # A DB constraint guarantees non-table nodes have a saved query, so the None branch never
         # skips the check for a real node; it exists because the FK is typed as nullable.
+        self._require_view_edit_access(node.saved_query)
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
 
@@ -774,6 +781,9 @@ class NodeViewSet(
         # Resuming puts a model back on the materialization schedule, so it needs write access.
         self._require_warehouse_access(level="editor", message="Resuming a node requires data warehouse write access.")
 
-        resumed = unsuspend_nodes([self.get_object()], by="api")
+        node = self.get_object()
+        self._require_view_edit_access(node.saved_query)
+
+        resumed = unsuspend_nodes([node], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

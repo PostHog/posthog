@@ -12,7 +12,9 @@ import type { InsightLogicProps } from '~/types'
 import { explainChartLogic } from './explainChartLogic'
 
 export function ExplainChartButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
-    const { explainAvailable, storyShown, investigating, consentRequested } = useValues(explainChartLogic(insightProps))
+    const { explainAvailable, storyVisible, investigating, consentRequested, explainDisabledReason } = useValues(
+        explainChartLogic(insightProps)
+    )
     const { explainClicked, approveConsent, dismissConsent } = useActions(explainChartLogic(insightProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -32,7 +34,8 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
                     <Button
                         variant="outline"
                         size="sm"
-                        aria-expanded={storyShown}
+                        aria-expanded={storyVisible}
+                        disabledReason={explainDisabledReason}
                         loading={investigating}
                         onClick={explainClicked}
                         data-attr="explain-chart-toggle"
@@ -46,7 +49,8 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
                     size="xsmall"
                     type="secondary"
                     icon={<IconSparkles />}
-                    active={storyShown}
+                    active={storyVisible}
+                    disabledReason={explainDisabledReason}
                     loading={investigating}
                     onClick={explainClicked}
                     data-attr="explain-chart-toggle"

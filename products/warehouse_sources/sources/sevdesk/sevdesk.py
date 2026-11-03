@@ -1,10 +1,10 @@
-from collections.abc import Iterator
 from typing import Any, cast
 
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     Endpoint,
     EndpointResource,
+    Resource,
     RESTAPIConfig,
     RESTClient,
     ResumableSourceManager,
@@ -84,11 +84,11 @@ def sevdesk_source(
             SevdeskResumeConfig(offset=state["offset"]) if state is not None else SevdeskResumeConfig(completed=True)
         )
 
-    def get_rows() -> Iterator[list[dict[str, Any]]]:
+    def get_rows() -> Resource | list[list[dict[str, Any]]]:
         state = resumable_source_manager.load_state()
         if state is not None and state.completed:
-            return
-        resource = rest_api_resource(
+            return []
+        return rest_api_resource(
             config,
             team_id=team_id,
             job_id=job_id,
@@ -96,7 +96,6 @@ def sevdesk_source(
             resume_hook=save_page_state,
             initial_paginator_state={"offset": state.offset} if state is not None else None,
         )
-        yield from resource
 
     return SourceResponse(
         name=endpoint,

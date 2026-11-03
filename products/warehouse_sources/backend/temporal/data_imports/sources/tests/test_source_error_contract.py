@@ -475,6 +475,10 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
         ("Marketo", "Marketo authentication failed: status=401, body={}"),
         ("Marketo", "Marketo authentication failed: status=401, path=/rest/v1/leads.json, body={}"),
         ("Marketo", "Marketo authentication failed: no access token in response ({})"),
+        # Zoho (and some other vendors, over HTTP/2) send no reason phrase on some responses, so
+        # `requests.raise_for_status()` renders a blank one instead of "Unauthorized"/"Forbidden".
+        ("ZohoCRM", "401 Client Error:  for url: https://www.zohoapis.com/crm/v8/Leads?page=1"),
+        ("ZohoCRM", "403 Client Error:  for url: https://www.zohoapis.com/crm/v8/Notes?page=1"),
     ],
 )
 def test_narrowed_keys_still_match_permanent_errors(name: str, message: str) -> None:

@@ -18,6 +18,7 @@ from requests.exceptions import (
 from products.warehouse_sources.sources.convex._config import ConvexSourceConfig
 from products.warehouse_sources.sources.convex.convex import (
     _CONVEX_RETRY,
+    ConvexApiError,
     ConvexDataSyncCursor,
     ConvexResumeConfig,
     ConvexResyncRequiredError,
@@ -306,6 +307,38 @@ class TestConvexNonRetryableErrors:
 
     @parameterized.expand(
         [
+            # A structured 400 whose code isn't StreamingExportNotEnabled used to fall straight
+            # through to raise_for_status(), producing a body-less "400 Client Error: Bad Request
+            # for url: ..." that discards the one piece of information that would let this error
+            # ever be diagnosed or classified. It must surface instead, as StreamingExportNotEnabled
+            # already does.
+            ("code_and_message", {"code": "SomeOtherCode", "message": "nope"}, "SomeOtherCode: nope"),
+            # A code with no message must not render the message's .get default as the literal word
+            # "None" (error_data.get("message", "") only applies when the key is missing entirely).
+            ("code_only", {"code": "SomeOtherCode"}, "SomeOtherCode"),
+            ("code_with_null_message", {"code": "SomeOtherCode", "message": None}, "SomeOtherCode"),
+            # A message with no code is the same discarded-information bug for the other half of the
+            # body - it must surface too, not just the code half.
+            ("message_only", {"message": "nope, no code"}, "nope, no code"),
+        ]
+    )
+    def test_get_json_schemas_400_with_other_code_surfaces_it_instead_of_a_bare_http_error(
+        self, _name: str, body: dict[str, Any], expected: str
+    ) -> None:
+        with (
+            scripted_network([ScriptedResponse(status=400, json=body)]),
+            pytest.raises(ConvexApiError, match=expected),
+        ):
+            get_json_schemas("https://x.convex.cloud", "key")
+
+    def test_get_json_schemas_400_with_non_object_json_body_falls_through_to_http_error(self) -> None:
+        # A 400 body can be valid JSON that isn't an object (e.g. a bare string), which has no
+        # .get - this must not crash with an AttributeError, just like an unparseable body.
+        with scripted_network([ScriptedResponse(status=400, json="Bad Request")]), pytest.raises(HTTPError):
+            get_json_schemas("https://x.convex.cloud", "key")
+
+    @parameterized.expand(
+        [
             ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/v1/data/sync"),
             ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/v1/data/sync"),
             (
@@ -320,6 +353,10 @@ class TestConvexNonRetryableErrors:
                 "unsendable_deploy_key",
                 "Your deploy key contains characters PostHog can't send to Convex. "
                 "Copy the key again from your Convex dashboard, then try again.",
+            ),
+            (
+                "unsupported_schema_for_export",
+                "UnsupportedSchemaForExport: Schema contains a union of objects, which is not supported for export",
             ),
         ]
     )

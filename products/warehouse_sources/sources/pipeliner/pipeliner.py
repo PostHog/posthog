@@ -1,6 +1,5 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -10,6 +9,7 @@ from requests import Request, Response
 from products.warehouse_sources.sources.pipeliner.settings import PIPELINER_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -158,7 +158,7 @@ def pipeliner_source(
 ) -> SourceResponse:
     config = PIPELINER_ENDPOINTS[endpoint]
 
-    def items() -> Iterator[list[dict[str, Any]]]:
+    def items() -> Resource:
         # Re-check at run time (not just at source-create) in case the service URL was edited or now
         # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
         host_ok, host_err = _is_host_safe(normalize_service_url(service_url), team_id)
@@ -190,8 +190,7 @@ def pipeliner_source(
             params[f"filter-op[{cursor_field}]"] = "gte"
 
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist AFTER a page is yielded and only while a next page remains, so a crash
-            # re-fetches from the next page (already-yielded pages are persisted); merge dedupes.
+            # Persist only while a next page remains. The framework stages it with the page it covers.
             if state and state.get("cursor") is not None:
                 resumable_source_manager.save_state(
                     PipelinerResumeConfig(cursor=state["cursor"], filter_value=filter_value)
@@ -224,7 +223,7 @@ def pipeliner_source(
             ],
         }
 
-        resource = rest_api_resource(
+        return rest_api_resource(
             rest_config,
             team_id,
             job_id,
@@ -232,7 +231,6 @@ def pipeliner_source(
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
         )
-        yield from resource
 
     return SourceResponse(
         name=endpoint,
