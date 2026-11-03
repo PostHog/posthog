@@ -10,10 +10,9 @@ import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/vision
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { DebugModeBanner } from './DebugModeBanner'
 import { RecordingCommentsList } from './RecordingCommentsList'
-import { RecordingDebugSection } from './RecordingDebugSection'
-import { RecordingObservationsSection } from './RecordingObservationsSection'
-import { RecordingOverviewDisclosure } from './RecordingOverviewDisclosure'
 import { RecordingTitleBlock } from './RecordingTitleBlock'
+import { WatchPanelTabs } from './WatchPanelTabs'
+import { WatchPanelTabsWithObservations } from './WatchPanelTabsWithObservations'
 
 export function WatchPanel({
     summaryActions,
@@ -28,6 +27,7 @@ export function WatchPanel({
         return null
     }
     const vision = visionSurfaceShown(logicProps)
+    const debugDocked = debugMode && watchDebugDock === 'bottom'
 
     return (
         <div data-quill className="flex flex-col gap-4 px-1 pt-3 pb-6 text-foreground" data-attr="watch-panel">
@@ -35,10 +35,12 @@ export function WatchPanel({
             <RecordingTitleBlock
                 actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
             />
-            <RecordingOverviewDisclosure />
+            {vision && dataProcessingAccepted ? (
+                <WatchPanelTabsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />
+            ) : (
+                <WatchPanelTabs debug={debugDocked} />
+            )}
             <RecordingCommentsList sessionId={sessionRecordingId} />
-            {debugMode && watchDebugDock === 'bottom' && <RecordingDebugSection />}
-            {vision && dataProcessingAccepted && <RecordingObservationsSection sessionId={sessionRecordingId} />}
         </div>
     )
 }
