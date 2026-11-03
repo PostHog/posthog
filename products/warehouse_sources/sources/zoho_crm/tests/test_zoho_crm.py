@@ -342,6 +342,15 @@ class TestGetRows:
 
         assert isinstance(result.raised, RESTClientRetryableError)
 
+    def test_structured_400_on_records_page_surfaces_zohos_detail(self) -> None:
+        # A module can be disabled between the fields-metadata call and the first records page
+        # of the same sync, so this call site needs the same detail as readable_field_names.
+        body = {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"}
+        result = _run("Vendors", [_fields_response(1), _response(400, body)])
+
+        assert isinstance(result.raised, ZohoCRMApiError)
+        assert "INVALID_MODULE: the module name given seems to be invalid" in str(result.raised)
+
 
 class TestValidateCredentials:
     def test_valid_when_the_modules_probe_succeeds(self) -> None:

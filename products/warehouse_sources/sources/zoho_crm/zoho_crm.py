@@ -290,7 +290,10 @@ def _fetch_page(
     params: dict[str, str],
     headers: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
+    try:
+        response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
+    except requests.HTTPError as e:
+        raise _with_zoho_error_detail(e) from e
     if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 
