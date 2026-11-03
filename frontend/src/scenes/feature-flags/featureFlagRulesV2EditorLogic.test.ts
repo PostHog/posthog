@@ -20,6 +20,7 @@ import {
     FeatureFlagRulesV2DraftExperimentRule,
     FeatureFlagRulesV2DraftRule,
     FeatureFlagType,
+    JsonType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -505,6 +506,90 @@ describe('featureFlagRulesV2EditorLogic', () => {
             ],
         })
         expect(JSON.stringify(body)).not.toContain('seed')
+    })
+
+    it('creates a number flag once every rule has a number in range', async () => {
+        const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 12 })
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+        const setValue = (value: JsonType): void =>
+            logic.actions.updateRule(0, { ...logic.values.draft.config.rules[0], value } as FeatureFlagRulesV2DraftRule)
+
+        logic.actions.setDraft({ key: 'checkout-limit' })
+        logic.actions.setReturnType('number')
+        logic.actions.addRule()
+        logic.actions.addRule('experiment')
+        expect(logic.values.draft.config).toMatchObject({ return_type: 'number', default_value: null })
+        expect(logic.values.saveDisabledReason).toBe('Rule 1: Enter a number.')
+        setValue(2 ** 53)
+        expect(logic.values.saveDisabledReason).toBe(
+            `Rule 1: Must be between -${Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`
+        )
+        setValue(2.5)
+        logic.actions.setConfig({ default_value: 0 })
+        expect(logic.values.saveDisabledReason).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+            .toDispatchActions(['saveRulesV2FlagSuccess'])
+            .toFinishAllListeners()
+
+        const body = create.mock.calls[0][1] as Record<string, any>
+        expect(body.filters).toMatchObject({
+            return_type: 'number',
+            default_value: 0,
+            rules: [
+                { rule_type: 'targeted_release', value: 2.5 },
+                {
+                    rule_type: 'experiment',
+                    variants: [
+                        { key: 'control', weight: 50, value: 0 },
+                        { key: 'test', weight: 50, value: 1 },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it('creates an object flag and blocks the save while a value is not a JSON object', async () => {
+        const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 11 })
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+        const setTestValue = (value: JsonType): void => {
+            const rule = logic.values.draft.config.rules[0] as FeatureFlagRulesV2DraftExperimentRule
+            logic.actions.updateRule(0, { ...rule, variants: [rule.variants[0], { ...rule.variants[1], value }] })
+        }
+
+        logic.actions.setDraft({ key: 'checkout-config' })
+        logic.actions.setReturnType('object')
+        logic.actions.addRule('experiment')
+        expect(logic.values.draft.config).toMatchObject({ return_type: 'object', default_value: null })
+        expect(logic.values.saveDisabledReason).toBeNull()
+
+        logic.actions.setConfig({ default_value: '{"columns": ' })
+        expect(logic.values.saveDisabledReason).toBe('Default value: Enter a valid JSON object.')
+        logic.actions.setConfig({ default_value: { columns: 1 } })
+        setTestValue(['compact'])
+        expect(logic.values.fieldError('filters.rules[0].variants[1].value')).toBe('Enter a valid JSON object.')
+        expect(logic.values.saveDisabledReason).toBe('Rule 1: Enter a valid JSON object.')
+        setTestValue({ columns: 2, labels: { cta: 'Buy' } })
+        expect(logic.values.saveDisabledReason).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+            .toDispatchActions(['saveRulesV2FlagSuccess'])
+            .toFinishAllListeners()
+
+        const body = create.mock.calls[0][1] as Record<string, any>
+        expect(body.filters).toMatchObject({
+            return_type: 'object',
+            default_value: { columns: 1 },
+            rules: [
+                {
+                    rule_type: 'experiment',
+                    variants: [
+                        { key: 'control', weight: 50, value: {} },
+                        { key: 'test', weight: 50, value: { columns: 2, labels: { cta: 'Buy' } } },
+                    ],
+                },
+            ],
+        })
     })
 
     it('blocks a create in a project that requires evaluation contexts, which a rules v2 create cannot set', () => {

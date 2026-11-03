@@ -483,8 +483,10 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 }
                 const [firstErrorField, firstError] = Object.entries(draftErrors)[0] ?? []
                 if (firstErrorField) {
-                    const ruleIndex = Number(/^filters\.rules\[(\d+)\]/.exec(firstErrorField)?.[1])
-                    return `Rule ${ruleIndex + 1}: ${firstError}`
+                    const ruleIndex = /^filters\.rules\[(\d+)\]/.exec(firstErrorField)?.[1]
+                    return ruleIndex === undefined
+                        ? `Default value: ${firstError}`
+                        : `Rule ${Number(ruleIndex) + 1}: ${firstError}`
                 }
                 const emptyConditionIndex = draft.config.rules.findIndex((rule) =>
                     rule.targeting.properties.some(isIncompleteRulesV2Condition)

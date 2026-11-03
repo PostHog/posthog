@@ -2,6 +2,7 @@ import { isApprovalRequiredError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { isObject } from 'lib/utils/guards'
 
 import {
     FeatureFlagConfig,
@@ -115,7 +116,7 @@ export function rulesV2CreateDisabledReason(
         : null
 }
 
-export const RULES_V2_EDITABLE_RETURN_TYPES: FeatureFlagRulesV2ReturnType[] = ['boolean', 'string']
+export const RULES_V2_EDITABLE_RETURN_TYPES: FeatureFlagRulesV2ReturnType[] = ['boolean', 'string', 'number', 'object']
 
 export function isRulesV2Value(value: unknown, returnType: FeatureFlagRulesV2ReturnType): boolean {
     switch (returnType) {
@@ -123,6 +124,10 @@ export function isRulesV2Value(value: unknown, returnType: FeatureFlagRulesV2Ret
             return typeof value === 'boolean'
         case 'string':
             return typeof value === 'string' && value !== ''
+        case 'number':
+            return typeof value === 'number' && Math.abs(value) <= Number.MAX_SAFE_INTEGER
+        case 'object':
+            return isObject(value)
         default:
             return false
     }

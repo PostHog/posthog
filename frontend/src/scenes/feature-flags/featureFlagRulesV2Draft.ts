@@ -45,18 +45,37 @@ export function isIncompleteRulesV2Condition(property: AnyPropertyFilter): boole
     )
 }
 
-/** The value a new rule starts with. A string has no sensible default, so the user must enter one. */
+/** The value a new rule starts with. A string or number has no sensible default, so the user must enter one. */
 export function rulesV2InitialValue(returnType: FeatureFlagRulesV2ReturnType): JsonType {
-    return returnType === 'boolean' ? true : ''
+    switch (returnType) {
+        case 'boolean':
+            return true
+        case 'number':
+            return null
+        case 'object':
+            return {}
+        default:
+            return ''
+    }
 }
 
 export function rulesV2InitialDefault(returnType: FeatureFlagRulesV2ReturnType): JsonType | null {
     return returnType === 'boolean' ? false : null
 }
 
-// A boolean experiment rule starts as control false and test true; a string variant serves its own key.
+// A boolean experiment rule starts as control false and test true, a number one as 0 and 1; a string variant
+// serves its own key.
 function initialVariantValue(returnType: FeatureFlagRulesV2ReturnType, key: string, index: number): JsonType {
-    return returnType === 'boolean' ? index > 0 : key
+    switch (returnType) {
+        case 'boolean':
+            return index > 0
+        case 'number':
+            return index
+        case 'string':
+            return key
+        default:
+            return rulesV2InitialValue(returnType)
+    }
 }
 
 export const NEW_TARGETED_RELEASE_RULE: Extract<FeatureFlagRulesV2DraftRule, { rule_type: 'targeted_release' }> = {
@@ -211,7 +230,18 @@ function valueError(value: unknown, returnType: FeatureFlagRulesV2ReturnType): s
     if (isRulesV2Value(value, returnType)) {
         return null
     }
-    return returnType === 'boolean' ? 'Must be true or false.' : 'Enter a value.'
+    switch (returnType) {
+        case 'boolean':
+            return 'Must be true or false.'
+        case 'number':
+            return typeof value === 'number' && Number.isFinite(value)
+                ? `Must be between -${Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`
+                : 'Enter a number.'
+        case 'object':
+            return 'Enter a valid JSON object.'
+        default:
+            return 'Enter a value.'
+    }
 }
 
 function variantKeyError(key: string, seen: Set<string>): string | null {
@@ -282,6 +312,9 @@ export function rulesV2DraftErrors(config: FeatureFlagRulesV2DraftConfig): Recor
             experimentErrors(rule, path, config.return_type, errors)
         }
     })
+    if (config.default_value !== null) {
+        addError(errors, 'filters.default_value', valueError(config.default_value, config.return_type))
+    }
     return errors
 }
 

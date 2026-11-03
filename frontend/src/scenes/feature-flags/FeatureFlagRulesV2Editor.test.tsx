@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -16,6 +16,12 @@ import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
         renderProp({ height: 400, width: 400 }),
+}))
+
+jest.mock('./JSONEditorInput', () => ({
+    JSONEditorInput: ({ value, onChange }: { value: string; onChange: (value: string) => void }): JSX.Element => (
+        <textarea value={value} onChange={(event) => onChange(event.target.value)} />
+    ),
 }))
 
 const V2_FLAG = {
@@ -81,6 +87,38 @@ const STRING_EXPERIMENT_FLAG = {
     },
 }
 
+const OBJECT_FLAG = {
+    ...NEW_FLAG,
+    id: 11,
+    key: 'checkout-config',
+    version: 2,
+    filters: {
+        version: 2,
+        return_type: 'object',
+        default_value: { columns: 1 },
+        rules: [
+            {
+                id: 'rule-beta',
+                rule_type: 'targeted_release',
+                targeting: { properties: [] },
+                value: { columns: 2 },
+            },
+        ],
+    },
+}
+
+const NUMBER_FLAG = {
+    ...OBJECT_FLAG,
+    id: 12,
+    key: 'checkout-limit',
+    filters: {
+        version: 2,
+        return_type: 'number',
+        default_value: 10,
+        rules: [{ id: 'rule-beta', rule_type: 'targeted_release', targeting: { properties: [] }, value: 25 }],
+    },
+}
+
 async function renderEditor(id: number): Promise<void> {
     const pageLogic = featureFlagLogic({ id })
     pageLogic.mount()
@@ -100,6 +138,8 @@ describe('FeatureFlagRulesV2Editor', () => {
                 '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                 '/api/projects/:team/feature_flags/7/': V2_FLAG,
                 '/api/projects/:team/feature_flags/9/': STRING_EXPERIMENT_FLAG,
+                '/api/projects/:team/feature_flags/11/': OBJECT_FLAG,
+                '/api/projects/:team/feature_flags/12/': NUMBER_FLAG,
                 '/api/projects/:team/feature_flags/:id/status': { status: 'active', reason: 'mock reason' },
             },
             post: {
@@ -237,6 +277,60 @@ describe('FeatureFlagRulesV2Editor', () => {
             click('rules-v2-experiment-holdout')
             expect(experimentRule().holdout).toEqual({ exclusion_percentage: 10 })
             await waitFor(() => expect(screen.getByLabelText('Holdout excludes')).toHaveValue('10'))
+        })
+    })
+
+    describe('an object flag', () => {
+        const logic = (): ReturnType<typeof featureFlagRulesV2EditorLogic> => featureFlagRulesV2EditorLogic({ id: 11 })
+        const json = (label: string): HTMLElement => within(screen.getByLabelText(label)).getByRole('textbox')
+
+        beforeEach(async () => {
+            await renderEditor(11)
+        })
+
+        it('shows each stored object as formatted JSON', () => {
+            expect(json('Value')).toHaveValue('{\n  "columns": 2\n}')
+            expect(json('Default value')).toHaveValue('{\n  "columns": 1\n}')
+        })
+
+        it('keeps text that is not an object yet as typed and flags it, then stores the object it becomes', () => {
+            fireEvent.change(json('Value'), { target: { value: '{"columns": ' } })
+            expect(logic().values.draft.config.rules[0]).toMatchObject({ value: '{"columns": ' })
+            expect(screen.getByText('Enter a valid JSON object.')).toBeInTheDocument()
+
+            fireEvent.change(json('Value'), { target: { value: '{"columns": 3}' } })
+            expect(logic().values.draft.config.rules[0]).toMatchObject({ value: { columns: 3 } })
+            expect(json('Value')).toHaveValue('{"columns": 3}')
+            expect(screen.queryByText('Enter a valid JSON object.')).not.toBeInTheDocument()
+        })
+
+        it('stores a cleared default as null and shows a value set elsewhere', async () => {
+            fireEvent.change(json('Default value'), { target: { value: '' } })
+            expect(logic().values.draft.config.default_value).toBeNull()
+
+            logic().actions.setConfig({ default_value: { columns: 4 } })
+            await waitFor(() => expect(json('Default value')).toHaveValue('{\n  "columns": 4\n}'))
+        })
+    })
+
+    describe('a number flag', () => {
+        const draftConfig = (): Record<string, any> => featureFlagRulesV2EditorLogic({ id: 12 }).values.draft.config
+
+        beforeEach(async () => {
+            await renderEditor(12)
+        })
+
+        it('stores typed numbers, and an empty input as no number', () => {
+            expect(screen.getByLabelText('Value')).toHaveValue(25)
+            fireEvent.change(screen.getByLabelText('Value'), { target: { value: '-0.5' } })
+            expect(draftConfig().rules[0].value).toBe(-0.5)
+
+            fireEvent.change(screen.getByLabelText('Value'), { target: { value: '' } })
+            expect(draftConfig().rules[0].value).toBeNull()
+            expect(screen.getByText('Enter a number.')).toBeInTheDocument()
+
+            fireEvent.change(screen.getByLabelText('Default value'), { target: { value: '' } })
+            expect(draftConfig().default_value).toBeNull()
         })
     })
 })

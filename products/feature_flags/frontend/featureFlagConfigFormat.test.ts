@@ -77,12 +77,36 @@ describe('featureFlagConfigFormat', () => {
             ),
             true,
         ],
+        [
+            'an object experiment rule',
+            stringFlag(
+                { variants: [{ key: 'a', weight: 100, value: { columns: 2 } }] },
+                { return_type: 'object', default_value: null }
+            ),
+            true,
+        ],
+        [
+            'an array where an object belongs',
+            stringFlag(
+                { variants: [{ key: 'a', weight: 100, value: ['compact'] }] },
+                { return_type: 'object', default_value: null }
+            ),
+            false,
+        ],
         ['group assignment', stringFlag({}, { aggregation_group_type_index: 0 }), false],
         ['a variant value of another type', stringFlag({ variants: [{ key: 'a', weight: 100, value: 1 }] }), false],
         [
             'a number return type',
             stringFlag(
-                { variants: [{ key: 'a', weight: 100, value: 1 }] },
+                { variants: [{ key: 'a', weight: 100, value: 1.5 }] },
+                { return_type: 'number', default_value: 1 }
+            ),
+            true,
+        ],
+        [
+            'a number past the safe integer range',
+            stringFlag(
+                { variants: [{ key: 'a', weight: 100, value: 2 ** 53 }] },
                 { return_type: 'number', default_value: 1 }
             ),
             false,

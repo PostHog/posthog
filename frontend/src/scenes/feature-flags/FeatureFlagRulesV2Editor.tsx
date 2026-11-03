@@ -16,7 +16,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, useId, useMemo } from 'react'
 
-import { IconCheckCircle, IconLetter, IconPlusSmall, IconToggle } from '@posthog/icons'
+import { IconCalculator, IconCheckCircle, IconCode, IconLetter, IconPlusSmall, IconToggle } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
@@ -58,6 +58,16 @@ const RETURN_TYPE_META: Record<string, { label: string; description: string; ico
         label: 'String',
         description: 'Serves a text value, such as a variant name or a config key.',
         icon: <IconLetter />,
+    },
+    number: {
+        label: 'Number',
+        description: 'Serves a number, such as a limit, a timeout or a price.',
+        icon: <IconCalculator />,
+    },
+    object: {
+        label: 'JSON object',
+        description: 'Serves a JSON object, such as remote config or settings for a variant.',
+        icon: <IconCode />,
     },
 }
 
