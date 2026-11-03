@@ -145,6 +145,8 @@ _CUSTOMER_INPUT_ERROR_CODES = frozenset(
 
 
 def _is_customer_input_error(error: BaseException) -> bool:
+    if isinstance(error, ValidationError):
+        return True
     return isinstance(error, ExposedCHQueryError) and error.code_name in _CUSTOMER_INPUT_ERROR_CODES
 
 
@@ -642,6 +644,10 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
+        except ValidationError:
+            execution_status = "user_error"
+            error_label = "ValidationError"
+            raise
         except ConcurrencyLimitExceeded:
             record_endpoint_rate_limited(
                 team_id=self.team.pk,
