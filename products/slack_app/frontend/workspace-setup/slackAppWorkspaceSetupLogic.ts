@@ -222,7 +222,10 @@ export const slackAppWorkspaceSetupLogic = kea<slackAppWorkspaceSetupLogicType>(
                     const response = await slackAppWorkspaceSetupJoinChannelsCreate(
                         String(values.currentTeamId),
                         String(props.integrationId),
-                        { channel_ids: values.selectedChannelIds, post_welcome: values.postWelcome }
+                        {
+                            channel_ids: values.selectedChannelIds,
+                            post_welcome: values.postWelcome && !!values.setup?.can_post_channel_welcome,
+                        }
                     )
                     return response.results
                 },

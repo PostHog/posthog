@@ -53,6 +53,12 @@ class SlackAppWorkspaceSetupSerializer(serializers.Serializer):
         many=True,
         help_text="Projects connected to this Slack workspace that the person can open. Empty unless default_project is a step.",
     )
+    can_post_channel_welcome = serializers.BooleanField(
+        help_text=(
+            "Whether a channel join from this setup can post the welcome message in the channel. "
+            "False when channels is not a step, or when the workspace sends the welcome only to the inviter or turns it off."
+        ),
+    )
 
 
 class SlackAppWorkspaceSetupQuerySerializer(serializers.Serializer):

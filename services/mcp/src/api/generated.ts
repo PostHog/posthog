@@ -113813,6 +113813,8 @@ export namespace Schemas {
       steps: SlackSetupStepKeyEnum[];
       /** Projects connected to this Slack workspace that the person can open. Empty unless default_project is a step. */
       project_options: SlackAppProjectOption[];
+      /** Whether a channel join from this setup can post the welcome message in the channel. False when channels is not a step, or when the workspace sends the welcome only to the inviter or turns it off. */
+      can_post_channel_welcome: boolean;
     }
 
     export interface SlackChannel {

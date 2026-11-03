@@ -13,6 +13,7 @@ const SETUP = {
     slack_workspace_name: 'Hedgebox',
     open_slack_url: 'https://slack.com/app_redirect?app=A123&team=T123',
     project_options: [],
+    can_post_channel_welcome: true,
 }
 
 const PROJECT_OPTIONS = [
@@ -61,6 +62,10 @@ export const DefaultProject: Story = {
 
 export const Channels: Story = {
     decorators: [setupDecorator({ ...SETUP, steps: ['channels'] })],
+}
+
+export const ChannelsWithoutWelcome: Story = {
+    decorators: [setupDecorator({ ...SETUP, steps: ['channels'], can_post_channel_welcome: false })],
 }
 
 export const Done: Story = {
