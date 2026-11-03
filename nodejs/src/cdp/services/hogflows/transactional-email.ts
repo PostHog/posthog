@@ -1,6 +1,8 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+
 export const MAX_COPY_RECIPIENTS = 10
 
 const CopyRecipientsSchema = z.array(z.string().email()).max(MAX_COPY_RECIPIENTS).readonly().optional()
@@ -36,6 +38,21 @@ export const AcceptedSendSchema = z
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 
+export const acceptedSendEmailFields = (
+    send: AcceptedSend | undefined
+): Partial<CyclotronInvocationQueueParametersEmailType> => ({
+    ...(send?.content && {
+        subject: send.content.subject,
+        html: send.content.html ?? '',
+        text: send.content.text ?? '',
+        preheader: '',
+    }),
+    ...(send?.from && { from: { ...send.from } }),
+    ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
+    ...(send?.cc && { cc: send.cc.join(', ') }),
+    ...(send?.bcc && { bcc: send.bcc.join(', ') }),
+})
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email(),
@@ -46,6 +63,8 @@ export const TransactionalEmailRequestSchema = z.object({
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
 })
+
+export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 

@@ -4,40 +4,14 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '~/cdp/types'
 
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import type { PreferencesTokenSource } from '../messaging/recipient-tokens.service'
-import { AcceptedSend } from './transactional-email'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
-
-const layAcceptedSendOver = (
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    send: AcceptedSend
-): HogFunctionInvocationGlobalsWithInputs => ({
-    ...globals,
-    inputs: {
-        ...globals.inputs,
-        email: {
-            ...globals.inputs.email,
-            ...(send.content && {
-                subject: send.content.subject,
-                html: send.content.html ?? '',
-                text: send.content.text ?? '',
-                preheader: '',
-            }),
-            ...(send.from && { from: { ...send.from } }),
-            ...(send.replyTo && { replyTo: send.replyTo.join(', ') }),
-            ...(send.cc && { cc: send.cc.join(', ') }),
-            ...(send.bcc && { bcc: send.bcc.join(', ') }),
-        },
-    },
-})
 
 // Helper class that can turn a hog flow action into a hog function
 export class HogFlowFunctionsService {
@@ -126,8 +100,7 @@ export class HogFlowFunctionsService {
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
-        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>,
-        send?: AcceptedSend
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -150,40 +123,28 @@ export class HogFlowFunctionsService {
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
-            hogFunction: {
-                ...hogFunction,
-                metadata: { ...hogFunction.metadata, capture_engagement: send?.tracking.captureEngagement ?? null },
-            },
+            hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.buildInputsWithGlobals(hogFunction, globalsWithSource, send, {
-                    appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
-                    instanceId: invocation.state.currentAction?.id,
-                }),
+                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
+                    hogFunction,
+                    globalsWithSource,
+                    undefined,
+                    {
+                        appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
+                        instanceId: invocation.state.currentAction?.id,
+                    }
+                ),
                 timings: [],
                 attempts: 0,
                 actionId: invocation.state.currentAction?.id,
                 actionStepCount: invocation.state.actionStepCount,
                 customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
                 rerunAttempts: invocation.state.rerunAttempts,
+                ...(invocation.state.send && { send: invocation.state.send }),
             },
         }
 
         return hogFunctionInvocation
-    }
-
-    private async buildInputsWithGlobals(
-        hogFunction: HogFunctionType,
-        globals: HogFunctionInvocationGlobals,
-        send: AcceptedSend | undefined,
-        preferencesTokenSource: PreferencesTokenSource
-    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
-        const rendered = await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
-            hogFunction,
-            globals,
-            undefined,
-            preferencesTokenSource
-        )
-        return send ? layAcceptedSendOver(rendered, send) : rendered
     }
 
     async execute(
