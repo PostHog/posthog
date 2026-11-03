@@ -337,6 +337,11 @@ function isMetadataQuery(query: string): boolean {
 // way. `$mcp_tool_call` still records that the call happened.
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
+// Its args are raw Fivetran read responses, secrets included. PostHog strips them on
+// the server, after the span would capture them, and many Fivetran secret fields
+// (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
+const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
+
 // Their output is another project's data, possibly from another region: a wrapped
 // execute-sql result or any API response. The execute-sql exemption below checks only
 // the outer tool name, so without this check the wrapped query's rows land in
@@ -359,7 +364,7 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isGatewayToolName(toolName)) {
         return false
     }
-    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME || toolName === FIVETRAN_UPLOAD_TOOL_NAME) {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {

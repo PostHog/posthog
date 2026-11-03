@@ -59,14 +59,18 @@ project yet. Tell the user that and stop.
    - Call only Fivetran read tools. Never call a Fivetran tool that creates, changes, pauses, syncs or deletes
      anything. Recommend that the Fivetran MCP uses a read-only system key.
    - Start a migration with `warehouse-migration-start-upload`.
-   - Read the account info, the groups, and each group's destination. Send the account and the destinations in the
-     first `warehouse-migration-upload-connections` call, so PostHog reads each sync time in its destination's time
-     zone.
+   - Read the account info, the groups, and each group's destination. Send the account and the destinations with
+     `warehouse-migration-upload-connections` before any connection, so PostHog reads each sync time in its
+     destination's time zone. One call takes at most 100 destinations, so send more in several calls with no
+     connections.
    - List the connections. For each one, read its details and its schema config. Upload them in batches of about 10.
    - Pass each Fivetran response unchanged. Never summarize, trim or retype it: PostHog removes the secrets and plans
      from the raw response.
-   - A 400 names the connections PostHog could not read, and saves the rest of the batch. Read those again and upload
-     them.
+   - A 400 names the connections PostHog could not read, and saves the rest of the batch. Read each error:
+     - A missing field or a wrong type means the response changed on the way. Read that connection again and upload
+       it unchanged, once.
+     - A connection larger than 1 MB can never be uploaded. Do not retry it. Tell the user, and offer the API key
+       link for the account.
    - When every connection is uploaded, continue with the report. The migration is already `ready`.
 
 2. **Report.** List the items with `warehouse-migration-items-list`. Lead with what is worth moving:
