@@ -237,6 +237,26 @@ describe('traceDrawerLogic', () => {
         expect(browserHistory).toHaveLength(1)
     })
 
+    it.each([
+        ['steps', ['01', '1'], (): void => logic.actions.stepTo('next'), '1'],
+        [
+            'goes back',
+            ['1', '01'],
+            (): void => {
+                logic.actions.stepTo('next')
+                goBack()
+            },
+            '1',
+        ],
+    ])('%s between distinct numeric-looking traces', (_name, traceIds, navigate, expected) => {
+        setUp({ url: `${LIST_PATH}?trace=${traceIds[0]}` })
+        logic.actions.setRows(traceIds.map((traceId) => ({ traceId, timestamp: null, stepId: null })))
+
+        navigate()
+
+        expect(logic.values.openTraceId).toBe(expected)
+    })
+
     it('treats an empty trace param as closed', () => {
         setUp({ url: `${LIST_PATH}?trace=` })
 

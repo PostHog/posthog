@@ -65,17 +65,28 @@ function toDrawerParams(row: TraceListRow | null): Record<string, string | undef
     return { trace: row?.traceId, ts: row?.timestamp ?? undefined, step: row?.stepId ?? undefined }
 }
 
+let isDrawerWriting = false
+
 function writeUrlParams(method: 'push' | 'replace', changes: Record<string, string | undefined>): void {
     const { pathname, search } = router.values.location
-    router.actions[method](
-        pathname,
-        { ...withTextParams(router.values.searchParams, search), ...changes },
-        router.values.hashParams
-    )
+    isDrawerWriting = true
+    try {
+        router.actions[method](
+            pathname,
+            { ...withTextParams(router.values.searchParams, search), ...changes },
+            router.values.hashParams
+        )
+    } finally {
+        isDrawerWriting = false
+    }
 }
 
 // Other logics write the router's decoded params back to the URL, and the router decodes `1.50` as the number 1.5.
+// The drawer's own writes and browser history moves are navigation, even between ids such as `01` and `1`.
 function isNumberRewriteOf(current: TraceListRow, previous: TraceListRow): boolean {
+    if (isDrawerWriting || router.values.lastMethod === 'POP') {
+        return false
+    }
     const pairs = [
         [previous.traceId, current.traceId],
         [previous.stepId, current.stepId],
