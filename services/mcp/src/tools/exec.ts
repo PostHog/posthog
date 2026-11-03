@@ -6,7 +6,7 @@ import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mc
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { isEmptyToolResult } from '@/lib/discovery-hints'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
