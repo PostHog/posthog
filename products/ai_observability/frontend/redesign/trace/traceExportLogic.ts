@@ -136,7 +136,8 @@ export const traceExportLogic = kea<traceExportLogicType>([
     listeners(({ actions, props, values, cache }) => ({
         copyTrace: async () => {
             const controller = new AbortController()
-            cache.disposables.add(() => () => controller.abort(), 'traceCopy')
+            // The copy keeps running while the tab is hidden, so that switching tabs does not abort it.
+            cache.disposables.add(() => () => controller.abort(), 'traceCopy', { pauseOnPageHidden: false })
             const reading = readTraceExportText({
                 traceId: props.traceId,
                 timestampHint: values.createdAt,

@@ -151,13 +151,20 @@ describe('traceExportLogic', () => {
     }
 
     // Safari and Firefox drop a clipboard write that starts after an await, so it has to begin in the click itself.
-    test('copyTrace starts the clipboard write in the click and fills it with the exported file', async () => {
+    // Hiding the page mid-copy pauses disposables by default, which would abort the read.
+    test('copyTrace starts the clipboard write in the click and fills it with the exported file, even if the tab is hidden', async () => {
         const logic = await mountForCopy()
 
         logic.actions.copyTrace()
         expect(clipboardWrite).toHaveBeenCalledTimes(1)
         expect(logic.values.traceCopying).toBe(true)
-        await expectLogic(logic).toDispatchActions(['copyTraceFinished'])
+        Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+        try {
+            document.dispatchEvent(new Event('visibilitychange'))
+            await expectLogic(logic).toDispatchActions(['copyTraceFinished'])
+        } finally {
+            Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+        }
 
         expect(clipboardText).toEqual(EXPORT_FILE_TEXT)
         expect(statusRequests).toBe(1)

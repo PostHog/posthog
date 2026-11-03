@@ -139,13 +139,13 @@ export async function readTraceExportText({
  * inside the user gesture, so the pending text goes onto the `ClipboardItem` instead of being awaited first.
  */
 export async function writePendingTextToClipboard(text: Promise<string>): Promise<boolean> {
+    // Chrome accepts only a Blob promise on a ClipboardItem, not a string promise.
+    const blob = text.then((value) => new Blob([value], { type: CLIPBOARD_TEXT_TYPE }))
+    // The caller handles a failed read. Nothing else observes this promise when the browser cannot write it.
+    blob.catch(() => {})
     if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
         return false
     }
-    // Chrome accepts only a Blob promise on a ClipboardItem, not a string promise.
-    const blob = text.then((value) => new Blob([value], { type: CLIPBOARD_TEXT_TYPE }))
-    // The write never observes the promise if the ClipboardItem constructor throws.
-    blob.catch(() => {})
     try {
         await navigator.clipboard.write([new ClipboardItem({ [CLIPBOARD_TEXT_TYPE]: blob })])
         return true
