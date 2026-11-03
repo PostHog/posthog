@@ -219,7 +219,10 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
-    it('keeps a System One panel on its model when the key list reloads', async () => {
+    it.each([
+        ['its models load', 200],
+        ['its model load fails', 500],
+    ])('keeps a System One panel on its model when the key list reloads and %s', async (_case, systemOneStatus) => {
         // A chat key too, so the reload has chat models to match a System One panel against.
         useMocks({
             get: {
@@ -231,12 +234,12 @@ describe('llmPlaygroundRunLogic', () => {
                 },
                 '/api/llm_proxy/models/': ({ request }) => {
                     const keyId = new URL(request.url).searchParams.get('provider_key_id')
-                    return [
-                        200,
-                        keyId === 'key-s1'
-                            ? [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]
-                            : [{ id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', description: '' }],
-                    ]
+                    if (keyId === 'key-s1') {
+                        return systemOneStatus === 200
+                            ? [200, [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]]
+                            : [systemOneStatus, { detail: 'Could not list models' }]
+                    }
+                    return [200, [{ id: 'gpt-5-mini', name: 'gpt-5-mini', provider: 'OpenAI', description: '' }]]
                 },
             },
         })

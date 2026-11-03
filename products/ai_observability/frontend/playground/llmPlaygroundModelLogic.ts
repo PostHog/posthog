@@ -198,7 +198,7 @@ export interface llmPlaygroundModelLogicMeta {
             playgroundModels: ModelOption[]
         ) => ModelOption[]
         runnableModelOptions: (effectiveModelOptions: ModelOption[], systemOneModels: ModelOption[]) => ModelOption[]
-        systemOnePromptIds: (promptConfigs: PromptConfig[], systemOneModels: ModelOption[]) => string[]
+        systemOnePromptIds: (promptConfigs: PromptConfig[], providerKeys: LLMProviderKey[]) => string[]
         allModelOptions: (playgroundModels: ModelOption[], byokModels: ModelOption[]) => ModelOption[]
         providerKeyForCurrentModel: (
             activePromptConfig: PromptConfig,
@@ -351,13 +351,14 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 ...systemOneModels,
             ],
         ],
+        // Read from the selected key, not the loaded models, so a failed model load keeps the panel on System One.
         systemOnePromptIds: [
-            (s) => [s.promptConfigs, s.systemOneModels],
-            (promptConfigs: PromptConfig[], systemOneModels: ModelOption[]): string[] =>
+            (s) => [s.promptConfigs, s.providerKeys],
+            (promptConfigs: PromptConfig[], providerKeys: LLMProviderKey[]): string[] =>
                 promptConfigs
                     .filter((prompt) =>
-                        systemOneModels.some(
-                            (model) => model.id === prompt.model && model.providerKeyId === prompt.selectedProviderKeyId
+                        providerKeys.some(
+                            (key) => key.id === prompt.selectedProviderKeyId && key.provider === 'system_one'
                         )
                     )
                     .map((prompt) => prompt.id),
