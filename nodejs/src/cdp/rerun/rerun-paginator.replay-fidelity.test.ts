@@ -157,7 +157,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         ['an email sent from code while replay_code_sends is undefined', { send: codeSend }, undefined, []],
         ['an email sent from code while replay_code_sends is false', { send: codeSend }, false, []],
         [
-            'a sensitive email whose content was not stored',
+            'a sensitive message whose content was not stored',
             { sensitive_variables_omitted: true },
             true,
             [
@@ -165,7 +165,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                     instance_id: 'inv-3',
                     level: 'warn',
                     message:
-                        "Not re-run: this run's email is sensitive, so its content wasn't stored and can't be sent again.",
+                        "Not re-run: this run's message is sensitive, so its content wasn't stored and can't be sent again.",
                 }),
             ],
         ],

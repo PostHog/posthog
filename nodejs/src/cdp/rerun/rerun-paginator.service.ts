@@ -786,7 +786,7 @@ export class RerunPaginatorService {
                             timestamp: DateTime.now(),
                             level: 'warn',
                             message:
-                                "Not re-run: this run's email is sensitive, so its content wasn't stored and can't be sent again.",
+                                "Not re-run: this run's message is sensitive, so its content wasn't stored and can't be sent again.",
                         },
                     ],
                     'hog_flow'
