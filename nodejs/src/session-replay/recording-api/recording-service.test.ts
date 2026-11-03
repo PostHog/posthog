@@ -371,21 +371,32 @@ describe('RecordingService', () => {
         })
     })
 
-    describe('getDeletion', () => {
-        const key = (sessionState: 'ciphertext' | 'cleartext' | 'deleted'): SessionKey => ({
-            plaintextKey: Buffer.alloc(0),
+    describe('block refs', () => {
+        const sessionKey = (sessionState: 'ciphertext' | 'cleartext' | 'deleted'): SessionKey => ({
+            plaintextKey: Buffer.alloc(32, 7),
             encryptedKey: Buffer.alloc(0),
             sessionState,
         })
+        const block = {
+            key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+            start_byte: 100,
+            end_byte: 250,
+            start_timestamp: '2024-01-01T00:00:00Z',
+            end_timestamp: '2024-01-01T00:01:00Z',
+        }
 
-        it('reports a shredded key with who deleted it and when', async () => {
+        beforeAll(async () => {
+            await sodium.ready
+        })
+
+        it('reports a shredded key in place of the blocks', async () => {
             mockKeyStore.getKey.mockResolvedValue({
-                ...key('deleted'),
+                ...sessionKey('deleted'),
                 deletedAt: 1700000000,
                 deletedBy: 'user@example.com',
             })
 
-            expect(await service.getDeletion('sess-1', 1)).toEqual({
+            expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual({
                 ok: false,
                 error: 'deleted',
                 deletedAt: 1700000000,
@@ -393,13 +404,47 @@ describe('RecordingService', () => {
             })
         })
 
-        it.each([
-            ['an encrypted', 'ciphertext' as const],
-            ['a pre-encryption', 'cleartext' as const],
-        ])('reports nothing for %s recording', async (_, sessionState) => {
-            mockKeyStore.getKey.mockResolvedValue(key(sessionState))
+        it('gives a pre-encryption recording no refs', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('cleartext'))
 
-            expect(await service.getDeletion('sess-1', 1)).toBeNull()
+            expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual([block])
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
+        })
+
+        it('fetches the byte range a listed ref names', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockResolvedValue({
+                Body: { transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1])) },
+            })
+            mockDecryptor.decryptBlockWithKey = jest
+                .fn()
+                .mockReturnValue({ data: Buffer.from('data'), sessionState: 'ciphertext' })
+            mockKeyStore.getKey.mockClear()
+
+            const result = await service.getBlockByRef(1, 'sess-1', listed.ref)
+
+            expect(result).toEqual({ ok: true, data: Buffer.from('data') })
+            expect(mockKeyStore.getKey).toHaveBeenCalledTimes(1)
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1)
+            expect(mockDecryptor.decryptBlock).not.toHaveBeenCalled()
+            expect(mockS3Send).toHaveBeenCalledWith(
+                expect.objectContaining({ input: { Bucket: 'test-bucket', Key: block.key, Range: 'bytes=100-250' } })
+            )
+        })
+
+        it.each([
+            ['a deleted session', 'deleted', 'deleted'],
+            ['a pre-encryption session', 'cleartext', 'not_found'],
+        ] as const)('serves no block by ref for %s', async (_, sessionState, expectedError) => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockKeyStore.getKey.mockResolvedValue(sessionKey(sessionState))
+
+            const result = await service.getBlockByRef(1, 'sess-1', listed.ref)
+
+            expect(result).toMatchObject({ ok: false, error: expectedError })
+            expect(mockS3Send).not.toHaveBeenCalled()
         })
     })
 
