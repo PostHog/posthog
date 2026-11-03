@@ -1041,8 +1041,9 @@ export const sceneLogic = kea<sceneLogicType>([
                     ) {
                         const nextUrl = getOnboardingRedirectNextPath(params.searchParams.next, location)
 
-                        // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        // Check if user is coming from a coupon campaign link. Match the path only, so a
+                        // query value such as ?ref=/coupons/x doesn't start a coupon onboarding.
+                        const campaign = nextUrl ? parseCouponCampaign(nextUrl.split(/[?#]/)[0]) : null
                         if (campaign) {
                             router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
                             return
