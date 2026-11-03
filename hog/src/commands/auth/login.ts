@@ -43,13 +43,9 @@ type LoginResult =
           projectId: string
           store: StoreChoice
           credentialsPath: string | null
-          keychainProblem: string | null
+          keychainError: string | null
           next: string
       }
-
-function isTruthy(value: string | undefined): boolean {
-    return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
-}
 
 function nextCommand(scopes: readonly string[]): string {
     const canQuery = scopes.some((scope) => scope === '*' || scope.startsWith('query:'))
@@ -69,8 +65,8 @@ function pendingResult(pending: PendingLogin): LoginResult {
 }
 
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, store, credentialsPath, keychainProblem, scopes } = loggedIn
-    return { status: 'logged_in', host, projectId, store, credentialsPath, keychainProblem, next: nextCommand(scopes) }
+    const { host, projectId, store, credentialsPath, keychainError, scopes } = loggedIn
+    return { status: 'logged_in', host, projectId, store, credentialsPath, keychainError, next: nextCommand(scopes) }
 }
 
 async function finish(ctx: Context, pending: PendingLogin, spinner?: Spinner): Promise<LoginResult> {
@@ -94,7 +90,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
 }
 
 export default defineCommand({
-    description: 'Log in to PostHog and store a personal API key in the system keychain',
+    description: 'Log in to PostHog',
     writes: true,
     options: {
         region: {
@@ -112,7 +108,7 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'hog stores the key in the system keychain. Where it cannot use one, such as over SSH, it stores the key in a file only you can read.',
+        'hog stores the key in the system keychain. If no keychain is available, such as over SSH, it stores the key in a file only you can read.',
         'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
@@ -133,7 +129,7 @@ export default defineCommand({
             return finish(ctx, pending, prompts?.spinner('Waiting for the login to be approved in the browser'))
         }
 
-        if (!prompts && ctx.mode.agent === undefined && isTruthy(env.CI)) {
+        if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
             throw new HogError(
                 'login_needs_a_person',
                 'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
@@ -208,8 +204,8 @@ export default defineCommand({
                 out.line(out.style('Credentials saved to the system keychain', 'dim'))
                 break
             case 'file':
-                if (result.keychainProblem) {
-                    out.line(out.style(`${escapeControls(result.keychainProblem).replace(/\.$/, '')}.`, 'yellow'))
+                if (result.keychainError) {
+                    out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
                 }
                 out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
                 break

@@ -23,7 +23,7 @@ export interface LoggedIn {
     // Set when the credentials are in a file.
     credentialsPath: string | null
     // Why hog couldn't use the keychain, when it stored the credentials in a file.
-    keychainProblem: string | null
+    keychainError: string | null
     scopes: string[]
 }
 
@@ -75,7 +75,7 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
     const key = await unverified.verify(runtime)
     const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
-    let keychainProblem = probe.usable ? null : probe.reason
+    let keychainError = probe.usable ? null : probe.reason
     const { host, projectId } = key
     try {
         // A keychain that times out sends the login to the file below.
@@ -86,7 +86,7 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
         if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
             throw error
         }
-        keychainProblem = error.message
+        keychainError = error.message
         store = new FileStore(runtime)
         await writeLogin(runtime, store, key, { lastLogin: true })
     }
@@ -100,7 +100,7 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
         projectId,
         store: store.kind,
         credentialsPath: store.path,
-        keychainProblem,
+        keychainError,
         scopes: [],
     }
 }

@@ -22,8 +22,8 @@ function keychainError(error: unknown): HogError {
     if ((error as { code?: unknown } | null)?.code === 'ERR_SECRETS_USER_CANCELED') {
         return new HogError(
             'keychain_access_denied',
-            'hog was not allowed to use the keychain.',
-            'Run the command again and allow hog to use the keychain. Choose "Always Allow" so it does not ask again.'
+            "PostHog wasn't allowed to use the keychain.",
+            'Run the command again and allow PostHog to use the keychain. Choose "Always Allow" so it doesn\'t ask again.'
         )
     }
     return new HogError(
@@ -44,7 +44,7 @@ async function keychainCall<T>(
     const settled = new AbortController()
     void runtime.sleep(KEYCHAIN_PROGRESS_MS, settled.signal).then(() => {
         if (!settled.signal.aborted) {
-            runtime.writeStderr('Waiting for access to the keychain. If a dialog asks, allow hog to use it.\n')
+            runtime.writeStderr('Waiting for access to the keychain. If a dialog asks, allow PostHog to use it.\n')
         }
     })
     const timeout = runtime.sleep(KEYCHAIN_TIMEOUT_MS, settled.signal).then((): never => {

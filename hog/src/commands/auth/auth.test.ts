@@ -187,7 +187,7 @@ describe('hog auth login', () => {
             expect(result.json()).toMatchObject({
                 store: 'file',
                 credentialsPath: HOG_CREDENTIALS_FILE,
-                keychainProblem: expect.stringContaining('keychain'),
+                keychainError: expect.stringContaining('keychain'),
             })
             expect(JSON.parse(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
                 'https://eu.posthog.com': { apiKey: 'phx_secret' },
