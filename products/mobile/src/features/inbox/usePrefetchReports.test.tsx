@@ -1,6 +1,6 @@
-import NetInfo, { type NetInfoState } from '@react-native-community/netinfo'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
+import { getNetworkStateAsync, NetworkStateType } from 'expo-network'
 import type { ReactElement, ReactNode } from 'react'
 import { AppState, type ViewToken } from 'react-native'
 import { setAuthProvider } from '@/api/client'
@@ -68,18 +68,15 @@ describe('usePrefetchReports', () => {
             refreshAccessToken: async () => null,
         })
         AppState.currentState = 'active'
-        useConnectivity.setState({ status: 'connected', isConnectionExpensive: false })
-        jest.mocked(NetInfo.refresh).mockResolvedValue({
-            isConnected: true,
-            details: { isConnectionExpensive: false },
-        } as NetInfoState)
+        useConnectivity.setState({ status: 'connected', type: NetworkStateType.WIFI })
+        jest.mocked(getNetworkStateAsync).mockResolvedValue({ type: NetworkStateType.WIFI, isConnected: true })
     })
     afterEach(() => {
         setAuthProvider(null)
         jest.restoreAllMocks()
     })
 
-    test.each(['focus', 'offline', 'unknown', 'expensive', 'project', 'background', 'unmount'] as const)(
+    test.each(['focus', 'offline', 'unknown', 'cellular', 'project', 'background', 'unmount'] as const)(
         '%s pauses pending work and cancels only speculative reads',
         async (pause) => {
             const appListeners = new Set<(state: 'active' | 'background') => void>()
@@ -108,7 +105,7 @@ describe('usePrefetchReports', () => {
                     else if (pause === 'project') {
                         mockScope = { ...mockScope, projectId: 3 }
                         screen.rerender({ focused: true })
-                    } else if (pause === 'expensive') useConnectivity.setState({ isConnectionExpensive: true })
+                    } else if (pause === 'cellular') useConnectivity.setState({ type: NetworkStateType.CELLULAR })
                     else if (pause === 'background') for (const listener of appListeners) listener('background')
                     else screen.unmount()
                 })
@@ -120,7 +117,7 @@ describe('usePrefetchReports', () => {
                         else if (pause === 'offline' || pause === 'unknown')
                             useConnectivity.setState({ status: 'connected' })
                         else if (pause === 'project') showRows(screen.result.current, 0, 1)
-                        else if (pause === 'expensive') useConnectivity.setState({ isConnectionExpensive: false })
+                        else if (pause === 'cellular') useConnectivity.setState({ type: NetworkStateType.WIFI })
                         else for (const listener of appListeners) listener('active')
                     })
                     await waitFor(() => expect(requests.pending).toHaveLength(2))
