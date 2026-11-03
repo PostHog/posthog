@@ -531,7 +531,8 @@ The recorder does not write the two index prefixes itself, as in v3:
 ### Block index
 
 A flush can write its blocks and index rows and then fail before it commits its Kafka offsets.
-The next attempt for that partition starts at the same committed offset and writes the same messages again.
+The recorder keeps running and tries to commit those offsets again later, and it exits only when commits keep failing for 10 minutes.
+When the partition moves first, or the process restarts, the next attempt for that partition starts at the same committed offset and writes the same messages again.
 A retry can also cover a different range than the attempt it replaces, for example one flush that replays two earlier flushes.
 Every row therefore names its flush and its Kafka position.
 The index rows are published without waiting for delivery, so a retry can also reach the index only in part.
