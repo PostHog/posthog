@@ -291,6 +291,33 @@ tools:
             Create a comment on an accessible resource, or reply by passing `source_comment`. For a canvas use scope
             `canvas` and the canvas id as `item_id`. A task id in item_context.taskId is optional. Canvas visibility is
             enforced: public-channel canvases and the authenticated user's personal-channel canvases are accessible.
+    comments-link-slack-thread:
+        operation: comments_link_slack_thread_create
+        enabled: true
+        scopes:
+            - comment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Link a Slack thread as a discussion
+        description: >
+            Start a discussion from a Slack thread that already exists, for a conversation that began in Slack. Pass a
+            link to any message in the thread (Copy link in Slack), the resource as scope and item_id, and
+            integration_id from integrations-list (filter kind=slack). For a support ticket use scope `Ticket` and the
+            ticket's id (not its ticket_number) as item_id; this needs the ticket:write scope. The thread's first
+            message opens the discussion and its earlier replies import in the background, tracked in the opening
+            comment's item_context.slack_import_state. Replies then sync both ways. The PostHog bot posts a notice in
+            the thread, so confirm the thread and the resource with the user first, and do not link when no user can
+            confirm. Linking refuses shared channels, direct messages, a support ticket's own thread, a thread that
+            already syncs, and users who are not full members of the Slack workspace. A thread in a private channel can
+            be linked only by the person who connected the Slack workspace, and only while they are in that channel. Do
+            not retry a refusal with the same link. Undo a wrong link with comments-unlink-slack-thread.
+        param_overrides:
+            url:
+                description: Link to any message in the Slack thread, from Copy link in Slack, e.g.
+                    https://acme.slack.com/archives/C0123ABCDEF/p1767225636123456.
+        feature_flag: discussions-slack-sync
     comments-list:
         operation: comments_list
         enabled: true
@@ -304,6 +331,29 @@ tools:
         description: >
             List comments across the project. Filter by scope (Dashboard, FeatureFlag, Insight, etc.) and item_id to
             find discussions on specific resources. Returns comment content, author, and threading info.
+    comments-unlink-slack-thread:
+        operation: comments_unlink_slack_thread_create
+        enabled: true
+        scopes:
+            - comment:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Unlink a Slack thread from a discussion
+        description: >
+            Undo comments-link-slack-thread. Stops the Slack sync and deletes the discussion it created in PostHog, the
+            opening comment and every reply. The thread stays in Slack and can be linked again, for example to the right
+            ticket. Pass the id of the discussion's opening comment: in comments-list it has source_comment null,
+            item_context.from_slack true and a slack_thread. A discussion written in PostHog and sent to Slack cannot be
+            unlinked. Unlinking needs the same Slack workspace membership as linking. It is refused while replies
+            written in PostHog haven't reached the Slack thread yet; wait a minute, or ask the user whether to delete
+            those replies first. For a support ticket discussion this needs the ticket:write scope. Confirm with the
+            user first, because the comments are removed.
+        param_overrides:
+            id:
+                description: ID of the opening comment of a discussion linked from a Slack thread.
+        feature_flag: discussions-slack-sync
     org-member-get-github-login:
         operation: members_github_login_retrieve
         enabled: true
