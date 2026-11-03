@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS
+from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, scopes_within_ceiling
 
 logger = structlog.get_logger(__name__)
 
@@ -271,14 +271,18 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
 
 def _insufficient_scope_challenge(request: object, required_scopes: Sequence[str]) -> str | None:
     """Only tokens from step-up apps get the challenge. Every other caller gets the same 403 without it."""
-    from posthog.auth import (
-        OAuthAccessTokenAuthentication,  # noqa: PLC0415 - posthog.auth loads models, and this module loads before the app registry
-    )
+    from posthog.auth import OAuthAccessTokenAuthentication  # noqa: PLC0415 - posthog.auth needs the app registry
 
     authenticator = getattr(request, "successful_authenticator", None)
     if not isinstance(authenticator, OAuthAccessTokenAuthentication) or not authenticator.access_token.supports_step_up:
         return None
     # Internal scopes cannot be granted at consent, so a challenge naming one could never succeed.
     if any(scope.split(":", 1)[0] in INTERNAL_API_SCOPE_OBJECTS for scope in required_scopes):
+        return None
+    # Consent drops a scope outside the app's ceiling, so the client would re-consent and still lack it.
+    application = authenticator.access_token.application
+    if application is None or not scopes_within_ceiling(
+        required_scopes, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+    ):
         return None
     return f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
