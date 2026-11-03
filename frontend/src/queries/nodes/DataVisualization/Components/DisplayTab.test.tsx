@@ -167,11 +167,13 @@ describe('DisplayTab', () => {
         await user.click(await screen.findByText('X-axis'))
         await user.click(await screen.findByText('Left Y-axis'))
         await user.click(await screen.findByText('Right Y-axis'))
-        await user.type(screen.getByPlaceholderText('X-axis label'), 'Company size')
+        const labelInput = (dataAttr: string): HTMLElement =>
+            document.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`) as HTMLElement
+        await user.type(labelInput('data-visualization-x-axis-label-input'), 'Company size')
         await user.tab()
-        await user.type(screen.getByPlaceholderText('Left Y-axis label'), 'Accounts')
+        await user.type(labelInput('data-visualization-left-y-axis-label-input'), 'Accounts')
         await user.tab()
-        await user.type(screen.getByPlaceholderText('Right Y-axis label'), 'Revenue')
+        await user.type(labelInput('data-visualization-right-y-axis-label-input'), 'Revenue')
         await user.tab()
 
         await waitFor(() => {

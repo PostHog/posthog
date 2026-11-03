@@ -228,7 +228,6 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         showCondition: (c) => c.showsAxes,
         value: (c) => c.chartSettings.xAxisLabel,
         onChange: (xAxisLabel, c) => c.updateChartSettings({ xAxisLabel }),
-        placeholder: (c) => `${c.isHorizontalBarChart ? 'Y-axis' : 'X-axis'} label`,
         dataAttr: 'data-visualization-x-axis-label-input',
     },
     xAxisScale: {
@@ -270,8 +269,6 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         showCondition: (c) => c.showsAxes,
         value: (c) => c.chartSettings.leftYAxisSettings?.label,
         onChange: (label, c) => c.updateChartSettings({ leftYAxisSettings: { label } }),
-        placeholder: (c) =>
-            c.isHorizontalBarChart ? 'X-axis label' : c.showsRightYAxis ? 'Left Y-axis label' : 'Y-axis label',
         dataAttr: 'data-visualization-left-y-axis-label-input',
     },
     yAxisBeginAtZero: {

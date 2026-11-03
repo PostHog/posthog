@@ -37,7 +37,19 @@ export const DisplayTab = (): JSX.Element => {
                   header: section.title,
                   content: <ChartOptionSections sections={[{ ...section, title: undefined }]} />,
               }))
-            : [{ key: tab.key, header: tab.label, content: <ChartOptionSections sections={tab.sections} /> }]
+            : [
+                  {
+                      key: tab.key,
+                      header: tab.label,
+                      content: (
+                          <ChartOptionSections
+                              sections={
+                                  tab.sections.length === 1 ? [{ ...tab.sections[0], title: undefined }] : tab.sections
+                              }
+                          />
+                      ),
+                  },
+              ]
     )
     if (supportsGoalLines) {
         panels.push({
