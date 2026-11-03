@@ -15,6 +15,11 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
+PURCHASE = "customers/1/conversionActions/10"
+SIGNUP = "customers/1/conversionActions/20"
+MANAGER_SIGNUP = "customers/9/conversionActions/20"
+BOTH_SPLITS = ("campaign", "search_term")
+
 
 class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, BaseTest):
     def _table(self, name: str, columns: dict[str, str], csv: str) -> str:
@@ -108,6 +113,105 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         assert [(page.query, page.page) for page in pages] == [("funnel analysis", "https://example.com/funnels")]
 
+    @parameterized.expand(
+        [
+            ("primary_actions_by_default", None, BOTH_SPLITS, "alpha", 100.0, []),
+            ("selected_secondary_action", [SIGNUP], BOTH_SPLITS, "beta", 200.0, []),
+            ("no_split_tables", [SIGNUP], (), "alpha", 100.0, ["conversion_action_tables_not_synced"]),
+            ("only_campaign_split", [SIGNUP], ("campaign",), "alpha", 100.0, ["conversion_action_tables_not_synced"]),
+            ("another_accounts_action", ["customers/2/conversionActions/20"], BOTH_SPLITS, "alpha", 100.0, []),
+            ("manager_account_action", [MANAGER_SIGNUP], BOTH_SPLITS, "beta", 200.0, [], MANAGER_SIGNUP),
+        ]
+    )
+    def test_counts_only_the_selected_conversion_actions(
+        self,
+        _name: str,
+        conversion_actions: list[str] | None,
+        split_tables: tuple[str, ...],
+        wasted_term: str,
+        best_campaign_cpa: float,
+        gaps: list[str],
+        signup: str = SIGNUP,
+    ) -> None:
+        campaigns = self._table(
+            "campaign",
+            {
+                "campaign_id": "Int64",
+                "customer_id": "Int64",
+                "campaign_name": "String",
+                "campaign_advertising_channel_type": "String",
+                "campaign_budget_amount_micros": "Int64",
+            },
+            "campaign_id,customer_id,campaign_name,campaign_advertising_channel_type,campaign_budget_amount_micros\n"
+            "1,1,Search,SEARCH,100000000\n",
+        )
+        stats = self._table(
+            "campaign_stats",
+            {
+                "campaign_id": "Int64",
+                "segments_date": "Date",
+                "metrics_cost_micros": "Int64",
+                "metrics_conversions": "Float64",
+            },
+            "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
+        )
+        term_columns = {
+            "search_term_view_search_term": "String",
+            "campaign_id": "Int64",
+            "segments_date": "Date",
+            "metrics_clicks": "Int64",
+            "metrics_impressions": "Int64",
+            "metrics_cost_micros": "Int64",
+            "metrics_conversions": "Float64",
+            "search_term_view_status": "String",
+        }
+        terms = self._table(
+            "search_term_stats",
+            term_columns,
+            ",".join(term_columns)
+            + "\nalpha,1,2026-01-15,10,100,500000000,0,NONE\nbeta,1,2026-01-15,10,100,500000000,10,NONE\n",
+        )
+        source = MarketingAnalyticsRecommendationsSource(
+            sourceType="GoogleAds", campaignTable=campaigns, campaignStatsTable=stats, searchTermTable=terms
+        )
+        action_columns = {
+            "campaign_id": "Int64",
+            "segments_date": "Date",
+            "segments_conversion_action": "String",
+            "metrics_conversions": "Float64",
+            "metrics_all_conversions": "Float64",
+        }
+        # Purchase is the primary action. Signup is secondary, so only all_conversions counts it.
+        if "campaign" in split_tables:
+            source.campaignConversionActionTable = self._table(
+                "campaign_conversion_action_stats",
+                action_columns,
+                ",".join(action_columns) + f"\n1,2026-01-15,{PURCHASE},10,10\n1,2026-01-15,{signup},0,5\n",
+            )
+        if "search_term" in split_tables:
+            term_action_columns = {"search_term_view_search_term": "String", **action_columns}
+            source.searchTermConversionActionTable = self._table(
+                "search_term_conversion_action_stats",
+                term_action_columns,
+                ",".join(term_action_columns)
+                + f"\nbeta,1,2026-01-15,{PURCHASE},10,10\nalpha,1,2026-01-15,{signup},0,5\n",
+            )
+
+        response = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(
+                dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
+                sources=[source],
+                conversionActions=conversion_actions,
+            ),
+            team=self.team,
+            user=self.user,
+        ).calculate()
+
+        wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
+        assert [rec.subject for rec in wasted] == [wasted_term]
+        assert wasted[0].cpa is not None and wasted[0].cpa.bestCampaign == best_campaign_cpa
+        assert [gap.kind for gap in response.dataGaps or []] == gaps
+
 
 class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
     def _source(self, source_type: str, prefix: str, schemas: dict[str, bool]) -> None:
@@ -136,7 +240,13 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
         self._source(
             "GoogleAds",
             "acme",
-            {"campaign": True, "campaign_stats": True, "search_term_stats": True, "customer": False},
+            {
+                "campaign": True,
+                "campaign_stats": True,
+                "search_term_stats": True,
+                "search_term_conversion_action_stats": True,
+                "customer": False,
+            },
         )
         self._source("GoogleAds", "unsynced", {"campaign": True, "campaign_stats": False})
         self._source("GoogleSearchConsole", "organic", {"search_analytics_by_query_page": True, "sites": True})
@@ -153,6 +263,7 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "campaignTable": "googleads.acme.campaign",
                 "campaignStatsTable": "googleads.acme.campaign_stats",
                 "searchTermTable": "googleads.acme.search_term_stats",
+                "searchTermConversionActionTable": "googleads.acme.search_term_conversion_action_stats",
             },
             {
                 "sourceType": "GoogleSearchConsole",

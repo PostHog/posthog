@@ -86,6 +86,34 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert rules[0].action == "Raise the daily budget from $100 to $300"
             assert rules[0].impact == 6000
 
+    @parameterized.expand(
+        [
+            ("cheap_campaign_losing_impressions", "Cheap", "scale_campaign", 50.0, "$50"),
+            ("expensive_campaign", "Expensive", "review_campaign", 600.0, "$600"),
+        ]
+    )
+    def test_campaign_cpa_fields_match_the_reason(
+        self, _name: str, subject: str, rule: str, value: float, reason_cpa: str
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Cheap", cost=1000, conversions=20, lost_to_budget=0.3, lost_to_rank=0.2),
+            _campaign(id="b", name="Expensive", cost=3000, conversions=5),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+
+        rec = next(rec for rec in recommend(_inputs(campaigns)) if rec.subject == subject)
+
+        assert rec.rule == rule
+        assert rec.cpa is not None
+        assert rec.cpa.model_dump() == {
+            "value": value,
+            "benchmark": 133.33,
+            "bestCampaign": 50.0,
+            "worstCampaign": 600.0,
+        }
+        assert f"CPA of {reason_cpa}" in rec.reason
+        assert "$133" in rec.reason
+
     def test_campaigns_sharing_a_budget_get_one_budget_recommendation(self) -> None:
         shared = {"status_reasons": ("BUDGET_CONSTRAINED",), "recommended_daily_budget": 300.0, "budget_id": "b1"}
         campaigns = (

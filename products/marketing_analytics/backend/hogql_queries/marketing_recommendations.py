@@ -8,6 +8,7 @@ import tldextract
 
 from posthog.schema import (
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationStep as Step,
 )
@@ -234,6 +235,20 @@ class _Recommender:
             if current_page is None or page_row.impressions > current_page.impressions:
                 top_pages[page_row.query] = page_row
         self.ranking_page = {query: row.page for query, row in top_pages.items()}
+        self.brand_spend = self._brand_spend_by_campaign()
+        self.nonbrand = {
+            campaign.id: self._nonbrand_totals(campaign, self.brand_spend.get(campaign.id))
+            for campaign in self.campaigns.values()
+        }
+        self.search_campaigns = [
+            campaign
+            for campaign in self.campaigns.values()
+            if campaign.channel_type == "SEARCH" and not self._is_brand_campaign(campaign, self.brand_spend)
+        ]
+        # The same campaigns and non-brand basis as the benchmark, so a Search campaign's CPA sits inside the range.
+        search_cpas = [cpa for campaign in self.search_campaigns if (cpa := self._nonbrand_cpa(campaign)) is not None]
+        self.best_campaign_cpa = min(search_cpas, default=None)
+        self.worst_campaign_cpa = max(search_cpas, default=None)
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
         campaign_rules = sorted(self._campaign_rules(), key=lambda rec: -(rec.impact or 0))
@@ -243,16 +258,7 @@ class _Recommender:
 
     def _campaign_rules(self) -> list[MarketingAnalyticsRecommendation]:
         recommendations: list[MarketingAnalyticsRecommendation] = []
-        brand_spend = self._brand_spend_by_campaign()
-        nonbrand = {
-            campaign.id: self._nonbrand_totals(campaign, brand_spend.get(campaign.id))
-            for campaign in self.campaigns.values()
-        }
-        search_campaigns = [
-            campaign
-            for campaign in self.campaigns.values()
-            if campaign.channel_type == "SEARCH" and not self._is_brand_campaign(campaign, brand_spend)
-        ]
+        brand_spend, nonbrand, search_campaigns = self.brand_spend, self.nonbrand, self.search_campaigns
         nonbrand_cost = sum(nonbrand[campaign.id].cost for campaign in search_campaigns)
         nonbrand_conversions = sum(nonbrand[campaign.id].conversions for campaign in search_campaigns)
         nonbrand_cpa = nonbrand_cost / nonbrand_conversions if nonbrand_conversions else None
@@ -262,7 +268,7 @@ class _Recommender:
         for campaign in self.campaigns.values():
             if campaign.primary_status in INACTIVE_STATUSES:
                 continue
-            budget = self._budget_constrained(campaign)
+            budget = self._budget_constrained(campaign, nonbrand_cpa)
             # Campaigns that share a budget each report it as constrained, so one row covers the shared budget.
             if budget and not (campaign.budget_id and campaign.budget_id in constrained_budgets):
                 recommendations.append(budget)
@@ -279,6 +285,7 @@ class _Recommender:
                         None,
                         "gain",
                         "measured",
+                        cpa=self._cpa(self._nonbrand_cpa(campaign), nonbrand_cpa),
                     )
                 )
 
@@ -288,16 +295,16 @@ class _Recommender:
                 continue
             leak = brand_spend.get(campaign.id)
             if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
-                recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
+                recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign, nonbrand_cpa))
             if campaign.conversions > 0 and (campaign.lost_to_rank or 0) >= 0.4:
-                recommendations.append(self._performance_max_rank(campaign))
+                recommendations.append(self._performance_max_rank(campaign, nonbrand_cpa))
 
         for campaign in search_campaigns:
             if campaign.primary_status in INACTIVE_STATUSES:
                 continue
             leak = brand_spend.get(campaign.id)
             if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
-                recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
+                recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign, nonbrand_cpa))
             totals = nonbrand[campaign.id]
             cost, conversions = totals.cost, totals.conversions
             cpa = cost / conversions if conversions else None
@@ -313,7 +320,9 @@ class _Recommender:
                 recommendations.append(self._review(campaign, cpa, nonbrand_cpa))
         return recommendations
 
-    def _budget_constrained(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation | None:
+    def _budget_constrained(
+        self, campaign: CampaignStats, nonbrand_cpa: float | None
+    ) -> MarketingAnalyticsRecommendation | None:
         budget, recommended = campaign.daily_budget, campaign.recommended_daily_budget
         if (
             "BUDGET_CONSTRAINED" not in campaign.status_reasons
@@ -336,10 +345,11 @@ class _Recommender:
             (recommended - budget) * 30,
             "invest",
             "estimated",
+            cpa=self._cpa(self._nonbrand_cpa(campaign), nonbrand_cpa),
         )
 
     def _brand_leak(
-        self, campaign: CampaignStats, leak: _BrandSpend, has_brand_campaign: bool
+        self, campaign: CampaignStats, leak: _BrandSpend, has_brand_campaign: bool, nonbrand_cpa: float | None
     ) -> MarketingAnalyticsRecommendation:
         cost, conversions, top_term = leak.cost, leak.conversions, leak.top_term
         share = cost / max(self._term_cost(campaign.id), 1)
@@ -391,6 +401,7 @@ class _Recommender:
             "save",
             "measured",
             steps=steps,
+            cpa=self._cpa(self._nonbrand_cpa(campaign), nonbrand_cpa),
         )
 
     def _scale(
@@ -409,9 +420,13 @@ class _Recommender:
             extra * self.per_month,
             "invest",
             "estimated",
+            cpa=self._cpa(cpa, nonbrand_cpa),
         )
 
-    def _performance_max_rank(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation:
+    def _performance_max_rank(
+        self, campaign: CampaignStats, nonbrand_cpa: float | None
+    ) -> MarketingAnalyticsRecommendation:
+        cpa = campaign.cost / campaign.conversions
         lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
         extra = campaign.cost * min(lost / max(campaign.impression_share or 0.1, 0.1), 1)
         return self._recommendation(
@@ -419,12 +434,13 @@ class _Recommender:
             "campaign",
             campaign.name,
             "Raise the target CPA or improve its asset groups",
-            f"Converts at a CPA of {self._money(campaign.cost / campaign.conversions)}. "
+            f"Converts at a CPA of {self._money(cpa)}. "
             f"It loses {campaign.lost_to_rank or 0:.0%} of eligible search impressions to ad rank "
             f"and {campaign.lost_to_budget or 0:.0%} to budget, so most missed searches go to better-ranked ads.",
             extra * self.per_month,
             "invest",
             "estimated",
+            cpa=self._cpa(cpa, nonbrand_cpa),
         )
 
     def _review(
@@ -446,6 +462,7 @@ class _Recommender:
             "save",
             "measured",
             steps=self._review_steps(campaign, nonbrand_cpa),
+            cpa=self._cpa(cpa, nonbrand_cpa),
         )
 
     def _review_steps(self, campaign: CampaignStats, nonbrand_cpa: float) -> tuple[Step, ...]:
@@ -536,6 +553,7 @@ class _Recommender:
                 self._term_recommendation(
                     MarketingAnalyticsRecommendationRule.CONTENT_GAP,
                     term,
+                    cpa,
                     "Create or improve a page for this search",
                     f"You pay {self._money(term.cost * self.per_month)}/mo in Ads for this search, which converts "
                     f"at a CPA of {self._money(term.cost / term.conversions)} (account {self._money(cpa)}). "
@@ -561,6 +579,7 @@ class _Recommender:
                 self._term_recommendation(
                     MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
                     term,
+                    cpa,
                     advice.action,
                     f"Spent {self._money(term.cost)} ({term.cost / cpa:.1f}x the account CPA) "
                     f"on {term.clicks:.0f} clicks with no conversions",
@@ -580,12 +599,13 @@ class _Recommender:
         if self.organic:
             if average_cpc:
                 rules[MarketingAnalyticsRecommendationRule.KEYWORD_GAP] = self._keyword_gap(
-                    average_cpc, vocabulary, competitors
+                    average_cpc, vocabulary, competitors, cpa
                 )
             rules[MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE] = [
                 self._term_recommendation(
                     MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
                     term,
+                    cpa,
                     "Improve the ranking page to reach the top 3",
                     f"Position {term.organic.position:.1f} with {term.organic.impressions:.0f} impressions "
                     f"and {term.organic.clicks:.0f} clicks. Paid CPC {self._money(term.cost / term.clicks)}",
@@ -691,6 +711,7 @@ class _Recommender:
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
+                        cpa,
                         "Keep the ad: another ad often shows above yours",
                         f"{reason} When your ad shows, another ad is above it {1 - term.absolute_top:.0%} of the time.",
                         term.cost,
@@ -704,6 +725,7 @@ class _Recommender:
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
+                        cpa,
                         "Check whether other ads show above yours before you test pausing",
                         f"{reason} Top position data for this term is not synced yet.",
                         term.cost,
@@ -716,6 +738,7 @@ class _Recommender:
                     self._term_recommendation(
                         MarketingAnalyticsRecommendationRule.BRAND_OVERLAP,
                         term,
+                        cpa,
                         "Test pausing the ad in alternating weeks and compare total clicks",
                         f"{reason} Your ad is at the very top {term.absolute_top:.0%} of the time it shows.",
                         term.cost,
@@ -726,7 +749,11 @@ class _Recommender:
         return recommendations
 
     def _keyword_gap(
-        self, average_cpc: float, vocabulary: dict[str, dict[str, float]], competitors: set[str]
+        self,
+        average_cpc: float,
+        vocabulary: dict[str, dict[str, float]],
+        competitors: set[str],
+        account_cpa: float | None,
     ) -> list[MarketingAnalyticsRecommendation]:
         has_search = any(
             campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
@@ -783,6 +810,7 @@ class _Recommender:
                     "estimated",
                     campaign.name if campaign else None,
                     steps=steps,
+                    cpa=self._cpa(None, account_cpa),
                 )
             )
         return recommendations
@@ -1022,6 +1050,7 @@ class _Recommender:
         self,
         rule: MarketingAnalyticsRecommendationRule,
         term: _Term,
+        account_cpa: float | None,
         action: str,
         reason: str,
         impact: float,
@@ -1040,6 +1069,7 @@ class _Recommender:
             impact_type,
             self._campaign_name(term),
             steps=steps,
+            cpa=self._cpa(term.cost / term.conversions if term.conversions else None, account_cpa),
         )
 
     def _recommendation(
@@ -1054,6 +1084,7 @@ class _Recommender:
         impact_type: Literal["measured", "estimated"],
         campaign: str | None = None,
         steps: tuple[Step, ...] = (),
+        cpa: MarketingAnalyticsRecommendationCpa | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return MarketingAnalyticsRecommendation(
             rule=rule,
@@ -1067,8 +1098,25 @@ class _Recommender:
             impactType=impact_type,
             currency=self.inputs.currency,
             steps=list(steps),
+            cpa=cpa,
+        )
+
+    def _nonbrand_cpa(self, campaign: CampaignStats) -> float | None:
+        totals = self.nonbrand[campaign.id]
+        return totals.cost / totals.conversions if totals.conversions else None
+
+    def _cpa(self, value: float | None, benchmark: float | None) -> MarketingAnalyticsRecommendationCpa:
+        return MarketingAnalyticsRecommendationCpa(
+            value=_round_money(value),
+            benchmark=_round_money(benchmark),
+            bestCampaign=_round_money(self.best_campaign_cpa),
+            worstCampaign=_round_money(self.worst_campaign_cpa),
         )
 
     def _money(self, amount: float) -> str:
         currency = self.inputs.currency or ""
         return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
+
+
+def _round_money(amount: float | None) -> float | None:
+    return round(amount, 2) if amount is not None else None

@@ -7,6 +7,8 @@ from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsDataGap,
+    MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
@@ -44,6 +46,10 @@ DISCLAIMER = (
     "Impact figures are estimates based on past performance, not predictions or guarantees. "
     "You decide what to change, so review each suggestion before editing a campaign."
 )
+PERFORMANCE_MAX_GAP = (
+    "Performance Max search terms are not split by conversion action, so Performance Max campaigns and their search "
+    "terms count the primary conversion actions. The account's search term CPA includes them."
+)
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
@@ -80,7 +86,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
         sources = self.query.sources if self.query.sources is not None else self._project_sources()
         if not sources:
-            return MarketingAnalyticsRecommendationsQueryResponse(results=[], disclaimer=DISCLAIMER)
+            return MarketingAnalyticsRecommendationsQueryResponse(results=[], disclaimer=DISCLAIMER, dataGaps=[])
         ads = [source for source in sources if source.sourceType == "GoogleAds"]
         organic = [source for source in sources if source.sourceType == "GoogleSearchConsole"]
         date_from, date_to = self.query_date_range.date_from(), self.query_date_range.date_to()
@@ -88,26 +94,33 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         site_urls = tuple(url for source in organic for url in self._site_urls(source))
         ranking_pages = tuple(page for source in organic for page in self._ranking_pages(source))
         days = max((date_to - date_from).days + 1, 1)
+        results: list[MarketingAnalyticsRecommendation] = []
+        data_gaps: list[MarketingAnalyticsRecommendationsDataGap] = []
         # Each ad account has its own campaigns, costs and currency, so rules compare a campaign only with
         # campaigns from the same account. Search Console data is shared because it has no account link.
-        results = [
-            recommendation
-            for source in ads
-            for recommendation in recommend(
-                RecommendationInputs(
-                    campaigns=tuple(self._campaigns(source)),
-                    search_terms=tuple(self._search_terms(source)),
-                    organic_queries=organic_queries,
-                    site_urls=site_urls,
-                    currency=self._currency(source),
-                    days=self._days_with_data(source) or days,
-                    term_keywords=tuple(self._term_keywords(source)),
-                    ranking_pages=ranking_pages,
+        for source in ads:
+            actions = self._account_conversion_actions(source)
+            missing = self._missing_conversion_action_tables(source) if actions else []
+            if missing:
+                # Campaign and search term CPAs feed each other, so the account falls back as a whole.
+                actions = None
+            data_gaps.extend(self._data_gaps(source, actions, missing))
+            results.extend(
+                recommend(
+                    RecommendationInputs(
+                        campaigns=tuple(self._campaigns(source, actions)),
+                        search_terms=tuple(self._search_terms(source, actions)),
+                        organic_queries=organic_queries,
+                        site_urls=site_urls,
+                        currency=self._currency(source),
+                        days=self._days_with_data(source) or days,
+                        term_keywords=tuple(self._term_keywords(source)),
+                        ranking_pages=ranking_pages,
+                    )
                 )
             )
-        ]
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=_dedupe_organic_only(results), disclaimer=DISCLAIMER
+            results=_dedupe_organic_only(results), disclaimer=DISCLAIMER, dataGaps=data_gaps
         )
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
@@ -165,7 +178,9 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
         return result.results or []
 
-    def _campaigns(self, source: MarketingAnalyticsRecommendationsSource) -> list[CampaignStats]:
+    def _campaigns(
+        self, source: MarketingAnalyticsRecommendationsSource, actions: list[str] | None
+    ) -> list[CampaignStats]:
         if not self._readable(source.campaignTable) or not self._readable(source.campaignStatsTable):
             return []
         assert source.campaignTable and source.campaignStatsTable
@@ -202,11 +217,16 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             )
         }
         shares = self._impression_shares(source.campaignImpressionShareTable)
+        selected = self._selected_campaign_conversions(source.campaignConversionActionTable, actions)
+        performance_max_terms = self._readable(source.performanceMaxSearchTermTable)
         campaigns = []
         for campaign_id, (_, cost, conversions) in spend.items():
             definition = definitions.get(campaign_id)
             if not definition or not cost:
                 continue
+            # Performance Max search terms count primary actions, and its brand leak subtracts them from the campaign.
+            if selected is not None and not (definition[2] == "PERFORMANCE_MAX" and performance_max_terms):
+                conversions = selected.get(campaign_id, 0.0)
             share = shares.get(campaign_id, (None, None, None))
             campaigns.append(
                 CampaignStats(
@@ -257,21 +277,127 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
         return {row[0]: tuple(row[1:]) for row in rows}
 
-    def _search_terms(self, source: MarketingAnalyticsRecommendationsSource) -> list[SearchTermStats]:
+    def _account_conversion_actions(self, source: MarketingAnalyticsRecommendationsSource) -> list[str] | None:
+        actions = self.query.conversionActions
+        if not actions:
+            return None
+        customer_id = self._customer_id(source)
+        if customer_id is None:
+            return list(actions)
+        # Resource names carry the customer ID, so another account's actions would zero this account's conversions.
+        # Actions shared from a manager account carry the manager's ID, so the account's own split rows count too.
+        reported = self._reported_conversion_actions(source.campaignConversionActionTable, actions)
+        own = [action for action in actions if action.startswith(f"customers/{customer_id}/") or action in reported]
+        return own or None
+
+    def _reported_conversion_actions(self, table: str | None, actions: list[str]) -> set[str]:
+        if not self._readable(table):
+            return set()
+        assert table
+        rows = self._select(
+            "SELECT DISTINCT segments_conversion_action FROM {table} WHERE has({actions}, segments_conversion_action)",
+            table,
+            actions=ast.Constant(value=actions),
+        )
+        return {row[0] for row in rows}
+
+    def _customer_id(self, source: MarketingAnalyticsRecommendationsSource) -> str | None:
+        table = source.campaignTable
+        if not self._readable(table):
+            return None
+        assert table
+        if not self._has_field(table, "customer_id"):
+            return None
+        rows = self._select("SELECT any(toString(customer_id)) FROM {table}", table)
+        return rows[0][0] if rows and rows[0][0] else None
+
+    def _missing_conversion_action_tables(self, source: MarketingAnalyticsRecommendationsSource) -> list[str]:
+        missing = []
+        if not self._readable(source.campaignConversionActionTable):
+            missing.append("campaign_conversion_action_stats")
+        if self._readable(source.searchTermTable) and not self._readable(source.searchTermConversionActionTable):
+            missing.append("search_term_conversion_action_stats")
+        return missing
+
+    def _data_gaps(
+        self, source: MarketingAnalyticsRecommendationsSource, actions: list[str] | None, missing: list[str]
+    ) -> list[MarketingAnalyticsRecommendationsDataGap]:
+        if missing:
+            tables = " and ".join(missing)
+            verb, pronoun = ("is", "it") if len(missing) == 1 else ("are", "them")
+            message = (
+                f"CPAs count the primary conversion actions, because {tables} {verb} not synced. "
+                f"Sync {pronoun} to count only the selected conversion actions."
+            )
+            kind = MarketingAnalyticsRecommendationsDataGapKind.CONVERSION_ACTION_TABLES_NOT_SYNCED
+        elif actions and self._readable(source.performanceMaxSearchTermTable):
+            message = PERFORMANCE_MAX_GAP
+            kind = MarketingAnalyticsRecommendationsDataGapKind.PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS
+        else:
+            return []
+        return [
+            MarketingAnalyticsRecommendationsDataGap(kind=kind, campaignTable=source.campaignTable, message=message)
+        ]
+
+    def _selected_campaign_conversions(self, table: str | None, actions: list[str] | None) -> dict[str, float] | None:
+        if not actions or not table:
+            return None
+        # metrics_conversions counts primary actions only, so a selected secondary action is read from all_conversions.
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), sum(toFloat(metrics_all_conversions))
+            FROM {table}
+            WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
+                AND has({actions}, segments_conversion_action)
+            GROUP BY campaign_id
+            """,
+            table,
+            actions=ast.Constant(value=actions),
+        )
+        return {row[0]: float(row[1] or 0) for row in rows}
+
+    def _search_terms(
+        self, source: MarketingAnalyticsRecommendationsSource, actions: list[str] | None
+    ) -> list[SearchTermStats]:
         terms: list[SearchTermStats] = []
-        for table, term_field, status_field in (
-            (source.searchTermTable, "search_term_view_search_term", "search_term_view_status"),
-            (source.performanceMaxSearchTermTable, "campaign_search_term_view_search_term", None),
+        for table, term_field, status_field, split_table in (
+            (
+                source.searchTermTable,
+                "search_term_view_search_term",
+                "search_term_view_status",
+                source.searchTermConversionActionTable,
+            ),
+            (source.performanceMaxSearchTermTable, "campaign_search_term_view_search_term", None, None),
         ):
             if not table or not self._readable(table):
                 continue
+            # Joined in the same query, so the row limit keeps each term's selected conversions with its cost.
+            selected_join = (
+                """
+                LEFT JOIN (
+                    SELECT lower(trim(search_term_view_search_term)) AS split_term, toString(campaign_id) AS split_campaign,
+                        sum(toFloat(metrics_all_conversions)) AS split_conversions
+                    FROM {split_table}
+                    WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
+                        AND has({actions}, segments_conversion_action)
+                    GROUP BY split_term, split_campaign
+                ) AS selected
+                ON selected.split_term = lower(trim({term})) AND selected.split_campaign = toString(campaign_id)
+                """
+                if actions and split_table
+                else ""
+            )
+            conversions = (
+                "coalesce(any(selected.split_conversions), 0)" if selected_join else "sum(toFloat(metrics_conversions))"
+            )
             rows = self._select(
                 f"""
                 SELECT lower(trim({{term}})) AS term, toString(campaign_id), sum(metrics_clicks), sum(metrics_impressions),
-                    sum(toFloat(metrics_cost_micros)) / 1000000, sum(toFloat(metrics_conversions)), any(toString({{status}})),
+                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, any(toString({{status}})),
                     sumIf(toFloat({{absolute_top}}) * metrics_impressions, {{absolute_top}} IS NOT NULL)
                         / nullIf(sumIf(metrics_impressions, {{absolute_top}} IS NOT NULL), 0)
                 FROM {{table}}
+                {selected_join}
                 WHERE toDate(segments_date) >= toDate({{date_from}}) AND toDate(segments_date) <= toDate({{date_to}})
                     AND notEmpty(term)
                 GROUP BY term, campaign_id
@@ -282,6 +408,14 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 term=ast.Field(chain=[term_field]),
                 status=ast.Field(chain=[status_field]) if status_field else ast.Constant(value="NONE"),
                 absolute_top=self._field(table, "metrics_absolute_top_impression_percentage"),
+                **(
+                    {
+                        "split_table": ast.Field(chain=list[str | int](split_table.split("."))),
+                        "actions": ast.Constant(value=actions),
+                    }
+                    if actions and split_table
+                    else {}
+                ),
             )
             terms.extend(
                 SearchTermStats(
@@ -410,6 +544,8 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
             searchTermTable=tables.get("search_term_stats"),
             searchTermKeywordTable=tables.get("search_term_keyword_stats"),
             performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
+            campaignConversionActionTable=tables.get("campaign_conversion_action_stats"),
+            searchTermConversionActionTable=tables.get("search_term_conversion_action_stats"),
         )
     query_table = tables.get("search_analytics_by_query") or tables.get("search_analytics_by_query_page")
     if query_table is None:

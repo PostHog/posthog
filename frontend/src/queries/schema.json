@@ -13102,6 +13102,13 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "dataGaps": {
+                    "description": "Data the rules needed but could not read, so some figures use a fallback.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGap"
+                    },
+                    "type": "array"
+                },
                 "disclaimer": {
                     "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
                     "type": "string"
@@ -36340,6 +36347,17 @@
                     "description": "The campaign a search term recommendation applies to, when it applies to one.",
                     "type": ["string", "null"]
                 },
+                "cpa": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationCpa"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "CPA figures in the account currency."
+                },
                 "currency": {
                     "type": ["string", "null"]
                 },
@@ -36375,6 +36393,29 @@
                 }
             },
             "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationCpa": {
+            "additionalProperties": false,
+            "properties": {
+                "benchmark": {
+                    "description": "The CPA the rule compares the subject with. Null when the account has no conversions.",
+                    "type": ["number", "null"]
+                },
+                "bestCampaign": {
+                    "description": "Lowest non-brand CPA of a non-brand Search campaign in the same ad account.",
+                    "type": ["number", "null"]
+                },
+                "value": {
+                    "description": "Cost per conversion of the subject, as the reason states it. Campaigns use their non-brand CPA, except the Performance Max rank rule, which states the total CPA. Null when it has no conversions or is not bought yet.",
+                    "type": ["number", "null"]
+                },
+                "worstCampaign": {
+                    "description": "Highest non-brand CPA of a non-brand Search campaign in the same ad account.",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["value", "benchmark", "bestCampaign", "worstCampaign"],
             "type": "object"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
@@ -36426,9 +36467,37 @@
             "required": ["text"],
             "type": "object"
         },
+        "MarketingAnalyticsRecommendationsDataGap": {
+            "additionalProperties": false,
+            "properties": {
+                "campaignTable": {
+                    "description": "Google Ads campaign table of the ad account the gap applies to.",
+                    "type": ["string", "null"]
+                },
+                "kind": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGapKind"
+                },
+                "message": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "message"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationsDataGapKind": {
+            "enum": ["conversion_action_tables_not_synced", "performance_max_search_terms_count_primary_conversions"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationsQuery": {
             "additionalProperties": false,
             "properties": {
+                "conversionActions": {
+                    "description": "Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -36464,6 +36533,13 @@
         "MarketingAnalyticsRecommendationsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dataGaps": {
+                    "description": "Data the rules needed but could not read, so some figures use a fallback.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGap"
+                    },
+                    "type": "array"
+                },
                 "disclaimer": {
                     "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
                     "type": "string"
@@ -36533,6 +36609,10 @@
         "MarketingAnalyticsRecommendationsSource": {
             "additionalProperties": false,
             "properties": {
+                "campaignConversionActionTable": {
+                    "description": "Google Ads daily campaign conversions split by conversion action.",
+                    "type": "string"
+                },
                 "campaignImpressionShareTable": {
                     "description": "Google Ads daily campaign impression share table.",
                     "type": "string"
@@ -36559,6 +36639,10 @@
                 },
                 "queryTable": {
                     "description": "Google Search Console table with one row per query, or per query and page.",
+                    "type": "string"
+                },
+                "searchTermConversionActionTable": {
+                    "description": "Google Ads daily search term conversions split by conversion action.",
                     "type": "string"
                 },
                 "searchTermKeywordTable": {
@@ -45728,6 +45812,13 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dataGaps": {
+                            "description": "Data the rules needed but could not read, so some figures use a fallback.",
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsRecommendationsDataGap"
+                            },
+                            "type": "array"
+                        },
                         "disclaimer": {
                             "description": "Caveat to show with the results. The results are suggestions, and impact figures are estimates.",
                             "type": "string"

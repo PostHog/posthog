@@ -9,6 +9,7 @@ Do not use it for attribution, conversion goals, or channel performance. Use `ma
 # Inputs
 
 - `dateRange` — pass `{ "date_from": "-30d" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.
+- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.
 - Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.
 
 # Output
@@ -21,6 +22,9 @@ Each result has:
 - `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.
 - `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.
 - `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
+- `cpa` — `value` is the subject's cost per conversion, `benchmark` is the CPA the rule compares it with, and `bestCampaign` and `worstCampaign` are the lowest and highest non-brand CPAs of the account's non-brand Search campaigns. Use them to say whether to scale or cut.
+
+`dataGaps` lists data the rules could not read. Mention each gap's `message`, because the CPAs it names count the primary conversion actions instead of the selected ones.
 
 Totals in different currencies come from different ad accounts. Never add them together.
 

@@ -2180,6 +2180,11 @@ class MarketingAnalyticsRecommendationRule(StrEnum):
     STRIKING_DISTANCE = "striking_distance"
 
 
+class MarketingAnalyticsRecommendationsDataGapKind(StrEnum):
+    CONVERSION_ACTION_TABLES_NOT_SYNCED = "conversion_action_tables_not_synced"
+    PERFORMANCE_MAX_SEARCH_TERMS_COUNT_PRIMARY_CONVERSIONS = "performance_max_search_terms_count_primary_conversions"
+
+
 class MarketingAnalyticsRecommendationsSourceType(StrEnum):
     GOOGLE_ADS = "GoogleAds"
     GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"

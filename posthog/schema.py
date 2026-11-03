@@ -200,6 +200,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
     MarketingAnalyticsSchemaFieldTypes as MarketingAnalyticsSchemaFieldTypes,
@@ -2193,6 +2194,32 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     columnAlias: str
     excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
     excludesConversionGoals: bool | None = None
+
+
+class MarketingAnalyticsRecommendationCpa(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    benchmark: float | None = Field(
+        ...,
+        description=("The CPA the rule compares the subject with. Null when the account has no conversions."),
+    )
+    bestCampaign: float | None = Field(
+        ...,
+        description=("Lowest non-brand CPA of a non-brand Search campaign in the same ad account."),
+    )
+    value: float | None = Field(
+        ...,
+        description=(
+            "Cost per conversion of the subject, as the reason states it. Campaigns use"
+            " their non-brand CPA, except the Performance Max rank rule, which states"
+            " the total CPA. Null when it has no conversions or is not bought yet."
+        ),
+    )
+    worstCampaign: float | None = Field(
+        ...,
+        description=("Highest non-brand CPA of a non-brand Search campaign in the same ad account."),
+    )
 
 
 class MarketingAnalyticsRecommendationStep(BaseModel):
@@ -6948,6 +6975,9 @@ class MarketingAnalyticsRecommendation(BaseModel):
         default=None,
         description=("The campaign a search term recommendation applies to, when it applies to one."),
     )
+    cpa: MarketingAnalyticsRecommendationCpa | None = Field(
+        default=None, description="CPA figures in the account currency."
+    )
     currency: str | None = None
     impact: float | None = Field(
         default=None,
@@ -6968,9 +6998,25 @@ class MarketingAnalyticsRecommendation(BaseModel):
     )
 
 
+class MarketingAnalyticsRecommendationsDataGap(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTable: str | None = Field(
+        default=None,
+        description="Google Ads campaign table of the ad account the gap applies to.",
+    )
+    kind: MarketingAnalyticsRecommendationsDataGapKind
+    message: str
+
+
 class MarketingAnalyticsRecommendationsSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    campaignConversionActionTable: str | None = Field(
+        default=None,
+        description="Google Ads daily campaign conversions split by conversion action.",
     )
     campaignImpressionShareTable: str | None = Field(
         default=None, description="Google Ads daily campaign impression share table."
@@ -6995,6 +7041,10 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     queryTable: str | None = Field(
         default=None,
         description=("Google Search Console table with one row per query, or per query and page."),
+    )
+    searchTermConversionActionTable: str | None = Field(
+        default=None,
+        description=("Google Ads daily search term conversions split by conversion action."),
     )
     searchTermKeywordTable: str | None = Field(
         default=None,
@@ -14827,6 +14877,10 @@ class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
         default=None,
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
+    dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
+        default=None,
+        description=("Data the rules needed but could not read, so some figures use a fallback."),
+    )
     disclaimer: str = Field(
         ...,
         description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
@@ -21135,6 +21189,10 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
+        default=None,
+        description=("Data the rules needed but could not read, so some figures use a fallback."),
+    )
     disclaimer: str = Field(
         ...,
         description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
@@ -23406,6 +23464,10 @@ class QueryResponseAlternative38(BaseModel):
 class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
+        default=None,
+        description=("Data the rules needed but could not read, so some figures use a fallback."),
     )
     disclaimer: str = Field(
         ...,
@@ -30356,6 +30418,17 @@ class MarketingAnalyticsCostFallback(BaseModel):
 class MarketingAnalyticsRecommendationsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    conversionActions: list[str] | None = Field(
+        default=None,
+        description=(
+            "Resource names of the Google Ads conversion actions that count as"
+            " conversions, such as `customers/123/conversionActions/456`. Each ad"
+            " account uses the actions under its own customer ID, and an account with"
+            " none of them counts its primary actions. Selected actions count every"
+            " conversion, including secondary actions and conversions outside campaign"
+            " goals. Omit to count the primary actions only."
+        ),
     )
     dateRange: DateRange | None = None
     kind: Literal["MarketingAnalyticsRecommendationsQuery"] = "MarketingAnalyticsRecommendationsQuery"
