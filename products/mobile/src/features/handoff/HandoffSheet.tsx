@@ -1,8 +1,7 @@
 import * as Clipboard from 'expo-clipboard'
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-
 import { track } from '@/lib/analytics'
 import { POSTHOG_AGENT } from '@/model/agent'
 import type { ReportView } from '@/model/types'
@@ -15,6 +14,7 @@ import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { BranchPage } from './BranchPage'
@@ -71,7 +71,7 @@ export function HandoffSheet({
     const [activeAction, setActiveAction] = useState<ExternalHandoffTarget | 'copy' | null>(null)
     const [error, setError] = useState<string | null>(null)
     const busy = useRef(false)
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const insets = useScreenInsets()
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const defaults = useRunDefaults(visible)
