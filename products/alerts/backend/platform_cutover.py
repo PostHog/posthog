@@ -15,7 +15,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.schema_enums import AlertCalculationInterval, AlertState
+from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 
 from products.alerts.backend.facade.destinations import choose_delivery_path
@@ -69,7 +69,7 @@ class CutoverSkip(StrEnum):
     ALREADY_MOVED = "already_moved"
     # Platform rows live on the project's root team, so an alert in a child environment stays.
     ENVIRONMENT = "environment"
-    # The platform evaluates it only in parallel, such as a real-time alert.
+    # The platform cannot copy it, such as an alert with no cadence.
     NOT_ON_PLATFORM = "not_on_platform"
     # The two stacks key a firing differently, so a firing moves only after it resolves.
     FIRING = "firing"
@@ -110,11 +110,6 @@ def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCu
         AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(team_id, alert_id, now))
         for alert_id in _team_alert_ids(team_id)
     )
-
-
-def _is_scheduled(alert: AlertConfiguration) -> bool:
-    """The platform evaluates real-time alerts in parallel, but cannot own them yet."""
-    return alert.calculation_interval != AlertCalculationInterval.REAL_TIME
 
 
 def delivers_as_it_does_today(alert: AlertConfiguration) -> bool:
@@ -165,9 +160,9 @@ def in_an_environment(alert: AlertConfiguration) -> bool:
 
 
 def can_move(alert: AlertConfiguration) -> bool:
-    """Whether the platform can own the alert: a scheduled alert it evaluates, with a threshold or a
-    detector, and with or without the investigation agent."""
-    return platform_upsert_of(alert) is not None and _is_scheduled(alert)
+    """Whether the platform can own the alert: one it evaluates, with a threshold or a detector, and
+    with or without the investigation agent."""
+    return platform_upsert_of(alert) is not None
 
 
 def has_begun_cutover(team_id: int) -> bool:

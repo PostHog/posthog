@@ -39,6 +39,7 @@ class TestInsightPlatformCutover(APIBaseTest):
             ("disabled", {"enabled": False, "next_check_at": None}, "not_firing"),
             ("statistical_detector", {"detector_config": {"type": "zscore"}}, "not_firing"),
             ("ai_detector", {"detector_config": {"type": "llm"}}, "not_firing"),
+            ("real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, "not_firing"),
             (
                 "investigated",
                 {"detector_config": {"type": "zscore"}, "investigation_agent_enabled": True},
@@ -71,11 +72,6 @@ class TestInsightPlatformCutover(APIBaseTest):
             ("firing", {"state": AlertState.FIRING}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
-            (
-                "real_time",
-                {"calculation_interval": AlertCalculationInterval.REAL_TIME.value},
-                CutoverSkip.NOT_ON_PLATFORM,
-            ),
         ]
     )
     def test_an_alert_that_cannot_move_now_stays_with_insight(

@@ -44,7 +44,7 @@ from products.alerts.backend.platform_investigation_detail import (
     METRICS_INVESTIGATION_REQUESTED_KEY,
     InvestigationClaims,
     InvestigationStart,
-    RequestedInvestigation,
+    MetricsInvestigationRun,
     requested_investigation,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -63,6 +63,9 @@ logger = structlog.get_logger(__name__)
 _CLAIM_LOCK_SQL: Final = "SELECT pg_advisory_xact_lock(hashtext(%s))"
 HOLD_REASON: Final = "investigation"
 _EVALUATED_KEYS: Final = ("anomaly_scores", "triggered_points", "triggered_dates", "interval", "triggered_metadata")
+# A verdict-change follow-up is recorded under the key of the firing it follows up plus this suffix,
+# so it gets a delivery of its own.
+_VERDICT_CHANGE_KEY_SUFFIX: Final = "#verdict"
 
 
 @frozen
@@ -70,6 +73,16 @@ class InvestigationClaim:
     investigation_id: UUID
     # False when an investigation in flight or inside the cooldown refused it.
     claimed: bool
+
+
+def verdict_change_evaluation_key(evaluation_key: str) -> str:
+    """The key the verdict-change follow-up of an investigated firing is recorded under."""
+    return f"{evaluation_key}{_VERDICT_CHANGE_KEY_SUFFIX}"
+
+
+def investigated_evaluation_key(verdict_change_key: str) -> str:
+    """The key of the firing a verdict-change follow-up follows up."""
+    return verdict_change_key.removesuffix(_VERDICT_CHANGE_KEY_SUFFIX)
 
 
 def decide_investigation(
@@ -146,7 +159,8 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     if not check.owned_by_platform or check.legacy_configuration_id is None or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
-    if len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
+    # A skipped check keeps a firing alert's state without evaluating it, so it has nothing to investigate.
+    if outcome.skipped or len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
         return evaluation
     alert = (
         AlertConfiguration.objects.select_related("insight")
@@ -194,30 +208,35 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
 
 
 def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOutcome, ...]) -> InvestigationClaims:
-    """Claims the investigation each recorded firing asked for, and returns the agent runs to start.
+    """Claims the investigation each recorded firing asked for, and returns the runs to start.
 
     A refused claim releases the firing's held delivery by the firing's last verdict, as the insight
     stack mutes a check that runs no investigation of its own.
     """
     starts: list[InvestigationStart] = []
     deliveries = []
-    metrics: list[tuple[AlertConfiguration, PlatformAlertOutcome, RequestedInvestigation]] = []
+    metrics: list[MetricsInvestigationRun] = []
     for outcome in outcomes:
         requested = requested_investigation(outcome)
         if requested is None:
             continue
-        alert = (
-            AlertConfiguration.objects.select_related("insight", "team")
-            .filter(team_id=team_id, id=requested.alert_id)
-            .first()
-        )
+        alert = AlertConfiguration.objects.filter(team_id=team_id, id=requested.alert_id).first()
         if alert is None:
             # The safety net sends the held firing at its deadline.
             continue
-        if requested.metrics:
-            metrics.append((alert, outcome, requested))
-            continue
         group = outcome.groups[0]
+        if requested.metrics:
+            claim = claim_investigation(
+                alert,
+                configuration_id=outcome.configuration_id,
+                evaluation_key=outcome.evaluation_key,
+                episode_started_at=requested.episode_started_at,
+                kind=InsightAlertInvestigation.Kind.METRICS,
+                evaluated={"value": group.value},
+            )
+            if claim.claimed:
+                metrics.append(MetricsInvestigationRun(team_id=team_id, investigation_id=str(claim.investigation_id)))
+            continue
         claim = claim_investigation(
             alert,
             configuration_id=outcome.configuration_id,
@@ -255,37 +274,30 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
         )
         if request is not None:
             deliveries.append(request)
-    # Last, because each runs metric queries, and an agent's claim should not wait behind them.
-    for alert, outcome, requested in metrics:
-        _run_metrics_investigation(alert, outcome, requested)
-    return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries))
+    return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries), metrics=tuple(metrics))
 
 
-def _run_metrics_investigation(
-    alert: AlertConfiguration, outcome: PlatformAlertOutcome, requested: RequestedInvestigation
-) -> None:
-    """Claims and runs a metrics alert's investigation. Its failure is recorded on its row and never
-    fails the claim, because the firing it explains has already gone out."""
-    claim = claim_investigation(
-        alert,
-        configuration_id=outcome.configuration_id,
-        evaluation_key=outcome.evaluation_key,
-        episode_started_at=requested.episode_started_at,
-        kind=InsightAlertInvestigation.Kind.METRICS,
-        evaluated={"value": outcome.groups[0].value},
-    )
-    if not claim.claimed:
+def run_metrics_investigation(run: MetricsInvestigationRun) -> None:
+    """Runs a metrics alert's investigation once, and records its summary or its failure.
+
+    The move from PENDING to RUNNING is the run's lease, so a retry of a timed-out attempt finds the
+    row taken and runs nothing. A run that dies holds RUNNING until the in-flight horizon passes,
+    as an agent run that dies does. Its failure never fails the activity, because the firing it
+    explains has already gone out.
+    """
+    rows = InsightAlertInvestigation.objects.for_team(run.team_id).filter(id=run.investigation_id)
+    if not rows.filter(status=InvestigationStatus.PENDING).update(status=InvestigationStatus.RUNNING):
         return
-    pending = InsightAlertInvestigation.objects.for_team(alert.team_id).filter(
-        id=claim.investigation_id, status=InvestigationStatus.PENDING
-    )
-    investigation = pending.first()
-    if investigation is None:
-        return
+    investigation = rows.select_related("alert_configuration__insight", "alert_configuration__team").get()
+    alert = investigation.alert_configuration
+    running = rows.filter(status=InvestigationStatus.RUNNING)
     try:
-        summary = investigate_metrics_alert(alert, fired_at=investigation.created_at)
+        # The firing's start, because a metrics alert investigates only the check that started firing.
+        summary = investigate_metrics_alert(
+            alert, fired_at=investigation.episode_started_at or investigation.created_at
+        )
     except Exception as error:
         logger.exception("platform_metrics_alert_investigation_failed", alert_id=str(alert.id))
-        pending.update(status=InvestigationStatus.FAILED, error={"message": str(error)[:1000]})
+        running.update(status=InvestigationStatus.FAILED, error={"message": str(error)[:1000]})
         return
-    pending.update(status=InvestigationStatus.DONE, summary=summary)
+    running.update(status=InvestigationStatus.DONE, summary=summary)
