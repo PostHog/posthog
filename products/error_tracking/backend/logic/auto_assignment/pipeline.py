@@ -7,10 +7,10 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
-from products.error_tracking.backend.logic.auto_assignment import PROCESSORS
 from products.error_tracking.backend.logic.auto_assignment.base import Candidate, Decision, Processor
 from products.error_tracking.backend.logic.auto_assignment.evidence import IssueEvidence
 from products.error_tracking.backend.logic.auto_assignment.gate import AutoAssignmentConfig, load_auto_assignment_config
+from products.error_tracking.backend.logic.auto_assignment.registry import PROCESSORS
 
 logger = structlog.get_logger(__name__)
 
