@@ -1,13 +1,16 @@
 """RFC 8628 device authorization grant.
 
-A client without a browser, such as hog, asks `/oauth/device-authorization` for a device code
-and a user code. The person opens the approval page, enters or confirms the user code, picks a
-project and approves. The client polls `/oauth/token` with the device code and gets a token
-scoped to that project, with the scopes the client asked for when it started.
+A client without a browser, such as hog, gets a device code and a user code from
+`/oauth/device-authorization`. The person opens the approval page and enters or confirms the user code.
+Then the person selects a project and approves. The client polls `/oauth/token` with the device code.
+It gets a token for that project, with the scopes that the client asked for at the start.
 
-django-oauth-toolkit ships the grant but not a safe exchange: its token path takes the scopes
-from the poll request, never checks expiry, does not bind the device code to the client that
-started it, and leaves an approved code usable again. The token path here closes each of those.
+django-oauth-toolkit supplies the grant, but its token path is not safe:
+- It takes the scopes from the poll request.
+- It does not check expiry.
+- It does not bind the device code to the client that started the grant.
+- It lets a client use an approved code again.
+The token path in this module prevents each of these.
 """
 
 import json
@@ -84,7 +87,7 @@ def generate_user_code() -> str:
 
 
 def normalize_user_code(raw: str) -> str:
-    """The stored form of a code a person typed: upper case, with the dash where we put it."""
+    """Return the stored form of a code that a person typed: upper case, with the dash in its usual position."""
     code = "".join(character for character in raw.upper() if character.isalnum())
     return f"{code[:4]}-{code[4:]}" if len(code) == USER_CODE_LENGTH else code
 
@@ -94,9 +97,12 @@ def verification_uri() -> str:
 
 
 def resolve_device_scopes(raw_scope: str | None, application: OAuthApplication) -> list[str]:
-    """The scopes a device grant asks the person to approve. Unlike `/authorize`, `*` is never accepted,
-    and the application's required scopes are always included, because the device grant has no
-    consent form where the person could leave them out."""
+    """Return the scopes that a device grant asks the person to approve.
+
+    The device grant does not accept `*`, which is different from `/authorize`.
+    The result always includes the application's required scopes. The device grant has no consent form,
+    so the person cannot remove them.
+    """
     requested = resolve_requested_scopes((raw_scope or "").split(), application.ceiling_scopes)
     return sorted({*requested, *(scope for scope in application.required_scopes if ":" in scope)})
 
@@ -109,11 +115,10 @@ def _device_grant(request: OAuthlibRequest) -> OAuthDeviceGrant:
 
 
 def load_device_grant(request: OAuthlibRequest) -> None:
-    """oauthlib pre-token hook: carries what the person approved onto the token request.
+    """oauthlib pre-token hook: copy the approved user and project onto the token request.
 
-    The token view has already locked the grant and checked that it is approved and current, so
-    this only copies the user and the project onto the request. `_get_scoped_teams_and_organizations`
-    reads the scoping from these attributes.
+    The token view locks the grant first, and checks that it is approved and not expired.
+    `_get_scoped_teams_and_organizations` reads the project from these request attributes.
     """
     device_code = getattr(request, "device_code", None)
     grant = (
@@ -130,9 +135,12 @@ def load_device_grant(request: OAuthlibRequest) -> None:
 
 
 def apply_device_grant(request: OAuthlibRequest) -> None:
-    """oauthlib post-token hook, which runs after the generic scope check. Only the client that
-    started the device grant can redeem it, and the token gets the scopes the person approved,
-    capped at the client's ceiling in case it shrank since. The poll's own `scope` never counts."""
+    """oauthlib post-token hook. It runs after the generic scope check.
+
+    Only the client that started the device grant can redeem it.
+    The token gets the scopes that the person approved, clamped to the client's current ceiling.
+    The `scope` parameter of the poll request has no effect.
+    """
     grant = _device_grant(request)
     if request.client.client_id != grant.client_id:
         raise rfc6749_errors.InvalidGrantError(request=request)
@@ -140,7 +148,7 @@ def apply_device_grant(request: OAuthlibRequest) -> None:
 
 
 def token_server_kwargs() -> dict[str, Any]:
-    """Server kwargs for the token endpoint, so its device code grant runs the hooks above."""
+    """Return the server kwargs for the token endpoint. They make the device code grant run the hooks above."""
     return {
         **oauth2_settings.server_kwargs,
         "pre_token": [load_device_grant],
@@ -153,10 +161,10 @@ def _error_response(error: rfc6749_errors.OAuth2Error) -> JsonResponse:
 
 
 def _presented_client_id(request: HttpRequest) -> str | None:
-    """The client a token request names: in the body, in a client assertion, or in HTTP Basic auth.
+    """Return the client_id of a request. It can be in the body, in a client assertion, or in HTTP Basic auth.
 
-    Basic auth form-encodes the client_id (RFC 6749 section 2.3.1), so a CIMD URL arrives with its
-    colons escaped. It is decoded the same way the toolkit decodes it.
+    Basic auth form-encodes the client_id (RFC 6749 section 2.3.1), so the colons in a CIMD URL arrive escaped.
+    This function decodes it in the same way as the toolkit.
     """
     if client_id := request.POST.get("client_id"):
         return client_id
@@ -189,11 +197,12 @@ def _pending_poll_error(grant: OAuthDeviceGrant) -> rfc6749_errors.OAuth2Error:
 
 
 def device_token_response(create_token_response: Any, request: HttpRequest, device_code: str) -> HttpResponse:
-    """The token endpoint's answer to a device code poll.
+    """Return the token endpoint's response to a device code poll.
 
-    The grant row stays locked until the token is minted and the grant deleted, so two polls
-    can't both redeem one approval, and an app-wide session revoke (which deletes device grants
-    first) either waits for this mint and sweeps its token, or deletes the grant before it.
+    The grant row stays locked until the token exists and the grant is deleted.
+    Thus two polls cannot redeem one approval.
+    An app-wide session revoke deletes device grants first. Thus it either waits for this token and
+    revokes it, or deletes the grant before the token exists.
     """
     # The token endpoint needs no login, so this caps the row locks and writes one device code can
     # cause at one per second, however fast its holder polls. The client is part of the key, so
@@ -232,11 +241,12 @@ def device_token_response(create_token_response: Any, request: HttpRequest, devi
 
 @method_decorator(csrf_exempt, name="dispatch")
 class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
-    """`POST /oauth/device-authorization`: starts a device grant (RFC 8628 section 3.1).
+    """`POST /oauth/device-authorization`: start a device grant (RFC 8628 section 3.1).
 
-    oauthlib checks the client and creates the codes. This view adds what it leaves out: the
-    client must be registered for the device grant, and the scopes it asks for are clamped to
-    its ceiling and stored, so the token can only ever carry what the person saw and approved.
+    oauthlib checks the client and creates the codes. This view adds two checks that oauthlib does not do:
+    - The client must be registered for the device grant.
+    - The requested scopes are clamped to the client's ceiling and stored.
+    Thus the token can only get the scopes that the person saw and approved.
     """
 
     @classmethod
@@ -262,6 +272,12 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
             return JsonResponse(
                 {"error": "slow_down", "error_description": "Too many login attempts. Try again in a minute."},
                 status=429,
+            )
+        if request.GET:
+            # oauthlib also reads parameters from the query string. A client_id there would skip the
+            # CIMD creation limit below, which reads only the body and the Authorization header.
+            return _error_response(
+                rfc6749_errors.InvalidRequestError(description="URL query parameters are not allowed.")
             )
         client_id = _presented_client_id(request) or ""
         if client_id and "client_id" not in request.POST:
@@ -300,7 +316,7 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
             interval=response["interval"],
             expires=timezone.now() + timedelta(seconds=response["expires_in"]),
         )
-        return JsonResponse(data=response, status=status_code, headers=headers)
+        return JsonResponse(data=response, status=status_code, headers={**headers, "Cache-Control": "no-store"})
 
 
 class OAuthDeviceAuthorizationBurstThrottle(IPThrottle):
