@@ -322,15 +322,19 @@ function rankedResultsSections(
     state: CommandKSection['state'],
     persons: SearchItem[],
     accounts: SearchItem[],
-    unifiedRanking: boolean
+    unifiedRanking: boolean,
+    themeItem: SearchItem | null
 ): CommandKSection[] {
     const words = freeWords(query)
+    const rankedSettingsQuery = settingsQuery(localQuery, unifiedRanking)
+    const rankable = rankableSettings(local, rankedSettingsQuery)
     // The unified scorer reads punctuation, so a domain or an email address keeps it.
     const freeText = query.replace(FILTER_TOKEN, ' ').replace(/\s+/g, ' ').trim()
     return buildRankedResults({
         persons,
         accounts,
-        settings: rankableSettings(local, settingsQuery(localQuery, unifiedRanking)),
+        settings: [...(themeItem ? [themeItem] : []), ...rankable],
+        unrankedSettingsCount: exactSettingsMatches(local.settings, rankedSettingsQuery).length - rankable.length,
         query: unifiedRanking ? freeText : words.join(' '),
         highlightWords: words,
         results,
@@ -345,7 +349,8 @@ function lowerSections(
     input: SectionsInput,
     ranked: boolean,
     state: CommandKSection['state'],
-    shown: Set<string>
+    shown: Set<string>,
+    settingsRanked: boolean
 ): CommandKSection[] {
     const { local, remote, remoteQueries, localQuery } = input
     const sections: (CommandKSection | null)[] = []
@@ -374,11 +379,11 @@ function lowerSections(
     }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
-            if (ranked && source === 'products') {
+            if (ranked && (source === 'products' || (source === 'settings' && settingsRanked))) {
                 continue
             }
             const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
-            const themeItem = source === 'settings' ? input.themeItem : null
+            const themeItem = source === 'settings' && !ranked ? input.themeItem : null
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
                 : itemRows(source, filtered, SECONDARY_LIMIT)
@@ -488,7 +493,8 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
             state,
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
-            input.unifiedRanking
+            input.unifiedRanking,
+            input.themeItem
         )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')
@@ -506,7 +512,10 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
                 (section) => section?.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])) ?? []
             )
         )
-        sections.push(...lowerSections(input, ranked, state, shown))
+        const settingsRanked = sections.some(
+            (section) => section?.rows.some((row) => row.kind === 'item' && row.item.category === 'settings') ?? false
+        )
+        sections.push(...lowerSections(input, ranked, state, shown, settingsRanked))
     }
     return sections.filter((section): section is CommandKSection => section !== null)
 }

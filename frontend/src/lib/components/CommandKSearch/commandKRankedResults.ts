@@ -1,5 +1,6 @@
 import { getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
 import { SearchItem } from 'lib/components/Search/searchItems'
+import { seeAllSettingsItem } from 'lib/components/Search/searchListItems'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { pluralTypeName } from './commandKFilterOptions'
@@ -259,6 +260,9 @@ function noticeSection(
     ]
 }
 
+const settingsSeeAll = (total: number, shown: number, query: string, section: string): CommandKRow[] =>
+    shown > 0 && total > shown ? [itemRow(section, seeAllSettingsItem(total, query), [])] : []
+
 interface RankedResultsInput {
     query: string
     highlightWords: string[]
@@ -266,6 +270,7 @@ interface RankedResultsInput {
     products: SearchItem[]
     persons?: SearchItem[]
     settings?: SearchItem[]
+    unrankedSettingsCount?: number
     accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
@@ -279,6 +284,7 @@ export function buildRankedResults({
     products,
     persons = [],
     settings = [],
+    unrankedSettingsCount = 0,
     accounts = [],
     state,
     scoped,
@@ -350,18 +356,26 @@ export function buildRankedResults({
             {
                 key: 'best-matches',
                 label: 'Results',
-                rows: pool
-                    .slice(0, RESULTS_LIMIT)
-                    .map((entry) =>
-                        itemRow(
-                            'flat',
-                            entry.item,
-                            highlightWords,
-                            entry.duplicates,
-                            entry.duplicates > 0,
-                            groupCount > 1
-                        )
+                rows: [
+                    ...pool
+                        .slice(0, RESULTS_LIMIT)
+                        .map((entry) =>
+                            itemRow(
+                                'flat',
+                                entry.item,
+                                highlightWords,
+                                entry.duplicates,
+                                entry.duplicates > 0,
+                                groupCount > 1
+                            )
+                        ),
+                    ...settingsSeeAll(
+                        pool.filter((entry) => entry.groupKey === 'settings').length + unrankedSettingsCount,
+                        pool.slice(0, RESULTS_LIMIT).filter((entry) => entry.groupKey === 'settings').length,
+                        query,
+                        'flat'
                     ),
+                ],
                 state,
             },
         ]
@@ -415,6 +429,9 @@ export function buildRankedResults({
             itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
         )
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
+        if (groupKey === 'settings') {
+            rows.push(...settingsSeeAll(total + unrankedSettingsCount, covered, query, `group-${groupKey}`))
+        }
         if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
             rows.push({
                 kind: 'scope',
@@ -431,7 +448,7 @@ export function buildRankedResults({
         sections.push({
             key: `group-${groupKey}`,
             label: groupLabel(groupKey),
-            count: total,
+            count: groupKey === 'settings' ? total + unrankedSettingsCount : total,
             countIsLowerBound: capped && !LOCAL_GROUPS.includes(groupKey),
             rows,
             state,

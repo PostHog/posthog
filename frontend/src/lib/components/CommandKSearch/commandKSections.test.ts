@@ -450,6 +450,46 @@ describe('buildSections', () => {
         }
     )
 
+    test.each([false, true])(
+        'shows one Settings section that leads to the rest when unified ranking is %s',
+        (unifiedRanking) => {
+            const settings: SearchItem[] = [
+                ...Array.from({ length: 10 }, (_, index) => ({
+                    id: `settings-${index}`,
+                    name: `Settings ${index}`,
+                    displayName: `Settings ${index}`,
+                    category: 'settings',
+                })),
+                { id: 'settings-shared', name: 'Shared settings', category: 'settings' },
+            ]
+            const products: SearchItem[] = [{ id: 'product-shared', name: 'Shared settings', category: 'products' }]
+            const remote = emptyRemoteSlots()
+            remote.results = {
+                cache: {
+                    settings: [
+                        { ...dashboard('a', '1'), name: 'Settings board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] },
+                    ],
+                },
+            }
+            const sections = buildSections(
+                input('search', {
+                    local: { ...emptyLocal(), settings, products },
+                    remote,
+                    remoteQueries: { results: 'settings' },
+                    localQuery: 'settings',
+                    unifiedRanking,
+                })
+            )
+
+            const settingsSections = sections.filter((section) => section.label === 'Settings')
+            expect(settingsSections).toHaveLength(1)
+            expect(settingsSections[0].rows.at(-1)).toMatchObject({
+                kind: 'item',
+                item: { name: 'See all 11 settings', href: '/settings/project?search=settings' },
+            })
+        }
+    )
+
     it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
         const setting: SearchItem = {
             id: 'settings-api-keys',

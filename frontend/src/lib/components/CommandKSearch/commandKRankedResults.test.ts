@@ -379,7 +379,7 @@ describe('buildRankedResults', () => {
                 category: 'settings',
             })),
             expected: [
-                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Project settings ${n}`).join(', ')}`,
+                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Project settings ${n}`).join(', ')}, See all ${RESULTS_LIMIT + 5} settings`,
             ],
         },
     ])(
