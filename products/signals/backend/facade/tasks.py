@@ -5,6 +5,7 @@ Importing this module loads the signals task module. Import it only from code th
 """
 
 from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
+from products.signals.backend.implementation_github_recovery_tasks import retry_github_blocked_implementations
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
@@ -26,6 +27,7 @@ __all__ = [
     "refresh_signal_scout_background_bands",
     "sweep_first_report_notifications",
     "resume_github_blocked_reports",
+    "retry_github_blocked_implementations",
     "sweep_implementation_dispatches",
     "sweep_monitoring_research_requests",
     "sweep_monitoring_tracker_issues",

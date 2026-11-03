@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationBase
@@ -11,13 +9,6 @@ from posthog.models.integration.github_readiness import (
     github_readiness,
 )
 from posthog.models.team.team import Team
-
-GITHUB_RECOVERY_WINDOW = timedelta(days=7)
-GITHUB_RECONNECT_REQUIRED_STATUSES = (
-    GitHubReadinessStatus.NOT_CONNECTED,
-    GitHubReadinessStatus.RECONNECT_REQUIRED,
-    GitHubReadinessStatus.NO_REPOSITORIES,
-)
 
 
 def get_team_github_readiness(team_id: int, *, verify: bool = False, repository: str | None = None) -> GitHubReadiness:

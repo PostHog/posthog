@@ -59,7 +59,6 @@ from products.tasks.backend.temporal.process_task.activities import (
     StartAgentServerInput,
     StartAgentServerOutput,
     TaskProcessingContext,
-    check_self_driving_github_readiness,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -308,7 +307,6 @@ class TestProcessTaskWorkflow:
                     track_workflow_event,
                     update_task_run_status,
                     refresh_and_observe,
-                    check_self_driving_github_readiness,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -2406,9 +2404,24 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock.assert_not_awaited()
         get_sandbox_mock.assert_not_awaited()
 
-    async def test_run_marks_failed_when_context_load_fails(self, monkeypatch):
+    @pytest.mark.parametrize("preflight_refused", [False, True])
+    async def test_run_marks_failed_when_context_load_fails(self, monkeypatch, preflight_refused):
         workflow = ProcessTaskWorkflow()
-        get_task_processing_context_mock = AsyncMock(side_effect=RuntimeError("database connection closed"))
+        message = "Reconnect GitHub before implementation" if preflight_refused else "database connection closed"
+        error_type = "GitHubAccessUnavailable" if preflight_refused else "RuntimeError"
+        error: Exception = RuntimeError(message)
+        if preflight_refused:
+            error = ActivityError(
+                "Activity task failed",
+                scheduled_event_id=10,
+                started_event_id=11,
+                identity="worker-1",
+                activity_type="get_task_processing_context",
+                activity_id="context",
+                retry_state=RetryState.NON_RETRYABLE_FAILURE,
+            )
+            error.__cause__ = ApplicationError(message, type=error_type, non_retryable=True)
+        get_task_processing_context_mock = AsyncMock(side_effect=error)
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
@@ -2423,13 +2436,13 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow.run(ProcessTaskInput(run_id="run-id", stream_generation="resumed-generation"))
 
         assert result.success is False
-        assert result.error == "database connection closed"
+        assert result.error == message
         assert result.sandbox_id is None
         update_task_run_status_mock.assert_awaited_once_with(
             "failed",
-            error_message="database connection closed",
+            error_message=message,
             run_id="run-id",
-            error_type="RuntimeError",
+            error_type=error_type,
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
@@ -3866,7 +3879,6 @@ class TestContinueAsNew:
         )
         wf = self._idle_enabled_workflow()
         wf.context.sandbox_backend = "hogland"
-        wf._github_suspended_duration = timedelta(days=2)
         wf._sandbox_url = "https://sandbox.example"
         wf._sandbox_connect_token = "tok"
         wf._ci_repetitions = 2
@@ -3934,7 +3946,6 @@ class TestContinueAsNew:
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start
-        assert restored._github_suspended_duration == timedelta(days=2)
         assert restored._chain_start_time() == chain_start
         second_hop = restored._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-2")
         assert second_hop.resumed_sandbox is not None

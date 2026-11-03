@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0227_github_research_access"),
+        ("signals", "0229_github_research_access"),
     ]
 
     operations = [

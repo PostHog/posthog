@@ -135,7 +135,7 @@ class AutostartOutcome:
 
 
 @frozen
-class ImplementationResume:
+class ImplementationRecovery:
     task_id: str
     user_id: int
     repository: str
@@ -1369,7 +1369,7 @@ async def maybe_autostart_implementation_task(
     implementation_decision: ImplementationDecision | None = None,
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
-    resume: ImplementationResume | None = None,
+    recovery: ImplementationRecovery | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
@@ -1435,12 +1435,12 @@ async def maybe_autostart_implementation_task(
     if report is None:
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="report gone")
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
-    if resume is not None and (
+    if recovery is not None and (
         report.status != SignalReport.Status.READY
         or not await SignalReport.objects.filter(
             id=report_id,
             team_id=team_id,
-            report_tasks__task_id=resume.task_id,
+            report_tasks__task_id=recovery.task_id,
             report_tasks__relationship="implementation",
             report_tasks__report_run_count=report.run_count,
             report_tasks__report_content_revision_count=report.content_revision_count or 0,
@@ -1481,7 +1481,7 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id,
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
-                resume=resume,
+                recovery=recovery,
                 implementation_spend_kind=implementation_spend_kind,
                 dispatch=dispatch,
                 ch_user=ch_user,
@@ -1496,7 +1496,7 @@ async def maybe_autostart_implementation_task(
 
     skip_reason: str | None = None
     skip_code: str | None = None
-    if task_exists and resume is None and not supersede.allowed:
+    if task_exists and recovery is None and not supersede.allowed:
         skip_reason = "implementation task already exists"
     elif actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
         skip_reason = f"not immediately actionable: {actionability.actionability.value}"
@@ -1664,13 +1664,13 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
-    if resume is not None:
+    if recovery is not None:
         if (
             not team.organization.is_ai_data_processing_approved
             or not task_user.is_active
             or not await database_sync_to_async(_runner_has_project_access, thread_sensitive=False)(team, task_user)
-            or task_user.id != resume.user_id
-            or repository.casefold() != resume.repository.casefold()
+            or task_user.id != recovery.user_id
+            or repository.casefold() != recovery.repository.casefold()
         ):
             return AutostartOutcome(status="cancelled", reason="The implementation runner or target has changed")
         return AutostartOutcome(status="queued")
@@ -1728,7 +1728,7 @@ async def maybe_autostart_implementation_task(
                 team_id=team_id,
                 report_id=report_id,
                 remaining_retries=remaining_retries - 1,
-                resume=resume,
+                recovery=recovery,
                 implementation_spend_kind=implementation_spend_kind,
                 dispatch=dispatch,
                 ch_user=ch_user,
@@ -1797,7 +1797,7 @@ async def maybe_autostart_from_report_artefacts(
     implementation_spend_kind: str = "reviewer_triggered_implementation",
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
-    resume: ImplementationResume | None = None,
+    recovery: ImplementationRecovery | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ) -> AutostartOutcome:
     """Re-evaluate auto-start from a report's *current* artefacts.
@@ -1822,7 +1822,7 @@ async def maybe_autostart_from_report_artefacts(
             reason="report from background scout",
         )
         return AutostartOutcome(status="blocked", reason="Reports from background scouts do not auto-start")
-    if dispatch is None and resume is None:
+    if dispatch is None and recovery is None:
         from products.signals.backend.implementation_dispatch import (
             ImplementationDispatcher,  # noqa: PLC0415 - breaks the dispatcher/autostart cycle
         )
@@ -1902,7 +1902,7 @@ async def maybe_autostart_from_report_artefacts(
         repository_confirmation_required=repo_selection.requires_confirmation,
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,
-        resume=resume,
+        recovery=recovery,
         dispatch=dispatch,
         ch_user=ch_user,
     )

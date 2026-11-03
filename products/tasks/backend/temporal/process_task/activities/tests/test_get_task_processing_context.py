@@ -428,15 +428,27 @@ class TestGetTaskProcessingContextActivity:
             async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize("preflight_connects", [False, True])
     def test_get_task_processing_context_with_different_repository(
-        self, activity_environment, team, user, github_integration
+        self, activity_environment, team, user, github_integration, preflight_connects
     ):
         task = self._create_task_with_repo(team, user, github_integration, "posthog/posthog-js")
         task_run = task.create_run()
+        if preflight_connects:
+            task.github_integration = None
+            task.save(update_fields=["github_integration"])
+
+        def preflight(run_id: str, create_pr: bool) -> None:
+            if preflight_connects:
+                Task.objects.filter(id=task.id).update(github_integration=github_integration)
 
         try:
             input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
-            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+            with patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.check_task_run_preflight",
+                side_effect=preflight,
+            ):
+                result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
             assert result.task_id == str(task.id)
             assert result.run_id == str(task_run.id)

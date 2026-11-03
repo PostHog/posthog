@@ -32,8 +32,8 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
+    ImplementationRecovery,
     ImplementationReportContent,
-    ImplementationResume,
     ReportChangedDuringAutostart,
     ReportSteering,
     ReviewerContent,
@@ -1859,7 +1859,7 @@ def test_automated_recovery_rechecks_private_project_access(organization, team, 
             reviewers_content=[],
             priority=PriorityAssessment(explanation="Core flow", priority=Priority.P2),
             triggering_user_id=runner.id,
-            resume=ImplementationResume(task_id=str(task.id), user_id=runner.id, repository="example/app"),
+            recovery=ImplementationRecovery(task_id=str(task.id), user_id=runner.id, repository="example/app"),
         )
     assert result.status == ("cancelled" if access_revoked else "queued")
 

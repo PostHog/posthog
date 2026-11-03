@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0226_signalreport_trgm_fastupdate_off"),
+        ("signals", "0228_useractivitysummaryqueuestate_pending_mcp_score"),
     ]
 
     operations = [

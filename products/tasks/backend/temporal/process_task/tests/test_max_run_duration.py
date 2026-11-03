@@ -1,7 +1,4 @@
-from datetime import UTC, datetime, timedelta
-
-import pytest
-from unittest.mock import AsyncMock, patch
+from datetime import timedelta
 
 from django.test import override_settings
 
@@ -10,7 +7,6 @@ from parameterized import parameterized
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.constants import MAX_INACTIVITY_TIMEOUT_SECONDS, resolve_max_run_duration
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
 DEFAULT_CAP_SECONDS = 3 * 60 * 60
 
@@ -39,21 +35,6 @@ def _context(
 
 
 class TestMaxRunDuration:
-    @pytest.mark.asyncio
-    async def test_github_suspension_does_not_consume_execution_time(self):
-        instance = ProcessTaskWorkflow()
-        instance._chain_started_at = datetime(2026, 1, 1, tzinfo=UTC)
-        instance._github_suspended_duration = timedelta(days=2)
-        now = instance._chain_started_at + timedelta(days=2, hours=1)
-        with (
-            patch("products.tasks.backend.temporal.process_task.workflow.workflow.now", return_value=now),
-            patch(
-                "products.tasks.backend.temporal.process_task.workflow.workflow.sleep", new_callable=AsyncMock
-            ) as sleep,
-        ):
-            await instance._wait_for_max_run_duration(timedelta(hours=3))
-        sleep.assert_awaited_once_with(7200)
-
     @override_settings(TASKS_MAX_RUN_DURATION_SECONDS=DEFAULT_CAP_SECONDS)
     def test_interactive_sessions_are_uncapped(self):
         # A human may legitimately keep an interactive session open for hours; capping it

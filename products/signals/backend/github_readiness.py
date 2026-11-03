@@ -18,9 +18,10 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.github_recovery import GITHUB_RECOVERY_WINDOW
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalSourceConfig
 from products.signals.backend.research_telemetry import capture_research_access_event
-from products.tasks.backend.facade.github_readiness import GITHUB_RECOVERY_WINDOW, get_team_github_readiness
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData

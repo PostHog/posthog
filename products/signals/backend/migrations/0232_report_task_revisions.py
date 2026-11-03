@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1417_organizationinvite_email_suppressed"),
-        ("signals", "0230_report_github_recovery_index"),
+        ("signals", "0231_report_github_recovery_index"),
     ]
 
     operations = [
