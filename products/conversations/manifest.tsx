@@ -6,6 +6,12 @@ import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../front
 
 export const manifest: ProductManifest = {
     name: 'Support',
+    globalModals: {
+        ComposeTicketModal: () =>
+            import('./frontend/components/ComposeTicket/ComposeTicketModalHost').then(
+                (module) => module.ComposeTicketModalHost
+            ),
+    },
     activityDescribers: {
         [ActivityScope.TICKET]: () =>
             import('./frontend/activityDescriber').then((module) => module.ticketActivityDescriber),

@@ -23,7 +23,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery } from '~/queries/schema/node-guards'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'

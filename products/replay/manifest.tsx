@@ -8,6 +8,12 @@ import { ActivityScope, ProductManifest, RecordingUniversalFilters, ReplayTabs }
 
 export const manifest: ProductManifest = {
     name: 'Replay',
+    globalModals: {
+        SessionPlayerModal: () =>
+            import('scenes/session-recordings/player/modal/SessionPlayerModalHost').then(
+                (module) => module.SessionPlayerModalHost
+            ),
+    },
     activityDescribers: {
         [ActivityScope.REPLAY]: () =>
             import('scenes/session-recordings/activityDescription').then((module) => module.replayActivityDescriber),

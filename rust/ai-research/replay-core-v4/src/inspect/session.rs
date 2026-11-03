@@ -1,10 +1,12 @@
 //! Everything the recorder learns about one session, block by block.
 
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
+use super::css::CssRewrite;
 use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
-use super::events::{number, Activity, DataFields, EventCounter};
+use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
@@ -52,6 +54,7 @@ pub struct BlockInspection {
     image_urls: Vec<String>,
     remote_urls: RemoteUrls,
     events: u32,
+    resolve_budget: Option<Arc<AtomicUsize>>,
 }
 
 /// What the inspector learned about one block.
@@ -68,9 +71,18 @@ pub struct Inspected {
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
     pub srcsets: Vec<Srcset>,
+    pub css_rewrites: Vec<CssRewrite>,
 }
 
 impl BlockInspection {
+    /// A block whose relative CSS URLs draw their resolved bytes from `budget`, which other blocks can share.
+    pub fn with_resolve_budget(budget: Arc<AtomicUsize>) -> Self {
+        Self {
+            resolve_budget: Some(budget),
+            ..Self::default()
+        }
+    }
+
     pub fn finish(mut self) -> Inspected {
         let features = self.features.finish();
         let mut stats = self.counter.finish();
@@ -82,6 +94,7 @@ impl BlockInspection {
             image_urls: self.image_urls,
             url_limit: self.remote_urls.limit,
             srcsets: self.remote_urls.take_srcsets(),
+            css_rewrites: self.remote_urls.take_css_rewrites(),
             remote_urls: self.remote_urls.into_urls(),
         }
     }
@@ -148,6 +161,9 @@ impl SessionInspector {
         block.events += 1;
         let navigations = block.counter.stats.navigations;
         let data = DataFields::read(inner, event);
+        let page_url = matches!(event.kind, Some(META | CUSTOM))
+            .then(|| href_from(inner, event.kind, &data))
+            .flatten();
         let carried_href =
             block
                 .counter
@@ -162,9 +178,14 @@ impl SessionInspector {
         let navigated = block.counter.stats.navigations > navigations;
 
         let waiting = block.counter.stats.events_before_first_full_snapshot;
-        let observed = self
-            .dom
-            .observe(inner, event, window, &mut block.counter.stats);
+        let observed = self.dom.observe(
+            inner,
+            event,
+            window,
+            page_url.as_deref(),
+            block.resolve_budget.as_deref(),
+            &mut block.counter.stats,
+        );
         block.image_urls.extend(self.dom.take_image_urls());
         block.remote_urls.extend(self.dom.take_remote_urls());
         if observed.full_snapshot {
@@ -302,6 +323,33 @@ mod tests {
         let (stats, moments) = inspect(&mut session, &crowded);
         assert_eq!(moments.len(), MAX_MOMENTS_PER_BLOCK);
         assert!(stats.moments_truncated);
+    }
+
+    #[test]
+    fn resolves_relative_css_against_its_own_window() {
+        let mut session = SessionInspector::default();
+        let mut block = BlockInspection::default();
+        let meta = |host: &str| json!([{"type": 4, "timestamp": 1, "data": {"href": format!("https://{host}/shop/item")}}]);
+        let rule = json!([{"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": ".a{background:url(/img/a.png)}"}}]);
+        session.observe_message(&mut block, &message_in(Some("a"), meta("a.example.com")));
+        session.observe_message(&mut block, &message_in(Some("b"), meta("b.example.com")));
+        session.observe_message(&mut block, &message_in(Some("a"), rule.clone()));
+        session.observe_message(&mut block, &message_in(Some("b"), rule));
+        let inspected = block.finish();
+        assert_eq!(
+            inspected.image_urls,
+            [
+                "https://a.example.com/img/a.png",
+                "https://b.example.com/img/a.png"
+            ]
+        );
+        assert!(inspected.css_rewrites.is_empty());
+
+        let mut block = BlockInspection::default();
+        let rule = json!([{"type": 3, "timestamp": 3, "data": {"source": 8, "id": 3, "replaceSync": ".b{background:url(/img/b.png)}"}}]);
+        session.observe_message(&mut block, &message_in(Some("unseen"), rule.clone()));
+        session.observe_message(&mut block, &message_in(Some("a"), rule));
+        assert!(block.finish().css_rewrites.is_empty());
     }
 
     #[test]

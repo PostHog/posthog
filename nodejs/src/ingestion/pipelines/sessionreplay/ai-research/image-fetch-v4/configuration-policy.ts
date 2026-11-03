@@ -473,14 +473,82 @@ class ExtensionCollector implements RobotsParseHandler {
     }
 }
 
-function selectedExtensionFields(
+/** Collects only the rules that apply to this bot, because ParsedRobots keeps a copy of a group's rules for each of its user agents. */
+class RobotsCollector extends ExtensionCollector {
+    public readonly botRules: string[] = []
+    public readonly wildcardRules: string[] = []
+    private forBot = false
+    private forWildcard = false
+    private groupHasRules = false
+
+    constructor(private readonly maxLineLength: number) {
+        super()
+    }
+
+    override handleUserAgent(lineNum: number, value: string): void {
+        super.handleUserAgent(lineNum, value)
+        if (this.groupHasRules) {
+            this.forBot = false
+            this.forWildcard = false
+            this.groupHasRules = false
+        }
+        if (/^\*(?:\s|$)/.test(value)) {
+            this.forWildcard = true
+        } else if (/^[a-z_-]+/i.exec(value)?.[0].toLowerCase() === BOT_NAME.toLowerCase()) {
+            this.forBot = true
+        }
+    }
+
+    override handleAllow(_lineNum?: number, value = ''): void {
+        super.handleAllow()
+        this.addRule('Allow', value)
+    }
+
+    override handleDisallow(_lineNum?: number, value = ''): void {
+        super.handleDisallow()
+        this.addRule('Disallow', value)
+    }
+
+    /** The robots.txt that decides the same URLs for this bot, with one group for the bot and one for `*`. */
+    public applicableBody(): string {
+        return [
+            ...(this.botRules.length ? [`User-agent:${BOT_NAME}`, ...this.botRules] : []),
+            ...(this.wildcardRules.length ? ['User-agent:*', ...this.wildcardRules] : []),
+        ].join('\n')
+    }
+
+    private addRule(directive: string, value: string): void {
+        if (!value) {
+            return
+        }
+        this.groupHasRules = true
+        const line = `${directive}:${value}`
+        // The second parse truncates a line past the limit. A truncated Allow permits more than its rule, so it goes. A truncated Disallow only refuses more.
+        if (directive === 'Allow' && line.length > this.maxLineLength) {
+            return
+        }
+        if (this.forBot) {
+            this.botRules.push(line)
+        }
+        if (this.forWildcard) {
+            this.wildcardRules.push(line)
+        }
+    }
+}
+
+export function collectRobots(
     body: string,
-    parseRobotsTxt: typeof import('@trybyte/robotstxt-parser').parseRobotsTxt
-): Array<{ name: string; value: string }> {
-    const collector = new ExtensionCollector()
+    { parseRobotsTxt, K_MAX_LINE_LEN }: typeof import('@trybyte/robotstxt-parser')
+): RobotsCollector {
+    // The parser keeps one character less than K_MAX_LINE_LEN on a line.
+    const collector = new RobotsCollector(K_MAX_LINE_LEN - 1)
     parseRobotsTxt(body, collector)
+    return collector
+}
+
+function selectedExtensionFields(groups: ExtensionGroup[]): Array<{ name: string; value: string }> {
     const bot = BOT_NAME.toLowerCase()
-    const matches = collector.groups.map((group) => ({
+    const matches = groups.map((group) => ({
         group,
         specificity: Math.max(
             ...group.userAgents.map((agent) => (agent !== '*' && bot.startsWith(agent) ? agent.length : 0)),
@@ -509,10 +577,10 @@ export async function parseRobotsPolicy(
 
 async function parseRobotsConfiguration(body: string): Promise<ParsedRobotsConfiguration> {
     const robotsParser = await import('@trybyte/robotstxt-parser')
-    const { ParsedRobots, parseRobotsTxt } = robotsParser
+    const collector = collectRobots(body, robotsParser)
     return {
-        matcher: ParsedRobots.parse(body),
-        fields: selectedExtensionFields(body, parseRobotsTxt),
+        matcher: robotsParser.ParsedRobots.parse(collector.applicableBody()),
+        fields: selectedExtensionFields(collector.groups),
     }
 }
 

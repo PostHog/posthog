@@ -57,8 +57,8 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { isDataTableNode } from '~/queries/schema/node-guards'
 import { ActorsQuery, DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,

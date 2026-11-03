@@ -150,10 +150,10 @@ class TestUpdateActivitySummary(BaseTest):
         assert result.rendered_input is not None
         assert '- Insight "Weekly signups": opened 1 day, last 2026-10-17, not theirs' in result.rendered_input
         assert '- Insight "Churn by plan": opened 1 day, last 2026-10-18\n' in result.rendered_input
-        assert "- Experiments pages: opened 1 day, last 2026-10-18" in result.rendered_input
+        assert "Experiments pages" not in result.rendered_input
         stored = self._stored()
         assert stored is not None
-        assert stored.inputs_used["view_lines"] == 3
+        assert (stored.inputs_used["view_lines"], stored.inputs_used["page_units"]) == (2, 1)
         assert stored.inputs_used["drops"] == {"generic_scene": 1}
         assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
 
@@ -212,11 +212,14 @@ class TestUpdateActivitySummary(BaseTest):
         assert off.rendered_input is not None and MCP_HEADER not in off.rendered_input
         assert off.inputs_used is not None and "mcp_records" not in off.inputs_used
         assert on.status == UpdateStatus.OK and on.rendered_input is not None
-        section = f"{MCP_HEADER}\n- 2026-10-18, 2 calls: why signups dropped --> signups by country"
+        section = f"{MCP_HEADER}\n- m1 2026-10-18, 2 calls: why signups dropped --> signups by country"
         assert section in on.rendered_input
         assert on.inputs_used is not None
         assert {key: value for key, value in on.inputs_used.items() if key.startswith("mcp_")} == {
             "mcp_sessions": 1,
+            "mcp_burst_cap_drops": 0,
+            "mcp_sample_cap_drops": 0,
+            "mcp_budget_drops": 0,
             "mcp_lines": 1,
             "mcp_chars": len(section),
             "mcp_records": 2,
@@ -225,6 +228,8 @@ class TestUpdateActivitySummary(BaseTest):
         }
         stored = self._stored()
         assert stored is not None and stored.input_watermark == newest
+        assert stored.computed is not None
+        assert stored.computed["mcp_sessions"] == [{"ref": "m1", "last_at": "2026-10-18"}]
 
         self._changes(3, days_ago=0.5)
         with time_machine.travel(NOW + datetime.timedelta(days=2), tick=False):
