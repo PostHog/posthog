@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -24,6 +24,25 @@ const MODELS_SCENE_TABS: ModelsSceneTab[] = ['overview', 'models', 'lineage', 'd
 
 function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
+}
+
+function tabShownFor(
+    requestedTab: ModelsSceneTab,
+    usageEnabled: boolean,
+    catalogRestructureEnabled: boolean
+): ModelsSceneTab {
+    if (requestedTab === 'usage' && !usageEnabled) {
+        return 'overview'
+    }
+    if (requestedTab === 'models' && catalogRestructureEnabled) {
+        return 'overview'
+    }
+    return requestedTab
+}
+
+const DATA_CATALOG_TAB_FOR: Partial<Record<ModelsSceneTab, string>> = {
+    lineage: 'lineage',
+    'data-quality': 'tables',
 }
 
 /** One row of the overview's attention table: a broken model, why, and what it holds up. */
@@ -59,6 +78,7 @@ export interface modelsSceneLogicValues {
     modelsFailed: boolean
     noModelsYet: boolean
     usageEnabled: boolean
+    catalogRestructureEnabled: boolean
 }
 
 export interface modelsSceneLogicActions {
@@ -90,6 +110,7 @@ export interface modelsSceneLogicMeta {
         modelsFailed: (nodesFailed: boolean, dataWarehouseSavedQueriesFailed: boolean) => boolean
         noModelsYet: (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]) => boolean
         usageEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        catalogRestructureEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -254,6 +275,10 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_MODELING_USAGE],
         ],
+        catalogRestructureEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+        ],
     }),
     listeners(() => ({
         setActiveTab: ({ tab }) => {
@@ -263,7 +288,12 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
             const requestedTab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
-            const tab: ModelsSceneTab = requestedTab === 'usage' && !values.usageEnabled ? 'overview' : requestedTab
+            const catalogTab = values.catalogRestructureEnabled ? DATA_CATALOG_TAB_FOR[requestedTab] : undefined
+            if (catalogTab) {
+                router.actions.replace(urls.dataCatalog(), { ...searchParams, tab: catalogTab })
+                return
+            }
+            const tab: ModelsSceneTab = tabShownFor(requestedTab, values.usageEnabled, values.catalogRestructureEnabled)
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }

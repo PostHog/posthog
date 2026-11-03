@@ -54,7 +54,7 @@ export function DataCatalogNewMetricScene(): JSX.Element {
                     <div className="flex flex-wrap justify-end gap-2">
                         <LemonButton
                             type="tertiary"
-                            to={urls.dataCatalog()}
+                            to={urls.dataCatalog('metrics')}
                             disabledReason={saving ? 'Saving the metric' : undefined}
                             data-attr="data-catalog-new-metric-cancel"
                         >

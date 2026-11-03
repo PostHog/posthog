@@ -652,7 +652,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             try {
                 await dataCatalogMetricsDestroy(projectId(), props.name)
                 lemonToast.success('Metric deleted')
-                router.actions.push(urls.dataCatalog())
+                router.actions.push(urls.dataCatalog('metrics'))
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not delete the metric. Try again.')
                 actions.setMutating(false)

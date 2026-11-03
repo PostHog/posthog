@@ -35,8 +35,14 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, lineageTabVisited, suspensionBySavedQueryId, usageEnabled } =
-        useValues(modelsSceneLogic)
+    const {
+        savedQueryIdToNodeId,
+        activeTab,
+        lineageTabVisited,
+        suspensionBySavedQueryId,
+        usageEnabled,
+        catalogRestructureEnabled,
+    } = useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: Pick<DataWarehouseSavedQuery, 'id'>): string => {
@@ -53,48 +59,48 @@ export function ModelsScene(): JSX.Element {
         )
     }
 
-    const tabs: LemonTab<ModelsSceneTab>[] = [
-        {
-            key: 'overview',
-            label: 'Overview',
-            link: urls.models(),
-            content: <ModelsOverviewTab />,
-            'data-attr': 'models-tab-overview',
-        },
-        {
-            key: 'models',
-            label: 'Models',
-            link: urls.models('models'),
-            content: <ViewsTab getViewUrl={getViewUrl} suspensionByViewId={suspensionBySavedQueryId} />,
-            'data-attr': 'models-tab-models',
-        },
-        ...(usageEnabled
-            ? [
-                  {
-                      key: 'usage' as const,
-                      label: 'Usage',
-                      link: urls.models('usage'),
-                      content: <ModelsUsageTab savedQueryIdToNodeId={savedQueryIdToNodeId} />,
-                      'data-attr': 'models-tab-usage',
-                  },
-              ]
-            : []),
-        {
-            key: 'lineage',
-            label: 'Lineage',
-            link: urls.models('lineage'),
-            content: <ModelsLineageTab />,
-            keepMounted: lineageTabVisited,
-            'data-attr': 'models-tab-lineage',
-        },
-        {
-            key: 'data-quality',
-            label: 'Data quality',
-            link: urls.models('data-quality'),
-            content: <DataQualityOverview />,
-            'data-attr': 'models-tab-data-quality',
-        },
-    ]
+    const usageTab: LemonTab<ModelsSceneTab> = {
+        key: 'usage',
+        label: 'Usage',
+        link: urls.models('usage'),
+        content: <ModelsUsageTab savedQueryIdToNodeId={savedQueryIdToNodeId} />,
+        'data-attr': 'models-tab-usage',
+    }
+    const overviewTab: LemonTab<ModelsSceneTab> = {
+        key: 'overview',
+        label: catalogRestructureEnabled ? 'Models' : 'Overview',
+        link: urls.models(),
+        content: <ModelsOverviewTab />,
+        'data-attr': 'models-tab-overview',
+    }
+    const tabs: LemonTab<ModelsSceneTab>[] = catalogRestructureEnabled
+        ? [overviewTab, ...(usageEnabled ? [usageTab] : [])]
+        : [
+              overviewTab,
+              {
+                  key: 'models',
+                  label: 'Models',
+                  link: urls.models('models'),
+                  content: <ViewsTab getViewUrl={getViewUrl} suspensionByViewId={suspensionBySavedQueryId} />,
+                  'data-attr': 'models-tab-models',
+              },
+              ...(usageEnabled ? [usageTab] : []),
+              {
+                  key: 'lineage',
+                  label: 'Lineage',
+                  link: urls.models('lineage'),
+                  content: <ModelsLineageTab />,
+                  keepMounted: lineageTabVisited,
+                  'data-attr': 'models-tab-lineage',
+              },
+              {
+                  key: 'data-quality',
+                  label: 'Data quality',
+                  link: urls.models('data-quality'),
+                  content: <DataQualityOverview />,
+                  'data-attr': 'models-tab-data-quality',
+              },
+          ]
 
     return (
         <SceneContent>
