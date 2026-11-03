@@ -390,6 +390,8 @@ New chat drops it.
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
+- Compacting and clearing each show one active spinner, even when the stream repeats the start.
+  Completion removes that spinner, so a later compaction or clear can show a new one.
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
 - Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
   Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
