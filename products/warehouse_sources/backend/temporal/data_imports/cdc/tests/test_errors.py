@@ -95,7 +95,7 @@ class TestClassifyCDCError:
             ("masked_key", CDCMaskedKeyError("public.orders", ["id"]), CDCErrorCategory.MASKED_KEY_CONFLICT),
             (
                 "masking_key_unavailable",
-                CDCMaskingKeyError("ENCRYPTION_SALT_KEYS is the public default"),
+                CDCMaskingKeyError("WAREHOUSE_COLUMN_MASKING_KEY must be set"),
                 CDCErrorCategory.MASKING_KEY_UNAVAILABLE,
             ),
         ]

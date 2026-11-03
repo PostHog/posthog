@@ -78,7 +78,7 @@ _LAZY = {
     "ambiguous_masked_columns": "pipelines.core.masking",
     "collision_alias_masked_columns": "pipelines.core.masking",
     "fold_column_name": "naming_convention",
-    "masking_key_is_public": "pipelines.core.masking",
+    "masking_key_unavailable": "pipelines.core.masking",
     "RowFilterValidationError": "sources.common.sql",
     "filter_dwh_columns_by_enabled_columns": "sources.common.sql",
     "sql_schema_metadata": "sources.common.sql",

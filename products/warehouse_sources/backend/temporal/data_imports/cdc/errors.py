@@ -208,7 +208,7 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     ),
     CDCErrorCategory.MASKING_KEY_UNAVAILABLE: (
         "A table masks columns, but this PostHog instance has no secret key to hash them with. "
-        "Set ENCRYPTION_SALT_KEYS to a secret value, then re-enable change data capture.",
+        "Set WAREHOUSE_COLUMN_MASKING_KEY to a secret value, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (

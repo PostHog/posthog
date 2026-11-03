@@ -1,7 +1,7 @@
 """Deterministic one-way masking of sensitive warehouse-source columns.
 
 A masked value is replaced with an HMAC-SHA256 digest keyed by the server secret
-(`ENCRYPTION_SALT_KEYS`) over `team_id` and the value. The secret stops anyone who can query the
+(`WAREHOUSE_COLUMN_MASKING_KEY`) over `team_id` and the value. The secret stops anyone who can query the
 column from brute-forcing low-entropy values such as card numbers. `team_id` makes equal values
 mask alike within a team, so they still join, and differently across teams.
 
@@ -11,9 +11,9 @@ Postgres text for numeric, date and time, JSON, bytea and array columns. A maske
 types can therefore hold two digests for one value after a row changes. Text, integer, boolean,
 float8 and UUID columns render alike on both paths.
 
-The key is derived from `ENCRYPTION_SALT_KEYS[0]`, so it never equals the Fernet key of the
-encrypted fields. Prepending a new salt key changes every later digest, while rows already synced
-keep the old one. Every table with masked columns therefore needs a full resync after a rotation.
+The key is its own secret, so rotating the encryption keys of other fields never changes a digest.
+Changing it changes every later digest, while rows already synced keep the old one. Every table with
+masked columns therefore needs a full resync after a change.
 
 Masking does not reach data derived before the mask was set. A materialized view built earlier
 keeps its plaintext copy until it is materialized again.
@@ -42,24 +42,26 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-# The default in posthog/settings/access.py and the docker-compose files. Anyone can read it, so a
-# digest keyed with it can be brute-forced from the team id alone.
-_PUBLIC_DEFAULT_KEY = "00beef0000beef0000beef0000beef00"
+# Anyone can read this key, so a digest keyed with it can be brute-forced. Development and tests only.
+_DEVELOPMENT_KEY = "development-only-warehouse-column-masking-key"
+_MIN_KEY_LENGTH = 32
+
+MASKING_KEY_UNAVAILABLE_MESSAGE = (
+    f"WAREHOUSE_COLUMN_MASKING_KEY must be set to a secret of at least {_MIN_KEY_LENGTH} characters to mask columns."
+)
 
 
-def masking_key_is_public() -> bool:
-    """Whether the masking key is the shipped default. Local development and tests may use it."""
-    keys = settings.ENCRYPTION_SALT_KEYS
-    return bool(keys) and keys[0] == _PUBLIC_DEFAULT_KEY and not (settings.DEBUG or settings.TEST)
+def masking_key_unavailable() -> bool:
+    """Whether this instance has no usable masking key. Development and tests fall back to a fixed one."""
+    if settings.DEBUG or settings.TEST:
+        return False
+    return len(settings.WAREHOUSE_COLUMN_MASKING_KEY) < _MIN_KEY_LENGTH
 
 
 def get_masking_key() -> bytes:
-    keys = settings.ENCRYPTION_SALT_KEYS
-    if not keys:
-        raise NonRetryableException("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
-    if masking_key_is_public():
-        raise NonRetryableException("ENCRYPTION_SALT_KEYS is the public default. Set a secret value to mask columns.")
-    return hmac.new(keys[0].encode(), b"warehouse-column-masking", hashlib.sha256).digest()
+    if masking_key_unavailable():
+        raise NonRetryableException(MASKING_KEY_UNAVAILABLE_MESSAGE)
+    return (settings.WAREHOUSE_COLUMN_MASKING_KEY or _DEVELOPMENT_KEY).encode()
 
 
 def _mask_base(team_id: int, key: bytes) -> hmac.HMAC:

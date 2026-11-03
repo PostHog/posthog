@@ -87,7 +87,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     is_another_schemas_history_table,
     is_history_table_mode,
     known_source_key,
-    masking_key_is_public,
+    masking_key_unavailable,
     new_history_naming,
     pin_history_naming,
     pinned_history_naming,
@@ -507,9 +507,9 @@ def _source_column_names(instance: ExternalDataSchema) -> set[str]:
     return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
 
 
-MASKING_KEY_IS_PUBLIC_ERROR = (
-    "Column masking needs a secret ENCRYPTION_SALT_KEYS value, and this instance uses the public default. "
-    "Set ENCRYPTION_SALT_KEYS to a secret value, then try again."
+MASKING_KEY_UNAVAILABLE_ERROR = (
+    "Column masking isn't set up on this PostHog instance. "
+    "Set WAREHOUSE_COLUMN_MASKING_KEY to a secret of at least 32 characters, then try again."
 )
 
 
@@ -548,8 +548,8 @@ def masked_columns_error(
     # A managed-schema source declares fixed column types, which a string digest breaks.
     if not source_supports_column_selection(source_type):
         return "Column masking is not supported for this source type."
-    if masking_key_is_public():
-        return MASKING_KEY_IS_PUBLIC_ERROR
+    if masking_key_unavailable():
+        return MASKING_KEY_UNAVAILABLE_ERROR
     known = [name for name in source_columns if isinstance(name, str)]
     # A mask that names no real column hashes nothing, so the intended column would sync in plaintext.
     if not known:

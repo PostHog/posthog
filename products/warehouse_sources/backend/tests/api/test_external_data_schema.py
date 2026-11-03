@@ -5674,13 +5674,13 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         schema.refresh_from_db()
         assert {key: schema.sync_type_config.get(key) for key in expected} == expected
 
-    def test_rejected_when_the_masking_key_is_public(self) -> None:
+    def test_rejected_when_no_masking_key_is_set(self) -> None:
         schema = self._create()
-        with mock.patch(f"{self.VIEWS}.masking_key_is_public", return_value=True):
+        with mock.patch(f"{self.VIEWS}.masking_key_unavailable", return_value=True):
             response = self._patch(schema, {"masked_columns": ["password"]})
 
         assert response.status_code == 400
-        assert "ENCRYPTION_SALT_KEYS" in str(response.json())
+        assert "WAREHOUSE_COLUMN_MASKING_KEY" in str(response.json())
 
     def test_rejected_for_a_direct_query_source(self) -> None:
         schema = self._create(access_method=ExternalDataSource.AccessMethod.DIRECT)

@@ -350,7 +350,7 @@ class TestMaskEventColumns:
         with (
             patch(
                 f"{_ACTIVITIES}.value_masker",
-                side_effect=NonRetryableException("ENCRYPTION_SALT_KEYS is the public default"),
+                side_effect=NonRetryableException("WAREHOUSE_COLUMN_MASKING_KEY must be set"),
             ),
             pytest.raises(CDCMaskingKeyError),
         ):

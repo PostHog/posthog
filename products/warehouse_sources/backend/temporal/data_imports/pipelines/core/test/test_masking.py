@@ -33,22 +33,23 @@ class TestMaskValue:
         assert mask_value(1, None) is None
 
     def test_digest_depends_on_the_server_secret(self) -> None:
-        with override_settings(ENCRYPTION_SALT_KEYS=["a" * 32]):
+        with override_settings(WAREHOUSE_COLUMN_MASKING_KEY="a" * 32):
             first = mask_value(1, "secret")
-        with override_settings(ENCRYPTION_SALT_KEYS=["b" * 32]):
+        with override_settings(WAREHOUSE_COLUMN_MASKING_KEY="b" * 32):
             second = mask_value(1, "secret")
         assert first != second
 
     @parameterized.expand(
         [
-            ("no_key", [], False),
-            ("public_default_key_outside_development", ["00beef0000beef0000beef0000beef00"], False),
-            ("public_default_key_in_development", ["00beef0000beef0000beef0000beef00"], True),
+            ("no_key", "", False, False),
+            ("short_key", "k" * 31, False, False),
+            ("secret_key", "k" * 32, False, True),
+            ("no_key_in_development", "", True, True),
         ]
     )
-    def test_key_checks(self, _name: str, keys: list[str], debug: bool) -> None:
-        with override_settings(ENCRYPTION_SALT_KEYS=keys, DEBUG=debug, TEST=False):
-            if debug:
+    def test_key_checks(self, _name: str, key: str, debug: bool, masks: bool) -> None:
+        with override_settings(WAREHOUSE_COLUMN_MASKING_KEY=key, DEBUG=debug, TEST=False):
+            if masks:
                 assert mask_value(1, "secret") is not None
             else:
                 with pytest.raises(NonRetryableException):
