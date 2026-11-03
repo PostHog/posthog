@@ -20460,6 +20460,7 @@ export namespace Schemas {
         default_email_integration_id: number | null;
         marketing_frequency_cap_max_messages: number | null;
         marketing_frequency_cap_window_days: number | null;
+        marketing_frequency_cap_hold_hours: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
