@@ -18,6 +18,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationFirstResultStatus } from './components/EvaluationFirstResultStatus'
@@ -76,7 +77,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const unsaved = hasUnsavedChanges || (!isNewEvaluation && reportConfigDirty)
     const { saveEvaluation, resetEvaluation, setActiveTab, setFormStep } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
-    const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), { ...searchParams, tab: 'settings' }).url
+    const settingsUrl = combineUrl(urls.aiObservabilityEvaluations(), {
+        ...withoutTraceDrawerParams(searchParams),
+        tab: 'settings',
+    }).url
 
     useAttachedContext(
         evaluation ? [{ type: 'evaluation', key: evaluation.id || 'new', label: evaluation.name ?? undefined }] : null

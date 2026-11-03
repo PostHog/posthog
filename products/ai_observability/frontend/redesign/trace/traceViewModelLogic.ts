@@ -86,6 +86,7 @@ export interface traceViewModelLogicValues {
     mode: TraceMode // traceViewHostLogic
     openingMode: TraceOpeningMode // traceViewHostLogic
     requestedStepId: string | null // traceViewHostLogic
+    requestedTraceId: string | null // traceViewHostLogic
     seedQuery: string // traceViewHostLogic
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
@@ -157,8 +158,12 @@ export interface traceViewModelLogicActions {
     publishQuery: (query: string) => {
         query: string
     } // traceViewHostLogic
-    requestStep: (stepId: string | null) => {
+    requestStep: (
+        stepId: string | null,
+        traceId: string | null
+    ) => {
         stepId: string | null
+        traceId: string | null
     } // traceViewHostLogic
     setHostDetailTab: (tab: NodeDetailTab) => {
         tab: NodeDetailTab
@@ -345,7 +350,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 'trace',
             ],
             traceViewHostLogic({ hostId: props.hostId }),
-            ['mode', 'detailTab', 'requestedStepId', 'openingMode', 'seedQuery'],
+            ['mode', 'detailTab', 'requestedStepId', 'requestedTraceId', 'openingMode', 'seedQuery'],
             teamLogic,
             ['currentTeamId'],
             featureFlagLogic,
@@ -633,7 +638,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
         const select = ({ id }: { id: string }): void => {
             actions.loadNode(id, 'selection')
-            actions.requestStep(id)
+            actions.requestStep(id, props.traceId)
         }
         const captureFeedbackViewed = (entry: FeedbackEntry | 'tab'): void => {
             posthog.capture('llma trace view feedback viewed', {
@@ -705,8 +710,14 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
             setDetailTab: ({ tab }) => actions.setHostDetailTab(tab),
         }
     }),
-    subscriptions(({ actions, values }) => ({
-        selectedNodeId: (selectedNodeId: string) => actions.loadNode(selectedNodeId, 'navigation'),
+    subscriptions(({ actions, props, values }) => ({
+        selectedNodeId: (selectedNodeId: string) => {
+            // A drawer requests the next trace's step before this view unmounts. That step is not a node of this trace.
+            if (values.requestedTraceId !== null && values.requestedTraceId !== props.traceId) {
+                return
+            }
+            actions.loadNode(selectedNodeId, 'navigation')
+        },
         mode: (mode: TraceMode) => {
             if (mode === 'summary' && !values.summaryIsOpen) {
                 actions.openSummary('tab')
