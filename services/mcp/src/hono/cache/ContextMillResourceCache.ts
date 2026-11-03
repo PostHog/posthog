@@ -150,7 +150,7 @@ export class ContextMillResourceCache extends SharedBlobCache {
     }
 
     protected async loadArchiveContents(): Promise<ContextMillArchiveContents> {
-        return fetchAndExtractEntries(this.localUrl)
+        return fetchAndExtractEntries(this.localUrl, this.omnibusSkills !== undefined)
     }
 
     /** A bad omnibus archive must not block the resource manifest, so it logs and keeps the last shared copy. */

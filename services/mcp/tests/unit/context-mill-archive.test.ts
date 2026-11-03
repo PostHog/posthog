@@ -49,7 +49,9 @@ describe('fetchAndExtractEntries', () => {
                 'references/go.md': strToU8('# Go'),
             }),
             'omnibus-querying-posthog-data.zip': zipSync({
-                'SKILL.md': strToU8('---\nname: omnibus-other\ndescription: Wrong name.\n---\n\n# Wrong'),
+                'SKILL.md': strToU8(
+                    '---\n"name": omnibus-other\ndescription: Wrong name.\n---\n\nname: omnibus-querying-posthog-data\n'
+                ),
             }),
         })
 
@@ -59,6 +61,7 @@ describe('fetchAndExtractEntries', () => {
         const omnibus = SkillCatalog.fromZip(omnibusSkillsArchive!)
         expect(omnibus.listNames()).toEqual(['instrument-logs'])
         expect(omnibus.read('instrument-logs', 'references/go.md')).toContain('# Go')
+        expect((await fetchAndExtractEntries(ARCHIVE_URL, false)).omnibusSkillsArchive).toBeNull()
     })
 
     it.each([

@@ -177,7 +177,7 @@ export class SkillCatalog {
 
 const FRONTMATTER_PATTERN = /^---\n([\s\S]*?)\n---(?:\n|$)/
 
-function parseFrontmatter(content: string, source: string): { name: string; description: string } {
+export function parseFrontmatter(content: string, source: string): { name: string; description: string } {
     const match = content.match(FRONTMATTER_PATTERN)
     if (!match?.[1]) {
         throw new Error(`Missing YAML frontmatter in "${source}"`)
