@@ -266,8 +266,9 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            # X reads a bare date as UTC midnight, not the account's, so send the
-                            # converted timestamp.
+                            # X's docs say a bare date means midnight in the account's timezone, but
+                            # X rejects bare dates for DAY windows on non-UTC accounts with
+                            # INVALID_TIME_WINDOW. Send local midnight as a UTC timestamp instead.
                             "start_time": _utc_param(start_time),
                             "end_time": _utc_param(end_time),
                             "granularity": "HOUR" if hourly else "DAY",

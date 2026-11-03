@@ -129,8 +129,8 @@ def test_stats_limits_daily_rows_currency_and_dst(
             return response({"data": line_items})
         if "/stats/" not in path:
             return response({"data": {"timezone": account_timezone.key, "created_at": "2025-10-25T10:00:00Z"}})
-        # X reads a bare date as UTC midnight, which it then rejects for any other timezone, so the
-        # bounds must be full UTC timestamps; fromisoformat on a bare date would give a naive value.
+        # X rejects bare dates for DAY windows on non-UTC accounts, so the bounds must be full UTC
+        # timestamps. fromisoformat on a bare date would give a naive value.
         assert params["start_time"][0].endswith("Z") and params["end_time"][0].endswith("Z")
         start = datetime.fromisoformat(params["start_time"][0]).astimezone(account_timezone)
         end = datetime.fromisoformat(params["end_time"][0]).astimezone(account_timezone)
