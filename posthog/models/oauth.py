@@ -736,6 +736,9 @@ class OAuthDeviceGrant(AbstractDeviceGrant):
         swappable = "OAUTH2_PROVIDER_DEVICE_GRANT_MODEL"
         # The cleanup job deletes grants by expiry.
         indexes = [models.Index(fields=["expires"], name="oauthdevicegrant_expires_idx")]
+        # `device_code` is already unique=True, so DOT's extra constraint would only add a second
+        # unique index on the same column.
+        constraints: list[models.BaseConstraint] = []
 
     # No database constraint, so creating this table takes no lock on posthog_user. The ORM
     # still cascades a user delete to their grants.

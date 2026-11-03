@@ -939,13 +939,17 @@ class OAuthValidator(OAuth2Validator):
 
         Dynamically registered (DCR/CIMD) clients get an extended TTL since they
         don't reliably refresh; first-party PostHog apps get the same extended TTL.
+        Device grant clients keep the default TTL: they often run on shared or headless
+        machines, and they refresh like any other client.
         Impersonation-minted tokens are capped to the impersonation idle timeout so
         they can't outlive the admin's session. That check comes first so an
         impersonated first-party app can't inherit the longer window.
         """
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
-        if self._is_dynamic_client(request) or self._is_first_party_client(request):
+        if self._is_first_party_client(request) or (
+            self._is_dynamic_client(request) and not self._is_device_client(request)
+        ):
             return EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 

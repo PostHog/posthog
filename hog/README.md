@@ -199,7 +199,7 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 - An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the key. Running `hog auth login` again before the code expires returns the same link.
 - Each login checks that hog can use the keychain, and records where it stored the key in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secret. The rest of the login, such as the project, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
 - In CI, skip login and set the environment variables above.
-- `hog auth status` checks the key against PostHog and names where it comes from. `hog auth logout` removes hog's login, and warns when an environment variable still holds a key.
+- `hog auth status` checks the key against PostHog and names where it comes from. `hog auth logout` removes hog's login to the current host, and `hog auth logout --all` removes every login hog stored. Both warn when an environment variable still holds a key.
 
 ## Develop
 
