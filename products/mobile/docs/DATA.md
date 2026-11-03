@@ -29,6 +29,17 @@ Each interface names the serializer it mirrors.
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
 
+## Connectivity
+
+`src/lib/connectivity.ts` maps Expo Network events to `unknown`, `connected` or `offline`. Unknown states permit reads. The monitor checks state on foreground entry and removes listeners on disposal. It sends no external probes and stores no network names or addresses. Connected state does not confirm backend availability.
+
+- TanStack Query pauses reads offline and resumes them on reconnect. Cached content stays visible. Screens without cached data show an offline message.
+- Report streams resume from the saved cursor. Streams with fatal errors or terminal runs stay stopped.
+- Views retries each failed, interrupted read once on reconnect, including failures reported after reconnect. This retry skips the one-minute client interval. Server refresh limits still apply.
+- A handoff or pin stops if the connection drops during a prerequisite read. Reconnect can complete the shared read but cannot resume the write.
+
+Expo Network requires new iOS and Android binaries. Do not deploy this dependency through an OTA update to an older native runtime.
+
 ## The inbox list
 
 `useInboxItems()` reads `signals/reports/?view=for_you&sort=priority` one page of 20 reports at a time, with `useInfiniteQuery`.

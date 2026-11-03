@@ -258,6 +258,7 @@ pub fn write_block<W: Write>(
     if let Some(key) = &report.kept_in {
         tracing::info!(
             team_id = block.session.team_id,
+            session_id = %block.session.session_id,
             key,
             "a declined URL stayed inside a longer token"
         );
