@@ -17,7 +17,6 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.renderers import BaseRenderer
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -30,6 +29,7 @@ from posthog.hogql.property_utils import create_property_conditions
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -113,6 +113,11 @@ class EventValueQueryParams:
     value: str | None
 
 
+class EventListPagingQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(required=False, min_value=0, help_text="The maximum number of results to return")
+    offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
+
+
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 
@@ -149,7 +154,7 @@ class EventPropertyValuesResponseSerializer(serializers.Serializer):
     )
 
 
-class UncountedLimitOffsetPagination(LimitOffsetPagination):
+class UncountedLimitOffsetPagination(BoundedLimitOffsetPagination):
     """
     the events api works with the default LimitOffsetPagination, but the
     results don't have a count, so we need to override the pagination class
@@ -274,23 +279,16 @@ class EventViewSet(
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        # An empty `limit=` or `offset=` means the default, so only non-empty values are validated.
+        paging = EventListPagingQuerySerializer(
+            data={key: request.GET[key] for key in ("limit", "offset") if request.GET.get(key)}
+        )
+        paging.is_valid(raise_exception=True)
+        default_limit = QUERY_DEFAULT_EXPORT_LIMIT if is_csv_request else DEFAULT_RETURNED_ROWS
+        limit = min(paging.validated_data.get("limit", default_limit), EVENT_LIST_MAX_LIMIT)
+        offset: int = paging.validated_data["offset"]
         try:
-            is_csv_request = self.request.accepted_renderer.format == "csv"
-
-            if self.request.GET.get("limit", None):
-                limit = int(self.request.GET.get("limit"))  # type: ignore
-            elif is_csv_request:
-                limit = QUERY_DEFAULT_EXPORT_LIMIT
-            else:
-                limit = DEFAULT_RETURNED_ROWS
-
-            limit = min(limit, EVENT_LIST_MAX_LIMIT)
-
-            try:
-                offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
-            except ValueError:
-                offset = 0
-
             team = self.team
 
             deprecate_offset = (

@@ -52,8 +52,10 @@ def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contr
     return report_pages.figure_marks(page, artefacts, _jev(team, user, figure_sources.FIGURE_MODEL))
 
 
-def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
-    return highlights.get_highlights(team=team, user=user, scopes=scopes)
+def get_highlights(
+    *, team: Team, user: User, scopes: frozenset[str] | None, refresh: bool = False
+) -> contracts.Highlights:
+    return highlights.get_highlights(team=team, user=user, scopes=scopes, refresh=refresh)
 
 
 def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.PulsePins:

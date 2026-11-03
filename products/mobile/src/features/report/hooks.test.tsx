@@ -93,10 +93,13 @@ describe('useReport', () => {
 
     test('polls only the visible foreground report and refreshes on return without polling evidence', async () => {
         jest.useFakeTimers()
-        let appChange!: (state: AppStateStatus) => void
+        const appListeners = new Set<(state: AppStateStatus) => void>()
+        const appChange = (state: AppStateStatus): void => {
+            for (const listener of appListeners) listener(state)
+        }
         const listener = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
-            appChange = handler
-            return { remove: () => undefined }
+            appListeners.add(handler)
+            return { remove: () => appListeners.delete(handler) }
         })
         const data = reportFixture({ id: REPORT_ID })
         globalThis.fetch = jest.fn(async (input) => {

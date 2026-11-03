@@ -121,9 +121,8 @@ test.describe('Signup', () => {
 
         // The same email now has an account, so it goes to the login step instead of signup
         await submitEmailAndExpectLoginStep(page, email)
-        await page.locator('[data-attr=auth-use-different-email]').click()
 
-        // Update email to generic email and retry
+        // Typing a new email closes the login step's password field and retries the signup
         const newEmail = `${randomString('new_user')}@posthog.com`
         await startSignupFlow(page, newEmail, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')

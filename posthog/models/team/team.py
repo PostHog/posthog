@@ -20,9 +20,9 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.migration_helpers import deprecate_field
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import (
@@ -63,6 +63,13 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def timezone_choices() -> list[tuple[str, str]]:
+    # Callable so a pytz release that adds a zone doesn't generate a no-op migration.
+    return TIMEZONES
+
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -600,7 +607,7 @@ class Team(UUIDTClassicModel):
     )
 
     timezone = field_access_control(
-        models.CharField(max_length=240, choices=TIMEZONES, default="UTC"), "project", "admin"
+        models.CharField(max_length=240, choices=timezone_choices, default="UTC"), "project", "admin"
     )
     data_attributes = field_access_control(
         models.JSONField(default=get_default_data_attributes, blank=True), "project", "admin"

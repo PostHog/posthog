@@ -1,15 +1,14 @@
 """Serializers and handlers for product-specific project settings."""
 
-from decimal import Decimal
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import exceptions, request, response, serializers
 
 from posthog.event_usage import report_user_action
+from posthog.exceptions import as_drf_validation_error
 from posthog.models import Organization, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.logs_retention import (
@@ -19,6 +18,14 @@ from posthog.models.team.logs_retention import (
     retention_update_throttle_error,
 )
 
+from products.experiments.backend.facade import api as experiments_api
+from products.experiments.backend.facade.contracts import ExperimentValidationError, TeamExperimentsSettingsUpdate
+from products.experiments.backend.facade.enums import (
+    MAX_DEFAULT_CONFIDENCE_LEVEL,
+    MAX_RECALCULATION_TIMES,
+    MIN_DEFAULT_CONFIDENCE_LEVEL,
+    MIN_RECALCULATION_GAP_HOURS,
+)
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
 from products.tracing.backend.facade.team_extension import TeamTracingConfig
@@ -254,106 +261,138 @@ def handle_tracing_config(request: request.Request, team: Team) -> response.Resp
     return response.Response(TeamTracingConfigSerializer(config).data)
 
 
+class TeamExperimentsConfigSerializer(serializers.Serializer):
+    experiment_recalculation_times = serializers.ListField(
+        child=serializers.RegexField(
+            regex=r"^(?:[01]\d|2[0-3]):00:00$",
+            error_messages={"invalid": "Recalculation times must be on the hour, in HH:00:00 format (UTC)."},
+        ),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        max_length=MAX_RECALCULATION_TIMES,
+        help_text=(
+            "Times of day (UTC) when experiment time series are recalculated, as 'HH:00:00' strings "
+            f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
+            f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
+        ),
+    )
+    default_experiment_confidence_level = serializers.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        min_value=MIN_DEFAULT_CONFIDENCE_LEVEL,
+        max_value=MAX_DEFAULT_CONFIDENCE_LEVEL,
+        required=False,
+        allow_null=True,
+        help_text="Default confidence level for new experiments, above 0 and below 1, for example 0.95.",
+    )
+    default_experiment_stats_method = serializers.ChoiceField(
+        choices=Organization.DefaultExperimentStatsMethod.choices,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Default statistical method for new experiments in this environment.",
+    )
+    # Precomputation is rolled out by PostHog, through the auto-enrollment job and the
+    # staff tools. A customer write here would stamp the row as manual and stop the job
+    # from managing that team.
+    experiment_precomputation_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether to precompute experiment exposure data for faster query execution.",
+    )
+    default_only_count_matured_users = serializers.BooleanField(
+        required=False,
+        help_text="Default value for 'only count matured users' on new experiments in this environment.",
+    )
+    default_cuped_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Default for enabling CUPED variance reduction on experiment metrics. "
+            "Overridden by the experiment-level `stats_config.cuped.enabled` setting when set."
+        ),
+    )
+    default_cuped_lookback_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=30,
+        help_text=(
+            "Default lookback window (in days) for CUPED variance reduction. "
+            "Overridden by the experiment-level `stats_config.cuped.lookback_days` setting when set. "
+            "Must be between 1 and 30 days."
+        ),
+    )
+    default_minimum_detectable_effect = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=100,
+        help_text=(
+            "Default minimum detectable effect (MDE) percentage for new experiments in this environment. "
+            "Valid values: 1-100. MDE is the smallest effect size you want to be able to detect with "
+            "statistical significance. Lower values require more data and longer run times."
+        ),
+    )
+    default_sequential_testing_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Default for enabling sequential testing (always-valid p-values) on new experiments. "
+            "Overridden by the experiment-level `stats_config.frequentist.sequential_testing_enabled` "
+            "setting when set. Only applies to the frequentist statistical method."
+        ),
+    )
+    default_sequential_tuning_parameter = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=1_000_000_000,
+        help_text=(
+            "Default tuning parameter for sequential testing. Roughly the sample size at which the "
+            "confidence sequence is tightest. Overridden by the experiment-level "
+            "`stats_config.frequentist.sequential_tuning_parameter` setting when set."
+        ),
+    )
+    flag_cleanup_repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "Default GitHub repository (organization/repository) for experiment flag-cleanup PRs in "
+            "this environment. Used when an experiment has no repository of its own. It must belong "
+            "to the team's GitHub installation at cleanup time or it is ignored."
+        ),
+    )
+
+    def validate_experiment_recalculation_times(self, value: list[str] | None) -> tuple[str, ...] | None:
+        # The settings update repeats this check. It runs here too so that, for a request with several
+        # invalid fields, the 400 names the first invalid field in field order.
+        try:
+            experiments_api.validate_recalculation_times(value)
+        except ExperimentValidationError as error:
+            raise serializers.ValidationError(str(error))
+        return None if value is None else tuple(value)
+
+
 def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
     """Shared handler for the experiments_config action — exposed under both the
     team/environment and project routers so both surfaces stay in parity."""
-    # Keeps the products app import off this module's import path.
-    from products.experiments.backend.models.team_experiments_config import (  # noqa: PLC0415
-        MAX_RECALCULATION_TIMES,
-        MIN_RECALCULATION_GAP_HOURS,
-        TeamExperimentsConfig,
-        validate_recalculation_times,
-    )
-
-    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-        experiment_recalculation_times = serializers.ListField(
-            child=serializers.RegexField(
-                regex=r"^(?:[01]\d|2[0-3]):00:00$",
-                error_messages={"invalid": "Recalculation times must be on the hour, in HH:00:00 format (UTC)."},
-            ),
-            required=False,
-            allow_null=True,
-            allow_empty=False,
-            max_length=MAX_RECALCULATION_TIMES,
-            help_text=(
-                "Times of day (UTC) when experiment time series are recalculated, as 'HH:00:00' strings "
-                f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
-                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
-            ),
-        )
-        # The frequentist engine derives alpha as 1 - confidence level, so anything outside (0, 1)
-        # is meaningless. The field stores two decimal places, so these bounds are that open range.
-        default_experiment_confidence_level = serializers.DecimalField(
-            max_digits=3,
-            decimal_places=2,
-            min_value=Decimal("0.01"),
-            max_value=Decimal("0.99"),
-            required=False,
-            allow_null=True,
-            help_text="Default confidence level for new experiments, above 0 and below 1, for example 0.95.",
-        )
-
-        class Meta:
-            model = TeamExperimentsConfig
-            fields = [
-                "experiment_recalculation_times",
-                "default_experiment_confidence_level",
-                "default_experiment_stats_method",
-                "experiment_precomputation_enabled",
-                "default_only_count_matured_users",
-                "default_cuped_enabled",
-                "default_cuped_lookback_days",
-                "default_minimum_detectable_effect",
-                "default_sequential_testing_enabled",
-                "default_sequential_tuning_parameter",
-                "flag_cleanup_repository",
-            ]
-            # Precomputation is rolled out by PostHog, through the auto-enrollment job and the
-            # staff tools. A customer write here would stamp the row as manual and stop the job
-            # from managing that team.
-            read_only_fields = ["experiment_precomputation_enabled"]
-
-        def validate_experiment_recalculation_times(self, value: list[str] | None) -> list[str] | None:
-            try:
-                validate_recalculation_times(value)
-            except DjangoValidationError as e:
-                raise serializers.ValidationError(e.messages)
-            return value
-
-        def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
-            # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
-            # request import path.
-            from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
-
-            if not value:
-                return None
-            parts = value.split("/")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
-                raise serializers.ValidationError("Repository must be in the format organization/repository")
-            value = value.lower()
-            # Reject repos outside the team's GitHub installation now rather than storing a
-            # default the cleanup resolution would silently ignore.
-            github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
-            cached = {
-                full_name.lower()
-                for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
-                if (full_name := repo.get("full_name"))
-            }
-            if value not in cached:
-                raise serializers.ValidationError(
-                    "This repository is not connected to the project's GitHub integration."
-                )
-            return value
-
-    config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
     if request.method == "PATCH":
-        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(serializer.data)
+        serializer = TeamExperimentsConfigSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            # Every request creates the settings row with the defaults when it is missing, a rejected PATCH too.
+            experiments_api.get_team_experiments_settings(team.id)
+            raise serializers.ValidationError(serializer.errors)
+        try:
+            experiments_settings = experiments_api.update_team_experiments_settings(
+                team_id=team.id, update=TeamExperimentsSettingsUpdate(**serializer.validated_data)
+            )
+        except ExperimentValidationError as error:
+            raise as_drf_validation_error(error)
+    else:
+        experiments_settings = experiments_api.get_team_experiments_settings(team.id)
 
-    return response.Response(TeamExperimentsConfigSerializer(config).data)
+    return response.Response(TeamExperimentsConfigSerializer(experiments_settings).data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:

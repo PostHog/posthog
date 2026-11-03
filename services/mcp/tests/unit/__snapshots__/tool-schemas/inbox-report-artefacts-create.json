@@ -10,7 +10,7 @@
             "type": "string"
         },
         "content": {
-            "description": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema."
+            "description": "The artefact payload as a JSON object or array, validated against the schema for `artefact_type`. `code_reference`: file_path, start_line, end_line, contents, relevance_note, for a contiguous span of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository, branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit usually records it for you, so create one only for a commit pushed by other means, and never for an unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product, reason, for a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use."
         },
         "expected_reviewers": {
             "description": "Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.",
