@@ -6,7 +6,7 @@
             "type": "number"
         },
         "recalculation_id": {
-            "description": "UUID of the recalculation run to fetch. This is the run's own id, not the experiment id.",
+            "description": "The recalculation run UUID, from experiment-metrics-recalculation-create or experiment-metrics-recalculation-latest-retrieve.",
             "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
             "type": "string"
         }

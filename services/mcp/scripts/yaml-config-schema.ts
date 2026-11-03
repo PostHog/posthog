@@ -121,16 +121,6 @@ export const ToolConfigSchema = z
                          * — see generate-tools.ts and @/tools/cast-helpers.
                          */
                         aliases: z.array(z.string()).optional(),
-                        /**
-                         * Name of a sibling UUID param this integer-id param's value
-                         * moves to when an agent sends a UUID-shaped string under it
-                         * (e.g. the recalculation run UUID as `id`). When the target
-                         * param is absent the value moves there; when the target holds
-                         * an integer the two values swap. Codegen wraps the composed
-                         * tool schema with `z.preprocess(redirectMisplacedUuids(...), ...)`
-                         * — see generate-tools.ts and @/tools/cast-helpers.
-                         */
-                        uuid_redirect: z.string().optional(),
                     })
                     .strict()
                     .refine((data) => !(data.input_schema && data.schema_ref), {
