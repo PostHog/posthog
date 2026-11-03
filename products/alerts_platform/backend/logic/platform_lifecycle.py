@@ -1149,7 +1149,7 @@ def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id)
             .select_for_update()
-            .get(Q(legacy_configuration_id=public_id) | Q(legacy_configuration_id__isnull=True, id=public_id))
+            .get(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
         )
         if configuration.owner != PlatformAlertOwner.PLATFORM:
             raise ValueError("the platform does not own this alert, so its source resets it")

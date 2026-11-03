@@ -8,7 +8,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
 
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
@@ -148,18 +148,15 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
     return instance_view(alert, alert.configuration) if alert is not None else None
 
 
-def _named(team_id: int, public_ids: Collection[UUID]) -> QuerySet[PlatformAlertConfiguration]:
+def _owned_with_public_ids(team_id: int, public_ids: Collection[UUID]) -> QuerySet[PlatformAlertConfiguration]:
     """The alerts the platform owns with these public ids.
 
     A public id is the id a source and its clients know an alert by, the configuration's
     `destination_alert_id`: the source row's id for a copy, and the configuration's own id for an
     alert created with no source row.
     """
-    ids = list(public_ids)
-    return (
-        PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(Q(legacy_configuration_id__in=ids) | Q(legacy_configuration_id__isnull=True, id__in=ids))
-        .filter(owner=PlatformAlertOwner.PLATFORM)
+    return PlatformAlertConfiguration.objects.for_team(team_id).filter(
+        PlatformAlertConfiguration.with_destination_alert_ids(public_ids), owner=PlatformAlertOwner.PLATFORM
     )
 
 
@@ -176,7 +173,7 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
     instances = PlatformAlert.objects.for_team(team_id).filter(configuration=OuterRef("pk"))
     latest_notified = instances.order_by().values("configuration").annotate(at=Max("last_notified_at")).values("at")
     rows = (
-        _named(team_id, public_ids)
+        _owned_with_public_ids(team_id, public_ids)
         .annotate(
             instance_state=Case(
                 When(
@@ -221,12 +218,14 @@ def _public_id_by_platform_id(team_id: int, public_ids: Collection[UUID]) -> dic
     """The public id of each named alert the platform owns, keyed by the platform's id."""
     return {
         platform_id: legacy_id or platform_id
-        for platform_id, legacy_id in _named(team_id, public_ids).values_list("id", "legacy_configuration_id")
+        for platform_id, legacy_id in _owned_with_public_ids(team_id, public_ids).values_list(
+            "id", "legacy_configuration_id"
+        )
     }
 
 
 def _platform_id_of(team_id: int, public_id: UUID) -> UUID | None:
-    return _named(team_id, [public_id]).values_list("id", flat=True).first()
+    return _owned_with_public_ids(team_id, [public_id]).values_list("id", flat=True).first()
 
 
 def history_by_public_id(

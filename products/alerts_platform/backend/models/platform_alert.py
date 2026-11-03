@@ -8,6 +8,7 @@ configuration already holds in this app. The prefix names what the rows are for:
 source configures on the shared platform, rather than one product's own table.
 """
 
+from collections.abc import Collection
 from typing import Any
 from uuid import UUID
 
@@ -133,6 +134,15 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         """The id the alert's destinations are matched on: the source row's for a copy, and the
         configuration's own for an alert whose source keeps no row."""
         return self.legacy_configuration_id or self.id
+
+    @staticmethod
+    def with_destination_alert_ids(ids: Collection[UUID]) -> models.Q:
+        """Matches the configurations whose `destination_alert_id` is one of `ids`, the id a source
+        and its clients know an alert by."""
+        listed = list(ids)
+        return models.Q(legacy_configuration_id__in=listed) | models.Q(
+            legacy_configuration_id__isnull=True, id__in=listed
+        )
 
     def _should_log_activity_for_update(self, **kwargs: Any) -> tuple[bool, Any]:
         # A copy its source owns is not logged, so its writes skip the read of the row before the update.
