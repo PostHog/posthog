@@ -152,6 +152,31 @@ class TestClassify(BaseTest):
                 {"fresh_until": NOW + timedelta(minutes=5)},
             ),
             (
+                "latest_rows_by_an_alias",
+                "select timestamp as ts from events where timestamp > now() - interval 7 day order by ts desc limit 10",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
+                "latest_value_by_time",
+                "select argMax(event, timestamp) from events where timestamp > now() - interval 7 day",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
+                "latest_event_time_with_a_condition",
+                "select maxIf(timestamp, event = 'signup') from events where timestamp > now() - interval 7 day",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
+                "latest_event_time_through_a_subquery",
+                "select max(ts) from (select toStartOfMinute(timestamp) as ts from events "
+                "where timestamp > now() - interval 7 day)",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"fresh_until": NOW + timedelta(minutes=5)},
+            ),
+            (
                 "latest_event_time_in_a_fixed_past_range",
                 "select max(timestamp) from events where timestamp >= '2026-10-01' and timestamp < '2026-10-15'",
                 SqlWindowClass.FIXED_PAST,

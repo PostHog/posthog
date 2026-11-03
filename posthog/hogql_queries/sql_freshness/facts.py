@@ -36,6 +36,7 @@ _JOINABLE_TABLES = (
 )
 _EXPRESSION_FIELDS = frozenset({"person_id"})
 _TIMESTAMP_COLUMN = "timestamp"
+_LATEST_EVENT_FUNCTION_PREFIXES = ("max", "argmax", "anylast", "last_value")
 _ZONE_ARGUMENT_POSITION = {"toDateTime": 1, "toDateTime64": 2, "parseDateTimeBestEffort": 1}
 _NOW_FUNCTIONS = frozenset({"now", "now64"})
 _EARLIEST_DATETIME = datetime(1970, 1, 1, tzinfo=UTC)
@@ -189,13 +190,57 @@ def _mentions_events_timestamp(expr: ast.Expr) -> bool:
     return finder.found
 
 
+def _subquery_column_types(table_type: Any, name: str) -> list[ast.Type]:
+    if isinstance(table_type, ast.SelectQueryAliasType | ast.CTETableType | ast.SelectViewType):
+        return _subquery_column_types(table_type.select_query_type, name)
+    if isinstance(table_type, ast.SelectSetQueryType):
+        return [column for query_type in table_type.types for column in _subquery_column_types(query_type, name)]
+    if isinstance(table_type, ast.SelectQueryType) and name in table_type.columns:
+        return [table_type.columns[name]]
+    return []
+
+
+class _DerivedTimestampFinder(TraversingVisitor):
+    def __init__(self, alias_exprs: dict[int, ast.Expr]) -> None:
+        super().__init__()
+        self.alias_exprs = alias_exprs
+        self.followed: set[int] = set()
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.found = self.found or self._derives_from_events_timestamp(node.type)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        pass
+
+    def _derives_from_events_timestamp(self, field_type: Any) -> bool:
+        if id(field_type) in self.followed:
+            return False
+        self.followed.add(id(field_type))
+        if isinstance(field_type, ast.FieldAliasType):
+            alias_expr = self.alias_exprs.get(id(field_type))
+            if alias_expr is not None:
+                self.visit(alias_expr)
+                return self.found
+            return self._derives_from_events_timestamp(field_type.type)
+        if not isinstance(field_type, ast.FieldType):
+            return False
+        if field_type.name == _TIMESTAMP_COLUMN and _is_events_table(field_type.table_type):
+            return True
+        return any(
+            self._derives_from_events_timestamp(column)
+            for column in _subquery_column_types(field_type.table_type, field_type.name)
+        )
+
+
 class _QueryScan(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
         self.selects: list[ast.SelectQuery] = []
         self.clock_calls: set[int] = set()
         self.unsupported_field = False
-        self.reads_latest_event = False
+        self.alias_exprs: dict[int, ast.Expr] = {}
+        self.latest_event_candidates: list[ast.Expr] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
@@ -208,14 +253,24 @@ class _QueryScan(TraversingVisitor):
     def visit_call(self, node: ast.Call) -> None:
         if _clock_name(node) is not None:
             self.clock_calls.add(id(node))
-        if node.name.lower() == "max" and len(node.args) == 1 and _is_events_timestamp(node.args[0]):
-            self.reads_latest_event = True
+        if node.name.lower().startswith(_LATEST_EVENT_FUNCTION_PREFIXES):
+            self.latest_event_candidates.extend(node.args)
         super().visit_call(node)
 
     def visit_order_expr(self, node: ast.OrderExpr) -> None:
-        if node.order == "DESC" and _is_events_timestamp(node.expr):
-            self.reads_latest_event = True
+        if node.order == "DESC":
+            self.latest_event_candidates.append(node.expr)
         super().visit_order_expr(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        self.alias_exprs[id(node.type)] = node.expr
+        super().visit_alias(node)
+
+    def reads_latest_event(self) -> bool:
+        finder = _DerivedTimestampFinder(self.alias_exprs)
+        for candidate in self.latest_event_candidates:
+            finder.visit(candidate)
+        return finder.found
 
 
 class _Evaluator:
@@ -361,5 +416,5 @@ def extract_facts(
         unsupported_bound=unsupported_bound,
         clock_outside_bounds=bool(scan.clock_calls - evaluator.consumed_clock_calls),
         reads_now=evaluator.reads_now,
-        reads_latest_event=scan.reads_latest_event,
+        reads_latest_event=scan.reads_latest_event(),
     )
