@@ -15,7 +15,11 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueAssignment
-from products.error_tracking.backend.notifications import _AssignerExcludingResolver, dispatch_issue_assigned_realtime
+from products.error_tracking.backend.notifications import (
+    AssignmentActor,
+    _AssignerExcludingResolver,
+    dispatch_issue_assigned_realtime,
+)
 from products.notifications.backend.facade.enums import TargetType
 
 
@@ -45,7 +49,7 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": "user", "id": self.assignee.id},
-            assigner=self.assigner,
+            actor=AssignmentActor.from_user(self.assigner),
         )
         mock_create_notification.assert_called_once()
         data = mock_create_notification.call_args.args[0]
@@ -61,7 +65,7 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": "user", "id": self.assigner.id},
-            assigner=self.assigner,
+            actor=AssignmentActor.from_user(self.assigner),
         )
         mock_create_notification.assert_not_called()
 
@@ -72,7 +76,7 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": "role", "id": role_id},
-            assigner=self.assigner,
+            actor=AssignmentActor.from_user(self.assigner),
         )
         mock_create_notification.assert_called_once()
         data = mock_create_notification.call_args.args[0]
@@ -88,8 +92,7 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": assignee_type, "id": assignee_id},
-            assigner=None,
-            assigned_by="An assignment rule",
+            actor=AssignmentActor.automatic("An assignment rule"),
         )
         mock_create_notification.assert_called_once()
         data = mock_create_notification.call_args.args[0]
@@ -98,24 +101,27 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         assert data.metadata == {"trigger": "automatic"}
         assert data.resolver is None
 
-    @patch("products.error_tracking.backend.notifications.create_notification")
-    def test_missing_assigner_and_label_does_not_dispatch(self, mock_create_notification):
-        assignment = ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, user=self.assignee)
-        dispatch_issue_assigned_realtime(
-            assignment=assignment,
-            assignee={"type": "user", "id": self.assignee.id},
-            assigner=None,
-        )
-        mock_create_notification.assert_not_called()
-
     @patch("products.error_tracking.backend.notifications.create_notification", side_effect=RuntimeError("boom"))
     def test_dispatch_failure_is_swallowed(self, _mock_create_notification):
         assignment = ErrorTrackingIssueAssignment.objects.create(team=self.team, issue=self.issue, user=self.assignee)
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": "user", "id": self.assignee.id},
-            assigner=self.assigner,
+            actor=AssignmentActor.from_user(self.assigner),
         )
+
+
+class TestAssignmentActor(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_label", "", None, "automatic"),
+            ("manual_without_user", "Alice", None, "manual"),
+            ("automatic_with_user", "An assignment rule", 1, "automatic"),
+        ]
+    )
+    def test_rejects_invalid_actor(self, _name, label, user_id, trigger):
+        with pytest.raises(ValueError):
+            AssignmentActor(label=label, user_id=user_id, trigger=trigger)
 
 
 class TestAssignerExcludingResolver(SimpleTestCase):
