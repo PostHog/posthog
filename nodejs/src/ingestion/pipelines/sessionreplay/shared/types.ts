@@ -55,12 +55,16 @@ export type DeleteKeyResult =
     | { status: 'deleted'; deletedAt: number; deletedBy: string }
     | { status: 'already_deleted'; deletedAt: number; deletedBy: string }
 
+export interface GetKeyOptions {
+    cacheMissing?: boolean
+}
+
 export interface KeyStore {
     start(): Promise<void>
     /** Generate and store a new encryption key for a session */
     generateKey(sessionId: string, teamId: number, retentionDays: number): Promise<SessionKey>
-    /** Retrieve the encryption key for a session */
-    getKey(sessionId: string, teamId: number): Promise<SessionKey>
+    /** Retrieve the encryption key for a session. A cache layer skips caching a missing key when cacheMissing is false. */
+    getKey(sessionId: string, teamId: number, options?: GetKeyOptions): Promise<SessionKey>
     /** Delete a session's key (crypto-shredding) */
     deleteKey(sessionId: string, teamId: number, deletedBy: string): Promise<DeleteKeyResult>
     stop(): void

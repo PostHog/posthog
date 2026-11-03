@@ -58,6 +58,40 @@ export function getDefaultRecordingApiAuthConfig(): RecordingApiAuthConfig {
 }
 
 /**
+ * Which routes a recording-api process serves. `internal` serves the service-to-service routes that
+ * Django and Temporal call. `public` serves only the browser block route, so pods reachable from the
+ * internet run none of the internal routes. `all` serves both, for local development.
+ */
+export type RecordingApiRole = 'internal' | 'public' | 'all'
+
+/**
+ * The browser block route's per-caller token bucket. One request fetches one block, so the bucket is
+ * sized in blocks. While not enforced, over-limit requests are served and only counted in a metric.
+ */
+export type RecordingApiBlocksConfig = {
+    RECORDING_API_ROLE: string
+    RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: boolean
+    RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE: number
+    RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND: number
+}
+
+export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
+    return {
+        RECORDING_API_ROLE: 'internal',
+        RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: false,
+        RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE: 2000,
+        RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND: 8,
+    }
+}
+
+export function parseRecordingApiRole(role: string): RecordingApiRole {
+    if (role === 'internal' || role === 'public' || role === 'all') {
+        return role
+    }
+    throw new Error(`Invalid RECORDING_API_ROLE '${role}': expected internal, public or all`)
+}
+
+/**
  * Configuration for the Recording API.
  * Postgres is passed as an explicit constructor param, not included here.
  */
@@ -87,7 +121,8 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
     > &
-    RecordingApiAuthConfig
+    RecordingApiAuthConfig &
+    RecordingApiBlocksConfig
 
 /**
  * Recording API outputs — topic and producer routing per output. All keys

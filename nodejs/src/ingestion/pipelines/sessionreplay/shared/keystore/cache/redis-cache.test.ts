@@ -135,6 +135,18 @@ describe('RedisCachedKeyStore', () => {
         })
 
         it.each([
+            ['caches', 'ciphertext' as const, 1],
+            ['skips caching', 'cleartext' as const, 0],
+        ])('%s a %s key when asked not to cache a missing key', async (_, sessionState, expectedWrites) => {
+            mockRedisClient.get.mockResolvedValue(null)
+            mockDelegate.getKey.mockResolvedValue({ ...mockSessionKey, sessionState })
+
+            await cachedKeyStore.getKey('session-123', 1, { cacheMissing: false })
+
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(expectedWrites)
+        })
+
+        it.each([
             ['set rejects', () => mockRedisClient.set.mockRejectedValue(new Error('READONLY'))],
             [
                 'pool acquire rejects',

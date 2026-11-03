@@ -4,7 +4,7 @@ import {
     deserializeSessionKey,
     serializeSessionKey,
 } from '~/ingestion/pipelines/sessionreplay/shared/crypto/session-key'
-import { DeleteKeyResult, KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { DeleteKeyResult, GetKeyOptions, KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { RedisPool } from '~/types'
 
 const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
@@ -88,14 +88,17 @@ export class RedisCachedKeyStore implements KeyStore {
         return key
     }
 
-    async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
+    async getKey(sessionId: string, teamId: number, { cacheMissing = true }: GetKeyOptions = {}): Promise<SessionKey> {
         const cached = await this.getCached(sessionId, teamId)
         if (cached) {
             return cached
         }
 
         const key = await this.delegate.getKey(sessionId, teamId)
-        await this.setCached(sessionId, teamId, key, 'if_absent')
+        // A lookup for a session ingestion has not keyed yet would otherwise pin it to cleartext for the cache lifetime.
+        if (cacheMissing || key.sessionState !== 'cleartext') {
+            await this.setCached(sessionId, teamId, key, 'if_absent')
+        }
         return key
     }
 

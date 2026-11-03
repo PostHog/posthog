@@ -75,4 +75,16 @@ export class RecordingApiMetrics {
     public static incrementClickhousePasswordFallback(reason: ClickHousePasswordFallbackReason): void {
         this.clickhousePasswordFallbacks.labels({ reason }).inc()
     }
+
+    private static readonly replayBlockRequests = new Counter({
+        name: 'recording_api_replay_block_requests_total',
+        help: 'Browser block route requests by outcome',
+        labelNames: ['result'],
+    })
+
+    public static incrementReplayBlockRequest(
+        result: 'ok' | 'not_found' | 'deleted' | 'rate_limited' | 'rate_limited_log_only' | 'error'
+    ): void {
+        this.replayBlockRequests.labels({ result }).inc()
+    }
 }
