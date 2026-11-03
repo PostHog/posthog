@@ -160,8 +160,6 @@ class TestSendCommentToSlack(APIBaseTest):
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
 
-    # The comments-send-to-slack MCP tool calls this with an OAuth token. A custom action the scope check
-    # doesn't know resolves to no scope, which refuses every scoped token.
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
