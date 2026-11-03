@@ -340,6 +340,13 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+// A send's recipient address, subject and distinct ID are a customer's own customer data, and the list takes an
+// address as its search. Key-based redaction catches none of them. `$mcp_tool_call` still records the call.
+const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'workflows-transactional-emails-list',
+    'workflows-transactional-email-get',
+])
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
@@ -357,6 +364,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
+        return false
+    }
+    if (EMAIL_RECIPIENT_TOOL_NAMES.has(toolName)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

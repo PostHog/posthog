@@ -554,6 +554,19 @@ describe('Hono MCP analytics contexts', () => {
                 { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
                 false,
             ],
+            [
+                'an email log search by recipient',
+                'workflows-transactional-emails-list',
+                { search: 'jane@example.com' },
+                false,
+            ],
+            [
+                'one email log entry',
+                'workflows-transactional-email-get',
+                { id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763' },
+                false,
+            ],
+            ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 
