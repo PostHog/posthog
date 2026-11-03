@@ -1,7 +1,7 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
-import { ApiError, PostHogApi } from './api'
+import { sendRequest } from './api'
 import type { StoreChoice, StoredSecret } from './credential-store/types'
 import { hostUrl } from './host'
 import { OAuthLogin } from './oauth'
@@ -83,21 +83,32 @@ export class PersonalAPIKey implements AccessKey {
     // A key someone deleted, or one pasted only in part, would otherwise fail only at the first
     // command that uses it.
     async verify(runtime: Runtime): Promise<PersonalAPIKey> {
-        let found: { scopes?: string[] }
-        try {
-            found = await new PostHogApi(this, runtime.fetch).get('/api/personal_api_keys/@current/')
-        } catch (error) {
-            if (error instanceof ApiError && error.status === 401) {
-                throw new HogError(
-                    'key_rejected',
-                    'PostHog rejected the personal API key. Someone may have deleted it, or part of it is missing.',
-                    'Create a personal API key in PostHog under Settings > Personal API keys, then run `hog auth login`.'
-                )
-            }
-            throw error
+        const response = await sendRequest(runtime.fetch, hostUrl(this.host, 'api/personal_api_keys/@current/'), {
+            method: 'GET',
+            apiKey: this.apiKey,
+        })
+        if (response.status === 401) {
+            throw new HogError(
+                'key_rejected',
+                'PostHog rejected the personal API key. Someone may have deleted it, or part of it is missing.',
+                'Create a personal API key in PostHog under Settings > Personal API keys, then run `hog auth login`.'
+            )
         }
+        if (!response.ok) {
+            throw new HogError(
+                'unexpected_response',
+                `PostHog answered the key check with HTTP ${response.status}.`,
+                'Check the host, then run the command again.'
+            )
+        }
+        const scopes = (response.json as { scopes?: unknown } | undefined)?.scopes
         const { host, projectId, apiKey } = this
-        return new PersonalAPIKey({ host, projectId, apiKey, scopes: found.scopes ?? [] })
+        return new PersonalAPIKey({
+            host,
+            projectId,
+            apiKey,
+            scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === 'string') : [],
+        })
     }
 
     // A personal API key can't be revoked from hog, so logout says where to delete it.
