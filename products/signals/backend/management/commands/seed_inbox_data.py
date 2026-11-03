@@ -54,9 +54,9 @@ _DEFAULT_REPOSITORY = "posthog/posthog"
 # states reachable from in_progress without extra side effects; READY dominates since it's the
 # actionable inbox state users actually triage.
 _FINAL_STATES = [
-    SignalReport.Status.READY,
-    SignalReport.Status.READY,
     SignalReport.Status.PENDING_INPUT,
+    SignalReport.Status.READY,
+    SignalReport.Status.READY,
     SignalReport.Status.READY,
     SignalReport.Status.RESOLVED,
 ]
@@ -131,7 +131,7 @@ class Command(BaseCommand):
 
             self._add_extra_log_artefacts(team.id, str(report.id), repository, index)
             self._add_suggested_reviewers(team.id, str(report.id), repository, index, user_uuid)
-            if options["with_runs"] and repository is not None:
+            if options["with_runs"] and repository is not None and report.status != SignalReport.Status.PENDING_INPUT:
                 self._seed_task_run(team, user_id, report, repository, index)
             created += 1
 
