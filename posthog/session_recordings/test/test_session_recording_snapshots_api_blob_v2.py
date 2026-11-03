@@ -10,7 +10,7 @@ from rest_framework import status
 from posthog.auth import mint_export_renderer_token
 from posthog.clickhouse.client import sync_execute
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import PersonalAPIKey, SessionRecording
+from posthog.models import PersonalAPIKey, SessionRecording, SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -155,6 +155,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             ("logged_in_unencrypted_recording", "session", True, False, False),
             ("personal_api_key", "personal_api_key", True, True, False),
             ("export_renderer", "export_renderer", True, True, True),
+            ("share_link", "share_link", True, True, False),
         ]
     )
     @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key", RECORDING_API_BLOCKS_JWT_SECRET="replay-blocks-key")
@@ -193,6 +194,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         ]
         is_player = auth != "personal_api_key"
         headers = {}
+        query = ""
         viewer = f"u{self.user.pk}"
         renderer_expires_at = None
         if auth == "export_renderer":
@@ -208,6 +210,12 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             renderer_expires_at = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)["exp"]
             headers = {"authorization": f"Bearer {renderer_token}"}
             viewer = f"e{asset.id}"
+        if auth == "share_link":
+            recording = SessionRecording.objects.create(session_id=session_id, team=self.team)
+            sharing = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
+            mock_get_session_recording.return_value = recording
+            query = f"?sharing_access_token={sharing.access_token}"
+            self.client.logout()
         if auth == "personal_api_key":
             personal_api_key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
@@ -220,7 +228,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             headers = {"authorization": f"Bearer {personal_api_key}"}
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/", headers=headers
+            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/{query}", headers=headers
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()

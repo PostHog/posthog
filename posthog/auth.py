@@ -978,7 +978,6 @@ class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentica
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
-            self.expires_at = datetime.fromtimestamp(payload["exp"], tz=UTC)
             self.record_activity_actor(None, str(share_password.id))
             return (SharedLinkUser(sharing_configuration), None)
 
