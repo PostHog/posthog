@@ -639,7 +639,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         _name: str,
         query: str,
         persons_on_events: PersonsOnEventsMode,
-        modifiers: dict[str, bool | str],
+        modifiers: dict[str, Any],
         pushed: str,
         not_pushed: str | None,
         union_pushed: str | None,
