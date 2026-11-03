@@ -129,7 +129,7 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                     className="rounded border border-border p-2"
                 />
             ) : null}
-            <div className="flex justify-between items-center gap-2">
+            <div className="flex flex-wrap justify-between items-center gap-2">
                 {showLinkSlackThread ? <LinkSlackThreadButton {...props} size={buttonSize} /> : null}
                 <div className="flex-1" />
                 {itemContext ? (

@@ -18,7 +18,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError, ApiRequest } from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -32,6 +32,8 @@ import { CommentType } from '~/types'
 import type { OrganizationMemberType, UserType } from '~/types'
 
 import {
+    commentsList,
+    commentsRetrieve,
     commentsSendToSlackCreate,
     commentsUnlinkSlackThreadCreate,
 } from 'products/platform_features/frontend/generated/api'
@@ -71,10 +73,39 @@ const SLACK_IMPORT_POLL_FAILURE_LIMIT = 3
 // Enough pages of replies for the most a linked thread imports (1,000 messages).
 const LINKED_THREAD_REPLY_PAGES = 10
 
+/** A linked thread's opening comment and all its replies, read in that order. */
+async function fetchLinkedThread(projectId: string, props: CommentsLogicProps, id: string): Promise<CommentType[]> {
+    // The root first: once it says the import is done, every reply is already saved, so the replies
+    // read after it can't miss the last ones and stop the polling early.
+    const root = (await commentsRetrieve(projectId, id)) as unknown as CommentType
+    if (root.deleted) {
+        return []
+    }
+    const replies: CommentType[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < LINKED_THREAD_REPLY_PAGES; page++) {
+        const response = await commentsList(projectId, {
+            scope: String(props.scope),
+            item_id: props.item_id,
+            source_comment: id,
+            cursor,
+        })
+        replies.push(...(response.results as unknown as CommentType[]))
+        cursor = response.next
+            ? (new URL(response.next, window.location.origin).searchParams.get('cursor') ?? undefined)
+            : undefined
+        if (!cursor) {
+            break
+        }
+    }
+    return [root, ...replies]
+}
+
 async function fetchComments(
     props: CommentsLogicProps,
     linkedSlackThreadIds: string[] = [],
-    previous: CommentType[] | null = null
+    previous: CommentType[] | null = null,
+    projectId: string = ''
 ): Promise<CommentType[]> {
     if (!props.item_id) {
         // A per-item discussion must target a specific item. Listing with only a scope makes the
@@ -98,18 +129,7 @@ async function fetchComments(
     const threads = await Promise.all(
         missing.map(async (id): Promise<CommentType[]> => {
             try {
-                // Project-scoped URLs, like the list above: api.comments.get would use the environment id.
-                const [root, replies] = await Promise.all([
-                    api.get<CommentType>(new ApiRequest().comment(id).assembleFullUrl()),
-                    api.loadPaginatedResults<CommentType>(
-                        new ApiRequest()
-                            .comments()
-                            .withQueryString({ scope: props.scope, item_id: props.item_id, source_comment: id })
-                            .assembleFullUrl(),
-                        LINKED_THREAD_REPLY_PAGES
-                    ),
-                ])
-                return root.deleted ? [] : [root, ...replies]
+                return await fetchLinkedThread(projectId, props, id)
             } catch (error) {
                 if (error instanceof ApiError && error.status === 404) {
                     return [] // unlinked or deleted since
@@ -663,7 +683,13 @@ export const commentsLogic = kea<commentsLogicType>([
         comments: [
             null as CommentType[] | null,
             {
-                loadComments: async () => await fetchComments(props, values.linkedSlackThreadIds, values.comments),
+                loadComments: async () =>
+                    await fetchComments(
+                        props,
+                        values.linkedSlackThreadIds,
+                        values.comments,
+                        String(values.currentProjectId)
+                    ),
                 // Same fetch, but nothing follows it: no scroll to the newest comment and no deep-link
                 // reveal. Callers that poll in the background use this so a refresh never takes the
                 // reader's place in the thread away from them. `loadComments` stays the one to call
@@ -676,7 +702,12 @@ export const commentsLogic = kea<commentsLogicType>([
                     // own message vanish. Comparing the array identity catches that: any local write
                     // replaces the array, so a changed reference means our snapshot is the stale one.
                     const before = values.comments
-                    const results = await fetchComments(props, values.linkedSlackThreadIds, before)
+                    const results = await fetchComments(
+                        props,
+                        values.linkedSlackThreadIds,
+                        before,
+                        String(values.currentProjectId)
+                    )
                     return values.comments === before ? results : values.comments
                 },
                 sendComposedContent: async ({ asTask }) => {

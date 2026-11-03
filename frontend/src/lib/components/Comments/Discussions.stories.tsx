@@ -15,9 +15,9 @@ import { linkSlackThreadLogic } from './linkSlackThreadLogic'
 
 const LOGIC_PROPS: CommentsLogicProps = { scope: ActivityScope.INSIGHT, item_id: '12345' }
 
-type StoryArgs = { replyingTo?: string; linkingSlackThread?: boolean }
+type StoryArgs = { replyingTo?: string; linkingSlackThread?: boolean; narrow?: boolean }
 
-function DiscussionsPanel({ replyingTo, linkingSlackThread }: StoryArgs): JSX.Element {
+function DiscussionsPanel({ replyingTo, linkingSlackThread, narrow }: StoryArgs): JSX.Element {
     const { setReplyingComment } = useActions(commentsLogic(LOGIC_PROPS))
     const { openModal: openLinkSlackThread } = useActions(linkSlackThreadLogic(LOGIC_PROPS))
 
@@ -31,7 +31,8 @@ function DiscussionsPanel({ replyingTo, linkingSlackThread }: StoryArgs): JSX.El
     })
 
     return (
-        <div className="w-120 max-w-full flex flex-col gap-2">
+        // narrow pins the discussion panel's 330px minimum, where the composer's buttons have to wrap.
+        <div className={`${narrow ? 'w-[330px]' : 'w-120'} max-w-full flex flex-col gap-2`}>
             <CommentsList {...LOGIC_PROPS} />
             <CommentComposer {...LOGIC_PROPS} />
         </div>
@@ -72,7 +73,18 @@ const LINKED_SLACK_THREAD = {
     results: [
         {
             id: 'linked-0001',
-            created_by: null,
+            // The Slack author is also a PostHog member, so the discussion is credited to them.
+            created_by: {
+                id: 4,
+                uuid: '018f1a2b-0000-0000-0000-000000000004',
+                distinct_id: 'ada-distinct-id',
+                first_name: 'Ada',
+                last_name: '',
+                email: 'ada.demo@posthog.com',
+                is_email_verified: false,
+                hedgehog_config: null,
+                role_at_organization: 'engineering',
+            },
             deleted: false,
             content: 'Has anyone seen exports stall like this?',
             rich_content: null,
@@ -95,6 +107,7 @@ const LINKED_SLACK_THREAD = {
 }
 
 export const LinkedSlackThread: Story = {
+    args: { narrow: true },
     parameters: { featureFlags: [FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/comments': LINKED_SLACK_THREAD } })],
 }

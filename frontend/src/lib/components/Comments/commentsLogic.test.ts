@@ -444,6 +444,7 @@ describe('commentsLogic linked Slack threads', () => {
     let listStatus: number
     let rootStatus: number
     let replyPages: Record<string, any>[][]
+    let requests: string[]
 
     const linkedRoot = (state: string): Record<string, any> => ({
         ...makeComment('linked-root'),
@@ -456,6 +457,7 @@ describe('commentsLogic linked Slack threads', () => {
         listStatus = 200
         rootStatus = 200
         replyPages = [[makeComment('old-reply', 'linked-root')]]
+        requests = []
         initKeaTests()
         useMocks({
             get: {
@@ -465,19 +467,22 @@ describe('commentsLogic linked Slack threads', () => {
                     if (!sourceComment) {
                         return listStatus === 200 ? [200, { results }] : [listStatus, {}]
                     }
-                    const page = Number(url.searchParams.get('offset') ?? 0)
+                    const page = Number(url.searchParams.get('cursor') ?? 0)
+                    requests.push(`replies page ${page}`)
                     const next =
                         page + 1 < replyPages.length
-                            ? `/api/projects/997/comments?source_comment=${sourceComment}&offset=${page + 1}`
+                            ? `http://localhost/api/projects/997/comments/?source_comment=${sourceComment}&cursor=${page + 1}`
                             : null
                     return [200, { results: replyPages[page], next }]
                 },
-                '/api/projects/:team_id/comments/:id': ({ params }) =>
-                    rootStatus !== 200
+                '/api/projects/:team_id/comments/:id': ({ params }) => {
+                    requests.push('root')
+                    return rootStatus !== 200
                         ? [rootStatus, {}]
                         : params.id === 'linked-root'
                           ? [200, linkedRoot('done')]
-                          : [404, {}],
+                          : [404, {}]
+                },
                 '/api/organizations/@current/members/': { results: [] },
             },
         })
@@ -510,6 +515,8 @@ describe('commentsLogic linked Slack threads', () => {
         )
 
         expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'reply-1', 'reply-2'])
+        // The root first: once it says the import is done, the replies read after it are complete.
+        expect(requests).toEqual(['root', 'replies page 0', 'replies page 1'])
     })
 
     it('keeps an older linked thread through a failed fetch, and drops it once it is gone', async () => {
