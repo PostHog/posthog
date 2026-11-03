@@ -17,6 +17,7 @@ import { OnboardingStepKey } from '~/types'
 
 import { mcpAnalyticsEmptyState } from '../emptyState/mcpAnalyticsEmptyState'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
+import { MCPSetupMode } from '../setupMode/MCPSetupMode'
 import { SETUP_PARAM, SETUP_STEP_PARAM } from '../setupMode/setupMode'
 import { MCPAnalyticsInstallHero } from './MCPAnalyticsInstall'
 
@@ -79,10 +80,14 @@ function MCPAnalyticsSetupDoorStep(): JSX.Element {
                     mode={status === 'waiting-for-data' ? 'waiting-for-data' : 'needs-setup'}
                 />
             ) : (
-                // Loading, or data just landed and the effect above redirects to the scene.
-                <div className="flex justify-center my-20">
-                    <Spinner className="text-2xl" />
-                </div>
+                <>
+                    {/* Loading, or data just landed and the effect above redirects to the scene. Setup mode stays
+                        mounted meanwhile, so its first-call screen does not close until the scene takes it over. */}
+                    <div className="flex justify-center my-20">
+                        <Spinner className="text-2xl" />
+                    </div>
+                    <MCPSetupMode />
+                </>
             )}
         </OnboardingStep>
     )
