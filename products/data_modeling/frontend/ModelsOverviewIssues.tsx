@@ -19,6 +19,7 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -142,8 +143,8 @@ function SinceText({ subject }: { subject: AttentionSubject }): JSX.Element | nu
         return null
     }
     return (
-        <Text size="xs" variant="muted" className="whitespace-nowrap" title={since.exactTime ?? undefined}>
-            {since.label}
+        <Text size="xs" variant="muted" className="whitespace-nowrap">
+            {since.kind === 'time' ? <TZLabel time={since.time} /> : since.label}
         </Text>
     )
 }

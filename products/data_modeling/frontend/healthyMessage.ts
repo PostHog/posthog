@@ -1,4 +1,3 @@
-import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { CHECKS_LIMIT, OverviewChecksStatus } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
@@ -22,10 +21,6 @@ export interface RefreshSummary {
     lastRefreshAt: string | null
 }
 
-export function refreshEvidence({ materializedCount, lastRefreshAt }: RefreshSummary): string | null {
-    if (materializedCount === 0) {
-        return null
-    }
-    const models = `${pluralize(materializedCount, 'materialized model')}.`
-    return lastRefreshAt ? `${models} Last refresh ${dayjs(lastRefreshAt).fromNow()}.` : models
+export function materializedModelsMessage(materializedCount: number): string | null {
+    return materializedCount > 0 ? `${pluralize(materializedCount, 'materialized model')}.` : null
 }

@@ -1,4 +1,3 @@
-import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
@@ -110,21 +109,18 @@ function startedAt(subject: AttentionSubject): string | null | undefined {
     return earliestFailingSince(failingChecks)
 }
 
-export interface SubjectSince {
-    label: string
-    exactTime: string | null
-}
+export type SubjectSince = { kind: 'time'; time: string } | { kind: 'overdue'; label: string }
 
 export function subjectSince(subject: AttentionSubject): SubjectSince | null {
     const { materialization } = subject
     if (materialization?.kind === 'behind') {
         return {
+            kind: 'overdue',
             label: `${humanFriendlyDuration(materialization.behind.overdueSeconds, { maxUnits: 1 })} overdue`,
-            exactTime: null,
         }
     }
     const time = startedAt(subject)
-    return time ? { label: dayjs(time).fromNow(), exactTime: dayjs(time).format('MMM D, YYYY HH:mm') } : null
+    return time ? { kind: 'time', time } : null
 }
 
 const NEXT_STEP_LABELS: Record<MaterializationProblem['kind'], string> = {

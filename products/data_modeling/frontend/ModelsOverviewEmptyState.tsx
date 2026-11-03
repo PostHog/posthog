@@ -16,6 +16,7 @@ import {
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -23,7 +24,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { OverviewChecksStatus } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { RefreshSummary, healthyMessage, refreshEvidence } from './healthyMessage'
+import { RefreshSummary, healthyMessage, materializedModelsMessage } from './healthyMessage'
 
 const HedgehogFloat = pngHoggie(float)
 const HEADING_ID = 'models-overview-empty-state-heading'
@@ -94,7 +95,8 @@ export function ModelsOverviewEmptyState({
     refreshSummary,
 }: ModelsOverviewEmptyStateProps): JSX.Element {
     const firstView = variant === 'first-view'
-    const evidence = !firstView && refreshSummary ? refreshEvidence(refreshSummary) : null
+    const materializedMessage =
+        !firstView && refreshSummary ? materializedModelsMessage(refreshSummary.materializedCount) : null
 
     return (
         <Card
@@ -112,9 +114,15 @@ export function ModelsOverviewEmptyState({
                         <Text size="xs" variant="muted" render={<p className="m-0" />}>
                             {firstView ? FIRST_VIEW_DESCRIPTION : healthyMessage(checksStatus, checksTruncated)}
                         </Text>
-                        {evidence && (
+                        {materializedMessage && (
                             <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                                {evidence}
+                                <span>{materializedMessage}</span>
+                                {refreshSummary?.lastRefreshAt && (
+                                    <span>
+                                        {' Last refresh '}
+                                        <TZLabel time={refreshSummary.lastRefreshAt} />.
+                                    </span>
+                                )}
                             </Text>
                         )}
                         <div className="flex flex-wrap gap-2 pt-2">
