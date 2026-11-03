@@ -195,6 +195,7 @@ def _get_insert_settings(
     spill_to_disk: bool = False,
     read_after_write: bool = True,
     overrides: Mapping[str, int | str] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
@@ -215,6 +216,9 @@ def _get_insert_settings(
 
     `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
     later SELECT choose replicas the same way. A table that sets none uses the profile default.
+
+    `modifiers` are the ones the INSERT's SELECT was printed with. The native read settings follow the
+    events table that SELECT reads, which a per-query modifier can switch away from the team's default.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -233,7 +237,7 @@ def _get_insert_settings(
             **_read_table_load_balancing(table),
         }
     )
-    settings.update(events_read_settings(use_new_events_schema(team_id)))
+    settings.update(events_read_settings(use_new_events_schema(team_id, modifiers)))
     if spill_to_disk:
         # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
         # *threshold*, not a memory reservation — it lowers peak RAM (vs. holding
@@ -1139,7 +1143,7 @@ def run_lazy_computation_insert(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(team.id, query_info.table),
+                settings=_get_insert_settings(team.id, query_info.table, modifiers=query_info.modifiers),
             )
         )
 
@@ -1940,6 +1944,7 @@ def ensure_precomputed(
                         spill_to_disk=spill_to_disk,
                         read_after_write=read_after_write,
                         overrides=insert_settings,
+                        modifiers=modifiers,
                     ),
                 )
             )

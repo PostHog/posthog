@@ -1375,6 +1375,9 @@ def insert_actors_into_cohort_by_query(
         settings={
             **COHORT_QUERY_TIMEOUT_SETTINGS,
             **COHORT_QUERY_SPILL_SETTINGS,
+            # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+            # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+            **events_read_settings(context.uses_new_events_schema()),
         },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,

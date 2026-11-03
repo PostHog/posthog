@@ -28,6 +28,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
@@ -46,6 +47,7 @@ from products.cohorts.backend.models.util import (
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
+    insert_cohort_filter_actors_into_ch,
     insert_cohort_query_actors_into_ch,
     legacy_groups_to_filters,
     parse_error_code,
@@ -1017,11 +1019,29 @@ class TestCohortUtils(BaseTest):
                 "max_bytes_before_external_sort": 21 * 1024**3,
                 "max_bytes_ratio_before_external_group_by": 0,
                 "max_bytes_ratio_before_external_sort": 0,
+                **events_read_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA),
             },
         )
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertEqual(kwargs["ch_user"], ClickHouseUser.COHORTS)
         self.assertEqual(kwargs["team_id"], self.team.id)
+
+    def test_insert_cohort_filter_actors_into_ch_sends_the_native_read_settings_for_a_switched_team(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="switched static",
+            is_static=True,
+            groups=[{"properties": [{"key": "$browser", "value": "Chrome", "type": "person"}]}],
+        )
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.id)),
+            patch("products.cohorts.backend.models.util.sync_execute") as execute,
+        ):
+            insert_cohort_filter_actors_into_ch(cohort, team=self.team)
+        settings = execute.call_args.kwargs["settings"]
+        self.assertEqual(settings["json_type_escape_dots_in_keys"], 1)
+        self.assertEqual(settings["output_format_json_escape_forward_slashes"], 0)
 
     @parameterized.expand(
         [
