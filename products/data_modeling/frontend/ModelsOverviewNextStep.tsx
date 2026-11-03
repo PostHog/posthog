@@ -7,10 +7,8 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { nodeEndpointModel } from './endpointModelName'
 import { AttentionSubject, modelsOverviewLogic } from './modelsOverviewLogic'
-import { REFRESH_LABELS, nextStepLabel } from './overviewIssueCopy'
-import { subjectHref } from './subjectHref'
+import { subjectNextStep } from './subjectNextStep'
 
 const STARTED_LABEL = 'Refresh started'
 
@@ -38,19 +36,21 @@ function RefreshButton({ savedQueryId, label }: { savedQueryId: string; label: s
 }
 
 export function ModelsOverviewNextStep({ subject }: { subject: AttentionSubject }): JSX.Element | null {
-    const { node, materialization } = subject
-    const kind = materialization?.kind
-    if (node?.saved_query_id && !nodeEndpointModel(node) && (kind === 'failed' || kind === 'behind')) {
-        return <RefreshButton savedQueryId={node.saved_query_id} label={REFRESH_LABELS[kind]} />
-    }
-
-    const href = subjectHref(subject)
-    if (!href) {
+    const nextStep = subjectNextStep(subject)
+    if (!nextStep) {
         return null
     }
+    if (nextStep.kind === 'refresh') {
+        return <RefreshButton savedQueryId={nextStep.savedQueryId} label={nextStep.label} />
+    }
     return (
-        <Button variant="outline" size="sm" render={<LinkPrimitive to={href} />} data-attr="models-overview-next-step">
-            {nextStepLabel(subject)}
+        <Button
+            variant="outline"
+            size="sm"
+            render={<LinkPrimitive to={nextStep.href} />}
+            data-attr="models-overview-next-step"
+        >
+            {nextStep.label}
         </Button>
     )
 }

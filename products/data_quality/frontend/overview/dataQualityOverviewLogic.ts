@@ -96,6 +96,34 @@ export function subjectDetailUrl(check: DataQualityOverviewCheckApi): string | n
     return check.subject_uuid ? urls.dataWarehouseSource(`self-managed-${check.subject_uuid}`) : null
 }
 
+export function groupChecksBySubject(
+    checks: DataQualityOverviewCheckApi[],
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
+): SubjectGroup[] {
+    const groups = new Map<string, SubjectGroup>()
+    for (const check of checks) {
+        const subjectKey = subjectKeyOf(check.subject_type, check.subject_uuid)
+        const group = groups.get(subjectKey) ?? {
+            subjectKey,
+            subjectType: check.subject_type,
+            subjectUuid: check.subject_uuid ?? '',
+            subjectName: check.subject_name,
+            detailUrl: subjectDetailUrl(check),
+            checks: [],
+            health: healthBySubjectKey[subjectKey]?.health ?? 'unknown',
+            checksFailing: healthBySubjectKey[subjectKey]?.checks_failing ?? 0,
+            checksTotal: healthBySubjectKey[subjectKey]?.checks_total ?? 0,
+        }
+        group.checks.push(check)
+        groups.set(subjectKey, group)
+    }
+    return [...groups.values()].sort(
+        (left, right) =>
+            (HEALTH_ORDER[left.health] ?? 9) - (HEALTH_ORDER[right.health] ?? 9) ||
+            left.subjectName.localeCompare(right.subjectName)
+    )
+}
+
 export const ROW_ACTIONS_ID_PREFIX = 'data-quality-check-actions-'
 export const SUBJECT_DISCLOSURE_ID_PREFIX = 'data-quality-subject-disclosure-'
 export const NEW_CHECK_ACTION_ID = 'data-quality-overview-new-check'
@@ -603,30 +631,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
             (
                 filteredChecks: DataQualityOverviewCheckApi[],
                 healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
-            ): SubjectGroup[] => {
-                const groups = new Map<string, SubjectGroup>()
-                for (const check of filteredChecks) {
-                    const subjectKey = subjectKeyOf(check.subject_type, check.subject_uuid)
-                    const group = groups.get(subjectKey) ?? {
-                        subjectKey,
-                        subjectType: check.subject_type,
-                        subjectUuid: check.subject_uuid ?? '',
-                        subjectName: check.subject_name,
-                        detailUrl: subjectDetailUrl(check),
-                        checks: [],
-                        health: healthBySubjectKey[subjectKey]?.health ?? 'unknown',
-                        checksFailing: healthBySubjectKey[subjectKey]?.checks_failing ?? 0,
-                        checksTotal: healthBySubjectKey[subjectKey]?.checks_total ?? 0,
-                    }
-                    group.checks.push(check)
-                    groups.set(subjectKey, group)
-                }
-                return [...groups.values()].sort(
-                    (left, right) =>
-                        (HEALTH_ORDER[left.health] ?? 9) - (HEALTH_ORDER[right.health] ?? 9) ||
-                        left.subjectName.localeCompare(right.subjectName)
-                )
-            },
+            ): SubjectGroup[] => groupChecksBySubject(filteredChecks, healthBySubjectKey),
         ],
         allSubjectKeys: [
             (s) => [s.checks],

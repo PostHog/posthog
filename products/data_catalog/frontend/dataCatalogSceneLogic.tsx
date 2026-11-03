@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
 
+import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM, TABLES_SEARCH_PARAM } from './catalogTableRows'
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 
 export type DataCatalogTab =
@@ -105,9 +106,17 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.dataCatalog()]: (_, searchParams) => {
+        [urls.dataCatalog()]: (_, searchParams, hashParams) => {
             if (values.restructureEnabled && FOLDED_INTO_TABLES.includes(searchParams.tab)) {
-                router.actions.replace(urls.dataCatalog(), { ...searchParams, tab: 'tables' })
+                router.actions.replace(
+                    urls.dataCatalog(),
+                    {
+                        ...searchParams,
+                        tab: 'tables',
+                        [TABLES_FILTER_PARAM]: searchParams[TABLES_SEARCH_PARAM] ? undefined : PROPOSED_TABLES_FILTER,
+                    },
+                    hashParams
+                )
                 return
             }
             const tab = values.availableTabs.includes(searchParams.tab) ? searchParams.tab : values.defaultTab
