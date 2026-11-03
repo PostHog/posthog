@@ -386,9 +386,11 @@ def _first_legacy_filter_entity(filter_data: dict) -> dict[str, Any] | None:
         (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
     ):
         raw = filter_data.get(key)
+        if not raw:
+            continue
         if isinstance(raw, str):
             raw = json.loads(raw)
-        entities.extend({**entity, "type": entity_type} for entity in raw or [])
+        entities.extend({**entity, "type": entity_type} for entity in raw)
     # An entry with order 0 or no order sorts first, the same as legacy insight filter parsing.
     return min(
         entities,
