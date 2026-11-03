@@ -31,7 +31,6 @@ import {
     ExperimentStatsMethod,
     FileSystemIconColor,
     FilterLogicalOperator,
-    FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelPathType,
@@ -827,8 +826,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     date_from?: string | null
     date_to?: string | null
-    events?: FilterType['events']
-    actions?: FilterType['actions']
+    events?: Record<string, any>[]
+    actions?: Record<string, any>[]
     properties?: AnyPropertyFilter[]
     console_log_filters?: LogEntryPropertyFilter[]
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters

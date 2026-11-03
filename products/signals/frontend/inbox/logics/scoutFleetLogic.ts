@@ -17,8 +17,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
-import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
+import { FEATURE_FLAGS, FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,6 +66,7 @@ import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import { selfDrivingSpendLogic } from './selfDrivingSpendLogic'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
@@ -1776,9 +1778,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
         loadScoutRunsSuccess: () => {
+            const spendLogic = selfDrivingSpendLogic({ teamId: teamLogic.values.currentTeamId ?? 0 })
+            if (spendLogic.isMounted()) {
+                spendLogic.actions.loadOverview()
+            }
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
-            if (values.isStaff) {
+            if (values.isStaff && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY]) {
                 actions.loadScoutRunCosts()
                 actions.loadScoutCosts()
             }

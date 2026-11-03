@@ -745,14 +745,6 @@ class WorkflowListQuery:
 
 
 @frozen
-class WorkflowPage:
-    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
-
-    count: int
-    results: list[Workflow]
-
-
-@frozen
 class WorkflowListFilterError:
     message: str
     code: str | None

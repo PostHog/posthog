@@ -10021,12 +10021,12 @@ Diffed against: <https://backboard.railway.com/graphql/v2>
 - [x] `events` — Project event/activity stream - the audit-style timeline of what changed and when (high)
 - [x] `metrics` — CPU/memory/network/disk metrics per project, environment and service - core observability data (high)
 - [x] `deploymentEvents` — State-transition history for each deployment we already sync, enabling deploy-duration and failure analysis (high)
-- [ ] `serviceInstance` — Lookup resolving the service x environment pair that deployments already carry IDs for (high)
+- [x] `serviceInstance` — Lookup resolving the service x environment pair that deployments already carry IDs for (high)
 - [ ] `auditLogs` — Workspace-level audit trail of who did what, for compliance and change analysis (medium)
 - [ ] `httpMetrics / httpMetricsGroupedByStatus / httpDurationMetrics` — Request volume, status-code breakdown and latency percentiles per service (medium)
-- [ ] `volumeInstance / volumeInstanceBackupList` — Per-environment volume instances and backups that resolve the volume IDs already synced (medium)
-- [ ] `workspace` — Lookup table resolving the workspace/team that every project belongs to (medium)
-- [ ] `deploymentTriggers` — Explains what caused each deployment (branch, PR, check suite) (medium)
+- [x] `volumeInstance / volumeInstanceBackupList` — Per-environment volume instances and backups that resolve the volume IDs already synced (medium)
+- [x] `workspace` — Lookup table resolving the workspace/team that every project belongs to (medium)
+- [x] `deploymentTriggers` — Explains what caused each deployment (branch, PR, check suite) (medium)
 - [ ] `httpLogs / deploymentLogs` — Request and deployment log streams for error and traffic analysis (low)
 - [ ] `regions` — Small lookup resolving region codes on services and volumes (low)
 
@@ -10038,10 +10038,10 @@ Today (6): `billing_statements`, `cards`, `departments`, `reimbursements`, `tran
 
 Diffed against: <https://docs.ramp.com/openapi/developer-api.json>
 
-- [ ] `vendors (and vendors/{id}/contacts, /accounts)` — Lookup table resolving the vendor IDs carried on bills, transactions and purchase orders (high)
-- [ ] `merchants` — Lookup resolving merchant IDs on every transaction - required for any spend-by-merchant analysis (high)
-- [ ] `bills (and bills/drafts)` — Accounts-payable bills are a core Ramp spend object entirely missing from the warehouse (high)
-- [ ] `accounting/accounts` — General-ledger account lookup that resolves the accounting codes applied to transactions (high)
+- [x] `vendors (and vendors/{id}/contacts, /accounts)` — Lookup table resolving the vendor IDs carried on bills, transactions and purchase orders (high)
+- [x] `merchants` — Lookup resolving merchant IDs on every transaction - required for any spend-by-merchant analysis (high)
+- [x] `bills (and bills/drafts)` — Accounts-payable bills are a core Ramp spend object entirely missing from the warehouse (high)
+- [x] `accounting/accounts` — General-ledger account lookup that resolves the accounting codes applied to transactions (high)
 - [ ] `locations` — Lookup resolving location IDs on transactions, users and cards (high)
 - [ ] `entities` — Legal-entity lookup needed to split spend by entity in multi-entity orgs (high)
 - [ ] `transfers` — Money movement in and out of the Ramp balance - the settlement side of card spend (medium)
@@ -10192,10 +10192,10 @@ Diffed against: <https://api-docs.render.com/reference/introduction>
 - [x] `/services/{id}/instances (list-instances)` — per-instance rows behind each service - the unit that scaling and cost analysis is done on (high)
 - [x] `/owners/{ownerId}/members (retrieve-owner-members)` — membership table linking users to the owners/workspaces already synced (high)
 - [x] `/owners/{ownerId}/audit-logs and /organizations/{id}/audit-logs` — who changed what and when - the change history for services, env groups and members (high)
-- [ ] `/metrics/* (http-requests, http-latency, cpu, memory, instance-count, bandwidth)` — the headline observability time series per service; nothing in the current tables carries runtime metrics (high)
-- [ ] `/blueprints and /blueprints/{id}/syncs` — IaC definitions plus their sync history, the deploy path for most multi-service accounts (medium)
-- [ ] `/snapshots (list-snapshots)` — backup/restore point history for Postgres instances already synced (medium)
-- [ ] `/postgres/{id}/top-queries, /table-scans, /processes` — database performance insight rows - the reason most people query Render data at all (medium)
+- [x] `/metrics/* (http-requests, http-latency, cpu, memory, instance-count, bandwidth)` — the headline observability time series per service; nothing in the current tables carries runtime metrics (high)
+- [x] `/blueprints and /blueprints/{id}/syncs` — IaC definitions plus their sync history, the deploy path for most multi-service accounts (medium)
+- [x] `/snapshots (list-snapshots)` — backup/restore point history for Postgres instances already synced (medium) — the operation is `/disks/{diskId}/snapshots`, so this is persistent disk snapshots, synced as `disk_snapshots`
+- [x] `/postgres/{id}/top-queries, /table-scans, /processes` — database performance insight rows - the reason most people query Render data at all (medium) — top queries and table scans added; processes skipped, as it is a live `pg_stat_activity` view with no history
 - [ ] `/tasks and /task-runs (listtasks, listtaskruns)` — Render Tasks execution history, analogous to the jobs table already exposed (medium)
 - [ ] `/workflows and /workflows/{id}/versions` — workflow definitions and version history for the newer Workflows product (medium)
 - [ ] `/redis (list-redis)` — legacy Redis instances are a separate resource from key_value and are invisible today (medium)
@@ -10220,9 +10220,9 @@ Today (6): `account`, `deployments`, `hardware`, `models`, `predictions`, `train
 
 Diffed against: <https://api.replicate.com/openapi.json>
 
-- [ ] `/models/{model_owner}/{model_name}/versions` — lookup resolving the version ID stamped on every prediction and training row already synced (high)
-- [ ] `/collections and /collections/{collection_slug}` — the vendor's own model taxonomy - gives a category dimension for grouping model and prediction usage (medium)
-- [ ] `/files` — uploaded input/output file records with size and expiry, joinable to predictions (low)
+- [x] `/models/{model_owner}/{model_name}/versions` — lookup resolving the version ID stamped on every prediction and training row already synced (high) → `model_versions` (full refresh, fan-out over models referenced by `deployments` and `trainings`)
+- [x] `/collections and /collections/{collection_slug}` — the vendor's own model taxonomy - gives a category dimension for grouping model and prediction usage (medium) → `collections` and `collection_models` (full refresh, fan-out over `collections`)
+- [x] `/files` — uploaded input/output file records with size and expiry, joinable to predictions (low) → `files` (full refresh)
 
 ## ReplyIo — gaps
 
@@ -10230,12 +10230,12 @@ Today (11): `account_lists`, `accounts`, `contact_lists`, `contacts`, `custom_fi
 
 Diffed against: <https://docs.reply.io/llms.txt>
 
-- [ ] `reports/list-email-activity` — per-message send/open/click/reply/bounce events - the core outreach fact table (high)
-- [ ] `sequence-contacts/list-contacts-in-sequence (and list-contacts-in-sequence-with-extended-state)` — membership table joining contacts to sequences with per-sequence status; without it sequences and contacts cannot be related (high)
-- [ ] `sequence-steps/list-all-sequence-steps (and list-step-variants)` — lookup resolving the step and variant IDs referenced by activity, plus A/B variant analysis (high)
+- [x] `reports/list-email-activity` — per-message send/open/click/reply/bounce events - the core outreach fact table (high). Added as `email_activity`, a full refresh of the all-time report including one-off emails. Not incremental: the engagement flags change after delivery, and the `from` filter is read in the account's time zone
+- [x] `sequence-contacts/list-contacts-in-sequence (and list-contacts-in-sequence-with-extended-state)` — membership table joining contacts to sequences with per-sequence status; without it sequences and contacts cannot be related (high). Added as `sequence_contacts`, one walk per sequence. The extended-state variant is not synced: it pages at 100 rows instead of 1000 for the same membership rows
+- [x] `sequence-steps/list-all-sequence-steps (and list-step-variants)` — lookup resolving the step and variant IDs referenced by activity, plus A/B variant analysis (high). Added as `sequence_steps`, one request per sequence. Variants need no table of their own: every email and LinkedIn step row already carries its `variants` array, and a separate table would cost one more request per step
 - [ ] `reports/list-meetings` — booked meetings, the outcome metric outreach performance is judged on (high)
 - [ ] `sequences/get-stats-for-all-sequences` — vendor-computed per-sequence delivery and reply rates (high)
-- [ ] `user-account/list-team-users` — lookup resolving the owner/user IDs carried on contacts, accounts, sequences and tasks (high)
+- [x] `user-account/list-team-users` — lookup resolving the owner/user IDs carried on contacts, accounts, sequences and tasks (high). Added as `team_users`, one row per user per team
 - [ ] `inbox/list-messages-in-an-inbox-thread` — message-level rows under the inbox_threads already synced (medium)
 - [ ] `inbox/list-inbox-categories` — lookup for the category IDs assigned to inbox threads (medium)
 - [ ] `reports/list-call-activity` — call outcomes and durations, the phone channel equivalent of email activity (medium)
@@ -10260,11 +10260,11 @@ Today (5): `agents`, `calls`, `chats`, `phone_numbers`, `voices`
 
 Diffed against: <https://docs.retellai.com/llms.txt>
 
-- [ ] `Agent versions (GET /list-agent-versions/{agent_id})` — resolve agent_version values on calls and compare outcomes between published versions (high)
+- [x] `Agent versions (GET /list-agent-versions/{agent_id})` — resolve agent_version values on calls and compare outcomes between published versions (high)
 - [ ] `Contacts (POST /list-contacts)` — connect call and chat outcomes to customer profiles, external CRM IDs, and contact history (medium)
 - [ ] `Batch tests (GET /v2/list-batch-tests)` — track evaluation jobs and compare agent quality across test batches (medium)
 - [ ] `Test runs (GET /v2/list-test-runs/{test_case_batch_job_id})` — analyze individual evaluation results, failure explanations, and transcript snapshots (medium)
-- [ ] `Test case definitions (GET /v2/list-test-case-definitions)` — interpret evaluation results using scenario definitions and configured scoring criteria (medium)
+- [x] `Test case definitions (GET /v2/list-test-case-definitions)` — interpret evaluation results using scenario definitions and configured scoring criteria (medium)
 
 Note: The official index and embedded OpenAPI definitions were fetched with curl for collection reads and nested version lists. Contacts use POST for a read-only list operation, as do existing call and agent imports. The existing agents endpoint lists both voice and chat agents without a channel filter, so chat agents are covered. Version and test-run tables require requests for each agent or batch; write operations and agent configuration resources are excluded.
 
@@ -10274,9 +10274,9 @@ Today (7): `campaigns`, `companies`, `customers`, `feedback`, `outbox`, `reports
 
 Diffed against: <https://www.retently.com/api/>
 
-- [ ] `GET /api/v2/nps/score, /csat/score, /ces/score, /star/score` — the vendor's headline metric - the aggregate NPS/CSAT/CES/star score the whole product exists to report (high)
-- [ ] `GET /api/v2/trends and /api/v2/trends/{groupId}` — trend groups and their trends are the topic taxonomy behind feedback; a lookup that turns free-text feedback into a breakdown dimension (high)
-- [ ] `GET /api/v2/suppressions/emails and /suppressions/domains` — suppressed recipients explain gaps in outbox delivery coverage (low)
+- [x] `GET /api/v2/nps/score, /csat/score, /ces/score, /star/score` — the vendor's headline metric - the aggregate NPS/CSAT/CES/star score the whole product exists to report (high)
+- [x] `GET /api/v2/trends and /api/v2/trends/{groupId}` — trend groups and their trends are the topic taxonomy behind feedback; a lookup that turns free-text feedback into a breakdown dimension (high)
+- [x] `GET /api/v2/suppressions/emails and /suppressions/domains` — suppressed recipients explain gaps in outbox delivery coverage (low)
 
 ## Reverb — gaps
 
@@ -10300,10 +10300,10 @@ Today (5): `customers`, `orders`, `payments`, `subscription_plans`, `subscriptio
 
 Diffed against: <https://developer.revolut.com/docs/api/merchant.yaml>
 
-- [ ] `Payouts (GET /api/payouts)` — reconcile merchant receipts with transferred funds, currencies, and payout status (high)
-- [ ] `Disputes (GET /api/disputes)` — measure chargebacks, disputed amounts, and dispute outcomes linked to payments (high)
-- [ ] `Subscription cycles (GET /api/subscriptions/{subscription_id}/cycles)` — analyze recurring billing periods and connect subscription activity with collected revenue (high)
-- [ ] `Subscription usages (GET /api/subscription-usages)` — measure consumption recorded for usage-based subscriptions and their billing cycles (high)
+- [x] `Payouts (GET /api/payouts)` — reconcile merchant receipts with transferred funds, currencies, and payout status (high) → `payouts` (full refresh)
+- [x] `Disputes (GET /api/disputes)` — measure chargebacks, disputed amounts, and dispute outcomes linked to payments (high) → `disputes` (full refresh, Production only)
+- [x] `Subscription cycles (GET /api/subscriptions/{subscription_id}/cycles)` — analyze recurring billing periods and connect subscription activity with collected revenue (high) → `subscription_cycles` (full refresh, fan-out over `subscriptions`)
+- [x] `Subscription usages (GET /api/subscription-usages)` — measure consumption recorded for usage-based subscriptions and their billing cycles (high) → `subscription_usages` (full refresh)
 - [ ] `Customer payment methods (GET /api/customers/{customer_id}/payment-methods)` — analyze stored payment method coverage across customers with recurring subscriptions (medium)
 
 Note: The current official Merchant OpenAPI YAML and Legacy YAML were fetched with curl and parsed to enumerate GET operations. The source imports legacy order lists and requests payments for each order; billing cycles and saved methods need similar parent requests. Disputes are available only in production, and saved methods differ from payment transaction snapshots. Refund writes, webhooks, payment intents, and terminal discovery are excluded.
@@ -10318,10 +10318,10 @@ Diffed against: <https://developer.rippling.com/sitemap.xml>
 - [x] `list-leave-requests` — time-off requests with status and dates, the core absence dataset (high)
 - [x] `list-worker-payroll-records` — per-worker payroll line items - actual pay, taxes and deductions, not just contracted compensation (high)
 - [x] `list-payroll-runs` — the payroll period header that payroll records roll up to (high)
-- [ ] `list-worker-changes (and list-worker-change-fields)` — the transition history for workers - promotions, transfers, terminations; today only current state is synced (high)
-- [ ] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
-- [ ] `list-titles` — lookup resolving the job title ID carried on workers (high)
-- [ ] `list-tracks` — lookup grouping the levels table already synced into career tracks (high)
+- [x] `list-worker-changes (and list-worker-change-fields)` — the transition history for workers - promotions, transfers, terminations; today only current state is synced (high)
+- [x] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
+- [x] `list-titles` — lookup resolving the job title ID carried on workers (high)
+- [x] `list-tracks` — lookup grouping the levels table already synced into career tracks (high)
 - [ ] `list-leave-types` — lookup naming the leave policy IDs on leave requests and balances (medium)
 - [ ] `list-legal-entities and list-company-legal-entities` — lookup resolving the legal entity on workers and payroll, required for multi-entity reporting (medium)
 - [ ] `list-job-codes and list-job-assignments` — lookup resolving the job code stamped on time entries and shift assignments (medium)
@@ -10336,10 +10336,10 @@ Today (11): `districts`, `germany`, `germany_age_groups`, `germany_history_cases
 
 Diffed against: <https://api.corona-zahlen.org/docs/>
 
-- [ ] `GET /vaccinations` — national vaccination totals and quotas - an entire headline dataset with no table today (high)
-- [ ] `GET /vaccinations/history/:days` — daily vaccination time series, the analytical form of the vaccination data (high)
-- [ ] `GET /vaccinations/states/:state` — per-state vaccination breakdown, the standard comparison dimension (high)
-- [ ] `GET /states/history/cases/:days` — per-state case time series; only Germany-level history is synced, so no state comparison over time is possible (high)
+- [x] `GET /vaccinations` — national vaccination totals and quotas - an entire headline dataset with no table today (high) → `vaccinations` (per-state figures go to `vaccinations_states`)
+- [x] `GET /vaccinations/history/:days` — daily vaccination time series, the analytical form of the vaccination data (high) → `vaccinations_history`
+- [x] `GET /vaccinations/states/:state` — per-state vaccination breakdown, the standard comparison dimension (high) → `vaccinations_states` (reads `GET /vaccinations/states`, which returns every state in one response)
+- [x] `GET /states/history/cases/:days` — per-state case time series; only Germany-level history is synced, so no state comparison over time is possible (high) → `states_history_cases`
 - [ ] `GET /states/history/deaths/:days` — per-state death time series to match the national germany_history_deaths table (high)
 - [ ] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high)
 - [ ] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high)

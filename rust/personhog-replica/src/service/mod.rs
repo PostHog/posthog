@@ -1786,6 +1786,9 @@ impl PersonHogReplica for PersonHogReplicaService {
                     Ok(ProtoDistinctIdWriteAction::Raise) => {
                         storage::types::DistinctIdWriteAction::Raise
                     }
+                    Ok(ProtoDistinctIdWriteAction::Tombstone) => {
+                        storage::types::DistinctIdWriteAction::Tombstone
+                    }
                     _ => {
                         return Err(Status::invalid_argument(format!(
                             "Unknown action {} for {}",

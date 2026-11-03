@@ -316,8 +316,6 @@ depends_on = [
     "products.surveys", "products.access_control",
     # The canvas_app widget resolves its canvas through the canvas facade as the viewer.
     "products.canvas",
-    # The metrics widget runs metrics queries through the metrics facade as the viewer.
-    "products.metrics",
     # Facade-only: the dashboard filter access check asks the subscriptions facade whether a
     # subscription delivers the dashboard.
     "products.subscriptions",
@@ -1351,7 +1349,6 @@ expose = [
     "backend\\.experiment_service.*",
     "backend\\.hogql_queries.*",
     "backend\\.llm_metric_templates.*",
-    "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
     "stats\\..*",

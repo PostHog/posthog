@@ -2309,7 +2309,6 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `metric_all_zero` - Metric All Zero
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
- * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -2339,7 +2338,6 @@ export const ExperimentHealthFindingCodeEnumApi = {
     MetricAllZero: 'metric_all_zero',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
-    ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
@@ -2412,7 +2410,6 @@ export interface ExperimentHealthFindingApi {
      * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures

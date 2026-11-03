@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivitySummaryApi,
+    ActivitySummarySearchResultApi,
     ActivitySummaryVersionApi,
     AnomalyInsightResponseApi,
     AnomalySearchResponseApi,
@@ -61,6 +62,7 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ReportSpendApi,
     ReviewerExclusionApi,
     ReviewerExclusionCreateApi,
     ReviewerExclusionCreateResultApi,
@@ -144,6 +146,7 @@ import type {
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
+    SignalsActivitySummaryMembersSearchParams,
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
@@ -183,6 +186,8 @@ import type {
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceSpendApi,
+    SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
     SubmitMonitoringResultResponseApi,
 } from './api.schemas'
@@ -249,6 +254,40 @@ export const signalsActivitySummaryVersionsRetrieve = async (
     options?: RequestInit
 ): Promise<ActivitySummaryVersionApi[]> => {
     return apiMutator<ActivitySummaryVersionApi[]>(getSignalsActivitySummaryVersionsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsActivitySummaryMembersSearchUrl = (
+    projectId: string,
+    params?: SignalsActivitySummaryMembersSearchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/activity_summary_members/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/activity_summary_members/search/`
+}
+
+/**
+ * Find the project members whose activity summary matches a topic, an object or a product, including people who only open the work and never edit it. Returns 404 when the search is not available for this project.
+ * @summary Search member activity summaries
+ */
+export const signalsActivitySummaryMembersSearch = async (
+    projectId: string,
+    params?: SignalsActivitySummaryMembersSearchParams,
+    options?: RequestInit
+): Promise<ActivitySummarySearchResultApi> => {
+    return apiMutator<ActivitySummarySearchResultApi>(getSignalsActivitySummaryMembersSearchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1121,6 +1160,21 @@ export const signalsReportsSignalsRetrieve = async (
     options?: RequestInit
 ): Promise<ReportSignalsResponseApi> => {
     return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportSpendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/spend/`
+}
+
+export const signalsReportSpend = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReportSpendApi> => {
+    return apiMutator<ReportSpendApi>(getSignalsReportSpendUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -3369,6 +3423,28 @@ export const signalsSourceConfigsDestroy = async (
     return apiMutator<void>(getSignalsSourceConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsSourceSpendUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_spend/`
+}
+
+export const signalsSourceSpend = async (projectId: string, options?: RequestInit): Promise<SourceSpendApi[]> => {
+    return apiMutator<SourceSpendApi[]>(getSignalsSourceSpendUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsSpendOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/spend/`
+}
+
+export const signalsSpendOverview = async (projectId: string, options?: RequestInit): Promise<SpendOverviewApi> => {
+    return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

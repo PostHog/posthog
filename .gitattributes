@@ -12,6 +12,7 @@ frontend/src/products.tsx linguist-generated
 frontend/src/queries/schema/latest-versions.json linguist-generated
 frontend/src/queries/schema.json linguist-generated
 frontend/src/queries/validators.js linguist-generated
+frontend/src/queries/web-analytics-validators.js linguist-generated
 frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
 
 products/*/frontend/generated/** linguist-generated

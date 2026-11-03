@@ -192,6 +192,7 @@ patchedDependencies:
   '@base-ui/react@1.9.0': e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f
   '@base-ui/utils@0.5.0': c25c4734cc997d0eec882b628a0231f91805610478dba85f65a60f0ba6fbb80a
   '@connectrpc/connect-node@2.1.1': a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4
+  avsc@5.7.9: 4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f
   dayjs@1.11.11: 2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852
   heatmap.js@2.0.5: d95e6638894935a75bd93b60b5243cb825892a1eedcc4c9a125a3e7dce8b64f0
   html-to-image@1.11.13: f0a5786708aab63eb75c89a2c8de10a8da63fce02a5d9ab588fbe684cab8951e
@@ -1047,6 +1048,9 @@ importers:
       d3:
         specifier: ^7.9.0
         version: 7.9.0
+      d3-array:
+        specifier: ^3.2.4
+        version: 3.2.4
       d3-flame-graph:
         specifier: ^5.0.0
         version: 5.0.0
@@ -1290,6 +1294,9 @@ importers:
       ts-pattern:
         specifier: 'catalog:'
         version: 4.3.0
+      url-pattern:
+        specifier: ^1.0.3
+        version: 1.0.3
       use-debounce:
         specifier: 'catalog:'
         version: 9.0.3(react@18.3.1)
@@ -1348,6 +1355,9 @@ importers:
       '@types/d3':
         specifier: ^7.4.3
         version: 7.4.3
+      '@types/d3-array':
+        specifier: ^3.2.1
+        version: 3.2.2
       '@types/d3-selection':
         specifier: 3.0.3
         version: 3.0.3
@@ -1712,7 +1722,7 @@ importers:
         version: 2.2.1
       avsc:
         specifier: ^5.7.9
-        version: 5.7.9
+        version: 5.7.9(patch_hash=4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f)
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
@@ -4718,6 +4728,9 @@ importers:
       '@types/d3':
         specifier: '*'
         version: 7.4.3
+      '@types/d3-array':
+        specifier: '*'
+        version: 3.2.2
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -4736,6 +4749,9 @@ importers:
       d3:
         specifier: '*'
         version: 7.9.0
+      d3-array:
+        specifier: '*'
+        version: 3.2.4
       elkjs:
         specifier: '*'
         version: 0.10.0
@@ -13587,9 +13603,6 @@ packages:
 
   '@types/cors@2.8.19':
     resolution: {integrity: sha512-mFNylyeyqN93lfe/9CSxOGREz8cpzAhH+E93xJ4xWQf62V8sQ/24reV2nyzUWM6H6Xji+GGHpkbLe7pVoUEskg==}
-
-  '@types/d3-array@3.0.3':
-    resolution: {integrity: sha512-Reoy+pKnvsksN0lQUlcH6dOGjRZ/3WRwXR//m+/8lt1BXeI4xyaUZoqULNjyXXRuh0Mj4LNpkCvhUpQlY3X5xQ==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -33462,8 +33475,6 @@ snapshots:
     dependencies:
       '@types/node': 22.18.8
 
-  '@types/d3-array@3.0.3': {}
-
   '@types/d3-array@3.2.2': {}
 
   '@types/d3-axis@3.0.1':
@@ -33592,7 +33603,7 @@ snapshots:
 
   '@types/d3@7.4.3':
     dependencies:
-      '@types/d3-array': 3.0.3
+      '@types/d3-array': 3.2.2
       '@types/d3-axis': 3.0.1
       '@types/d3-brush': 3.0.1
       '@types/d3-chord': 3.0.1
@@ -35087,7 +35098,7 @@ snapshots:
     dependencies:
       possible-typed-array-names: 1.0.0
 
-  avsc@5.7.9: {}
+  avsc@5.7.9(patch_hash=4d6bb6760158ebf8090f1673f57fbf5adca9b37c2827c0a7de3303f4b3a0873f): {}
 
   aws-sdk@2.1366.0:
     dependencies:

@@ -7,6 +7,7 @@ from unittest import mock
 
 from django.apps import apps
 from django.conf import settings
+from django.db.models import QuerySet
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -1324,6 +1325,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
+            "count": 0,
             "next": None,
             "previous": None,
             "results": [],
@@ -1399,20 +1401,25 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         Comment.objects.filter(id__in=tied_ids).update(created_at=timezone.now() - timedelta(hours=1))
         Comment.objects.filter(id=newest_id).update(created_at=timezone.now())
 
-        url: str | None = (
+        first_url = (
             f"/api/projects/{self.team.id}/comments/{root['id']}/thread"
             if root
             else f"/api/projects/{self.team.id}/comments/?scope=Notebook&item_id=1"
         )
+        url: str | None = first_url
         paged_ids: list[str] = []
         with mock.patch.object(CommentPagination, "page_size", 2):
             while url:
                 payload = self.client.get(url).json()
+                assert payload["count"] == 10
                 paged_ids.extend(comment["id"] for comment in payload["results"])
                 url = payload["next"]
                 assert len(paged_ids) <= 10
 
         assert paged_ids == [newest_id, *reversed(tied_ids)]
+
+        with mock.patch.object(QuerySet, "count", side_effect=AssertionError("count queried")):
+            assert self.client.get(first_url).json()["count"] == 10
 
     @parameterized.expand(
         [
