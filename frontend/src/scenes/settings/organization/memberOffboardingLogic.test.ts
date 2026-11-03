@@ -210,7 +210,7 @@ describe('memberOffboardingLogic', () => {
         expect(submitted).toEqual(['remove'])
     })
 
-    it('blocks removal when the resource review fails and permits retry', async () => {
+    it('allows retry after the resource review fails', async () => {
         useMocks({
             get: {
                 '/api/organizations/:organization/members/:user/offboarding_preview/': () => [
@@ -222,11 +222,24 @@ describe('memberOffboardingLogic', () => {
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toDispatchActions([
             'loadResourcesFailure',
         ])
-        await expectLogic(logic, () => logic.actions.remove()).toFinishAllListeners()
-        expect(submitted).toEqual([])
         expect(logic.values.loadError).toBeTruthy()
         useMocks({ get: { '/api/organizations/:organization/members/:user/offboarding_preview/': resources } })
         await expectLogic(logic, () => logic.actions.loadResources()).toDispatchActions(['loadResourcesSuccess'])
         expect(logic.values.loadError).toBeNull()
+    })
+    it('allows removal when the resource review fails', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization/members/:user/offboarding_preview/': () => [
+                    500,
+                    { detail: 'Review unavailable' },
+                ],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toDispatchActions([
+            'loadResourcesFailure',
+        ])
+        await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
+        expect(submitted).toEqual(['remove'])
     })
 })

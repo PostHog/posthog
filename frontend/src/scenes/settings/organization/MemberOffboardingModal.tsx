@@ -61,14 +61,7 @@ export function MemberOffboardingModal(): JSX.Element {
                         type="primary"
                         status="danger"
                         loading={removedLoading}
-                        disabledReason={
-                            disabledReason ||
-                            (resourcesLoading
-                                ? 'Checking public resources…'
-                                : loadError || resources === null
-                                  ? 'Load the resource review before continuing'
-                                  : undefined)
-                        }
+                        disabledReason={disabledReason || (resourcesLoading ? 'Checking public resources…' : undefined)}
                         onClick={remove}
                         data-attr="confirm-org-member-offboarding"
                     >
@@ -85,8 +78,9 @@ export function MemberOffboardingModal(): JSX.Element {
             {resourcesLoading ? (
                 <LemonSkeleton className="h-12" />
             ) : loadError ? (
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: loadResources }}>
-                    Couldn't load public resources. Retry before continuing.
+                <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadResources }}>
+                    Couldn't load public resources. You can still remove the member. Their public links will stay
+                    unchanged.
                 </LemonBanner>
             ) : hasResources ? (
                 <section className="space-y-3">

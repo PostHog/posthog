@@ -258,13 +258,7 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
         removed: {
             __default: false,
             remove: async () => {
-                if (
-                    !values.member ||
-                    values.resourcesLoading ||
-                    values.savingResourcesLoading ||
-                    values.loadError ||
-                    values.resources === null
-                ) {
+                if (!values.member || values.resourcesLoading || values.savingResourcesLoading) {
                     return false
                 }
                 const member = values.member
