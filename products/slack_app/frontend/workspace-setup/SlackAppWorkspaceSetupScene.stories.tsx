@@ -66,3 +66,12 @@ export const Channels: Story = {
 export const Done: Story = {
     decorators: [setupDecorator({ ...SETUP, steps: [] })],
 }
+
+export const DoneFromSettings: Story = {
+    decorators: [setupDecorator({ ...SETUP, steps: [] })],
+    render: () => (
+        <BindLogic logic={slackAppWorkspaceSetupLogic} props={{ integrationId: 7, returnTo: 'settings' }}>
+            <SlackAppWorkspaceSetupScene />
+        </BindLogic>
+    ),
+}

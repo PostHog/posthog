@@ -10,10 +10,15 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
+import {
+    parseSlackSetupReturnTarget,
+    SLACK_SETUP_RETURN_PARAM,
+} from 'products/slack_app/frontend/workspace-setup/slackSetupReturn'
+
 import { SlackIntegration } from '../components/SlackIntegration'
 import { useSlackRequiredScopes } from '../components/slackScopes'
 import { defineIntegration } from '../integrationDefinition'
-import { IntegrationStatus } from '../integrationTypes'
+import { IntegrationStatus, SettingsSectionComponent } from '../integrationTypes'
 
 // Render the scopes-mismatch banner directly under the OAuth success card so an install with
 // the wrong scope set surfaces it while the user is still in the install flow, instead of
@@ -43,7 +48,27 @@ function useSlackSetupUrl(integrations: IntegrationType[]): string | null {
     if (!enabled || !integrations.some((integration) => integration.id === newIntegrationId)) {
         return null
     }
-    return `${urls.slackAppWorkspaceSetup(newIntegrationId)}?entry=slack_page`
+    const params = new URLSearchParams({ entry: 'slack_page' })
+    const returnTo = parseSlackSetupReturnTarget(searchParams[SLACK_SETUP_RETURN_PARAM])
+    if (returnTo) {
+        params.set(SLACK_SETUP_RETURN_PARAM, returnTo)
+    }
+    return `${urls.slackAppWorkspaceSetup(newIntegrationId)}?${params}`
+}
+
+// A person who connects Slack in Settings sets it up on purpose, so the install continues on the
+// Slack page, and the setup then sends them back to Settings.
+function SlackSettingsSection({
+    next,
+    centered,
+    connectSurface,
+}: Parameters<SettingsSectionComponent>[0]): JSX.Element {
+    const setupEnabled = useFeatureFlag('SLACK_APP_WORKSPACE_SETUP')
+    const returnNext =
+        setupEnabled && connectSurface === 'settings'
+            ? `${urls.integration('slack')}?${SLACK_SETUP_RETURN_PARAM}=settings`
+            : next
+    return <SlackIntegration next={returnNext} centered={centered} />
 }
 
 export const Slack = defineIntegration(
@@ -68,5 +93,5 @@ export const Slack = defineIntegration(
         useStatus: useSlackStatus,
         useSetupUrl: useSlackSetupUrl,
     },
-    SlackIntegration
+    SlackSettingsSection
 )

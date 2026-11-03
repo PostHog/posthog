@@ -26,7 +26,7 @@ export function AIConsentStep(): JSX.Element {
             // Approving can need a fresh login, which reloads the page. The pending redirect brings
             // the person back to this setup, and the step is then done.
             setPendingApprovalRedirect({
-                url: location.pathname,
+                url: location.pathname + location.search,
                 organizationId: currentOrganization.id,
                 setAt: Date.now(),
             })
