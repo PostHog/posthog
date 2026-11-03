@@ -1060,7 +1060,7 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     )
 
 
-# Capture v1 SDKs send MCP events under the base `$lib`; older MCP SDKs relabel the whole client, app events too.
+# Newer MCP SDKs keep the base `$lib`; older ones relabel the whole client as `-mcp`, app events too.
 MCP_SDK_EVENT_METRICS: dict[str, tuple[str, ...]] = {
     "node_mcp_events": ("posthog-node", "posthog-node-mcp"),
     "python_mcp_events": ("posthog-python", "posthog-python-mcp"),
@@ -1129,7 +1129,14 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
     )
-    tracked_libs = tuple(dict.fromkeys(lib for lib, _ai_lib, _metric in sdk_metrics))
+    tracked_libs = tuple(
+        dict.fromkeys(
+            [
+                *(lib for lib, _ai_lib, _metric in sdk_metrics),
+                *(lib for libs in MCP_SDK_EVENT_METRICS.values() for lib in libs),
+            ]
+        )
+    )
     quoted_tracked_libs = ", ".join(f"'{lib}'" for lib in tracked_libs)
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
@@ -1139,7 +1146,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # below over only the $ai_* events, where $ai_lib actually lives, and folded back in instead
     # of reading `properties` for every posthog-node event just to check $ai_lib.
     metric_conditions = [f"event LIKE '{event_prefix}', '{metric}'" for event_prefix, metric in event_prefix_metrics]
-    # MCP branches go first, so an `$mcp_*` event counts as MCP usage only.
+    # MCP branches come before the `$lib` branches, so an `$mcp_*` event counts as MCP usage only.
     for metric, libs in MCP_SDK_EVENT_METRICS.items():
         quoted_libs = ", ".join(f"'{lib}'" for lib in libs)
         metric_conditions.append(

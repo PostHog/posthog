@@ -161,9 +161,9 @@ From TS 0.7.0, `applyMcpLibIdentity` relabels the client as `$lib` = `posthog-no
 posthog-node sets `$lib` at the client level, so that relabel covers **every** event sent by
 the client you pass to `instrument()`, not only the MCP events.
 
-On capture v1 (posthog-node 6, posthog-python 8), capture takes `$lib` from a per-request
-header, so one client has one identity. There the MCP SDKs keep the base SDK's `$lib`
-(`posthog-node`, `posthog-python`) and its `$lib_version`. Old and new clients send events side
+Newer releases of both MCP SDKs drop this relabel and keep the base SDK's `$lib`
+(`posthog-node`, `posthog-python`) and its `$lib_version`. Capture v1 takes `$lib` from a
+per-request header, so one client has one identity. Old and new clients send events side
 by side for a long time, so find MCP traffic by its `$mcp_*` event names or by
 `$mcp_source = 'posthog_mcp_analytics'`, not by `$lib`.
 
