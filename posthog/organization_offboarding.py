@@ -8,7 +8,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
 
 from products.alerts.backend.facade import organization_offboarding as alerts
-from products.subscriptions.backend.facade import api as subscriptions
+from products.subscriptions.backend.facade import organization_offboarding as subscriptions
 
 
 @frozen

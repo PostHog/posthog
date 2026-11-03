@@ -12,7 +12,6 @@ from collections.abc import Collection
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from posthog.organization_offboarding_types import OffboardingResource
 from posthog.paging import CursorPageRequest, Page, PageRequest
 
 from products.subscriptions.backend.logic import (
@@ -23,7 +22,6 @@ from products.subscriptions.backend.logic import (
     subscription_writes,
     summary_quota,
 )
-from products.subscriptions.backend.logic.organization_offboarding import SubscriptionOffboarding
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS as MAX_INSIGHTS
 from products.subscriptions.backend.logic.teams_subscriptions import (
     TEAMS_WEBHOOK_URL_ERROR as TEAMS_WEBHOOK_URL_ERROR,
@@ -379,7 +377,3 @@ def list_subscription_summaries(
     return subscription_reads.list_subscription_summaries(
         team_id=team_id, insight_id=insight_id, dashboard_id=dashboard_id, viewer=viewer, page=page
     )
-
-
-def list_member_offboarding_resources(organization_id: str, user_id: int) -> list[OffboardingResource]:
-    return SubscriptionOffboarding(organization_id, user_id).resources()
