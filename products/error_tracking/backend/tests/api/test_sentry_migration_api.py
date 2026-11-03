@@ -19,6 +19,7 @@ from posthog.security.url_validation import PinnedUrlVerdict
 from products.access_control.backend.facade.testing import create_access_control
 from products.error_tracking.backend.logic.sentry_migration import client as sentry_client
 from products.error_tracking.backend.models import ErrorTrackingSettings, ErrorTrackingSuppressionRule
+from products.error_tracking.backend.presentation.views.sentry_migration import SentryMigrationBurstThrottle
 
 TOKEN = "sntryu_test_token_value"
 PROJECT_PATH = "/api/0/projects/acme/web/"
@@ -201,6 +202,15 @@ class TestSentryMigrationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert message in response.json()["detail"]
         assert len(self.requested) == requests_sent
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_browser_sessions_count_against_the_import_throttle(self, _rate_limit_enabled: Any) -> None:
+        routes = {"/api/0/organizations/": _response([], headers=_no_more_pages())}
+
+        with patch.object(SentryMigrationBurstThrottle, "rate", "2/minute"):
+            statuses = [self._post("projects", routes, {}).status_code for _ in range(3)]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
 
     def test_one_item_budget_covers_every_list_in_a_request(self) -> None:
         routes = {
