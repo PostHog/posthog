@@ -3941,6 +3941,8 @@ Diffed against: <https://raw.githubusercontent.com/dodopayments/dodopayments-pyt
 - [x] `Customer wallet ledger entries (GET /customers/{customer_id}/wallets/ledger-entries)` — reconcile wallet credits and debits with customer payment activity (medium)
 - [x] `Entitlement grants (GET /entitlements/{id}/grants)` — associate entitlement definitions with customer access grants and subscription references (medium)
 - [x] `Customer emails (GET /customers/{customer_id}/emails)` — analyze transactional email delivery activity by customer and message type (medium)
+- [x] `Discount customers (GET /discounts/{discount_id}/customers)` — see which customers each discount's allow list admits and join them to redemptions (medium)
+- [x] `Moderation usage (GET /moderation/usage)` — track billable moderation screens per day over the trailing 30 days (low)
 
 Note: Extracted every GET path from the official Python SDK operation index and checked selected resource modules and response types. The advertised documentation spec URL returned HTML, so the SDK provided the usable reference. Existing tables cover top-level billing and catalog collections; missing resources need payment, payout, subscription, customer, or entitlement fan-out. Webhooks, payment-method plumbing, invoice PDFs, and duplicate CSV exports were excluded.
 
@@ -6108,6 +6110,17 @@ Diffed against: <https://github.com/hubplanner/API/tree/master/Sections>
 
 Note: Diffed the Sections/\*.md files in the official hubplanner/API repo against products/warehouse_sources/.../hubplanner/settings.py. The missing items are almost all lookup tables for IDs already present on bookings, projects and resources.
 
+## HubSpot — gaps
+
+Today (25): `calls`, `commerce_payments`, `communications`, `companies`, `contacts`, `conversation_threads`, `deals`, `emails`, `feedback_submissions`, `forecasts`, `invoices`, `leads`, `line_items`, `meetings`, `notes`, `orders`, `owners`, `pipeline_stages`, `pipelines`, `products`, `properties`, `quotes`, `subscriptions`, `tasks`, `tickets`
+
+Diffed against: <https://api.hubspot.com/public/api/spec/v1/specs>
+
+- [x] `/crm/objects/2026-09/forecasts` — forecast submissions per pipeline, team, and period, the pipeline-commit numbers sales leaders report on (medium). Added as `forecasts`, behind the optional `crm.objects.forecasts.read` scope.
+- [x] `/conversations/conversations/2026-09/threads` (v3: `/conversations/v3/conversations/threads`) — inbox conversation threads with status, assignee, and contact (medium). Added as `conversation_threads`, behind the optional `conversations.read` scope.
+
+Note: The wider HubSpot sweep lives in [COVERAGE_GAPS.md](COVERAGE_GAPS.md). These two came from the fall 2026 changelog and were checked against the 2026-09 Forecasts and Conversations specs in the catalog.
+
 ## HuggingFace — **thin**
 
 Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
@@ -7718,7 +7731,7 @@ Note: PostHog deliberately targets API v1 (MARKETSTACK_BASE_URL is pinned to /v1
 
 ## Matomo — **thin**
 
-Today (11): `actions_summary`, `countries`, `event_actions`, `event_categories`, `event_names`, `goals`, `goals_summary`, `pages`, `referrers`, `visits`, `visits_summary`
+Today (23): `actions_summary`, `browsers`, `campaign_mediums`, `campaign_names`, `campaign_sources`, `countries`, `device_types`, `entry_pages`, `event_actions`, `event_categories`, `event_names`, `exit_pages`, `goals`, `goals_summary`, `os_families`, `pages`, `referrer_types`, `referrer_websites`, `referrers`, `search_engines`, `social_networks`, `visits`, `visits_summary`
 
 Diffed against: <https://demo.matomo.cloud/index.php?module=API&method=API.getReportMetadata&idSite=1&period=day&date=today&format=JSON&token_auth=anonymous>
 
@@ -7726,10 +7739,10 @@ Diffed against: <https://demo.matomo.cloud/index.php?module=API&method=API.getRe
 - [x] `Goals.get` — Goal conversions and revenue, Matomo's headline conversion metric (high)
 - [x] `Goals.getGoals` — Lookup table resolving the goal IDs that conversion reports key on (high)
 - [x] `Events.getCategory / getAction / getName` — Custom event reports - the closest analogue to PostHog's own event model (high)
-- [ ] `Actions.getEntryPageUrls / getExitPageUrls` — Entry and exit page breakdowns for landing-page and drop-off analysis (medium)
-- [ ] `Referrers.getReferrerType / getSearchEngines / getWebsites / getSocials` — Channel-level referrer breakdowns; referrers today is only the flat getAll roll-up (medium)
-- [ ] `DevicesDetection.getType / getBrowsers / getOsFamilies` — Device, browser and OS breakdown dimensions (medium)
-- [ ] `MarketingCampaignsReporting.getName / getSource / getMedium` — UTM campaign attribution reports (medium)
+- [x] `Actions.getEntryPageUrls / getExitPageUrls` — Entry and exit page breakdowns for landing-page and drop-off analysis (medium)
+- [x] `Referrers.getReferrerType / getSearchEngines / getWebsites / getSocials` — Channel-level referrer breakdowns; referrers today is only the flat getAll roll-up (medium)
+- [x] `DevicesDetection.getType / getBrowsers / getOsFamilies` — Device, browser and OS breakdown dimensions (medium)
+- [x] `MarketingCampaignsReporting.getName / getSource / getMedium` — UTM campaign attribution reports (medium)
 - [ ] `Goals.getItemsSku / getItemsName / getItemsCategory` — Ecommerce product-level line items and revenue (medium)
 - [ ] `UserCountry.getRegion / getCity` — Finer geographic breakdown; only country is synced (medium)
 - [ ] `Actions.getPageTitles and getSiteSearchKeywords` — Page title and on-site search reporting (low)
@@ -8619,10 +8632,10 @@ Diffed against: <https://raw.githubusercontent.com/okta/okta-management-openapi-
 - [x] `apps/{appId}/users` — Application assignment per user (with scope, status and credentials profile) — the core access-review question (high). Added as `application_users`.
 - [x] `apps/{appId}/groups` — Group-based application assignment, the other half of how access is actually granted (high). Added as `application_groups`.
 - [x] `users/{userId}/factors and users/{userId}/authenticator-enrollments` — Enrolled MFA factors per user — the standard security-posture report over an Okta sync (high). Added `users/{userId}/factors` as `user_factors`; `authenticator-enrollments` is skipped because it is Identity Engine only and would repeat the per-user fan-out for overlapping enrollment data.
-- [ ] `policies and policies/{policyId}/rules` — Sign-on, password and authenticator policies plus their rules; explains why the logs table shows the auth outcomes it does (medium)
-- [ ] `devices and devices/{deviceId}/users` — Managed device inventory plus the device↔user junction, needed for device-trust and BYOD analysis (medium)
-- [ ] `iam/roles, users/{userId}/roles, groups/{groupId}/roles` — Standard and custom admin-role assignments — privileged-access reporting over users and groups we already sync (medium)
-- [ ] `idps and idps/{idpId}/users` — Identity providers plus the linked external identities, resolving federated logins seen in logs (medium)
+- [x] `policies and policies/{policyId}/rules` — Sign-on, password and authenticator policies plus their rules; explains why the logs table shows the auth outcomes it does (medium). Added as `policies` and `policy_rules`; both read every policy type, because the list endpoint requires `type`.
+- [x] `devices and devices/{deviceId}/users` — Managed device inventory plus the device↔user junction, needed for device-trust and BYOD analysis (medium). Added as `devices` and `device_users` (Identity Engine only).
+- [x] `iam/roles, users/{userId}/roles, groups/{groupId}/roles` — Standard and custom admin-role assignments — privileged-access reporting over users and groups we already sync (medium). Added as `custom_roles`, `user_role_assignments` and `group_role_assignments`.
+- [x] `idps and idps/{idpId}/users` — Identity providers plus the linked external identities, resolving federated logins seen in logs (medium). Added as `identity_providers` (without `protocol.credentials`) and `identity_provider_users`.
 - [ ] `authenticators (and /methods)` — Lookup that resolves factor/authenticator type ids appearing in enrollments and policy rules (medium)
 - [ ] `authorizationServers with /scopes, /claims and /policies` — Custom auth servers and their scopes/claims, needed to interpret OAuth token events in logs (medium)
 - [ ] `users/{userId}/grants and apps/{appId}/grants` — OAuth consent grants per user and per app — who has consented to which scopes (medium)
@@ -9742,10 +9755,10 @@ Today (14): `categories`, `checkin_lists`, `customers`, `events`, `gift_cards`, 
 
 Diffed against: <https://docs.pretix.eu/dev/api/resources/index.html>
 
-- [ ] `/organizers/{org}/transactions/` — pretix's financial ledger — the canonical per-line revenue record and the intended basis for revenue reporting (high)
-- [ ] `/organizers/{org}/events/{event}/orders/{code}/payments/` — payment records with provider, amount and state; not embedded in the order JSON (high)
-- [ ] `/organizers/{org}/events/{event}/orders/{code}/refunds/` — refund records, the other half of the money story and also not embedded in orders (high)
-- [ ] `/organizers/{org}/events/{event}/items/{id}/variations/` — lookup resolving the variation IDs carried on order positions and quotas (high)
+- [x] `/organizers/{org}/transactions/` — pretix's financial ledger — the canonical per-line revenue record and the intended basis for revenue reporting (high)
+- [ ] `/organizers/{org}/events/{event}/orders/{code}/payments/` — payment records with provider, amount and state; not embedded in the order JSON (high). Skipped: the order resource embeds a `payments` array with the same fields, so the `orders` table already carries them, and this per-order endpoint would cost one request per order
+- [ ] `/organizers/{org}/events/{event}/orders/{code}/refunds/` — refund records, the other half of the money story and also not embedded in orders (high). Skipped: the order resource embeds a `refunds` array with the same fields, so the `orders` table already carries them, and this per-order endpoint would cost one request per order
+- [ ] `/organizers/{org}/events/{event}/items/{id}/variations/` — lookup resolving the variation IDs carried on order positions and quotas (high). Skipped: the item resource embeds a `variations` array with the same fields, so the `items` table already carries them, and this per-item endpoint would need a second fan-out level
 - [ ] `/organizers/{org}/events/{event}/checkins/` — check-in history — the attendance event stream behind the checkin_lists already synced (high)
 - [ ] `/organizers/ (list)` — top-level lookup; every other table is keyed by organizer slug and there is no organizer table (high)
 - [ ] `/organizers/{org}/orderpositions/` — flat ticket-level line items across all events, far cheaper to query than unnesting the positions array embedded in orders (medium)
@@ -10376,10 +10389,10 @@ Diffed against: <https://developer.rocketlane.com/reference/get-all-projects>
 - [x] `invoices/{id}/line-items (get-invoice-line-items)` — line-item revenue breakdown against projects and tasks (high). Synced as `invoice_line_items` from `/invoices/{invoiceId}/lines`, one fetch per invoice.
 - [x] `time-entry-categories (get-time-entry-categories)` — lookup table resolving the category IDs carried on time_entries we already sync (high). Synced as `time_entry_categories` from `/time-entries/categories`.
 - [x] `phases (get-all-phases)` — lookup table resolving the phase IDs on tasks and projects we already sync (high). Synced as `phases`, one fetch per project, because `/phases` requires a `projectId` filter.
-- [ ] `resource-allocations (get-all-resource-allocations)` — planned capacity to compare against logged time entries (high)
-- [ ] `invoices/{id}/payments (get-invoice-payments)` — cash collection and AR aging (medium)
-- [ ] `time-offs (get-all-timeoffs)` — needed for correct utilization and availability math (medium)
-- [ ] `spaces (get-all-spaces)` — lookup resolving the space grouping projects and documents belong to (medium)
+- [x] `resource-allocations (get-all-resource-allocations)` — planned capacity to compare against logged time entries (high). Synced as `resource_allocations` with one wide `startDate`/`endDate` window, because the endpoint requires both.
+- [x] `invoices/{id}/payments (get-invoice-payments)` — cash collection and AR aging (medium). Synced as `invoice_payments`, one fetch per invoice.
+- [x] `time-offs (get-all-timeoffs)` — needed for correct utilization and availability math (medium). Synced as `time_offs`.
+- [x] `spaces (get-all-spaces)` — lookup resolving the space grouping projects and documents belong to (medium). Synced as `spaces`, one fetch per project, because `/spaces` requires a `projectId` filter.
 - [ ] `placeholders (get-placeholders)` — unfilled roles on allocations, useful for staffing gap reporting (low)
 - [ ] `space-documents (get-all-space-documents)` — document inventory per space (low)
 
@@ -10454,14 +10467,14 @@ Note: The v4 Core API exposes no download/listener analytics endpoint at all, so
 
 ## Rubygems — gaps
 
-Today (2): `gems`, `versions`
+Today (7): `gems`, `versions`, `owners`, `reverse_dependencies`, `latest_gems`, `just_updated_gems`, `timeframe_versions`
 
 Diffed against: <https://guides.rubygems.org/rubygems-org-api/>
 
-- [ ] `gems/{name}/owners.json` — membership table of gem maintainers, the only ownership join available (high)
-- [ ] `gems/{name}/reverse_dependencies.json` — downstream adoption of a gem, the main ecosystem-impact question (medium)
-- [ ] `activity/just_updated.json and activity/latest.json` — feed of newly released and newly updated gems for ecosystem tracking (medium)
-- [ ] `timeframe_versions.json` — all versions published in a time window, an ecosystem-wide release feed with a natural incremental cursor (medium)
+- [x] `gems/{name}/owners.json` — membership table of gem maintainers, the only ownership join available (high) → `owners` (full refresh, per configured gem)
+- [x] `gems/{name}/reverse_dependencies.json` — downstream adoption of a gem, the main ecosystem-impact question (medium) → `reverse_dependencies` (full refresh, per configured gem)
+- [x] `activity/just_updated.json and activity/latest.json` — feed of newly released and newly updated gems for ecosystem tracking (medium) → `just_updated_gems`, `latest_gems` (full refresh, ecosystem-wide)
+- [x] `timeframe_versions.json` — all versions published in a time window, an ecosystem-wide release feed with a natural incremental cursor (medium) → `timeframe_versions` (incremental on `created_at`, 7-day first sync)
 - [ ] `owners/{handle}/gems.json` — inverse of the owners join, lists every gem for a maintainer (low)
 - [ ] `profiles/{handle}.json` — lookup resolving owner handles to profile metadata (low)
 

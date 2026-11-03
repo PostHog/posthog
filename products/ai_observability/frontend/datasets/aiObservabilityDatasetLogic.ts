@@ -40,6 +40,7 @@ import type {
     PaginatedDatasetItemReadListApi,
     PaginatedDatasetRevisionReadListApi,
 } from '../generated/api.schemas'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { truncateValue } from '../utils'
 import { aiObservabilityDatasetsLogic, getDatasetDetailUrl, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
@@ -1281,15 +1282,19 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
     })),
 
-    trackedActionToUrl(({ values }) => ({
-        setActiveTab: () => [
-            router.values.location.pathname,
-            {
-                ...router.values.searchParams,
-                tab: values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined,
-            },
-            router.values.hashParams,
-        ],
+    trackedActionToUrl(({ props, values }) => ({
+        setActiveTab: () => {
+            const tab = values.activeTab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined
+            // urlToAction also syncs the tab from a URL the person went back to, and that URL must keep its open trace.
+            if ((router.values.searchParams.tab === DatasetTab.Metadata ? DatasetTab.Metadata : undefined) === tab) {
+                return
+            }
+            return [
+                router.values.location.pathname,
+                { ...withoutTraceDrawerParams(router.values.searchParams), tab },
+                router.values.hashParams,
+            ]
+        },
         setFilters: () => {
             const nextSearchParams = {
                 ...router.values.searchParams,
@@ -1299,7 +1304,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                 revision: values.filters.revision ?? undefined,
             }
             return [
-                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
+                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : props.datasetId),
                 nextSearchParams,
                 {},
                 { replace: true },
@@ -1308,7 +1313,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         closeModalAndRefetchDatasetItems: () => {
             const nextSearchParams = { ...router.values.searchParams, item: undefined }
             return [
-                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : 'new'),
+                urls.aiObservabilityDataset(isDataset(values.dataset) ? values.dataset.id : props.datasetId),
                 nextSearchParams,
                 {},
                 { replace: false },

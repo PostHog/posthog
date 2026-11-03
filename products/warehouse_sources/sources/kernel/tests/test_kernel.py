@@ -1,4 +1,3 @@
-import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -13,6 +12,7 @@ from products.warehouse_sources.sources.kernel._config import KernelSourceConfig
 from products.warehouse_sources.sources.kernel.kernel import (
     AUDIT_LOG_MAX_WINDOW,
     PAGE_SIZE,
+    KernelResumeConfig,
     KernelRetryableError,
     KernelUnexpectedResponseError,
     _extract_items,
@@ -35,10 +35,6 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 def _driver() -> SourceDriver:
     return SourceDriver(KernelSource(), KernelSourceConfig(api_key="sk_test"))
-
-
-def _rows(result: DriveResult) -> list[dict[str, Any]]:
-    return [row for table in result.rows for row in table.to_pylist()]
 
 
 def _response(
@@ -118,13 +114,16 @@ class TestGetRows:
         )
 
         assert result.raised is None
-        assert _rows(result) == [{"id": "a1"}, {"id": "a2"}]
+        # Row lists, not tables, so the pipeline batches pages together.
+        assert result.items == [[{"id": "a1"}], [{"id": "a2"}]]
         assert result.params("offset") == ["0", "100"]
+        # The last page carries a terminal cursor, so a hand-off after it reads nothing again.
+        assert result.committed_states == [KernelResumeConfig(offset=100), KernelResumeConfig(completed=True)]
 
     def test_empty_first_page_yields_nothing(self) -> None:
         result = _driver().run("profiles", [_response([], has_more=False)])
         assert result.raised is None
-        assert _rows(result) == []
+        assert result.rows == []
 
     def test_empty_page_with_more_pages_keeps_paging(self) -> None:
         # An empty page that still reports X-Has-More must not end the sync early.
@@ -136,7 +135,7 @@ class TestGetRows:
             ],
         )
         assert result.raised is None
-        assert _rows(result) == [{"id": "a1"}]
+        assert result.rows == [{"id": "a1"}]
         assert result.params("offset") == ["0", "100"]
 
     @pytest.mark.parametrize(
@@ -150,12 +149,78 @@ class TestGetRows:
             assert isinstance(result.raised, requests.HTTPError)
         else:
             assert result.raised is None
-            assert _rows(result) == []
+            assert result.rows == []
 
     def test_unexpected_response_shape_raises(self) -> None:
         result = _driver().run("apps", [_response({"unexpected": [{"id": "a1"}]}, has_more=False)])
 
         assert isinstance(result.raised, KernelUnexpectedResponseError)
+
+    @pytest.mark.parametrize(
+        "endpoint, saved, responses, expected_paths, expected_offsets, row_key, expected_keys",
+        [
+            pytest.param(
+                "deployments",
+                KernelResumeConfig(offset=100),
+                {"/deployments": [_response([{"id": "a2"}], has_more=False)]},
+                ["/deployments"],
+                ["100"],
+                "id",
+                ["a2"],
+                id="list_starts_at_saved_offset",
+            ),
+            pytest.param(
+                "browser_telemetry_events",
+                KernelResumeConfig(telemetry_session_id="b2", telemetry_cursor=987),
+                {
+                    "/browsers": [_response([{"session_id": "b3"}, {"session_id": "b1"}, {"session_id": "b2"}])],
+                    "/browsers/b2/telemetry/events": [_response([{"seq": 2, "event": {}}], has_more=False)],
+                    "/browsers/b3/telemetry/events": [_response([{"seq": 3, "event": {}}], has_more=False)],
+                },
+                ["/browsers", "/browsers/b2/telemetry/events", "/browsers/b3/telemetry/events"],
+                ["0", "987", None],
+                "seq",
+                [2, 3],
+                id="telemetry_skips_finished_sessions_and_resumes_the_saved_one",
+            ),
+            pytest.param(
+                "deployments",
+                KernelResumeConfig(completed=True),
+                {},
+                [],
+                [],
+                "id",
+                [],
+                id="list_after_its_last_page_reads_nothing",
+            ),
+            pytest.param(
+                "browser_telemetry_events",
+                KernelResumeConfig(completed=True),
+                {},
+                [],
+                [],
+                "seq",
+                [],
+                id="telemetry_after_its_last_page_reads_nothing",
+            ),
+        ],
+    )
+    def test_resumes_from_saved_state(
+        self,
+        endpoint: str,
+        saved: KernelResumeConfig,
+        responses: dict[str, list[ScriptedResponse]],
+        expected_paths: list[str],
+        expected_offsets: list[str | None],
+        row_key: str,
+        expected_keys: list[Any],
+    ) -> None:
+        result = _driver().run(endpoint, route(responses), resume_state=saved)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("offset") == expected_offsets
+        assert [row[row_key] for row in result.rows] == expected_keys
 
     def test_retries_exhausted_raises(self) -> None:
         result = _driver().run("apps", always(_response(None, status_code=503)))
@@ -205,7 +270,7 @@ class TestBrowserTelemetryEvents:
         )
 
         assert result.raised is None
-        assert [{**row, "data": json.loads(row["data"])} for row in _rows(result)] == [
+        assert result.rows == [
             {
                 "browser_session_id": "active",
                 "seq": 1,
@@ -253,7 +318,7 @@ class TestBrowserTelemetryEvents:
         )
 
         assert result.raised is None
-        assert [row["seq"] for row in _rows(result)] == [1]
+        assert [row["seq"] for row in result.rows] == [1]
         assert len(result.requests) == 2
 
     def test_skips_browser_purged_after_listing(self) -> None:
@@ -267,14 +332,14 @@ class TestBrowserTelemetryEvents:
         )
 
         assert result.raised is None
-        assert [(row["browser_session_id"], row["seq"]) for row in _rows(result)] == [("b2", 7)]
+        assert [(row["browser_session_id"], row["seq"]) for row in result.rows] == [("b2", 7)]
 
 
 class TestKernelSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = KERNEL_ENDPOINTS[endpoint]
-        response = kernel_source("sk_test", endpoint, mock.MagicMock())
+        response = kernel_source("sk_test", endpoint, mock.MagicMock(), resumable_source_manager=mock.MagicMock())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -341,7 +406,7 @@ class TestAuditLogRows:
             _audit_record(_NOW - timedelta(hours=2), path="/apps"),
         ]
         result = _driver().run("audit_logs", _fake_audit_log_api(records))
-        rows = _rows(result)
+        rows = result.rows
 
         assert result.raised is None
         assert len(rows) == len(records)
@@ -366,23 +431,29 @@ class TestAuditLogRows:
             db_incremental_field_last_value=_NOW - timedelta(hours=2),
         )
         assert rerun.raised is None
-        assert {r["id"] for r in _rows(rerun)} == {r["id"] for r in rows[-2:]}
+        assert {r["id"] for r in rerun.rows} == {r["id"] for r in rows[-2:]}
 
     @pytest.mark.parametrize(
-        "last_value, expected_start",
+        "last_value, resume_start, expected_start",
         [
-            (None, _NOW - timedelta(days=365)),
-            (_NOW - timedelta(days=2), _NOW - timedelta(days=2)),
-            ("2026-05-30T00:00:00Z", datetime(2026, 5, 30, tzinfo=UTC)),
+            (None, None, _NOW - timedelta(days=365)),
+            (_NOW - timedelta(days=2), None, _NOW - timedelta(days=2)),
+            ("2026-05-30T00:00:00Z", None, datetime(2026, 5, 30, tzinfo=UTC)),
             # Kernel keeps one year of audit logs, so an older watermark starts at the retention edge.
-            (_NOW - timedelta(days=500), _NOW - timedelta(days=365)),
+            (_NOW - timedelta(days=500), None, _NOW - timedelta(days=365)),
+            # A resumed run starts after the last window it handed on.
+            (None, "2026-05-10T00:00:00.000000Z", datetime(2026, 5, 10, tzinfo=UTC)),
+            (_NOW - timedelta(days=2), "2026-05-10T00:00:00.000000Z", _NOW - timedelta(days=2)),
         ],
     )
     @time_machine.travel(_NOW, tick=False)
-    def test_search_starts_at_watermark_or_retention_edge(self, last_value: Any, expected_start: datetime) -> None:
+    def test_search_starts_at_watermark_or_retention_edge(
+        self, last_value: Any, resume_start: str | None, expected_start: datetime
+    ) -> None:
         result = _driver().run(
             "audit_logs",
             always(_response([], has_more=False)),
+            resume_state=KernelResumeConfig(audit_log_start=resume_start) if resume_start else None,
             incremental_field="timestamp" if last_value is not None else None,
             db_incremental_field_last_value=last_value,
         )

@@ -1,3 +1,4 @@
+import math
 import unicodedata
 from collections.abc import Mapping
 from datetime import date
@@ -17,14 +18,30 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.health.checks.forced_variant import (
+    SOME_CONDITIONS_PINNED,
+    assigns_nobody_by_split,
+    set_names,
+)
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.context import ExposureSegment, ExposureTotals, FlagHistory, HealthContext
+from products.experiments.backend.health.context import (
+    ExposureSegment,
+    ExposureTotals,
+    FlagHistory,
+    FlagState,
+    HealthContext,
+    ReachableCondition,
+)
+from products.experiments.backend.health.pinned_share import pinned_variant_keys
 from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
 SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 SRM_MINIMUM_SAMPLE_SIZE = 100
+# The share of persons or groups that would have to switch variants to match the split. Below it, a mismatch moves too
+# few of them to change the results much, so it is info. A large experiment reaches the p-value with a far smaller skew.
+MATERIAL_SHARE_OFF_SPLIT = 0.01
 TOP_SEGMENT_VALUES = 5
 # Below this, a skew of a few points passes the homogeneity test for lack of power, and would read as the same skew
 # everywhere. Two segments this large are needed before the finding calls a dimension uniform.
@@ -91,6 +108,7 @@ def reads_segments(ctx: HealthContext) -> bool:
     outcome = srm(ctx)
     if not isinstance(outcome, ExperimentHealthFinding):
         return False
+    # A variant override can explain a mismatch, but a segment that locates it names the cause more precisely.
     if outcome.subcode != SPLIT_CHANGED:
         return True
     retest_p_value = outcome.evidence.get("p_value_after_split_change")
@@ -102,7 +120,7 @@ def segments_first_exposed_after(ctx: HealthContext) -> date | None:
     change, the users first exposed before it got their variants from another split, so they would fail the test
     against the current split in any segment they fill."""
     history = ctx.flag_history
-    if not isinstance(history, FlagHistory) or _split_change_warning(ctx) is None:
+    if not isinstance(history, FlagHistory) or _split_change_cause(ctx) is None:
         return None
     return _last_split_change_day(history)
 
@@ -111,6 +129,10 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     exposures = ctx.exposures
     if exposures is None:
         return not_applicable(RUNS_AFTER_LAUNCH)
+    # The split then serves nobody, so the test compares nothing. `forced_variant_release_condition` explains it.
+    overrides = _flag_of_the_run(ctx)
+    if overrides is not None and assigns_nobody_by_split(overrides):
+        return not_applicable("The split assigns nobody, because every release condition sets a variant override")
     p_value = exposures.sample_ratio_mismatch_p_value
     if p_value is None:
         # The exposure query compares only the variants with a share of the split that the analysis keeps, so after
@@ -125,16 +147,55 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         return not_applicable("Runs once enough users are exposed")
     if p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
         return None
+    share_off_split = _share_off_split(exposures.total_exposures, exposures.sample_ratio_expected)
     split_change = _split_change_warning(ctx)
     history = ctx.flag_history
-    if split_change is None or not isinstance(history, FlagHistory):
-        return _mismatch(exposures, p_value)
-    # The warning stays a warning: the users exposed after the change are fewer than those the test covers, so a
-    # retest that passes can't rule out a mismatch with another cause. The retest only adds evidence.
+    ruled_out = False
+    if split_change is not None and isinstance(history, FlagHistory):
+        if not _skew_predates_the_change(ctx, exposures, history):
+            return _after_split_change(ctx, exposures, history, split_change, p_value, share_off_split)
+        ruled_out = True
+    cause = _segment_cause(exposures, exposures.unit)
+    pinned = _pinned_cause(ctx, exposures)
+    if pinned and not cause.locates_the_mismatch:
+        return _pinned_mismatch(exposures, pinned, p_value, share_off_split, cause)
+    return _mismatch(exposures, p_value, share_off_split, cause, split_change_ruled_out=ruled_out)
+
+
+def _severity(share_off_split: float) -> ExperimentHealthFindingSeverity:
+    if share_off_split < MATERIAL_SHARE_OFF_SPLIT:
+        return ExperimentHealthFindingSeverity.INFO
+    return ExperimentHealthFindingSeverity.WARNING
+
+
+def _small_mismatch(share_off_split: float, unit: str) -> list[str]:
+    if share_off_split >= MATERIAL_SHARE_OFF_SPLIT:
+        return []
+    # Rounded down, so that a share just under the floor doesn't read as the floor. The epsilon keeps a share of 0.008
+    # that float arithmetic computes as 0.00799… at 0.8%.
+    tenths = math.floor(share_off_split * 1000 + 1e-9)
+    share = f"Only {tenths / 10:g}%" if tenths else "Fewer than 0.1%"
+    return [
+        f"{share} of {unit}s would have to switch variants to match the split, so the difference is unlikely to "
+        "change the results."
+    ]
+
+
+def _after_split_change(
+    ctx: HealthContext,
+    exposures: ExposureTotals,
+    history: FlagHistory,
+    split_change: ExperimentHealthFinding,
+    p_value: float,
+    share_off_split: float,
+) -> ExperimentHealthFinding:
+    # A retest that passes keeps the severity: the users exposed after the change are fewer than those the test covers,
+    # so it can't rule out a mismatch with another cause. The retest only adds evidence.
     unit = exposures.unit
     retest, p_value_after_change = _retest_after_change(ctx, exposures, history, unit)
     evidence: dict[str, str | int | float | None] = {
         "p_value": p_value,
+        "share_off_split": round(share_off_split, 4),
         "p_value_after_split_change": p_value_after_change,
     }
     cause = (
@@ -148,12 +209,13 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         code=ExperimentHealthFindingCode.SRM,
         subcode=SPLIT_CHANGED,
         reason=cause.reason if cause is not None else None,
-        severity=ExperimentHealthFindingSeverity.WARNING,
+        severity=_severity(share_off_split),
         title=f"{unit.capitalize()}s are not split as configured after a split change",
         detail=" ".join(
             [
                 f"The distribution of {unit}s across variants doesn't match your current rollout percentages "
                 f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
+                *_small_mismatch(share_off_split, unit),
                 f"The variant split changed after launch while {unit}s were exposed, and some of them got their "
                 "variants from another split, which can cause this.",
                 *retest,
@@ -207,6 +269,49 @@ def _last_split_change_day(history: FlagHistory) -> date:
     return history.counted(SplitChange)[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
 
 
+def _split_change_cause(ctx: HealthContext) -> ExperimentHealthFinding | None:
+    """The warning of the split change check, when the change can explain the mismatch."""
+    warning = _split_change_warning(ctx)
+    history = ctx.flag_history
+    if warning is None or not isinstance(history, FlagHistory) or ctx.exposures is None:
+        return None
+    return None if _skew_predates_the_change(ctx, ctx.exposures, history) else warning
+
+
+def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, history: FlagHistory) -> bool:
+    """Whether the users first exposed before the first split change, those first exposed after the last one and all
+    exposed users show the same shares, and those after it don't match the current split. Mixing assignments then
+    can't explain the mismatch, because each group of users alone shows it."""
+    events = ctx.exposure_events
+    if events is None or events.activation is not None:
+        return False
+    changes = history.counted(SplitChange)
+    if not changes:
+        return False
+    first_day = changes[0].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
+    last_day = _last_split_change_day(history)
+    weights = exposures.sample_ratio_expected
+    # A user first exposed on the day of a change can have either split, so neither group counts them.
+    before = {
+        variant: sum(count for day, count in exposures.daily_exposures.get(variant, {}).items() if day < first_day)
+        for variant in weights
+    }
+    after = {
+        variant: sum(count for day, count in exposures.daily_exposures.get(variant, {}).items() if day > last_day)
+        for variant in weights
+    }
+    retest = sample_ratio_test(after, weights)
+    if retest is None or retest.p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
+        return False
+    if sum(before.values()) < SRM_MINIMUM_SAMPLE_SIZE:
+        return False
+    # The users between the changes and on a change day fill neither group, so all users must show the shares too.
+    return (
+        _share_off_split(before, after) < MATERIAL_SHARE_OFF_SPLIT
+        and _share_off_split(exposures.total_exposures, after) < MATERIAL_SHARE_OFF_SPLIT
+    )
+
+
 def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     try:
         outcome = split_changed_mid_run(ctx)
@@ -219,23 +324,113 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     return None
 
 
-def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:
+def _flag_of_the_run(ctx: HealthContext) -> FlagState | None:
+    """The flag whose variant overrides can explain the mismatch. None after the end, because the flag then often
+    holds the shipped decision and not the setup of the run, like `flag_to_check` says."""
+    return None if ctx.has_ended else ctx.flag
+
+
+def _pinned_cause(ctx: HealthContext, exposures: ExposureTotals) -> tuple[ReachableCondition, ...]:
+    """The release conditions with a variant override in the test, when one of them pins the variant furthest above
+    its expected count. Their users don't follow the split, so they can cause the mismatch."""
+    expected = exposures.sample_ratio_expected
+    flag = _flag_of_the_run(ctx)
+    if flag is None or not expected:
+        return ()
+    pinned = tuple(condition for condition in flag.reachable_conditions if condition.pinned_variant in expected)
+    over = max(expected, key=lambda variant: exposures.total_exposures.get(variant, 0) - expected[variant])
+    return pinned if any(condition.pinned_variant == over for condition in pinned) else ()
+
+
+def _pinned_mismatch(
+    exposures: ExposureTotals,
+    pinned: tuple[ReachableCondition, ...],
+    p_value: float,
+    share_off_split: float,
+    segments: "_SegmentCause",
+) -> ExperimentHealthFinding:
     unit = exposures.unit
-    cause = _segment_cause(exposures, unit)
+    numbers = [condition.number for condition in pinned]
+    keys = pinned_variant_keys(pinned)
+    if len(numbers) == 1:
+        cause = (
+            f'{set_names(numbers)} sets the variant override "{keys[0]}", so the {unit}s it matches get "{keys[0]}" '
+            "instead of a variant from the split, which can cause this."
+        )
+        overrides = "the override"
+    else:
+        quoted = ", ".join(f'"{key}"' for key in keys)
+        cause = (
+            f"{set_names(numbers)} set variant overrides ({quoted}), so the {unit}s they match get the variant of "
+            "their condition instead of one from the split, which can cause this."
+        )
+        overrides = "the overrides"
+    return ExperimentHealthFinding(
+        code=ExperimentHealthFindingCode.SRM,
+        subcode=SOME_CONDITIONS_PINNED,
+        reason=None,
+        severity=_severity(share_off_split),
+        title=f"{unit.capitalize()}s are not split as configured because of variant overrides",
+        detail=" ".join(
+            [
+                f"The distribution of {unit}s across variants doesn't match your configured rollout percentages "
+                f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
+                *_small_mismatch(share_off_split, unit),
+                cause,
+                "If these are internal or test users, check that the filter for internal and test users excludes "
+                f"them from the results. Otherwise remove {overrides}.",
+            ]
+        ),
+        evidence={
+            "p_value": p_value,
+            "share_off_split": round(share_off_split, 4),
+            "pinned_conditions": ",".join(str(number) for number in numbers),
+            "pinned_variants": ",".join(keys),
+            **segments.evidence,
+        },
+        actions=(),
+        diagnostic_ref="A2",
+    )
+
+
+def _mismatch(
+    exposures: ExposureTotals,
+    p_value: float,
+    share_off_split: float,
+    cause: "_SegmentCause",
+    *,
+    split_change_ruled_out: bool,
+) -> ExperimentHealthFinding:
+    unit = exposures.unit
+    ruled_out = (
+        [
+            f"The variant split changed after launch, but the {unit}s first exposed before the change show the same "
+            "mismatch as those first exposed after it, so the change doesn't explain it."
+        ]
+        if split_change_ruled_out
+        else []
+    )
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=None,
         reason=cause.reason,
-        severity=ExperimentHealthFindingSeverity.WARNING,
+        severity=_severity(share_off_split),
         title=f"{unit.capitalize()}s are not split across variants as configured",
         detail=" ".join(
             [
                 f"The distribution of {unit}s across variants doesn't match your configured rollout percentages "
                 f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
+                *_small_mismatch(share_off_split, unit),
+                *ruled_out,
                 *(cause.sentences or ("This may indicate issues with randomization or data collection.",)),
             ]
         ),
-        evidence={"p_value": p_value, **cause.evidence},
+        evidence={
+            "p_value": p_value,
+            "share_off_split": round(share_off_split, 4),
+            **({"split_change_ruled_out": True} if split_change_ruled_out else {}),
+            **cause.evidence,
+        },
         actions=(),
         diagnostic_ref="A2",
     )
@@ -265,6 +460,10 @@ class _SegmentCause:
     sentences: tuple[str, ...]
     reason: str | None
     evidence: dict[str, str | int | float | None]
+
+    @property
+    def locates_the_mismatch(self) -> bool:
+        return self.reason is not None and self.reason != SrmReason.UNIFORM
 
 
 def _segment_cause(exposures: ExposureTotals, unit: str) -> _SegmentCause:
@@ -314,17 +513,19 @@ def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, wei
         homogeneity_p_value=homogeneity_p_value,
         powered=powered,
         located=located,
-        distance=_distance_from_split(located, weights) if located is not None else 0.0,
+        distance=_share_off_split(located.exposed_by_variant, weights) if located is not None else 0.0,
     )
 
 
-def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float]) -> float:
-    """The share of the segment's persons or groups that would have to move between variants to match the split."""
-    total = sum(segment.exposed_by_variant.get(variant, 0) for variant in weights)
+def _share_off_split(exposed_by_variant: Mapping[str, int], weights: Mapping[str, float]) -> float:
+    """The share of the persons or groups that would have to move between variants to match the weights."""
+    total = sum(exposed_by_variant.get(variant, 0) for variant in weights)
     total_weight = sum(weights.values())
+    if total <= 0 or total_weight <= 0:
+        return 0.0
     return (
         sum(
-            abs(segment.exposed_by_variant.get(variant, 0) / total - weight / total_weight)
+            abs(exposed_by_variant.get(variant, 0) / total - weight / total_weight)
             for variant, weight in weights.items()
         )
         / 2
