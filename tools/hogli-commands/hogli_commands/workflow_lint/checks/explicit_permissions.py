@@ -13,8 +13,9 @@ workflow that declares one on every job needs no top-level block.
 
 Reusable-workflow call jobs are exempt because they run the callee's jobs, and
 the callee's own `permissions:` sets their scopes when the caller does not. That
-only holds while the callee declares some, so a local callee with no
-`permissions:` anywhere is reported on the caller.
+only holds while every job the callee runs declares them, so a local callee is
+followed through its own local calls, to any depth, and a bare job anywhere in
+the chain is reported on the caller.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..check import CheckResult, Issue, WorkflowCheck
-from ..model import Workflow
+from ..model import Workflow, local_callee
 
 UNTRUSTED_TRIGGERS = frozenset(
     {
@@ -50,25 +51,28 @@ def _triggers(wf: Workflow) -> set[str]:
     return set()
 
 
-def _declares_permissions(wf: Workflow) -> bool:
-    # Every job the caller can reach must declare its own scopes. `any` let a callee
-    # with one declared job and one bare job through, and the bare job inherited the
-    # repository default. A job that is itself a reusable call is skipped: its own
-    # permissions are the responsibility of its own callee.
+def _declares_permissions(wf: Workflow, workflows: list[Workflow], seen: frozenset[Path] = frozenset()) -> bool:
+    """Whether every job `wf` runs, through its own local calls too, has declared scopes.
+
+    `any` let a callee with one declared job and one bare job through, and skipping
+    a relay job (`uses:` with no `permissions:`) without following it let a two-deep
+    chain end in a bare job. A relay job that declares `permissions:` caps its own
+    callee, so the walk stops there. A remote callee is not visible here and passes.
+    """
     if "permissions" in wf.raw:
         return True
-    return all(job.is_reusable_call or "permissions" in job.raw for job in wf.jobs)
-
-
-def _local_callee(uses: str, workflows: list[Workflow]) -> Workflow | None:
-    """The parsed callee of a `./.github/workflows/x.yml` call, if it is in this page."""
-    if not uses.startswith("./"):
-        return None
-    target = Path(uses[2:]).as_posix()
-    for candidate in workflows:
-        if candidate.path.as_posix().endswith(target):
-            return candidate
-    return None
+    seen = seen | {wf.path}
+    for job in wf.jobs:
+        if "permissions" in job.raw:
+            continue
+        if not job.is_reusable_call:
+            return False
+        callee = local_callee(job.uses or "", workflows)
+        if callee is None or callee.path in seen:
+            continue
+        if not _declares_permissions(callee, workflows, seen):
+            return False
+    return True
 
 
 class ExplicitPermissionsCheck(WorkflowCheck):
@@ -99,14 +103,15 @@ class ExplicitPermissionsCheck(WorkflowCheck):
                 if "permissions" in job.raw:
                     continue
                 if job.is_reusable_call:
-                    callee = _local_callee(job.uses or "", workflows)
-                    if callee is not None and not _declares_permissions(callee):
+                    callee = local_callee(job.uses or "", workflows)
+                    if callee is not None and not _declares_permissions(callee, workflows, frozenset({wf.path})):
                         result.issues.append(
                             Issue(
                                 workflow=wf.path.name,
                                 job=job.name,
                                 message=(
-                                    f"calls {job.uses}, which declares no permissions, so both inherit "
+                                    f"calls {job.uses}, which declares no permissions for every job it runs "
+                                    "(directly or through its own reusable calls), so those jobs inherit "
                                     "the repository default"
                                 ),
                                 file=str(wf.path),

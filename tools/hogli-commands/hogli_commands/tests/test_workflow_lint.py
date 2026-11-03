@@ -2981,6 +2981,73 @@ class TestExplicitPermissionsCheck:
         )
         assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
 
+    def test_fails_on_a_two_deep_chain_ending_in_a_bare_job(self, tmp_path: Path) -> None:
+        # Skipping the relay job in `relay.yml` without following it passed this chain,
+        # and the bare job in `leaf.yml` inherited the repository default.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir, "relay.yml", "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+        )
+        _write(wf_dir, "leaf.yml", "name: L\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        issues = ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert issues[0].workflow == "caller.yml"
+
+    def test_passes_on_a_two_deep_chain_that_declares_permissions(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir, "relay.yml", "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+        )
+        _write(
+            wf_dir,
+            "leaf.yml",
+            "name: L\non: workflow_call\njobs:\n  run:\n    permissions:\n      contents: read\n"
+            "    runs-on: ubuntu-24.04\n",
+        )
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_passes_when_the_relay_job_declares_permissions(self, tmp_path: Path) -> None:
+        # The relay job's own `permissions:` caps everything below it.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir,
+            "relay.yml",
+            "name: R\non: workflow_call\njobs:\n  hop:\n    permissions:\n      contents: read\n"
+            "    uses: ./.github/workflows/leaf.yml\n",
+        )
+        _write(wf_dir, "leaf.yml", "name: L\non: workflow_call\njobs:\n  run:\n    runs-on: ubuntu-24.04\n")
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_a_reusable_call_cycle_terminates(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/a.yml\n",
+        )
+        _write(wf_dir, "a.yml", "name: A\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/b.yml\n")
+        _write(wf_dir, "b.yml", "name: B\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/a.yml\n")
+        assert ExplicitPermissionsCheck().run(_read_all(wf_dir)).issues == []
+
 
 # ---------------------------------------------------------------------------
 # WF016 untrusted trigger checkout
@@ -3068,6 +3135,84 @@ class TestUntrustedTriggerCheckoutCheck:
     def test_passes_on_the_base_branch_under_workflow_run(self, tmp_path: Path) -> None:
         _write(tmp_path, "wf.yml", _checkout_workflow("workflow_run", "${{ github.event.repository.default_branch }}"))
         assert UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "ref",
+        [
+            "${{ github.event.pull_request['head'].sha }}",
+            "${{ github['head_ref'] }}",
+        ],
+    )
+    def test_fails_on_bracket_notation(self, tmp_path: Path, ref: str) -> None:
+        # Bracketed property access evaluates to the same contributor-controlled ref.
+        _write(tmp_path, "wf.yml", _checkout_workflow("pull_request_target", f'"{ref}"'))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_follows_nested_reusable_workflows(self, tmp_path: Path) -> None:
+        # One level of following missed a head checkout one call deeper.
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/relay.yml\n",
+        )
+        _write(
+            wf_dir, "relay.yml", "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+        )
+        _write(wf_dir, "leaf.yml", _checkout_workflow("workflow_call", "${{ github.event.pull_request.head.sha }}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "relay.yml -> leaf.yml" in issues[0].message
+
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_follows_a_head_ref_passed_as_an_input(self, tmp_path: Path, nested: bool) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        first = "relay.yml" if nested else "leaf.yml"
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n"
+            f"    uses: ./.github/workflows/{first}\n"
+            "    with:\n      sha: ${{ github.event.pull_request.head.sha }}\n",
+        )
+        if nested:
+            _write(
+                wf_dir,
+                "relay.yml",
+                "name: R\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/leaf.yml\n"
+                "    with:\n      commit: ${{ inputs.sha }}\n",
+            )
+        leaf_input = "commit" if nested else "sha"
+        _write(wf_dir, "leaf.yml", _checkout_workflow("workflow_call", f"${{{{ inputs.{leaf_input} }}}}"))
+        issues = UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+
+    def test_ignores_an_input_that_carries_the_base_ref(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/leaf.yml\n"
+            "    with:\n      sha: ${{ github.event.pull_request.base.sha }}\n",
+        )
+        _write(wf_dir, "leaf.yml", _checkout_workflow("workflow_call", "${{ inputs.sha }}"))
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues == []
+
+    def test_a_reusable_call_cycle_terminates(self, tmp_path: Path) -> None:
+        wf_dir = tmp_path / ".github" / "workflows"
+        wf_dir.mkdir(parents=True)
+        _write(
+            wf_dir,
+            "caller.yml",
+            "name: T\non: pull_request_target\njobs:\n  act:\n    uses: ./.github/workflows/a.yml\n",
+        )
+        _write(wf_dir, "a.yml", "name: A\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/b.yml\n")
+        _write(wf_dir, "b.yml", "name: B\non: workflow_call\njobs:\n  hop:\n    uses: ./.github/workflows/a.yml\n")
+        assert UntrustedTriggerCheckoutCheck().run(_read_all(wf_dir)).issues == []
 
 
 # ---------------------------------------------------------------------------

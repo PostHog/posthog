@@ -420,10 +420,11 @@ The repository default is read-only, so a workflow without a block works today a
 
 A trusted-context trigger (`pull_request_target`, `issue_comment`, `workflow_run`) runs with the base repository's token and secrets, so it must never check out the pull request head: that puts contributor code one `run:` step away from those credentials.
 Check out the base ref and read the head commit as data instead.
-`WF016-untrusted-trigger-checkout` blocks the head checkout: the `pull_request.head`, `workflow_run.head_sha`, `merge_commit_sha` and `refs/pull/*/(head|merge)` forms, and a `repository:` that resolves to the contributor's fork.
+`WF016-untrusted-trigger-checkout` blocks the head checkout: the `pull_request.head`, `workflow_run.head_sha`, `merge_commit_sha` and `refs/pull/*/(head|merge)` forms (dotted or bracketed, `github['head_ref']`), and a `repository:` that resolves to the contributor's fork.
+It follows local reusable workflows to any depth, including a head commit passed in as an input (`with: sha: ...`, then `ref: ${{ inputs.sha }}`).
 It sees values, not data flow, so a head commit plumbed through `needs.<job>.outputs` is still the reader's job to catch.
 
-A reusable-workflow call is exempt from `WF015` only while the callee declares its own `permissions:`; a local callee that declares none is reported on the caller, because at that point both inherit the default.
+A reusable-workflow call is exempt from `WF015` only while every job the callee runs declares its own `permissions:`, following the callee's own local calls; a bare job anywhere in that chain is reported on the caller, because at that point it inherits the default.
 
 ## Required status checks
 
