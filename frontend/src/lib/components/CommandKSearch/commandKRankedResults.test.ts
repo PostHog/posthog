@@ -297,6 +297,14 @@ describe('buildRankedResults', () => {
             expected: ['Results: Replay vision, Replay, Session replay'],
         },
         {
+            name: 'with unified ranking, a search keyword still matches with a typo',
+            query: 'recordigns',
+            results: [],
+            products: [product('Session replay', ['recordings']), product('Surveys')],
+            unifiedRanking: true,
+            expected: ['Results: Session replay'],
+        },
+        {
             name: 'with unified ranking, an exact name ranks above an exact search keyword',
             query: 'metrics',
             results: [],

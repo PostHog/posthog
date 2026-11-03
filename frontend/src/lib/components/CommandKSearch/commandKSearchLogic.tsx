@@ -40,9 +40,9 @@ import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import type { CommandOpenSource } from '../Command/commandLogic'
 import { askAiQuestionFor } from './commandKAskAi'
+import { SearchCorrection, correctedSearch } from './commandKCorrection'
 import { buildFilterOptions, viewAllFor } from './commandKFilterOptions'
 import { ChipSelection, KeyIntent } from './commandKKeys'
-import { LayoutCorrection, convertKeyboardLayout } from './commandKLayout'
 import {
     CursorContext,
     FilterDefinition,
@@ -129,7 +129,6 @@ export interface commandKSearchLogicValues {
     highlightedKey: string | null
     highlightedRow: CommandKRow | null
     isPaletteEmpty: boolean
-    layoutCorrection: LayoutCorrection | null
     localLists: LocalLists
     localQuery: string
     mode: CommandKMode
@@ -141,6 +140,7 @@ export interface commandKSearchLogicValues {
     requestedQueries: Record<string, string>
     resolvedQuery: ResolvedQuery
     resultOpened: boolean
+    searchCorrection: SearchCorrection | null
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
     shownQuery: SectionsQuery | null
@@ -191,6 +191,9 @@ export interface commandKSearchLogicActions {
         row: CommandKRow
         via: CommitVia
     }
+    applyCorrection: (correction: SearchCorrection) => {
+        correction: SearchCorrection
+    }
     applyKeyIntent: (intent: KeyIntent) => {
         intent: KeyIntent
     }
@@ -218,9 +221,6 @@ export interface commandKSearchLogicActions {
     }
     completeHighlighted: () => {
         value: true
-    }
-    correctLayout: (correction: LayoutCorrection) => {
-        correction: LayoutCorrection
     }
     editChip: (index: number) => {
         index: number
@@ -300,7 +300,7 @@ export interface commandKSearchLogicMeta {
         localQuery: (
             resolvedQuery: ResolvedQuery,
             mode: CommandKMode,
-            layoutCorrection: LayoutCorrection | null
+            searchCorrection: SearchCorrection | null
         ) => string
         askAiQuestion: (text: string, resolvedQuery: ResolvedQuery) => string | null
         remoteContext: (
@@ -314,7 +314,7 @@ export interface commandKSearchLogicMeta {
             localQuery: string,
             mode: CommandKMode,
             remoteContext: RemoteContext,
-            layoutCorrection: LayoutCorrection | null
+            searchCorrection: SearchCorrection | null
         ) => Record<string, string>
         remoteQueries: (requestQueries: Record<string, string>) => Partial<Record<RemoteSource, string>>
         suggestionsSection: (
@@ -369,7 +369,7 @@ export interface commandKSearchLogicMeta {
                 stale: boolean
             },
             featureFlags: FeatureFlagsSet,
-            layoutCorrection: LayoutCorrection | null
+            searchCorrection: SearchCorrection | null
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -461,7 +461,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         loadFolders: true,
         foldersLoaded: (folders: FileSystemEntry[]) => ({ folders }),
         markResultOpened: true,
-        correctLayout: (correction: LayoutCorrection) => ({ correction }),
+        applyCorrection: (correction: SearchCorrection) => ({ correction }),
     }),
     reducers({
         text: [
@@ -556,10 +556,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 markResultOpened: () => true,
             },
         ],
-        layoutCorrection: [
-            null as LayoutCorrection | null,
+        searchCorrection: [
+            null as SearchCorrection | null,
             {
-                correctLayout: (_, { correction }) => correction,
+                applyCorrection: (_, { correction }) => correction,
                 setChipsAndText: (state, { text }) => (state?.from === text.trim() ? state : null),
             },
         ],
@@ -588,8 +588,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
         /** The free text the non-object sections search for. Empty while a filter limits the palette to objects. */
         localQuery: [
-            (s) => [s.resolvedQuery, s.mode, s.layoutCorrection],
-            (resolved: ResolvedQuery, mode: CommandKMode, correction: LayoutCorrection | null): string => {
+            (s) => [s.resolvedQuery, s.mode, s.searchCorrection],
+            (resolved: ResolvedQuery, mode: CommandKMode, correction: SearchCorrection | null): string => {
                 const query =
                     (mode === 'search' || mode === 'key') && resolved.filters.length === 0
                         ? resolved.freeText.trim()
@@ -617,13 +617,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
         /** The query each request runs for this input, for the requests that apply to it. */
         requestQueries: [
-            (s) => [s.resolvedQuery, s.localQuery, s.mode, s.remoteContext, s.layoutCorrection],
+            (s) => [s.resolvedQuery, s.localQuery, s.mode, s.remoteContext, s.searchCorrection],
             (
                 resolved: ResolvedQuery,
                 localQuery: string,
                 mode: CommandKMode,
                 context: RemoteContext,
-                correction: LayoutCorrection | null
+                correction: SearchCorrection | null
             ): Record<string, string> => {
                 const objectsQuery =
                     correction?.from === resolved.backendSearch ? correction.to : resolved.backendSearch
@@ -747,7 +747,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.remote,
                 s.displayedQuery,
                 s.featureFlags,
-                s.layoutCorrection,
+                s.searchCorrection,
             ],
             (
                 mode: CommandKMode,
@@ -757,7 +757,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
                 featureFlags: FeatureFlagsSet,
-                layoutCorrection: LayoutCorrection | null
+                searchCorrection: SearchCorrection | null
             ): CommandKSection[] => {
                 const unifiedRanking =
                     freeWords(displayed.query.remoteQueries.results ?? '').length > 0 &&
@@ -775,7 +775,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         rankableSettings(local, displayed.query.localQuery).length > 0 &&
                         featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
                     unifiedRanking,
-                    layoutCorrection: layoutCorrection?.to === displayed.query.localQuery ? layoutCorrection : null,
+                    searchCorrection: searchCorrection?.to === displayed.query.localQuery ? searchCorrection : null,
                 })
             },
         ],
@@ -806,19 +806,28 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
-        const correctLayoutWhenEmpty = (): void => {
+        // Retries a corrected search only once every source has answered and nothing matched.
+        const correctWhenEmpty = (): void => {
             const query = values.localQuery
-            const converted = !values.layoutCorrection && query ? convertKeyboardLayout(query) : null
+            const corrected = !values.searchCorrection && query ? correctedSearch(query) : null
+            const settled = Object.entries(values.remoteQueries).every(
+                ([source, sourceQuery]) => !sourceQuery || sourceQuery in values.remote[source as RemoteSource].cache
+            )
             const empty = !values.sections.some((section) => section.rows.some((row) => row.kind === 'item'))
-            if (converted && empty && values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test') {
-                actions.correctLayout({ from: query, to: converted })
+            if (
+                corrected &&
+                settled &&
+                !values.displayedQuery.stale &&
+                empty &&
+                values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
+            ) {
+                actions.applyCorrection({ from: query, to: corrected })
             }
         }
 
         const showSettledQuery = (): void => {
             if (values.shownQuery !== values.currentQuery && resultsSettled(values.currentQuery, values.remote)) {
                 actions.showQuery(values.currentQuery)
-                correctLayoutWhenEmpty()
             }
         }
 
@@ -1090,8 +1099,11 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 }
             },
             clearQuery: () => actions.setChipsAndText([], '', 0),
-            remoteLoaded: showSettledQuery,
-            correctLayout: () => syncRemote(),
+            remoteLoaded: () => {
+                showSettledQuery()
+                correctWhenEmpty()
+            },
+            applyCorrection: () => syncRemote(),
             loadFolders: async () => {
                 if (cache.foldersRequested) {
                     return

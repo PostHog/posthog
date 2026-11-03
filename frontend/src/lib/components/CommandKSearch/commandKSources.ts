@@ -9,7 +9,6 @@ import {
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
 import { shouldSearchTickets } from 'lib/components/Search/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -25,7 +24,7 @@ import { conversationsTicketsList } from 'products/conversations/frontend/genera
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
 
-import { FILTER_TOKEN, freeWords } from './commandKRanking'
+import { freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
 export const REQUEST_DEADLINE_MS = 3000
@@ -180,12 +179,7 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
         fetch: async (search, signal, context) => {
             const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
             if (freeWords(search).length > 0) {
-                const splitsWords =
-                    search.includes('_') &&
-                    !search.match(FILTER_TOKEN) &&
-                    featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-                const ranked = splitsWords ? search.replace(/_/g, ' ') : search
-                return { results: await fetchRankedResults(ranked, signal, context, featureFlags) }
+                return { results: await fetchRankedResults(search, signal, context, featureFlags) }
             }
             const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
             return {

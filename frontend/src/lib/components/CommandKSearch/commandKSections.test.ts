@@ -56,7 +56,7 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     personsFirst: false,
     settingsInResults: false,
     unifiedRanking: false,
-    layoutCorrection: null,
+    searchCorrection: null,
     ...overrides,
 })
 
@@ -348,14 +348,14 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'api' },
                 localQuery: 'api',
-                layoutCorrection: { from: 'фзш', to: 'api' },
+                searchCorrection: { from: 'фзш', to: 'api' },
             })
         )
 
         expect(sections.map((section) => section.key)).toEqual(keys)
         if (keys.length) {
             expect(sections[0].rows).toEqual([
-                expect.objectContaining({ reason: 'layout', missing: ['фзш'], shown: ['api'] }),
+                expect.objectContaining({ reason: 'corrected', missing: ['фзш'], shown: ['api'] }),
             ])
         }
     })
