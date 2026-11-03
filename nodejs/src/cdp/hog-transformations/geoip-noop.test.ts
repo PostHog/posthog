@@ -51,7 +51,10 @@ describe('geoipNoopResult', () => {
             bytecodeBySource.set(source, await compileHog(source))
         }
         const mmdbPath = process.env.MMDB_FILE_LOCATION!
-        nodeVm = new HogExecutorService({ executionTimeoutMs: 1000 }, {} as HogInputsService)
+        nodeVm = new HogExecutorService(
+            { executionTimeoutMs: 1000 },
+            new HogInputsService(undefined as any, undefined, undefined as any)
+        )
         rustVm = new RustVmExecutor({ mmdbPath })
         transformationFunctions = getTransformationFunctions(await new GeoIPService(mmdbPath).get())
     })

@@ -271,7 +271,24 @@ describe('Hog Inputs', () => {
             )
         })
 
-        it('should load integration inputs and replace access tokens with placeholders', async () => {
+        it('exposes integration config, the access token placeholder and allowed secrets only', async () => {
+            const twilioId = team.id + 4
+            await insertIntegration(hub.postgres, team.id, {
+                id: twilioId,
+                kind: 'twilio',
+                config: { account_sid: 'AC123' },
+                sensitive_config: {
+                    auth_token: hub.encryptedFields.encrypt('twilio-auth-token'),
+                    other_secret: hub.encryptedFields.encrypt('twilio-other-secret'),
+                },
+            })
+            const apnsId = team.id + 5
+            await insertIntegration(hub.postgres, team.id, {
+                id: apnsId,
+                kind: 'apns',
+                config: { bundle_id: 'com.example.app', key_id: 'KEY123' },
+                sensitive_config: { signing_key: hub.encryptedFields.encrypt('apns-signing-key') },
+            })
             hogFunction = createHogFunction({
                 ...hogFunction,
                 inputs: {
@@ -279,11 +296,15 @@ describe('Hog Inputs', () => {
                     liquid_templated: hogFunction.inputs!.liquid_templated,
                     oauth: { value: integrationId1 },
                     auth: { value: integrationId2 },
+                    sms: { value: twilioId },
+                    channels: { value: [apnsId] },
                 },
                 inputs_schema: [
                     { key: 'hog_templated', type: 'string', required: true },
                     { key: 'oauth', type: 'integration', required: true },
                     { key: 'auth', type: 'integration', required: true },
+                    { key: 'sms', type: 'integration', required: true },
+                    { key: 'channels', type: 'integration_multi', required: true },
                 ],
             })
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
@@ -291,17 +312,21 @@ describe('Hog Inputs', () => {
             expect(inputs.oauth).toEqual({
                 $integration_id: integrationId1,
                 access_token: expect.any(String),
-                access_token_raw: 'token',
-                not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
             expect(inputs.auth).toEqual({
                 $integration_id: integrationId2,
                 access_token: expect.any(String),
-                access_token_raw: 'token',
-                not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
+            expect(inputs.sms).toEqual({
+                $integration_id: twilioId,
+                account_sid: 'AC123',
+                auth_token: 'twilio-auth-token',
+            })
+            expect(inputs.channels).toEqual([
+                { $integration_id: apnsId, bundle_id: 'com.example.app', key_id: 'KEY123' },
+            ])
             expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId1)).toContain(
                 inputs.oauth.access_token
             )
@@ -440,7 +465,8 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.connection).toMatchObject({ $integration_id: warehouseId, password: 'secret-password' })
+            expect(inputs.connection).toMatchObject({ $integration_id: warehouseId })
+            expect(inputs.connection).not.toHaveProperty('password')
         })
 
         it('fails an integration_multi input that holds a marked row', async () => {

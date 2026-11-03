@@ -2092,6 +2092,44 @@ describe('Hog Executor', () => {
             ])
         })
 
+        it('masks an integration token that a response quotes back to the function', async () => {
+            jest.mocked(fetch).mockImplementation(() =>
+                Promise.resolve({
+                    status: 401,
+                    body: 'Unauthorized',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('invalid token crm_secret_token'),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const crm = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('crm_secret_token') },
+            })
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: await compileHog(`
+                    let res := fetch('https://example.com/test', {'headers': {'Authorization': f'Bearer {inputs.crm.access_token}'}})
+                    print(res.body)
+                    throw Error(f'Rejected: {res.body}')
+                `),
+                inputs: { crm: { value: crm.id } },
+                inputs_schema: [{ key: 'crm', type: 'integration', required: true }],
+            })
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect((jest.mocked(fetch).mock.calls[0][1] as any).headers).toEqual({
+                Authorization: 'Bearer crm_secret_token',
+            })
+            const surfaced = [result.error, ...result.logs.map((x) => x.message)].join('\n')
+            expect(surfaced).toContain('invalid token ***REDACTED***')
+            expect(surfaced).not.toContain('crm_secret_token')
+        })
+
         it('does not substitute the access token of a warehouse source row', async () => {
             jest.mocked(fetch).mockImplementation(() =>
                 Promise.resolve({

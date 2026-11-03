@@ -344,17 +344,12 @@ export class HogExecutorAsyncService {
     }
 
     private async loadIntegrationTokenReplacements(hogFunction: HogFunctionType): Promise<[string, string][]> {
-        const integrationInputs = await this.deps.hogInputsService.loadIntegrationInputs(hogFunction)
-        return Object.values(integrationInputs).flatMap(({ value }): [string, string][] => {
-            // integration_multi inputs resolve to an array of integrations (e.g. push channels)
-            // and do not take part in the single access-token placeholder substitution.
-            if (Array.isArray(value) || !value?.access_token_raw) {
-                return []
-            }
-            return this.deps.hogInputsService
-                .acceptedAccessTokenPlaceholders(value.$integration_id)
-                .map((placeholder) => [placeholder, value.access_token_raw])
-        })
+        const accessTokens = await this.deps.hogInputsService.loadIntegrationAccessTokens(hogFunction)
+        return [...accessTokens].flatMap(([integrationId, accessToken]): [string, string][] =>
+            this.deps.hogInputsService
+                .acceptedAccessTokenPlaceholders(integrationId)
+                .map((placeholder) => [placeholder, accessToken])
+        )
     }
 
     @instrumented('hog-executor.executeFetch')

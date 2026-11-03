@@ -239,8 +239,6 @@ describe('HogFunctionHandler', () => {
                 $integration_id: integrationId,
                 team: 'foobar',
                 access_token: 'token',
-                not_encrypted: 'not-encrypted',
-                access_token_raw: 'token',
             },
         })
 

@@ -328,6 +328,23 @@ const LOGGED_CREDENTIAL_KEY =
 const CREDENTIAL_HEADER_NAMES =
     /^(authorization|proxy-authorization|cookie|x-api-key|api-?key|x-auth-token|auth-?token|access-?token|x-auth|token|secret|x-secret)$/i
 
+/** Adds every string in `obj` to `values`, so that a caller can mask each one. */
+export const collectStringValues = (obj: any, values: string[], depth = 0): void => {
+    // The depth limit stops a self-referencing object from recursing forever.
+    if (!obj || typeof obj !== 'object' || depth > 10) {
+        return
+    }
+    // Assume the values are the sensitive parts. Some integrations nest them, for example a
+    // Google Cloud key file under `key_info`, so nested objects and arrays are collected too.
+    Object.values(obj).forEach((val: any) => {
+        if (typeof val === 'string') {
+            values.push(val)
+        } else {
+            collectStringValues(val, values, depth + 1)
+        }
+    })
+}
+
 /**
  * Every configured secret for a hog function, so callers can mask them out of anything they surface.
  *
@@ -338,22 +355,6 @@ const CREDENTIAL_HEADER_NAMES =
  */
 export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<string, any>): string[] => {
     const values: string[] = []
-
-    const collectStringValues = (obj: any, depth = 0): void => {
-        // The depth limit stops a self-referencing object from recursing forever.
-        if (!obj || typeof obj !== 'object' || depth > 10) {
-            return
-        }
-        // Assume the values are the sensitive parts. Some integrations nest them, for example a
-        // Google Cloud key file under `key_info`, so nested objects and arrays are collected too.
-        Object.values(obj).forEach((val: any) => {
-            if (typeof val === 'string') {
-                values.push(val)
-            } else {
-                collectStringValues(val, depth + 1)
-            }
-        })
-    }
 
     // A webhook's `headers` is free-form, so it is not marked secret, but it is where a credential
     // most often sits — and a webhook whose credential is rejected is exactly the case that gets it
@@ -393,16 +394,15 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
             if (typeof value === 'string') {
                 values.push(value)
             } else if (schema.type === 'integration_multi' && Array.isArray(value)) {
-                // integration_multi resolves to an array of integration objects, each carrying its own
-                // sensitive_config (e.g. APNs signing_key, FCM access_token_raw) — mask every one.
-                value.forEach((item) => collectStringValues(item))
+                // integration_multi resolves to an array of integration objects, so mask the values of every one.
+                value.forEach((item) => collectStringValues(item, values))
             } else if (
                 (schema.type === 'dictionary' ||
                     schema.type === 'integration' ||
                     schema.type === 'push_subscription') &&
                 typeof value === 'object'
             ) {
-                collectStringValues(value)
+                collectStringValues(value, values)
             }
         }
     })

@@ -4,7 +4,13 @@ import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    IntegrationType,
+} from '../types'
+import { collectStringValues } from '../utils'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
@@ -36,6 +42,17 @@ const ACCESS_TOKEN_PLACEHOLDER_PURPOSE = 'integration-access-token-placeholder'
 const accessTokenPlaceholderBase = (integrationId: number): string => `${ACCESS_TOKEN_PLACEHOLDER}${integrationId}`
 
 const signedAccessTokenPlaceholder = (base: string, signature: string): string => `${base}_${signature.slice(0, 32)}`
+
+// The `sensitive_config` fields that a shipped template reads inside Hog, by integration kind. No other secret
+// reaches function code: the fetch step puts the access token in place of its placeholder, and push sending
+// loads its own credentials.
+const HOG_READABLE_SENSITIVE_FIELDS: Partial<Record<IntegrationType['kind'], readonly string[]>> = {
+    // The Twilio SMS template builds its Basic auth header from the account SID and this token.
+    twilio: ['auth_token'],
+}
+
+const integrationAccessToken = (integration: IntegrationType): string | undefined =>
+    integration.sensitive_config.access_token || integration.config?.access_token || undefined
 
 export class HogInputsService {
     constructor(
@@ -213,12 +230,91 @@ export class HogInputsService {
             .map((signature) => signedAccessTokenPlaceholder(base, signature))
     }
 
+    private hogIntegrationInput(integration: IntegrationType): Record<string, any> {
+        const readableFields = HOG_READABLE_SENSITIVE_FIELDS[integration.kind] ?? []
+        return {
+            $integration_id: integration.id,
+            ...integration.config,
+            ...Object.fromEntries(
+                readableFields
+                    .filter((field) => field in integration.sensitive_config)
+                    .map((field) => [field, integration.sensitive_config[field]])
+            ),
+            // After the config, so that the placeholder also replaces an access token stored in the config.
+            ...(integrationAccessToken(integration)
+                ? { access_token: this.accessTokenPlaceholder(integration.id) }
+                : {}),
+        }
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,
         // Loading covers every mapping, so only the inputs this invocation uses may fail it.
         options?: { throwIfMissingIn?: HogFunctionType['inputs'] }
     ): Promise<Record<string, { value: Record<string, any> | Record<string, any>[] | null }>> {
+        const integrations = await this.loadIntegrations(hogFunction, options)
+        if (Object.keys(integrations).length === 0) {
+            // Without an integration there is no app identifier, so push subscription inputs keep their configured value.
+            return {}
+        }
+        const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
+
+        for (const [key, value] of Object.entries(integrations)) {
+            returnInputs[key] = {
+                value: Array.isArray(value)
+                    ? value.map((integration) => this.hogIntegrationInput(integration))
+                    : value && this.hogIntegrationInput(value),
+            }
+        }
+
+        if (newGlobals) {
+            const pushSubscriptionInputs = this.resolvePushSubscriptionInputs(hogFunction, returnInputs, newGlobals)
+            Object.assign(returnInputs, pushSubscriptionInputs)
+        }
+
+        return returnInputs
+    }
+
+    /** The access token of each single integration input, by integration ID, for the fetch step only. */
+    public async loadIntegrationAccessTokens(hogFunction: HogFunctionType): Promise<Map<number, string>> {
+        const accessTokens = new Map<number, string>()
+        for (const value of Object.values(await this.loadIntegrations(hogFunction))) {
+            // integration_multi inputs resolve to an array of integrations (e.g. push channels)
+            // and do not take part in the single access-token placeholder substitution.
+            if (!value || Array.isArray(value)) {
+                continue
+            }
+            const accessToken = integrationAccessToken(value)
+            if (accessToken) {
+                accessTokens.set(value.id, accessToken)
+            }
+        }
+        return accessTokens
+    }
+
+    /**
+     * Every secret of the integrations that a function uses. Hog code never holds these values, but a provider
+     * can quote one back in a response that the function then logs, so the executor masks them.
+     */
+    public async loadIntegrationSecretValues(hogFunction: HogFunctionType): Promise<string[]> {
+        const values: string[] = []
+        for (const value of Object.values(await this.loadIntegrations(hogFunction))) {
+            for (const integration of Array.isArray(value) ? value : value ? [value] : []) {
+                collectStringValues(integration.sensitive_config, values)
+                const accessToken = integrationAccessToken(integration)
+                if (accessToken) {
+                    values.push(accessToken)
+                }
+            }
+        }
+        return values
+    }
+
+    private async loadIntegrations(
+        hogFunction: HogFunctionType,
+        options?: { throwIfMissingIn?: HogFunctionType['inputs'] }
+    ): Promise<Record<string, IntegrationType | IntegrationType[] | null>> {
         // Single integration inputs map a key to one id; integration_multi maps a key to a list of ids.
         const singleInputsToLoad: Record<string, number> = {}
         const multiInputsToLoad: Record<string, number[]> = {}
@@ -256,10 +352,10 @@ export class HogInputsService {
         }
 
         const integrations = await this.integrationManager.getMany(allIds)
-        const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
+        const resolved: Record<string, IntegrationType | IntegrationType[] | null> = {}
 
         // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
-        const resolveIntegration = (id: number): Record<string, any> | null => {
+        const resolveIntegration = (id: number): IntegrationType | null => {
             const integration = integrations[id]
             if (!integration || integration.team_id !== hogFunction.team_id) {
                 return null
@@ -273,18 +369,7 @@ export class HogInputsService {
             if (isWarehouseSourceIntegration(integration)) {
                 return null
             }
-            return {
-                $integration_id: integration.id,
-                ...integration.config,
-                ...integration.sensitive_config,
-                ...(integration.sensitive_config.access_token || integration.config?.access_token
-                    ? {
-                          access_token: this.accessTokenPlaceholder(integration.id),
-                          access_token_raw:
-                              integration.sensitive_config.access_token ?? integration.config?.access_token,
-                      }
-                    : {}),
-            }
+            return integration
         }
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
@@ -298,7 +383,7 @@ export class HogInputsService {
             if (isUsed && isWarehouseSourceIntegration(integrations[id])) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
-            returnInputs[key] = { value: resolveIntegration(id) }
+            resolved[key] = resolveIntegration(id)
         })
 
         Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
@@ -315,15 +400,10 @@ export class HogInputsService {
             ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
-            returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
+            resolved[key] = ids.map(resolveIntegration).filter((v): v is IntegrationType => v !== null)
         })
 
-        if (newGlobals) {
-            const pushSubscriptionInputs = this.resolvePushSubscriptionInputs(hogFunction, returnInputs, newGlobals)
-            Object.assign(returnInputs, pushSubscriptionInputs)
-        }
-
-        return returnInputs
+        return resolved
     }
 }
 

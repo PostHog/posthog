@@ -216,7 +216,11 @@ export class HogExecutorService {
                 throw e
             }
 
-            sensitiveValues = [...sensitiveValues, ...this.getSensitiveValues(invocation.hogFunction, globals.inputs)]
+            sensitiveValues = [
+                ...sensitiveValues,
+                ...this.getSensitiveValues(invocation.hogFunction, globals.inputs),
+                ...(await this.hogInputsService.loadIntegrationSecretValues(invocation.hogFunction)),
+            ]
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
             const eventId = invocation?.state.globals?.event?.uuid || 'Unknown event'
 
