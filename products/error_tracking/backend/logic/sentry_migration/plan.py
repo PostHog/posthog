@@ -143,23 +143,35 @@ def _item_id(prefix: str, value: str) -> str:
     return f"{prefix}:{hashlib.sha256(value.encode()).hexdigest()[:12]}"
 
 
-def _pattern_too_long_item(
-    prefix: str, category: SentryMigrationCategory, sentry_setting: str, glob: str
+def _unimportable_pattern_item(
+    prefix: str, category: SentryMigrationCategory, sentry_setting: str, glob: str, *, note: str
 ) -> SentryMigrationItem:
     return SentryMigrationItem(
         id=_item_id(prefix, glob),
         category=category,
         sentry_setting=sentry_setting,
-        sentry_value=f"{glob[:100]}…",
+        sentry_value=glob if len(glob) <= 100 else f"{glob[:100]}…",
         fit=SentryMigrationFit.UNSUPPORTED,
-        note=(
-            f"PostHog can import patterns of up to {MAX_PATTERN_LENGTH:,} characters, and this one has "
-            f"{len(glob):,}. Add a manual suppression rule with a shorter pattern."
-        ),
+        note=note,
         suppression_rule_filters=None,
         rate_limit=None,
         built_in_filter=None,
         already_in_posthog=False,
+    )
+
+
+def _pattern_too_long_item(
+    prefix: str, category: SentryMigrationCategory, sentry_setting: str, glob: str
+) -> SentryMigrationItem:
+    return _unimportable_pattern_item(
+        prefix,
+        category,
+        sentry_setting,
+        glob,
+        note=(
+            f"PostHog can import patterns of up to {MAX_PATTERN_LENGTH:,} characters, and this one has "
+            f"{len(glob):,}. Add a manual suppression rule with a shorter pattern."
+        ),
     )
 
 
@@ -187,7 +199,12 @@ class SentryMigrationPlanner:
 
     def build(self, config: SentryProjectConfig) -> list[SentryMigrationItem]:
         items: list[SentryMigrationItem] = []
-        items.extend(self._rate_limit_item(rate_limit, len(config.rate_limits)) for rate_limit in config.rate_limits)
+        items.extend(
+            self._rate_limit_item(
+                rate_limit, limited_key_count=len(config.rate_limits), client_key_count=config.client_key_count
+            )
+            for rate_limit in config.rate_limits
+        )
         items.extend(self._error_message_item(glob) for glob in config.error_message_globs)
         items.extend(self._release_item(glob) for glob in config.release_globs)
         if config.browser_extensions:
@@ -230,7 +247,9 @@ class SentryMigrationPlanner:
             already_in_posthog=filters in self._existing_filters,
         )
 
-    def _rate_limit_item(self, rate_limit: SentryRateLimit, key_count: int) -> SentryMigrationItem:
+    def _rate_limit_item(
+        self, rate_limit: SentryRateLimit, *, limited_key_count: int, client_key_count: int
+    ) -> SentryMigrationItem:
         bucket_minutes = min(
             SUPPORTED_BUCKET_MINUTES, key=lambda minutes: abs(minutes * 60 - rate_limit.window_seconds)
         )
@@ -261,7 +280,13 @@ class SentryMigrationPlanner:
                 f"PostHog rate limits use 15, 30 or 60 minute windows, so this becomes "
                 f"{value:,} exceptions per {_format_window(bucket_minutes * 60)}."
             )
-        if key_count > 1:
+        limits_other_client_keys = client_key_count > 1
+        if limits_other_client_keys:
+            notes.append(
+                f'Sentry applied this limit only to the client key "{rate_limit.key_label}". PostHog applies it '
+                "to the whole project, so it also limits exceptions sent with the project's other client keys."
+            )
+        if limited_key_count > 1:
             notes.append("PostHog has one rate limit per project, so you can import only one of these keys.")
         current = self._project_rate_limit
         if current is not None and current != converted:
@@ -275,12 +300,13 @@ class SentryMigrationPlanner:
             category=SentryMigrationCategory.RATE_LIMIT,
             sentry_setting=f'Rate limit on client key "{rate_limit.key_label}"',
             sentry_value=sentry_value,
-            fit=SentryMigrationFit.GOOD if exact else SentryMigrationFit.PARTIAL,
+            fit=SentryMigrationFit.GOOD if exact and not limits_other_client_keys else SentryMigrationFit.PARTIAL,
             note=" ".join(notes) or None,
             suppression_rule_filters=None,
             rate_limit=converted,
             built_in_filter=None,
             already_in_posthog=converted == self._project_rate_limit,
+            limits_other_client_keys=limits_other_client_keys,
         )
 
     def _error_message_item(self, glob: str) -> SentryMigrationItem:
@@ -305,8 +331,27 @@ class SentryMigrationPlanner:
                 "in another."
             )
         else:
-            # Sentry matches the pattern against "Type: message", so the type alone can match it too.
-            filters = _group("OR", [_glob_leaf("$exception_values", glob), _glob_leaf("$exception_types", glob)])
+            # Sentry matches the pattern against "Type: message". A leading `*` lets the message match on its own,
+            # and a trailing `*` lets the type match on its own, without matching an exception Sentry kept.
+            leaves = []
+            if glob.startswith("*"):
+                leaves.append(_glob_leaf("$exception_values", glob))
+            if glob.endswith("*") and not glob.endswith("\\*"):
+                leaves.append(_glob_leaf("$exception_types", glob))
+            if not leaves:
+                return _unimportable_pattern_item(
+                    "error_message",
+                    SentryMigrationCategory.ERROR_MESSAGE,
+                    "Error message filter",
+                    glob,
+                    note=(
+                        "Sentry matched this pattern against the exception type and message joined together, "
+                        'such as "TypeError: Failed to fetch". PostHog matches the type and the message one at '
+                        "a time, so this rule would drop exceptions that Sentry kept. Add a manual suppression "
+                        "rule for these exceptions."
+                    ),
+                )
+            filters = _group("OR", leaves)
             fit = SentryMigrationFit.GOOD
             if ": " in glob:
                 fit = SentryMigrationFit.PARTIAL

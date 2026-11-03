@@ -104127,6 +104127,8 @@ export namespace Schemas {
       built_in_filter: SentryMigrationBuiltInFilter | null;
       /** True when the project already has a suppression rule with the same filters, the same automatic rule turned on, or the same rate limit. */
       already_in_posthog: boolean;
+      /** True for a rate limit when the Sentry project has other client keys. Sentry applied the limit to one key, and the PostHog project rate limit also covers exceptions sent with the others. */
+      limits_other_client_keys: boolean;
     }
 
     export interface SentryMigrationPreviewResponse {

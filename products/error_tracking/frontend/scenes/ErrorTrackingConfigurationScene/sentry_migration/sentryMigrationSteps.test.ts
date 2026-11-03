@@ -13,6 +13,7 @@ function item(category: SentryMigrationCategoryEnumApi): SentryMigrationItemApi 
         rate_limit: null,
         built_in_filter: null,
         already_in_posthog: false,
+        limits_other_client_keys: false,
     }
 }
 

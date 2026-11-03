@@ -32,6 +32,7 @@ const ERROR_MESSAGE: SentryMigrationItemApi = {
     rate_limit: null,
     built_in_filter: null,
     already_in_posthog: false,
+    limits_other_client_keys: false,
 }
 
 const LEGACY_BROWSER: SentryMigrationItemApi = {
@@ -53,6 +54,7 @@ const LEGACY_BROWSER: SentryMigrationItemApi = {
         ],
     },
     already_in_posthog: true,
+    limits_other_client_keys: false,
 }
 
 const RATE_LIMIT: SentryMigrationItemApi = {
@@ -66,6 +68,7 @@ const RATE_LIMIT: SentryMigrationItemApi = {
     rate_limit: { value: 1500, bucket_size_minutes: 15 },
     built_in_filter: null,
     already_in_posthog: false,
+    limits_other_client_keys: false,
 }
 
 const RATE_LIMIT_TOO_LARGE: SentryMigrationItemApi = {
@@ -79,6 +82,7 @@ const RATE_LIMIT_TOO_LARGE: SentryMigrationItemApi = {
     rate_limit: null,
     built_in_filter: null,
     already_in_posthog: false,
+    limits_other_client_keys: false,
 }
 
 /** A manual rule, an automatic rule that is already on, a rate limit, and a rate limit PostHog can't hold. */

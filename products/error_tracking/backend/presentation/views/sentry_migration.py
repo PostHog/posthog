@@ -131,6 +131,12 @@ class SentryMigrationItemSerializer(serializers.Serializer):
             "turned on, or the same rate limit."
         )
     )
+    limits_other_client_keys = serializers.BooleanField(
+        help_text=(
+            "True for a rate limit when the Sentry project has other client keys. Sentry applied the limit to one "
+            "key, and the PostHog project rate limit also covers exceptions sent with the others."
+        )
+    )
 
 
 class SentryMigrationPreviewResponseSerializer(serializers.Serializer):

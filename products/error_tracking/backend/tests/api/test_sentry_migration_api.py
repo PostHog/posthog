@@ -311,7 +311,7 @@ class TestSentryMigrationAPI(APIBaseTest):
         routes = {
             **PROJECT_RESPONSES,
             PROJECT_PATH: _response(
-                {"slug": "web", "options": {"filters:error_messages": "*ResizeObserver loop*\n[z-a]"}}
+                {"slug": "web", "options": {"filters:error_messages": "*ResizeObserver loop*\n*[z-a]*"}}
             ),
         }
         preview = self._post("preview", routes, self._project_body())
@@ -320,7 +320,7 @@ class TestSentryMigrationAPI(APIBaseTest):
         applied = self._post("apply", routes, self._project_body(item_ids=message_ids))
 
         assert applied.status_code == status.HTTP_400_BAD_REQUEST
-        assert '"[z-a]"' in applied.json()["detail"]
+        assert '"*[z-a]*"' in applied.json()["detail"]
         assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
 
     @pytest.mark.ee

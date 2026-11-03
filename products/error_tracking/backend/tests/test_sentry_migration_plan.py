@@ -30,6 +30,7 @@ def _config(**overrides: object) -> SentryProjectConfig:
         "react_hydration_errors": False,
         "chunk_load_errors": False,
         "rate_limits": (),
+        "client_key_count": 1,
     }
     return SentryProjectConfig(**{**defaults, **overrides})  # type: ignore[arg-type]
 
@@ -97,10 +98,18 @@ class TestSentryMigrationRuleMatching(BaseTest):
             ),
             (
                 "negated_character_class_with_range",
-                {"error_message_globs": ("status [!0-3]*",)},
+                {"error_message_globs": ("*status [!0-3]*",)},
                 [
                     ({"$exception_types": ["Error"], "$exception_values": ["status 503"]}, True),
                     ({"$exception_types": ["Error"], "$exception_values": ["status 204"]}, False),
+                ],
+            ),
+            (
+                "suffix_glob_matches_the_message_not_the_type",
+                {"error_message_globs": ("*Error",)},
+                [
+                    ({"$exception_types": ["Error"], "$exception_values": ["Unhandled Error"]}, True),
+                    ({"$exception_types": ["TypeError"], "$exception_values": ["request failed"]}, False),
                 ],
             ),
             (
@@ -113,7 +122,7 @@ class TestSentryMigrationRuleMatching(BaseTest):
             ),
             (
                 "alternatives_and_single_character_wildcard",
-                {"error_message_globs": ("{Network,Fetch} error ?",)},
+                {"error_message_globs": ("*{Network,Fetch} error ?",)},
                 [
                     ({"$exception_types": ["Error"], "$exception_values": ["fetch error 5"]}, True),
                     ({"$exception_types": ["Error"], "$exception_values": ["Network error 12"]}, False),
@@ -122,7 +131,7 @@ class TestSentryMigrationRuleMatching(BaseTest):
             ),
             (
                 "unclosed_delimiters_after_closed_ones_stay_literal",
-                {"error_message_globs": ("{Network,Fetch} code [45]* {retry [] [later",)},
+                {"error_message_globs": ("*{Network,Fetch} code [45]* {retry [] [later",)},
                 [
                     ({"$exception_types": ["Error"], "$exception_values": ["Fetch code 404 {retry [] [later"]}, True),
                     ({"$exception_types": ["Error"], "$exception_values": ["Fetch code 304 {retry [] [later"]}, False),
@@ -131,7 +140,7 @@ class TestSentryMigrationRuleMatching(BaseTest):
             ),
             (
                 "regex_metacharacters_stay_literal",
-                {"error_message_globs": ("Price (USD) is $5.00",)},
+                {"error_message_globs": ("*Price (USD) is $5.00",)},
                 [
                     ({"$exception_types": ["Error"], "$exception_values": ["Price (USD) is $5.00"]}, True),
                     ({"$exception_types": ["Error"], "$exception_values": ["Price USD is $5x00"]}, False),
@@ -139,7 +148,7 @@ class TestSentryMigrationRuleMatching(BaseTest):
             ),
             (
                 "wildcard_spans_newlines",
-                {"error_message_globs": ("Render failed*at Component",)},
+                {"error_message_globs": ("*Render failed*at Component",)},
                 [
                     (
                         {"$exception_types": ["Error"], "$exception_values": ["Render failed\n  in App\nat Component"]},
@@ -185,12 +194,13 @@ class TestSentryMigrationRuleMatching(BaseTest):
 class TestSentryMigrationPlanConversion(SimpleTestCase):
     @parameterized.expand(
         [
-            ("hourly_window", 1000, 3600, 1000, 60, SentryMigrationFit.GOOD),
-            ("one_minute_window", 100, 60, 1500, 15, SentryMigrationFit.PARTIAL),
-            ("daily_window", 10000, 86400, 417, 60, SentryMigrationFit.PARTIAL),
-            ("tiny_daily_limit", 1, 86400, 1, 60, SentryMigrationFit.PARTIAL),
-            ("twenty_minute_window", 200, 1200, 150, 15, SentryMigrationFit.PARTIAL),
-            ("too_large_for_posthog", 3_000_000, 1, None, None, SentryMigrationFit.UNSUPPORTED),
+            ("hourly_window", 1000, 3600, 1, 1000, 60, SentryMigrationFit.GOOD),
+            ("hourly_window_with_other_client_keys", 1000, 3600, 2, 1000, 60, SentryMigrationFit.PARTIAL),
+            ("one_minute_window", 100, 60, 1, 1500, 15, SentryMigrationFit.PARTIAL),
+            ("daily_window", 10000, 86400, 1, 417, 60, SentryMigrationFit.PARTIAL),
+            ("tiny_daily_limit", 1, 86400, 1, 1, 60, SentryMigrationFit.PARTIAL),
+            ("twenty_minute_window", 200, 1200, 1, 150, 15, SentryMigrationFit.PARTIAL),
+            ("too_large_for_posthog", 3_000_000, 1, 1, None, None, SentryMigrationFit.UNSUPPORTED),
         ]
     )
     def test_rate_limit_window_converts_to_a_supported_bucket(
@@ -198,12 +208,13 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
         _name: str,
         count: int,
         window_seconds: int,
+        client_key_count: int,
         expected_value: int | None,
         expected_bucket_minutes: int | None,
         expected_fit: SentryMigrationFit,
     ) -> None:
         rate_limit = SentryRateLimit(key_label="Default", key_id="abc", count=count, window_seconds=window_seconds)
-        [item] = _planner().build(_config(rate_limits=(rate_limit,)))
+        [item] = _planner().build(_config(rate_limits=(rate_limit,), client_key_count=client_key_count))
 
         expected_rate_limit = (
             SentryMigrationRateLimit(value=expected_value, bucket_size_minutes=expected_bucket_minutes)
@@ -212,16 +223,23 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
         )
         assert item.rate_limit == expected_rate_limit
         assert item.fit == expected_fit
+        assert item.limits_other_client_keys == (expected_rate_limit is not None and client_key_count > 1)
 
-    @parameterized.expand([("error_message", "error_message_globs"), ("release", "release_globs")])
-    def test_pattern_too_long_to_import_is_listed_without_a_rule(self, _name: str, config_key: str) -> None:
-        glob = "*" + "{[" * MAX_PATTERN_LENGTH
-
-        [item] = _planner().build(_config(**{config_key: (glob,)}))
+    @parameterized.expand(
+        [
+            ("error_message_too_long", {"error_message_globs": ("*" + "{[" * MAX_PATTERN_LENGTH,)}),
+            ("release_too_long", {"release_globs": ("*" + "{[" * MAX_PATTERN_LENGTH,)}),
+            ("error_message_without_a_wildcard_at_either_end", {"error_message_globs": ("Failed to fetch",)}),
+        ]
+    )
+    def test_pattern_posthog_cannot_match_like_sentry_is_listed_without_a_rule(
+        self, _name: str, config_overrides: dict
+    ) -> None:
+        [item] = _planner().build(_config(**config_overrides))
 
         assert item.fit == SentryMigrationFit.UNSUPPORTED
         assert item.suppression_rule_filters is None
-        assert len(item.sentry_value) < len(glob)
+        assert len(item.sentry_value) <= 101
 
     @parameterized.expand([("error_messages", "filters:error_messages"), ("releases", "filters:releases")])
     def test_more_filters_than_posthog_imports_fail_the_preview(self, _name: str, option: str) -> None:

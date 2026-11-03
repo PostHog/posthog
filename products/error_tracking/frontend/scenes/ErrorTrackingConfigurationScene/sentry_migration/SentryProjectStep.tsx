@@ -8,10 +8,11 @@ import { sentryMigrationLogic } from './sentryMigrationLogic'
 import { SentryMigrationProjectPicker } from './SentryMigrationProjectPicker'
 
 export function SentryProjectStep(): JSX.Element {
-    const { projects, selectedProjectKey, selectedProject, items, itemsLoading, previewFailed } =
+    const { projects, selectedProjectKey, selectedProject, items, itemsLoading, previewFailed, omittedFilterNames } =
         useValues(sentryMigrationLogic)
     const { disconnect, loadPreview, goToNextStep, goToPreviousStep } = useActions(sentryMigrationLogic)
     const hasItems = !!selectedProject && !itemsLoading && !!items && items.length > 0
+    const hasPreview = !!selectedProjectKey && !itemsLoading && !previewFailed && items !== null
 
     return (
         <>
@@ -57,6 +58,11 @@ export function SentryProjectStep(): JSX.Element {
                     ) : (
                         <p className="text-sm mb-0">
                             {`Found ${items.length} ${items.length === 1 ? 'setting' : 'settings'} to review in this project.`}
+                        </p>
+                    )}
+                    {hasPreview && omittedFilterNames.length > 0 && (
+                        <p className="text-sm mb-0" data-attr="error-tracking-sentry-migration-omitted-filters">
+                            {`PostHog can't import these Sentry filters, so exceptions they dropped in Sentry will reach PostHog: ${omittedFilterNames.join(', ')}.`}
                         </p>
                     )}
                 </>

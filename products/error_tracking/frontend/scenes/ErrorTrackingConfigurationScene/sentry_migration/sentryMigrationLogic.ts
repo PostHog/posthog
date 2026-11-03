@@ -34,6 +34,14 @@ import { ImportWizardStep, wizardSteps } from './sentryMigrationSteps'
 
 export const SENTRY_CLOUD_URL = 'https://sentry.io'
 
+/**
+ * An inbound filter PostHog has no rule for. The list leaves it out, and the project step names it.
+ * A rate limit PostHog can't hold stays in the list, to say why it can't come over.
+ */
+function isOmittedInboundFilter(item: SentryMigrationItemApi): boolean {
+    return item.category === 'inbound_filter' && item.fit === 'unsupported'
+}
+
 export type ImportSource = 'sentry'
 
 export type SentryHosting = 'cloud' | 'self_hosted'
@@ -76,6 +84,7 @@ export interface sentryMigrationLogicValues {
     importResultLoading: boolean
     items: SentryMigrationItemApi[] | null
     itemsLoading: boolean
+    omittedFilterNames: string[]
     previewFailed: boolean
     projects: SentryProjectApi[] | null
     projectsLoading: boolean
@@ -170,6 +179,9 @@ export interface sentryMigrationLogicActions {
     setBaseUrl: (baseUrl: string) => {
         baseUrl: string
     }
+    setOmittedFilterNames: (names: string[]) => {
+        names: string[]
+    }
     setSelectedItemIds: (itemIds: string[]) => {
         itemIds: string[]
     }
@@ -220,6 +232,7 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
         selectProject: (projectKey: string | null) => ({ projectKey }),
         toggleItem: (itemId: string) => ({ itemId }),
         setSelectedItemIds: (itemIds: string[]) => ({ itemIds }),
+        setOmittedFilterNames: (names: string[]) => ({ names }),
         disconnect: true,
         selectSource: (source: ImportSource) => ({ source }),
         selectHosting: (hosting: SentryHosting) => ({ hosting }),
@@ -230,7 +243,7 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
         resetWizard: true,
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         // null until the user connects, so "no projects" means Sentry answered with none.
         projects: [
             null as SentryProjectApi[] | null,
@@ -266,13 +279,15 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                         region_url: project.region_url,
                     })
                     breakpoint()
+                    actions.setOmittedFilterNames(
+                        response.items.filter(isOmittedInboundFilter).map((item) => item.sentry_setting)
+                    )
                     // Rate limits and automatic rules are still behind flags, so don't offer to import what the user can't see.
                     const showRateLimits = !!values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING_RATE_LIMITING]
                     const showBuiltInFilters = !!values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING_BUILT_IN_FILTERS]
                     return response.items.filter(
                         (item) =>
-                            // An inbound filter PostHog has no rule for is left out. A rate limit stays, to say why it can't come over.
-                            !(item.category === 'inbound_filter' && item.fit === 'unsupported') &&
+                            !isOmittedInboundFilter(item) &&
                             (showRateLimits || item.category !== 'rate_limit') &&
                             (showBuiltInFilters || !item.built_in_filter)
                     )
@@ -371,6 +386,16 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
             disconnect: () => null,
             resetWizard: () => null,
         },
+        omittedFilterNames: [
+            [] as string[],
+            {
+                setOmittedFilterNames: (_, { names }) => names,
+                loadProjects: () => [],
+                selectProject: () => [],
+                disconnect: () => [],
+                resetWizard: () => [],
+            },
+        ],
         previewFailed: [
             false,
             {

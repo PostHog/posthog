@@ -576,6 +576,7 @@ class SentryMigrationItem:
     rate_limit: SentryMigrationRateLimit | None
     built_in_filter: SentryMigrationBuiltInFilter | None
     already_in_posthog: bool
+    limits_other_client_keys: bool = False
 
     @property
     def importable(self) -> bool:
