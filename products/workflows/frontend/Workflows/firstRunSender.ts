@@ -109,9 +109,19 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
     return { integrationId: await provisionSandboxSender(), reason: 'sandbox_sender' }
 }
 
+// An email step inserted meanwhile takes its sender from the shared list, so preparation ends only once that list
+// has loaded. A shared load still in flight is replaced, and the await follows whichever load finishes last.
+async function sharedIntegrationsLoaded(): Promise<void> {
+    const logic = integrationsLogic.findMounted()
+    if (logic && logic.values.integrations === null) {
+        await logic.asyncActions.loadIntegrations()
+    }
+}
+
 export async function prepareSandboxSender(): Promise<void> {
     if (sandboxSenderEnabled() && !integrationsLogic.findMounted()?.values.sandboxEmailSender) {
         await resolveFirstRunSender(true)
+        await sharedIntegrationsLoaded()
     }
 }
 

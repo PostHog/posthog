@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -404,6 +405,48 @@ describe('workflow first-run sender', () => {
             workflow.unmount()
         }
     )
+
+    it('gives an inserted email step the existing sandbox sender while the shared sender list still loads', async () => {
+        integrations = [SANDBOX]
+        let releaseSharedLoad = (): void => undefined
+        const sharedLoadHeld = new Promise<void>((resolve) => {
+            releaseSharedLoad = resolve
+        })
+        let listCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': async () => {
+                    listCalls++
+                    if (listCalls === 1) {
+                        await sharedLoadHeld
+                    }
+                    return [200, { results: integrations }]
+                },
+            },
+        })
+        const workflow = workflowLogic({ id: 'new' })
+        workflow.mount()
+        await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+        const editor = hogFlowEditorLogic({ id: 'new' })
+        editor.mount()
+        try {
+            expect(integrationsLogic.findMounted()?.values.integrations).toBeNull()
+
+            editor.actions.setNodeToBeAdded({ ...emailAction('function_email'), id: undefined } as any)
+            editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+
+            // The held shared load keeps a listener open, so wait for the step instead of for every listener.
+            await waitFor(() => {
+                const inserted = workflow.values.workflow.actions.find((action) => action.type === 'function_email')
+                expect((inserted?.config as any)?.inputs?.email?.value?.from).toEqual({ integrationId: SANDBOX.id })
+            })
+            expect(ensureCalls).toBe(0)
+        } finally {
+            releaseSharedLoad()
+            editor.unmount()
+            workflow.unmount()
+        }
+    })
 
     it.each([
         ['', false],
