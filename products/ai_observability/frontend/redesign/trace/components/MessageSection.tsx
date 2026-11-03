@@ -1,11 +1,11 @@
 import { ThreadMessage } from '../types'
-import { MessageList, MessageListDefaultOpen } from './MessageList'
+import { MessageList } from './MessageList'
 
 export interface MessageSectionProps {
     title: string
     messages: ThreadMessage[]
     emptyText: string
-    defaultOpen: MessageListDefaultOpen
+    openFrom: number
     highlightQuery?: string | null
 }
 
@@ -13,7 +13,7 @@ export function MessageSection({
     title,
     messages,
     emptyText,
-    defaultOpen,
+    openFrom,
     highlightQuery = null,
 }: MessageSectionProps): JSX.Element {
     return (
@@ -22,7 +22,7 @@ export function MessageSection({
             <MessageList
                 messages={messages}
                 emptyText={emptyText}
-                defaultOpen={defaultOpen}
+                openFrom={openFrom}
                 highlightQuery={highlightQuery}
             />
         </section>
