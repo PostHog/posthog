@@ -63,7 +63,9 @@ project yet. Tell the user that and stop.
      `warehouse-migration-upload-connections` before any connection, so PostHog reads each sync time in its
      destination's time zone. One call takes at most 100 destinations, so send more in several calls with no
      connections.
-   - List the connections. For each one, read its details and its schema config. Upload them in batches of about 10.
+   - List the connections. For each one, read its details and its schema config. Upload them in batches of about 10,
+     and keep each call under about 900 KB of JSON. The PostHog MCP refuses a request over 1 MB before PostHog reads
+     it, so send large connections alone or in smaller batches.
    - Pass each Fivetran response unchanged. Never summarize, trim or retype it: PostHog removes the secrets and plans
      from the raw response.
    - A 400 names the connections PostHog could not read, and saves the rest of the batch. Read each error:
@@ -71,6 +73,8 @@ project yet. Tell the user that and stop.
        it unchanged, once.
      - A connection larger than 1 MB, or with a name longer than 400 characters, can never be uploaded. Do not
        retry it. Tell the user, and offer the API key link for the account.
+   - A call refused as too large before PostHog answered saved nothing. Split the batch and send it again. If one
+     connection alone is too large, it cannot go through the chat: offer the API key link.
    - A 400 that says the account is too large to upload means the migration is full. Stop uploading, and offer the API
      key link.
    - When every connection is uploaded, continue with the report. The migration is already `ready`.
