@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 import structlog.testing
@@ -181,6 +183,10 @@ def _drive_profile(drive: DrivePolicy, enforced: frozenset[ContractCheck] = froz
 
 
 class TestDriveAllowed(SimpleTestCase):
+    def _allowed(self, profile: TaskProfile, *, created_by_id: int | None, user_id: int | None) -> bool:
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            return drive_allowed(profile.key, created_by_id=created_by_id, user_id=user_id)
+
     @parameterized.expand(DRIVE_CASES)
     def test_log_mode_allows_every_caller_and_counts_those_it_would_refuse(
         self, _name: str, drive: DrivePolicy, created_by_id: int | None, user_id: int | None, violates: bool
@@ -188,7 +194,7 @@ class TestDriveAllowed(SimpleTestCase):
         profile = _drive_profile(drive)
         before = _violation_counts(profile)
 
-        allowed = drive_allowed(profile, created_by_id=created_by_id, user_id=user_id)
+        allowed = self._allowed(profile, created_by_id=created_by_id, user_id=user_id)
 
         self.assertTrue(allowed)
         self.assertEqual(_violation_counts(profile)[ContractCheck.DRIVE] - before[ContractCheck.DRIVE], int(violates))
@@ -199,7 +205,7 @@ class TestDriveAllowed(SimpleTestCase):
     ) -> None:
         profile = _drive_profile(drive, frozenset({ContractCheck.DRIVE}))
 
-        self.assertEqual(drive_allowed(profile, created_by_id=created_by_id, user_id=user_id), not violates)
+        self.assertEqual(self._allowed(profile, created_by_id=created_by_id, user_id=user_id), not violates)
 
     @parameterized.expand([(name, *case) for name, *case in DRIVE_CASES if case[-1]])
     def test_enforcing_another_check_leaves_drive_in_log_mode(
@@ -207,11 +213,26 @@ class TestDriveAllowed(SimpleTestCase):
     ) -> None:
         profile = _drive_profile(drive, frozenset({ContractCheck.RUNTIMES}))
 
-        self.assertTrue(drive_allowed(profile, created_by_id=created_by_id, user_id=user_id))
+        self.assertTrue(self._allowed(profile, created_by_id=created_by_id, user_id=user_id))
 
-    def test_a_task_without_a_profile_is_always_drivable(self) -> None:
+    @parameterized.expand([("no_key", None), ("empty_key", "")])
+    def test_a_task_without_a_stored_profile_is_always_drivable(self, _name: str, profile_key: str | None) -> None:
         before = _violation_counts(_drive_profile(DrivePolicy.NONE))
 
-        self.assertTrue(drive_allowed(None, created_by_id=1, user_id=2))
+        self.assertTrue(drive_allowed(profile_key, created_by_id=1, user_id=2))
 
         self.assertEqual(_violation_counts(_drive_profile(DrivePolicy.NONE)), before)
+
+    def test_a_stored_key_that_is_not_registered_is_counted_by_its_key_and_still_drivable(self) -> None:
+        sample = {"check": ContractCheck.DRIVE.value, "profile": "test.removed_profile"}
+        before = REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0
+
+        with structlog.testing.capture_logs() as logs:
+            allowed = drive_allowed("test.removed_profile", created_by_id=1, user_id=2)
+
+        self.assertTrue(allowed)
+        self.assertEqual((REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0) - before, 1)
+        self.assertEqual(
+            [(log["event"], log["profile"]) for log in logs],
+            [("task_contract_violation_unregistered_profile", "test.removed_profile")],
+        )

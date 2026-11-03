@@ -112,7 +112,6 @@ from products.tasks.backend.facade.profiles import (
     TaskProfile,
     TaskRunOptions,
     TaskSource,
-    find_task_profile,
     resolve_task_origin,
 )
 from products.tasks.backend.feature_flags import (
@@ -3401,7 +3400,7 @@ def task_accessible_for_run_view(
     if task is None or not task["accessible"]:
         return False
     if for_control and not (bypass_visibility or sandbox_request or sandbox_task_id is not None):
-        return drive_allowed(find_task_profile(task["profile"]), created_by_id=task["created_by_id"], user_id=user_id)
+        return drive_allowed(task["profile"], created_by_id=task["created_by_id"], user_id=user_id)
     return True
 
 
@@ -6498,6 +6497,9 @@ def _resolve_cloud_pr_authorship_mode(
     if task.github_access_limit == GithubAccess.NONE:
         return PrAuthorshipMode.BOT, None
 
+    if task.github_access_limit == GithubAccess.NONE:
+        return PrAuthorshipMode.BOT, None
+
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
 
@@ -7245,7 +7247,7 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     if row is None:
         return False
     profile_key, created_by_id = row
-    return drive_allowed(find_task_profile(profile_key), created_by_id=created_by_id, user_id=user_id)
+    return drive_allowed(profile_key, created_by_id=created_by_id, user_id=user_id)
 
 
 def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
