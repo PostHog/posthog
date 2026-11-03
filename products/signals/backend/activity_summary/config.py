@@ -48,6 +48,8 @@ class SourceWeights:
     repeat_view_days: float = 0.0
     # A new day of opening a product scene.
     scene_views: float = 0.0
+    # A distinct MCP session after the pair's watermark, without plumbing routes.
+    mcp: float = 1.0
 
 
 @frozen
@@ -71,6 +73,8 @@ class ActivitySummaryConfig:
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
     max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
+    # Also emits the vector of `summary_profile_text`. `emit_embeddings: false` stops both vectors.
+    emit_profile_embeddings: bool = False
     capture_events: bool = True
     # Count viewed objects in the queue. When off, the view weights and the view cold start do not apply.
     count_views: bool = False
@@ -112,6 +116,8 @@ class ActivitySummaryConfig:
     mcp_buffer_days: int = 10
     # Renders the buffer in the input. Apart from `mcp_buffer_enabled`, so the buffer can fill before the prompt uses it.
     mcp_render_enabled: bool = False
+    # Drains the buffer's dirty set into the queue, so a pair with only MCP calls can come due. Needs `mcp_render_enabled`.
+    mcp_queue_enabled: bool = False
 
 
 DISABLED = ActivitySummaryConfig()
@@ -222,6 +228,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         ),
         max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
+        emit_profile_embeddings=_bool(payload.get("emit_profile_embeddings"), defaults.emit_profile_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         count_views=_bool(payload.get("count_views"), defaults.count_views),
         source_weights=parse_source_weights(payload.get("source_weights")),
@@ -257,6 +264,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
             _positive_int(payload.get("mcp_buffer_days"), defaults.mcp_buffer_days), MAX_MCP_BUFFER_DAYS
         ),
         mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
+        mcp_queue_enabled=_bool(payload.get("mcp_queue_enabled"), defaults.mcp_queue_enabled),
     )
 
 

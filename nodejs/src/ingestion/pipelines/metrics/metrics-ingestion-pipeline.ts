@@ -6,14 +6,14 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
-import { newBatchingPipeline } from '~/ingestion/framework/builders'
+import { newBatchingPipeline, perElement } from '~/ingestion/framework/builders'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
 import { MetricsUsageAccumulator, MetricsUsageBatchContext } from './metrics-usage'
 import { createKeepMetricsUsageStep, createMetricsUsageBeforeBatchStep } from './metrics-usage-steps'
 import { MetricsOutput } from './outputs/outputs'
-import { createPrepareMetricsMessageStep, perMessage } from './prepare-metrics-message-step'
+import { createPrepareMetricsMessageStep } from './prepare-metrics-message-step'
 import { createProduceMetricsStep } from './produce-metrics-step'
 import { createRateLimitMetricsStep } from './rate-limit-metrics-step'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
@@ -57,9 +57,9 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
             batch
                 .messageAware((b) =>
                     b
-                        .pipeChunk(perMessage(createPrepareMetricsMessageStep(teamManager, quotaLimiting)))
+                        .pipeChunk(perElement(createPrepareMetricsMessageStep(teamManager, quotaLimiting)))
                         .pipeChunk(createRateLimitMetricsStep(rateLimiter))
-                        .pipeChunk(perMessage(createProduceMetricsStep(outputs)))
+                        .pipeChunk(perElement(createProduceMetricsStep(outputs)))
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(promiseScheduler, sideEffects),

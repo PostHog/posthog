@@ -100,6 +100,7 @@ function LineChartInner<Meta = unknown>({
         yAxes,
         curve,
         timeScale,
+        connectNulls = false,
     } = config ?? {}
     const smooth = curve === 'monotone'
     // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
@@ -228,6 +229,7 @@ function LineChartInner<Meta = unknown>({
                 // stroke at the y-axis, instead of straddling either axis line.
                 yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
                 clipLeftEdge: axisLines.y,
+                connectNulls,
             })
 
             if (axisLineStyle) {
@@ -240,7 +242,7 @@ function LineChartInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, stackedData, smooth]
+        [showGrid, axisLines, stackedData, smooth, connectNulls]
     )
 
     const drawHover = useCallback(

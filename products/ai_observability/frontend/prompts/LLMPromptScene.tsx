@@ -19,6 +19,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { PromptLogicProps, PromptMode, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import {
     PromptCode,
@@ -206,7 +207,7 @@ export function LLMPromptScene(): JSX.Element {
                             onChange={(tab) =>
                                 router.actions.replace(urls.aiObservabilityPrompt(prompt.name), {
                                     ...cleanPromptSearchParams(
-                                        currentSearchParams,
+                                        withoutTraceDrawerParams(currentSearchParams),
                                         prompt.is_latest ? null : prompt.version
                                     ),
                                     tab,

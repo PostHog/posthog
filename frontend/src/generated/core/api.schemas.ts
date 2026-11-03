@@ -502,7 +502,11 @@ export interface OrganizationInviteApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    /** @nullable */
+    /**
+     * Optional personal message in the invite email.
+     * @maxLength 1000
+     * @nullable
+     */
     message?: string | null
     /** List of team IDs and corresponding access levels to private projects. */
     private_project_access?: unknown
@@ -1838,6 +1842,13 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {
@@ -2011,6 +2022,7 @@ export interface ProjectCreateRequestApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3007,6 +3019,7 @@ export interface ProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -3897,6 +3910,7 @@ export interface PatchedProjectBackwardCompatApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -6398,7 +6412,20 @@ export interface UserCodexConnectRequestApi {
     tokens: UserCodexAuthTokensApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubBranchesResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** List of branch names */
     branches: string[]
     /**
@@ -6431,7 +6458,20 @@ export interface GitHubRepoApi {
     can_push?: boolean
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface GitHubReposResponseApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
@@ -7103,6 +7143,7 @@ export type PropertyDefinitionsListParams = {
     is_numerical?: boolean | null
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
