@@ -1,9 +1,12 @@
 import { isAppReloadBlocked } from '@/lib/appReload'
 
 import { BUDGETS, BudgetExceededError, resetBudgets } from './budget'
-import { apiJson, setAuthProvider } from './client'
+import { apiJson, apiStream, setAuthProvider } from './client'
 import { resetServerClock, serverOffsetMs } from './serverClock'
 import { createTask, sendTaskRunCommand, startTaskRun } from './tasks'
+import { REQUEST_TIMEOUT_MS, RequestTimeoutError, TransportError } from './transport'
+
+jest.mock('expo/fetch', () => ({ fetch: jest.fn() }))
 
 describe('api client send path', () => {
     let fetchMock: jest.Mock
@@ -88,12 +91,137 @@ describe('api client send path', () => {
 
         if (failure) {
             fail(new Error('Offline'))
-            await expect(request).rejects.toThrow('Offline')
+            await expect(request).rejects.toBeInstanceOf(TransportError)
         } else {
             finish({ ok: true, status: 200, text: async () => '{}' })
             await request
         }
         expect(isAppReloadBlocked()).toBe(false)
+    })
+
+    test.each(['headers', 'body', 'refresh'])('bounds a hung %s without retrying a write', async (stage) => {
+        jest.useFakeTimers()
+        let finishRefresh!: (token: string) => void
+        if (stage === 'headers') {
+            fetchMock.mockImplementation(() => new Promise(() => undefined))
+        } else {
+            fetchMock.mockResolvedValue({
+                ok: stage !== 'refresh',
+                status: stage === 'refresh' ? 401 : 200,
+                text: () => new Promise(() => undefined),
+            })
+        }
+        setAuthProvider({
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
+            refreshAccessToken: () =>
+                new Promise((resolve) => {
+                    finishRefresh = resolve
+                }),
+        })
+        const request = apiJson('/api/projects/2/tasks/task-1/', { method: 'PATCH', json: { archived: true } })
+        const assertion = expect(request).rejects.toBeInstanceOf(RequestTimeoutError)
+        await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS)
+        await assertion
+        expect(isAppReloadBlocked()).toBe(false)
+        expect(fetchMock.mock.calls[0]?.[1].signal.aborted).toBe(true)
+        if (stage === 'refresh') {
+            finishRefresh('rotated')
+            await jest.advanceTimersByTimeAsync(0)
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(jest.getTimerCount()).toBe(0)
+    })
+
+    test.each(['before', 'headers', 'refresh'])('cancels %s without sending a late retry', async (stage) => {
+        jest.useFakeTimers()
+        let finishRefresh!: (token: string) => void
+        let markRefreshStarted!: () => void
+        const refreshStarted = new Promise<void>((resolve) => {
+            markRefreshStarted = resolve
+        })
+        const refreshed = new Promise<string>((resolve) => {
+            finishRefresh = resolve
+        })
+        fetchMock.mockImplementation(() =>
+            stage === 'refresh' ? Promise.resolve({ status: 401 }) : new Promise(() => undefined)
+        )
+        setAuthProvider({
+            getAuth: () => ({ host: 'https://app.example.com', accessToken: 'token', projectId: 2, session: 1 }),
+            refreshAccessToken: () => {
+                markRefreshStarted()
+                return refreshed
+            },
+        })
+        const controller = new AbortController()
+        if (stage === 'before') {
+            controller.abort()
+        }
+        const request = apiJson('/api/projects/2/tasks/task-1/', { signal: controller.signal })
+        const assertion = expect(request).rejects.toMatchObject({ name: 'AbortError' })
+        if (stage === 'refresh') {
+            await refreshStarted
+        }
+        controller.abort()
+        await assertion
+        if (stage === 'refresh') {
+            finishRefresh('rotated')
+            await refreshed
+            await jest.advanceTimersByTimeAsync(0)
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(stage === 'before' ? 0 : 1)
+        expect(isAppReloadBlocked()).toBe(false)
+    })
+
+    test.each(['fetch', 'native fetch', 'body', 'serialization'])(
+        'classifies %s failures without relabeling serialization errors',
+        async (stage) => {
+            const failure = new TypeError('Example failure')
+            if (stage === 'native fetch') {
+                fetchMock.mockRejectedValue(new Error('Example native failure'))
+            }
+            if (stage === 'fetch') {
+                fetchMock.mockRejectedValue(failure)
+            }
+            if (stage === 'body') {
+                fetchMock.mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    text: async () => {
+                        throw failure
+                    },
+                })
+            }
+            const json =
+                stage === 'serialization'
+                    ? {
+                          toJSON: () => {
+                              throw failure
+                          },
+                      }
+                    : {}
+            await expect(apiJson('/api/projects/2/tasks/task-1/', { method: 'POST', json })).rejects.toBeInstanceOf(
+                stage === 'serialization' ? TypeError : TransportError
+            )
+            expect(fetchMock).toHaveBeenCalledTimes(stage === 'serialization' ? 0 : 1)
+        }
+    )
+
+    test('keeps a live stream open past an ordinary request deadline', async () => {
+        jest.useFakeTimers()
+        const { fetch: streamFetch } = jest.requireMock('expo/fetch') as { fetch: jest.Mock }
+        let open!: (response: unknown) => void
+        streamFetch.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    open = resolve
+                })
+        )
+        const request = apiStream('/api/projects/2/tasks/task-1/runs/run-1/stream/')
+        await jest.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS * 2)
+        const signal = streamFetch.mock.calls.at(-1)?.[1].signal as AbortSignal | undefined
+        expect(signal?.aborted ?? false).toBe(false)
+        open({ ok: true, status: 200 })
+        await expect(request).resolves.toMatchObject({ status: 200 })
     })
 
     test('sends nothing once a budget family has used its minute of tokens', async () => {
