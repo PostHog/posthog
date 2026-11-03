@@ -403,9 +403,7 @@ def _compiled(*leaves: dict) -> dict:
             lambda: _compiled(PRODUCTION), {"environment": "staging"}, "high", "excluded_by_filter", id="excluded"
         ),
         pytest.param(lambda: _compiled(PRODUCTION), {"environment": "production"}, "high", None, id="matches"),
-        pytest.param(
-            lambda: _compiled(HIGH_SEVERITY), {}, None, "excluded_by_filter", id="empty_severity_is_not_high"
-        ),
+        pytest.param(lambda: _compiled(HIGH_SEVERITY), {}, None, "excluded_by_filter", id="empty_severity_is_not_high"),
         pytest.param(
             {"properties": [PRODUCTION]}, {"environment": "production"}, "high", "filter_error", id="missing_bytecode"
         ),
