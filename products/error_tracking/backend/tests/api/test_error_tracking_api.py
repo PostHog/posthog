@@ -731,6 +731,27 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("retrieve", "get", "", None),
+            ("update", "patch", "", {"status": "resolved"}),
+            ("merge", "post", "/merge", {"ids": [str(uuid7())]}),
+            ("split", "post", "/split", {"fingerprints": [{"fingerprint": "fingerprint"}]}),
+            ("assign", "patch", "/assign", {"assignee": None}),
+            ("cohort", "put", "/cohort", {"cohortId": 1}),
+            ("activity", "get", "/activity", None),
+        ]
+    )
+    def test_issue_actions_return_404_for_malformed_id(
+        self, _name: str, method: str, suffix: str, data: dict | None
+    ) -> None:
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/error_tracking/issues/not-a-uuid{suffix}", data=data, format="json"
+        )
+
+        assert response.status_code == 404, response.content
+        assert response.json()["detail"] == "Issue not found"
+
+    @parameterized.expand(
+        [
             ("active", "resolved", "$error_tracking_issue_resolved", "Resolved", "Active"),
             ("active", "suppressed", "$error_tracking_issue_suppressed", "Suppressed", "Active"),
             ("resolved", "active", "$error_tracking_issue_reopened", "Active", "Resolved"),
