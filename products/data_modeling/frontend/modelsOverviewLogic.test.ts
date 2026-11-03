@@ -30,7 +30,7 @@ function buildNode(id: string, overrides: Partial<DataModelingNode> = {}): DataM
     }
 }
 
-function buildCheck(id: string, lastStatus: string): Record<string, unknown> {
+function buildCheck(id: string, lastStatus: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
         id,
         name: id,
@@ -38,6 +38,7 @@ function buildCheck(id: string, lastStatus: string): Record<string, unknown> {
         subject_type: 'posthog_table',
         subject_name: 'events',
         last_status: lastStatus,
+        ...overrides,
     }
 }
 
@@ -95,26 +96,35 @@ describe('modelsOverviewLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('puts suspended, failed and late models under materialization and failing checks under data quality, counted the same as the stats', async () => {
+    it('lists each view or table once, with its materialization problem and its failing checks together', async () => {
+        useMocks(
+            apiMocks(NODES, [
+                buildCheck('nulls', 'failed'),
+                buildCheck('ok', 'passed'),
+                buildCheck('late-rows', 'errored', {
+                    subject_type: 'view',
+                    subject_name: 'late',
+                    subject_node_id: 'late',
+                }),
+            ])
+        )
         await mountLoaded()
 
-        expect(logic.values.materializationIssues.map(({ kind, key }) => [kind, key])).toEqual([
-            ['suspended', 'model-paused'],
-            ['failed', 'model-broken'],
-            ['behind', 'behind-late'],
+        expect(
+            logic.values.attentionSubjects.map(({ key, materialization, failingChecks }) => [
+                key,
+                materialization?.kind ?? null,
+                failingChecks.map(({ id }) => id),
+            ])
+        ).toEqual([
+            ['node-paused', 'suspended', []],
+            ['node-broken', 'failed', []],
+            ['node-late', 'behind', ['late-rows']],
+            ['posthog_table-events', null, ['nulls']],
         ])
-        expect(logic.values.checkIssues.map(({ key }) => key)).toEqual(['check-nulls'])
-        expect(logic.values.overviewStats).toMatchObject({ materializationIssues: 3, failingChecks: 1 })
     })
 
-    it('counts saved queries past the first page and each materialized view or endpoint once across DAGs', async () => {
-        useMocks(apiMocks(NODES, [], { ...SAVED_QUERIES, count: 1003 }))
-        await mountLoaded()
-
-        expect(logic.values.overviewStats).toMatchObject({ models: 1003, materialized: 4 })
-    })
-
-    it('reports failing checks as unknown, not zero, when checks fail to load', async () => {
+    it('never reports a healthy overview when checks fail to load', async () => {
         useMocks({ get: { [CHECKS_URL]: () => [500, {}] } })
         router.actions.push(urls.models())
         logic = modelsOverviewLogic()
@@ -122,17 +132,16 @@ describe('modelsOverviewLogic', () => {
         await expectLogic(dataQualityOverviewLogic).toDispatchActions(['loadOverviewFailure'])
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
 
-        expect(logic.values.overviewStats.failingChecks).toBeNull()
         expect(logic.values.nothingToReport).toBe(false)
     })
 
-    it('keeps the counts on screen while models reload', async () => {
+    it('keeps the rows on screen while models reload', async () => {
         await mountLoaded()
 
         lineageDataLogic.actions.loadNodes()
 
         expect(logic.values.modelsFirstLoading).toBe(false)
-        expect(logic.values.overviewStats.models).toEqual(3)
+        expect(logic.values.attentionSubjects).toHaveLength(4)
     })
 
     it.each<[string, Record<string, unknown>[], boolean]>([
