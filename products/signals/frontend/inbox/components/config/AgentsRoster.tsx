@@ -19,14 +19,22 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { issueFilterCount } from '../../errorTrackingIssueFilters'
 import { isExternalSignalSource } from '../../externalSignalSources'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
+import {
+    SOURCE_ISSUE_FILTERS_KEY,
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    SignalSourceType,
+    linearTeamIdsFromConfig,
+} from '../../types'
 import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
+import { ErrorTrackingIssueFiltersModal } from './ErrorTrackingIssueFiltersModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceSteeringModal } from './SourceSteeringModal'
@@ -70,6 +78,18 @@ function linearTeamsSummary(config: SignalSourceConfig): string {
         return 'Reads issues from all Linear teams.'
     }
     return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
+}
+
+// The rows normally hold the same filter. After a partial save, the largest one is what may filter.
+function errorTrackingFilterCount(configs: SignalSourceConfig[]): number {
+    return Math.max(0, ...configs.map((config) => issueFilterCount(config.config[SOURCE_ISSUE_FILTERS_KEY])))
+}
+
+function errorTrackingFiltersSummary(count: number): string {
+    if (count === 0) {
+        return 'Every new issue can reach your inbox.'
+    }
+    return `Only issues that match ${count} ${count === 1 ? 'filter' : 'filters'} reach your inbox.`
 }
 
 /** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
@@ -669,6 +689,7 @@ export function AgentsRoster(): JSX.Element {
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
     const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
+    const [issueFiltersConfigs, setIssueFiltersConfigs] = useState<SignalSourceConfig[] | null>(null)
 
     const scannerEntities = useMemo(
         (): RosterEntity[] =>
@@ -891,20 +912,36 @@ export function AgentsRoster(): JSX.Element {
                 state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
                     ? state.steeringConfigs
                     : null
-            const filters =
-                agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
-                    ? {
-                          summary: linearTeamsSummary(linearIssuesConfig),
-                          changeLabel: 'Change teams',
-                          onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
-                          // A save or reload can replace the row, and the picker reads it on open.
-                          disabledReason: isLinearIssuesToggling
-                              ? 'Saving'
-                              : sourceConfigsLoading
-                                ? 'Refreshing'
-                                : undefined,
-                      }
-                    : undefined
+            // A filter needs persisted rows to write to, like steering.
+            const persistedErrorTrackingConfigs =
+                agent.source === 'error_tracking' &&
+                state.steeringConfigs.length > 0 &&
+                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
+                    ? state.steeringConfigs
+                    : null
+            const issueFilterTotal = persistedErrorTrackingConfigs
+                ? errorTrackingFilterCount(persistedErrorTrackingConfigs)
+                : 0
+            const filters: SourceFilters | undefined = persistedErrorTrackingConfigs
+                ? {
+                      summary: errorTrackingFiltersSummary(issueFilterTotal),
+                      changeLabel: issueFilterTotal > 0 ? 'Change filters' : 'Add filters',
+                      onChange: () => setIssueFiltersConfigs(persistedErrorTrackingConfigs),
+                      disabledReason: state.loading ? 'Saving' : sourceConfigsLoading ? 'Refreshing' : undefined,
+                  }
+                : agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                  ? {
+                        summary: linearTeamsSummary(linearIssuesConfig),
+                        changeLabel: 'Change teams',
+                        onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                        // A save or reload can replace the row, and the picker reads it on open.
+                        disabledReason: isLinearIssuesToggling
+                            ? 'Saving'
+                            : sourceConfigsLoading
+                              ? 'Refreshing'
+                              : undefined,
+                    }
+                  : undefined
             return (
                 <AgentRow
                     key={agent.source}
@@ -1002,6 +1039,13 @@ export function AgentsRoster(): JSX.Element {
             )}
 
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
+            {issueFiltersConfigs && (
+                <ErrorTrackingIssueFiltersModal
+                    key={issueFiltersConfigs.map((config) => config.id).join(',')}
+                    sourceConfigs={issueFiltersConfigs}
+                    onClose={() => setIssueFiltersConfigs(null)}
+                />
+            )}
             {steeringTarget && (
                 <SourceSteeringModal
                     key={steeringTarget.configs.map((config) => config.id).join(',')}
