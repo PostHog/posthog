@@ -3176,5 +3176,68 @@ describe('exec tool', () => {
                 expect(message).toContain('parameter "series.0.nodes.0.properties.0.value"')
             })
         })
+
+        // October 2026 traces: ~49 experiment-update rejections where a metrics
+        // payload failing deep validation read "parameter 'metrics_secondary':
+        // Invalid input: expected null, received array" — the null branch of the
+        // nullable metrics union, not the real error inside the array branch.
+        describe('a nullable field whose non-null branch failed inside', () => {
+            const formatFor = (input: unknown): string => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('experiment-update', result.error!, input, tool.schema)
+            }
+
+            it('names the field inside the metrics array, not the null branch', () => {
+                const message = formatFor({
+                    id: 1,
+                    metrics_secondary: [{ kind: 'ExperimentMetric', metric_type: 'bogus' }],
+                })
+
+                expect(message).toContain('metrics_secondary.0.metric_type')
+                expect(message).not.toContain('expected null')
+            })
+
+            it('does the same for the primary metrics field', () => {
+                const message = formatFor({
+                    id: 1,
+                    metrics: [{ kind: 'ExperimentMetric', metric_type: 'bogus' }],
+                })
+
+                expect(message).toContain('metrics.0.metric_type')
+                expect(message).not.toContain('expected null')
+            })
+
+            it('still accepts an explicit null', () => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse({ id: 1, metrics_secondary: null }, { reportInput: true })
+                expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            })
+
+            it('keeps the honest type error when the value matches no branch at all', () => {
+                const message = formatFor({ id: 1, metrics_secondary: 'garbage' })
+
+                expect(message).toContain('metrics_secondary')
+                expect(message).toContain('expected array')
+            })
+
+            // The synthetic shape pins the mechanism down without the generated
+            // schema's size: the null branch's single root complaint must lose to
+            // the branch that engaged with the array's contents.
+            it('prefers the engaged branch on a minimal union([array, null])', () => {
+                const schema = z.object({
+                    metrics: z.union([z.array(z.object({ metric_type: z.enum(['mean', 'funnel']) })), z.null()]),
+                })
+                const input = { metrics: [{ metric_type: 'bogus' }] }
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('some-tool', result.error!, input, schema)
+
+                expect(message).toContain('metrics.0.metric_type')
+                expect(message).not.toContain('expected null')
+            })
+        })
     })
 })
