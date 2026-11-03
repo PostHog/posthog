@@ -216,6 +216,7 @@ export namespace Schemas {
         materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
+        narrowSubqueryProperties: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
