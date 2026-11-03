@@ -1737,13 +1737,13 @@ snapshots:
     components-integrations-slack--slack-full-page-connect--light:
         hash: v1.k794b7964.43f9ed59c7ada1816c3868080fbed403f9d77b62366cdc4537779e3541e9326b.wItDTj0Z5U5FlAltTgn5YnNgC444wkCDR8yhBDf5KIo
     components-integrations-slack--slack-full-page-connected-all-scopes--dark:
-        hash: v1.k794b7964.f23aecf6ced3a0a5187194cc3e7b7d2908be00cd1cef463aee61c0335c61d1a1.Cpd3UrvoUfWC8OCXv54mEs7LmMrhOCylorsVY3w3pP0
+        hash: v1.k794b7964.5f07a7ca81ea242d0f1324a2e2ea6b5687057f1d2f88231f8c7ac0d3f959aa7b.PHPt53fppsCs3u7f48A50CiP6VAqRrxwr6uL2lhxCM4
     components-integrations-slack--slack-full-page-connected-all-scopes--light:
-        hash: v1.k794b7964.0fb31dd9edbb2348ad73cef42960602be6cbe75044a9c2cf46aa6d6646d8b81a.8sYKZtq2DPh0p6Am8XQ2SqFXnu7RKKX-xwhhHQiH9Kg
+        hash: v1.k794b7964.9acd9bfe35e19620c3b30279f484e40a019d6894f63ef92adc97b2bbdd4b188c.ChJjan_VyyddbM8VvsA5RIDOgr1BHLpidjzSE9O1qfo
     components-integrations-slack--slack-full-page-connected-missing-scopes--dark:
-        hash: v1.k794b7964.a247e90d2db2de4157ae8eda4160326ca3871caa8b25fbd7dac017c3862c1361.wT-fz9r9IRvyJWa61h2zGOHIM__4Ejj_7uoA35YwzZY
+        hash: v1.k794b7964.57080295e3db711682eef4f811c2fabbf0351dd38a797086b3897cd109ec65ce.Zu-d4K9TvGeKyWNJ81HLY9kT6wkFkCpQq3KUd5Exvyc
     components-integrations-slack--slack-full-page-connected-missing-scopes--light:
-        hash: v1.k794b7964.36d3c66dbb4003f3f9f1ae43b58594cca7173585a6b93b13617e4e6509b70a21.WnrbnjXsjlke2YiAuEBwM4hMytpWPQauuGOBNlX0dRc
+        hash: v1.k794b7964.55d53fef0a8690fd054e3a2f2b439790923928607c3e96ce8e84ceb8bfecb361.g2PwsLL0Ski-DPKuNdhEA5Km3UChJVQWPFr0sQG9z1U
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.1bcb0a5391d8290b0bdc18f53b3a3363dad6c03cfce5ffb28bdc4d8b26185f5d._h-SOFA2XkHyVKX9pGcZQItPw6XVxVXbouougXrIqko
     components-integrations-slack--slack-integration--light:
@@ -9990,6 +9990,10 @@ snapshots:
         hash: v1.k794b7964.f0f8abade6242178a102106e1ff1beb32e1245ad5d6282a4bd5a35abfa97212f.aCTxPd846zEcV61n-alopbaqQ8P0E4If_r7DLaXWYA8
     scenes-app-ai-observability-trace-view-trace-view--feedback-mode--light:
         hash: v1.k794b7964.c925b0ebfcbb3da6332350bb47fa803e840a3031f94b8cf3b7abe54001a1fd70.pnt2DBUbAt513gy6lz0MDRd4U8crb7uzj392lDPbaI4
+    scenes-app-ai-observability-trace-view-trace-view--fills-short-host--dark:
+        hash: v1.k794b7964.9e0b000ae88002006a68108afa565e70a952ef84a955e24c4a1e447e9dda39e5.YqWJUnnrBANrcCTjw0UgsXFaB18gm_vJOyg_iYmGGwk
+    scenes-app-ai-observability-trace-view-trace-view--fills-short-host--light:
+        hash: v1.k794b7964.64783b1bb137693bcb2fbe2dd1031e391dfa5d0ca21cbeeff72451330ce5e170.qsha2FkM50UQV2Yq6qEfhgrkSxrxHtx39BuRjSSA1iI
     scenes-app-ai-observability-trace-view-trace-view--generation-selected--dark:
         hash: v1.k794b7964.bae531b1be9da9f5dfb662955e73095ae96716ad166795e671f16408cfdfa24d.iRrceUDV3xYj9RwrBCgkz6s3UgcjB1oOdJb8ncy-P8E
     scenes-app-ai-observability-trace-view-trace-view--generation-selected--light:
@@ -15646,6 +15650,14 @@ snapshots:
         hash: v1.k794b7964.125683bfe67f38e8705abf402d5dc17fa355dcde157e710e6daad85fcb20c02e.tbzNEa9x9B-PU_UNEPOo_dbiVJhxDnFAwzBgH3ka36g
     scenes-app-settings-organization--settings-organization-startup-program--light:
         hash: v1.k794b7964.a7050dc508b37c55eba7ba4cb783a4567e0fff3cab6924ce3ca79ebb07664e79.moDmbGJ1e6J9sEvpXxnMKAsIi8rTMxsH9b_IWAaWCWE
+    scenes-app-settings-organization-member-offboarding--no-resources--dark:
+        hash: v1.k794b7964.d2feb6e0abcdf2a80e53fc9ef2c654ae59371898447d11098a34a28cc828396b.LTgmr0g4aUgaG8KmbEmRDxt8SDyIzAgIejRrTMQdfKk
+    scenes-app-settings-organization-member-offboarding--no-resources--light:
+        hash: v1.k794b7964.5858a7f6b0058141bee9134870d3438e8564148e3ac5c2ae2879c551a60ea6cf.xFY9ivLhVV1pKN5UWMjkzXHzhaYFapC3vvRtwtsqro4
+    scenes-app-settings-organization-member-offboarding--review-resources--dark:
+        hash: v1.k794b7964.50bb969851a42d76c08213d73bafd818dedf3ceee60b7585b9dfb528937872c1.Wol4-lN5gN_e_Rh1jJB4Y1xOR6zq6UOHaoE3TAOKkrE
+    scenes-app-settings-organization-member-offboarding--review-resources--light:
+        hash: v1.k794b7964.cda1cc2e98b958fb6272e514adbd5d9931ce274f0749671d2ac44ef91cfbc03e.MtNTKzbSL7vKj77Bg-fyrRVOxUqhDBwRLOeJ0u1ELGY
     scenes-app-settings-project--settings-project-access-control--dark:
         hash: v1.k794b7964.7554b77bd6b1d3fdc411385eff866e2fb0e442e33459268f37d116561aaa50c0.tNvJl7_UinwSpilEuRCVIkSFxqIAQY4x5_6QfXAm0hM
     scenes-app-settings-project--settings-project-access-control--light:
