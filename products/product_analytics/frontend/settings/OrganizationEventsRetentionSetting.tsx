@@ -5,6 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
+import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
@@ -18,25 +19,27 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
         return null
     }
 
-    const planMonths = organizationRetention.plan_retention_months
-
     return (
         <div>
-            <p className="max-w-160 text-sm text-secondary mb-4">
+            <p className="max-w-160 text-sm text-secondary mb-2">
                 Choose how long projects in this organization keep events. A project can set its own window instead.{' '}
-                {organizationRetention.organization_retention_months === null &&
-                    `No window is set, so projects keep events for your plan's window of ${planMonths} months. `}
                 <Link to={projectRetention.docs_url} target="_blank">
                     Learn more
                 </Link>
             </p>
+            <EventsRetentionPlanNote plan={organizationRetention} />
             <EventsRetentionWindowForm
                 retentionMonths={organizationRetention.organization_retention_months}
+                defaultMonths={organizationRetention.default_retention_months}
+                defaultSource="plan"
+                defaultDeletesMonthly={false}
                 minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
-                planMonths={planMonths}
-                keptBy="Every project without its own window"
-                removedDescription={`Projects without their own window will keep events for your plan's window of ${planMonths} months.`}
+                planMonths={organizationRetention.plan_retention_months}
+                scope="Events in projects without their own custom events retention"
+                overrideNote="Projects with their own custom events retention policy will override this organization level policy."
+                nextMonthlyCleanupOn={organizationRetention.next_monthly_cleanup_on}
+                passSchedule={null}
                 saving={organizationRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateOrganizationRetention}

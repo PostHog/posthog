@@ -112,6 +112,13 @@ const PricingTiers = ({
     )
 }
 
+// A product plan's entitlement-only features configure PostHog rather than describe the plan, so the table skips
+// them. Platform plans also mark inherited features entitlement-only, so their table keeps every feature.
+function comparedPlanFeatures(product: BillingProductV2Type, plan?: BillingPlanType): BillingFeatureType[] {
+    const features = plan?.features ?? []
+    return product.type === 'platform_and_support' ? features : features.filter((feature) => !feature.entitlement_only)
+}
+
 export const PlanComparison = ({
     product,
     includeAddons = false,
@@ -132,6 +139,7 @@ export const PlanComparison = ({
         return null
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
+    const comparedFeatures = comparedPlanFeatures(product, fullyFeaturedPlan)
 
     const productAnalyticsPlans = billing?.products?.find((product) => product.type === 'product_analytics')?.plans
     const eventsRetentionOf = (plan?: BillingPlanType): BillingFeatureType | undefined =>
@@ -282,11 +290,11 @@ export const PlanComparison = ({
                         </h3>
                     </th>
                 </tr>
-                {fullyFeaturedPlan?.features?.map((feature, i) => (
+                {comparedFeatures.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
                         className={clsx(
-                            i == fullyFeaturedPlan?.features?.length - 1 &&
+                            i == comparedFeatures.length - 1 &&
                                 !showEventsRetention &&
                                 !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
@@ -297,7 +305,7 @@ export const PlanComparison = ({
                             className={clsx(
                                 'PlanTable__th__feature',
                                 width && width < 600 && 'PlanTable__th__feature--reduced_padding',
-                                i == fullyFeaturedPlan?.features?.length - 1 &&
+                                i == comparedFeatures.length - 1 &&
                                     !showEventsRetention &&
                                     'PlanTable__th__last-feature'
                             )}
