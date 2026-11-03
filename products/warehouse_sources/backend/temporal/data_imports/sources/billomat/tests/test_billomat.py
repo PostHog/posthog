@@ -120,6 +120,8 @@ class TestBillomatSourceResumeBehavior:
             ("Invoices", "/api/invoices", "invoices", "invoice"),
             ("InvoicePayments", "/api/invoice-payments", "invoice-payments", "invoice-payment"),
             ("Confirmations", "/api/confirmations", "confirmations", "confirmation"),
+            ("Reminders", "/api/reminders", "reminders", "reminder"),
+            ("DeliveryNotes", "/api/delivery-notes", "delivery-notes", "delivery-note"),
         ],
     )
     def test_incremental_run_sends_formatted_from_param(self, schema: str, path: str, wrapper: str, item: str) -> None:
@@ -135,6 +137,46 @@ class TestBillomatSourceResumeBehavior:
         assert result.requests[0].param("from") == "2024-05-01"
         assert result.requests[0].param("order_by") == "date ASC"
         assert result.rows == [{"id": "1"}]
+
+    @pytest.mark.parametrize(
+        ("schema", "path", "pages", "expected_rows"),
+        [
+            (
+                "Articles",
+                "/api/articles",
+                [{"articles": {"article": [{"id": "7", "title": "Webdesign"}], "total": "1"}}],
+                [{"id": "7", "title": "Webdesign"}],
+            ),
+            (
+                # The feed carries no `total`, so paging only stops on an empty page.
+                "ActivityFeed",
+                "/api/activity-feed",
+                [
+                    {"activity-feed": {"activity": [{"resource": "invoices", "id": "5", "text": "Invoice created."}]}},
+                    {"activity-feed": {"activity": [{"resource": "offers", "id": "6", "text": "Estimate sent."}]}},
+                    {"activity-feed": {"activity": []}},
+                ],
+                [
+                    {"resource": "invoices", "id": "5", "text": "Invoice created."},
+                    {"resource": "offers", "id": "6", "text": "Estimate sent."},
+                ],
+            ),
+        ],
+    )
+    def test_full_refresh_endpoint_walks_pages_without_date_filter(
+        self, schema: str, path: str, pages: list[dict[str, Any]], expected_rows: list[dict[str, Any]]
+    ) -> None:
+        result = self._driver().run(
+            schema,
+            [ScriptedResponse(json=page) for page in pages],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2024, 5, 1),
+        )
+
+        assert result.raised is None
+        assert result.paths == [path] * len(pages)
+        assert result.params("from") == [None] * len(pages)
+        assert result.rows == expected_rows
 
 
 class TestBillomatClientContactsFanout:
