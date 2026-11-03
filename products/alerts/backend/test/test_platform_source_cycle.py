@@ -212,7 +212,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        side_effect = result if isinstance(result, Exception | list) or callable(result) else None
+        side_effect = None if isinstance(result, AlertEvaluationResult) else result
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
