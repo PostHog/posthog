@@ -36,13 +36,14 @@ def payload_from_json(
     if payload_version != PAYLOAD_VERSION:
         raise UnsupportedPayloadVersionError(payload_version)
     if kind == WarehouseSuggestionKind.CERTIFY:
-        return CertifyPayload(**data)
+        return CertifyPayload(**_declared(CertifyPayload, data))
     if kind == WarehouseSuggestionKind.DEPRECATE:
-        return DeprecatePayload(**data)
+        return DeprecatePayload(**_declared(DeprecatePayload, data))
     if kind == WarehouseSuggestionKind.UNMATERIALIZE:
-        return UnmaterializePayload(**data)
-    sources = {field: tuple(_source_ref(source) for source in data[field]) for field in SOURCE_FIELDS}
-    return MaterializePayload(**{**data, **sources, **_refresh_fields(data)})
+        return UnmaterializePayload(**_declared(UnmaterializePayload, data))
+    declared = _declared(MaterializePayload, data)
+    sources = {field: tuple(_source_ref(source) for source in declared[field]) for field in SOURCE_FIELDS}
+    return MaterializePayload(**{**declared, **sources, **_refresh_fields(declared)})
 
 
 def source_table_ids(payloads: Iterable[SuggestionPayload]) -> set[UUID]:
@@ -73,6 +74,11 @@ def _visible_sources(sources: tuple[SourceRef, ...], readable_table_ids: Collect
         if source.warehouse_table_id is None or source.warehouse_table_id in readable_table_ids
     )
     return VisibleSources(names=names, hidden_count=len(sources) - len(names))
+
+
+def _declared(payload_type: type, data: Mapping[str, Any]) -> dict[str, Any]:
+    names = {field.name for field in fields(payload_type)}
+    return {key: value for key, value in data.items() if key in names}
 
 
 def _source_ref(source: Mapping[str, Any]) -> SourceRef:

@@ -39,15 +39,25 @@ It parses every message in two phases.
 2. **A full parse for survivors.**
    Only events that pass the gate are parsed completely and turned into the output envelope.
 
-An event passes the gate when it has a person id and its team is in the **team index**.
-The team index is the set of teams that have at least one realtime cohort, intersected with `REALTIME_COHORT_TEAM_ALLOWLIST`.
-The shuffler rebuilds it from Postgres every few minutes and swaps it in atomically.
+An event passes the gate when it has a person id and its team passes two checks.
+
+1. **The team index.**
+   The team has at least one realtime cohort.
+   The shuffler rebuilds the index from Postgres every few minutes and swaps it in atomically.
+2. **Team access.**
+   `REALTIME_COHORT_TEAM_ALLOWLIST` names the team, or the team's row in `cohort_realtime_team_access` is at `processing` or `serving`.
+   The shuffler reads the whole table about every 15 seconds, so a grant or a revoke takes effect without a deploy.
+   Django never deletes a row, and it never grants an `off` row again.
+   So when a read lacks a row the shuffler holds, or grants one of its `off` rows again, the shuffler keeps its previous row for that team, because that read comes from a lagging replica or the wrong database.
+   The read's other rows still take effect, so a revoke always gets through.
+   After a failed read, it keeps all the previous rows.
+   A row deleted or granted again by hand keeps its old state in every running shuffler, so restart both shuffler deployments after one.
 
 Apart from the person id check, the gate looks at the team only.
 It cannot filter by event name: person-property criteria are re-evaluated from every event that carries person properties, whatever the event is called.
 So every event from an enabled team with a person id is forwarded.
 
-The shuffler consumes nothing until the team index has loaded once.
+The shuffler consumes nothing until the team index and the team access rows have each loaded once.
 If Postgres is down when it boots, the shuffler lags and retries on its refresh interval.
 It loses nothing as long as its consumer group has a committed offset that is still inside the firehose's retention.
 A group with no usable offset starts at the tail when consumption begins, as described below, so it skips what arrived during the wait.
@@ -224,15 +234,16 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
   Consuming, producing and committing run independently.
   Thousands of forwards can be in flight at once, so slow broker acknowledgments do not throttle consumption.
   For typical event sizes, the in-flight cap sits below the producer's byte queue, so the shuffler pauses cleanly instead of churning on a full queue.
-- **Lock-free team index.**
-  The refresh builds a new set and swaps a pointer.
-  The hot path never waits on it.
+- **Lock-free team gate.**
+  The index refresh and the access poll each build a new snapshot and swap a pointer.
+  The hot path never waits on them.
 
 ## Things that surprise people
 
 - The processor's event-name gate only skips behavioral evaluation, after the event is already on `cohort_stream_events`.
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
-  Only teams in both are processed, and a newly enabled team can lose a few minutes of events until both have refreshed.
+  The shuffler also lets through the teams that a `cohort_realtime_team_access` row grants, but the processor reads only its list.
+  Only teams that both let through are processed, and a newly enabled team can lose a few minutes of events until both have refreshed.
   Merges also need the team in Node's merge allowlist, and backfills need it in the seeder's copy.
 - The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
   The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.

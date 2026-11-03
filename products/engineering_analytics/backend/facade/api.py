@@ -11,7 +11,7 @@ costs; the same surfaces also take a broader ``run_scope`` filter (see
 ``WorkflowHealthRunScope``). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
-one; it defaults to the oldest connected source. ``user_access_control`` enforces the
+one; it defaults to the oldest synced source. ``user_access_control`` enforces the
 requesting user's per-source warehouse access (pass the request's; ``None`` for system
 contexts). Each function resolves the team's authorized curated read handle once, here,
 then delegates to the read layer: source selection and access control live in this layer,
@@ -91,7 +91,7 @@ def _authorized_source(
     """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
+    else the oldest one the sources list reports as synced. ``repo`` ('owner/name'), when the caller already scopes to one repo,
     prefers the source connected for that repo, so a team with one source per repository reads the
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
@@ -623,6 +623,9 @@ def list_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     runner: CITestRunner | None = None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -634,6 +637,9 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
         runner=runner,
+        test=test,
+        branch=branch,
+        pr_number=pr_number,
     )
 
 
@@ -700,11 +706,15 @@ def get_team_merge_trend(
 def get_broken_tests(
     *,
     team: Team,
+    test: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> BrokenTestsResult:
-    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+    return logic.build_broken_tests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), test=test, branch=branch
+    )
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:

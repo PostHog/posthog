@@ -18,8 +18,6 @@ export type MCPAnalyticsContext = {
     projectId?: string
     projectUuid?: string
     projectName?: string
-    /** The project's `ingested_event`; absent when the project could not be read. */
-    projectHasData?: boolean
 }
 
 /**
@@ -47,12 +45,11 @@ export const buildMCPAnalyticsGroups = ({
 export const buildMCPContextProperties = (
     ctx: MCPAnalyticsContext,
     { prefix = '' }: { prefix?: string } = {}
-): Record<string, string | boolean> => ({
+): Record<string, string> => ({
     ...(ctx.organizationId ? { [`${prefix}organization_id`]: ctx.organizationId } : {}),
     ...(ctx.projectId ? { [`${prefix}project_id`]: ctx.projectId } : {}),
     ...(ctx.projectUuid ? { [`${prefix}project_uuid`]: ctx.projectUuid } : {}),
     ...(ctx.projectName ? { [`${prefix}project_name`]: ctx.projectName } : {}),
-    ...(ctx.projectHasData !== undefined ? { [`${prefix}mcp_project_has_data`]: ctx.projectHasData } : {}),
 })
 
 /**

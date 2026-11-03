@@ -21,6 +21,7 @@ import {
     SchemaIncrementalFieldsResponse,
 } from '~/types'
 
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 export const SCHEMA_SCENE_TABS = ['configuration', 'syncs', 'metrics', 'data-quality', 'history'] as const
@@ -332,31 +333,46 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         updateSchema: async ({ schema }) => {
-            const current = values.schemaData
-            if (current) {
-                actions.loadSchemaSuccess({ ...current, ...schema })
+            const runUpdate = async (): Promise<void> => {
+                const current = values.schemaData
+                if (current) {
+                    actions.loadSchemaSuccess({ ...current, ...schema })
+                }
+                try {
+                    await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
+                } catch (e: any) {
+                    lemonToast.error(e?.message || "Can't update schema at this time")
+                } finally {
+                    actions.loadSchema()
+                }
             }
-            try {
-                await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
-            } catch (e: any) {
-                lemonToast.error(e?.message || "Can't update schema at this time")
-            } finally {
-                actions.loadSchema()
+            const turnsSyncingOn = schema.should_sync && !values.schemaData?.should_sync
+            if (turnsSyncingOn && schema.pending_self_managed_table) {
+                confirmPendingSelfManagedSync(1, () => void runUpdate())
+                return
             }
+            await runUpdate()
         },
         reloadSchema: async ({ schema }) => {
-            const current = values.schemaData
-            if (current) {
-                actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
+            const runReload = async (): Promise<void> => {
+                const current = values.schemaData
+                if (current) {
+                    actions.loadSchemaSuccess({ ...current, status: ExternalDataSchemaStatus.Running })
+                }
+                try {
+                    await api.externalDataSchemas.reload(schema.id)
+                    posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
+                } catch (e: any) {
+                    lemonToast.error(e?.message || 'Cant reload schema at this time')
+                } finally {
+                    actions.loadSchema()
+                }
             }
-            try {
-                await api.externalDataSchemas.reload(schema.id)
-                posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
-            } catch (e: any) {
-                lemonToast.error(e?.message || 'Cant reload schema at this time')
-            } finally {
-                actions.loadSchema()
+            if (schema.pending_self_managed_table) {
+                confirmPendingSelfManagedSync(1, () => void runReload())
+                return
             }
+            await runReload()
         },
         resyncSchema: async ({ schema }) => {
             const current = values.schemaData
