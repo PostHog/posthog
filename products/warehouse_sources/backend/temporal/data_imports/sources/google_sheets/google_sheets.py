@@ -12,7 +12,7 @@ from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import absolute_range_name, fill_gaps, numericise_all
+from gspread.utils import DateTimeOption, ValueRenderOption, absolute_range_name, fill_gaps
 
 from posthog.credentials_service.errors import CredentialsSecretError
 from posthog.dataclasses import frozen
@@ -198,15 +198,48 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
-def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
+def _numericise_text(text: str) -> int | float | str | None:
+    # The grid holds unformatted values, so a number cell is already an int or a float. A text cell
+    # that looks like a number still imports as a number. Unlike gspread's `numericise`, this keeps
+    # commas, because a comma can be the decimal separator ("0,5"), and dropping it changes the value.
+    if text == "":
+        return None
+    if "_" in text:
+        return text
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return float(text)
+        except ValueError:
+            return text
+
+
+def _cell_text(cell: Any) -> str | None:
+    if cell is None or cell == "":
+        return None
+    if isinstance(cell, bool):
+        # Matches the formatted text that the source read before it switched to unformatted values.
+        return "TRUE" if cell else "FALSE"
+    return str(cell)
+
+
+def _cell_value(cell: Any) -> Any:
+    if isinstance(cell, bool):
+        return _cell_text(cell)
+    if isinstance(cell, str):
+        return _numericise_text(cell)
+    return cell
+
+
+def _records_from_grid(grid: list[list[Any]]) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
-    column_names = _resolve_column_names(list(grid[0]))
+    column_names = _resolve_column_names([_cell_text(header) or "" for header in grid[0]])
 
-    # default_blank defaults to "", which turns empty cells into strings and breaks numeric
-    # columns that legitimately have gaps. None lets blank cells import as null instead.
-    records = [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
+    # Blank cells import as null, so numeric columns that have gaps stay numeric.
+    records = [dict(zip(column_names, [_cell_value(cell) for cell in row])) for row in grid[1:]]
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
@@ -214,7 +247,7 @@ def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
         if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1:
             for raw_row, record in zip(grid[1:], records):
                 if name in record:
-                    record[name] = raw_row[index] or None
+                    record[name] = _cell_text(raw_row[index])
 
     return records
 
@@ -553,8 +586,20 @@ def google_sheets_source(
         # Read the raw grid and build the records ourselves rather than calling
         # `get_all_records`, which can't cope with a blank header cell. `pad_values=True` mirrors
         # what `get_all_records` asks for, so every row is the same width as the widest one.
+        # Unformatted values give number cells as numbers. Formatted values give them as text in the
+        # spreadsheet locale, so "0,5" in a decimal-comma locale has no safe parse. Dates, times and
+        # durations stay formatted text, because the unformatted value is a day serial number.
         try:
-            grid = cast(list[list[str]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True)))
+            grid = cast(
+                list[list[Any]],
+                _retry_on_transient_api_error(
+                    lambda: worksheet.get(
+                        pad_values=True,
+                        value_render_option=ValueRenderOption.unformatted,
+                        date_time_render_option=DateTimeOption.formatted_string,
+                    )
+                ),
+            )
         except gspread.exceptions.APIError as e:
             # Same deterministic 400 handled above for the header/incremental-field reads (e.g. an
             # empty sheet, or a sheet resized to have no columns) — this call has no explicit range,

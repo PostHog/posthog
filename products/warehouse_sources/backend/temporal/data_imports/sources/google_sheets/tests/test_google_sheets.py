@@ -380,10 +380,10 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(header_row: list[str], data_rows: list[list[str]]) -> list[Any]:
+def _read_sheet(header_row: list[str], data_rows: list[list[Any]], worksheet: Any = None) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
-    mock_worksheet = mock.MagicMock()
+    mock_worksheet = worksheet or mock.MagicMock()
     mock_worksheet.get_all_values.return_value = [header_row]
     mock_worksheet.get.return_value = [header_row, *data_rows]
 
@@ -406,7 +406,7 @@ def _read_sheet(header_row: list[str], data_rows: list[list[str]]) -> list[Any]:
 def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
     tables = _read_sheet(
         ["id", "code"],
-        [["1", "spring sale"], ["2", "1,200"], ["3", ""], ["4", "42"]],
+        [[1, "spring sale"], [2, "1,200"], [3, ""], [4, "42"], [5, 0.5], [6, True]],
     )
 
     assert tables[0].to_pylist() == [
@@ -414,7 +414,32 @@ def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_tex
         {"id": 2, "code": "1,200"},
         {"id": 3, "code": None},
         {"id": 4, "code": "42"},
+        {"id": 5, "code": "0.5"},
+        {"id": 6, "code": "TRUE"},
     ]
+
+
+@pytest.mark.parametrize(
+    "cells,expected",
+    [
+        # The cells hold what Google returns for an unformatted read of a decimal-comma spreadsheet.
+        pytest.param([0.5, 1.25], [0.5, 1.25], id="decimal_comma_number"),
+        pytest.param([1234.5, 1000000], [1234.5, 1000000], id="thousands_separator"),
+        pytest.param([0.5, 0.125], [0.5, 0.125], id="percentage"),
+        pytest.param([1000, 19.99], [1000, 19.99], id="currency"),
+        pytest.param(["15.01.2024", "31.12.2024"], ["15.01.2024", "31.12.2024"], id="date_stays_formatted_text"),
+        pytest.param(["0,5", "1,25"], ["0,5", "1,25"], id="decimal_comma_in_text_cell_keeps_its_value"),
+        pytest.param(["42", "1.5"], [42, 1.5], id="number_in_text_cell"),
+        pytest.param([True, False], ["TRUE", "FALSE"], id="boolean"),
+    ],
+)
+def test_google_sheets_source_reads_unformatted_cell_values(cells, expected):
+    worksheet = mock.MagicMock()
+    tables = _read_sheet(["value"], [[cell] for cell in cells], worksheet)
+
+    assert tables[0].column("value").to_pylist() == expected
+    assert worksheet.get.call_args.kwargs["value_render_option"] == gspread.utils.ValueRenderOption.unformatted
+    assert worksheet.get.call_args.kwargs["date_time_render_option"] == gspread.utils.DateTimeOption.formatted_string
 
 
 @pytest.mark.parametrize(
