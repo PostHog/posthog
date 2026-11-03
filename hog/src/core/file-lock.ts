@@ -31,6 +31,13 @@ async function lockHasId(runtime: Runtime, lock: string, id: string | undefined)
     return (await readLock(runtime, lock))?.id === id
 }
 
+// Removes the lock only while it still has `id`, so a lock another process took over stays.
+async function releaseLock(runtime: Runtime, lock: string, id: string | undefined): Promise<void> {
+    if (await lockHasId(runtime, lock, id)) {
+        await runtime.removeFile(lock)
+    }
+}
+
 // Waits until this process creates the lock file. A lock that went stale is removed, so a process
 // that died holding it doesn't block every later one.
 async function acquireLock(runtime: Runtime, lock: string, id: string): Promise<void> {
@@ -49,9 +56,7 @@ async function acquireLock(runtime: Runtime, lock: string, id: string): Promise<
         }
         // Another process may have taken the stale lock over since the read above. Removing only
         // the lock this process judged stale keeps it from removing that process's live lock.
-        if (await lockHasId(runtime, lock, contents?.id)) {
-            await runtime.removeFile(lock)
-        }
+        await releaseLock(runtime, lock, contents?.id)
         unreadableSince = undefined
     }
 }
@@ -69,13 +74,6 @@ async function keepLockFresh(runtime: Runtime, lock: string, id: string, signal:
     } catch {
         // A failed refresh only stops the refreshing. The lock may then look abandoned after
         // LOCK_STALE_MS, which is the behavior without refreshing, and the work keeps going.
-    }
-}
-
-// A process that took over this lock as stale owns it now, so its lock stays in place.
-async function releaseLock(runtime: Runtime, lock: string, id: string): Promise<void> {
-    if (await lockHasId(runtime, lock, id)) {
-        await runtime.removeFile(lock)
     }
 }
 
