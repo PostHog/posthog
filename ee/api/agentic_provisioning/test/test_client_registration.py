@@ -279,6 +279,18 @@ class TestClientRegistration(ProvisioningTestBase):
         assert app.provisioning.can_create_accounts is False
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
 
+    def test_a_throwaway_hosted_client_id_is_refused_before_its_document_is_fetched(self):
+        tunnel_url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+
+        with patch("posthog.api.oauth.cimd.fetch_client_json_document") as mock_fetch:
+            res = self._post_api(REGISTRATION_URL, {"client_id": tunnel_url})
+
+        assert res.status_code == 400, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["client_id_host"]["ok"] is False
+        mock_fetch.assert_not_called()
+        assert not OAuthApplication.objects.filter(client_id=tunnel_url).exists()
+
     def test_a_document_we_could_not_store_is_not_promoted(self):
         # A rejected save leaves the row describing the previous document. Promoting off it
         # would grant provisioning, and derive client_type from a stored key set, that the

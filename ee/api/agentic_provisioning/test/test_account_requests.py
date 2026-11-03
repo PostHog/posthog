@@ -21,7 +21,12 @@ from posthog.test.authentication_checks import covers_authentication
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_JWKS_URI, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_CLIENT_ID,
+    TEST_PARTNER_JWKS_URI,
+    ProvisioningTestBase,
+    provisioning_config,
+)
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 VALID_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -222,9 +227,19 @@ class TestAccountRequests(ProvisioningTestBase):
         assert kwargs["team_id"] == team.id
         assert kwargs["partner"] == self.partner
 
+    @parameterized.expand(
+        [
+            ("account_creation_disabled", False, TEST_PARTNER_CLIENT_ID),
+            ("throwaway_hosted_client", True, "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"),
+        ]
+    )
     @patch("ee.api.agentic_provisioning.views.account_requests.capture_provisioning_event")
-    def test_account_creation_disabled_refusal_is_attributed_to_partner(self, mock_capture_event):
-        self.partner.update_provisioning(can_create_accounts=False)
+    def test_partner_refused_account_creation_is_attributed_to_partner(
+        self, error_code, can_create_accounts, client_id, mock_capture_event
+    ):
+        self.partner.update_provisioning(can_create_accounts=can_create_accounts)
+        self.partner.client_id = client_id
+        self.partner.save(update_fields=["client_id"])
 
         res = self._post_account_request(self._account_request_payload())
 
@@ -233,8 +248,25 @@ class TestAccountRequests(ProvisioningTestBase):
         assert not User.objects.filter(email="newuser@example.com").exists()
         refusals = [call for call in mock_capture_event.call_args_list if call.args[:2] == ("account_request", "error")]
         assert len(refusals) == 1
-        assert refusals[0].kwargs["error_code"] == "account_creation_disabled"
+        assert refusals[0].kwargs["error_code"] == error_code
         assert refusals[0].kwargs["partner"] == self.partner
+
+    @parameterized.expand(
+        [
+            ("block", 403, "suspicious_attempt_blocked", False),
+            ("challenge", 200, None, True),
+        ]
+    )
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test-key")
+    def test_new_user_radar_verdict(self, verdict, expected_status, expected_error_code, gets_account):
+        with patch("posthog.workos_radar.requests.post") as mock_radar:
+            mock_radar.return_value.status_code = 200
+            mock_radar.return_value.json.return_value = {"verdict": verdict}
+            res = self._post_account_request(self._account_request_payload())
+
+        assert res.status_code == expected_status, res.json()
+        assert res.json().get("error", {}).get("code") == expected_error_code
+        assert User.objects.filter(email="newuser@example.com").exists() is gets_account
 
 
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):

@@ -28,6 +28,7 @@ from posthog.api.oauth.cimd import (
     fetch_cimd_metadata,
     get_or_create_cimd_application,
     is_cimd_client_id,
+    is_throwaway_host,
     refresh_cimd_metadata_task,
     validate_cimd_url,
     validate_fetchable_https_url,
@@ -131,6 +132,28 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
 )
 def test_is_cimd_client_id(url, expected):
     assert is_cimd_client_id(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://quiet-river-tea.trycloudflare.com/.well-known/client.json", True),
+        ("https://a1b2.ngrok-free.app/metadata.json", True),
+        ("https://abc.run.pinggy-free.link/metadata.json", True),
+        ("https://Quiet-River.TryCloudflare.COM./metadata.json", True),
+        ("https://lhr.life/metadata.json", True),
+        ("https://webhook.site/0b1c2d3e-0000-4000-8000-000000000000", True),
+        ("https://api.jsonbin.io/v3/b/abc123", True),
+        ("https://gist.githubusercontent.com/someone/abc123/raw/client.json", True),
+        ("https://expo.dev/.well-known/posthog-client.json", False),
+        ("https://mytrycloudflare.com/metadata.json", False),
+        ("https://trycloudflare.com.example.com/metadata.json", False),
+        ("test_partner_client_id", False),
+        ("https://[::1/metadata.json", False),
+    ],
+)
+def test_is_throwaway_host(url, expected):
+    assert is_throwaway_host(url) == expected
 
 
 @pytest.mark.parametrize(
