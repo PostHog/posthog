@@ -52,7 +52,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_primary_key_columns,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -116,7 +116,7 @@ if TYPE_CHECKING:
         def _validate_source_config_and_credentials(
             self,
             source: AnySource,
-            source_type_model: ExternalDataSourceType,
+            source_type_model: SourceKey,
             payload: dict,
             access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
         ) -> tuple[Response | None, Config | None]: ...

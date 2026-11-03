@@ -446,7 +446,6 @@ export class HogFunctionHandler implements ActionHandler {
             frequencyCapHold?: FrequencyCapHold
         }
     > {
-        const send = action.type === 'function_email' ? invocation.state.send : undefined
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
@@ -459,17 +458,12 @@ export class HogFunctionHandler implements ActionHandler {
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
-                this.hogFlowFunctionsService.buildHogFunctionInvocation(
-                    invocation,
-                    hogFunction,
-                    {
-                        event: invocation.state.event,
-                        person: invocation.person,
-                        groups: invocation.groups,
-                        variables: invocation.state.variables,
-                    },
-                    send
-                )
+                this.hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                    event: invocation.state.event,
+                    person: invocation.person,
+                    groups: invocation.groups,
+                    variables: invocation.state.variables,
+                })
         )
 
         const skipReason = await instrumentFn(

@@ -2,7 +2,11 @@ import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
-import { EmailAttachmentMetadata, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailType,
+    EmailAttachmentMetadata,
+    MAX_EMAIL_ATTACHMENTS,
+} from '~/cdp/schema/cyclotron'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -155,6 +159,22 @@ export const queuedSend = (send: AcceptedSend, files: DecodedAttachment[]): Queu
     return attachments === undefined ? rest : { ...rest, attachments: attachmentMetadata(files) }
 }
 
+export const acceptedSendEmailFields = (
+    send: QueuedSend | undefined
+): Partial<CyclotronInvocationQueueParametersEmailType> => ({
+    ...(send?.content && {
+        subject: send.content.subject,
+        html: send.content.html ?? '',
+        text: send.content.text ?? '',
+        preheader: '',
+    }),
+    ...(send?.from && { from: { ...send.from } }),
+    ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
+    ...(send?.cc && { cc: send.cc.join(', ') }),
+    ...(send?.bcc && { bcc: send.bcc.join(', ') }),
+    ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+})
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email(),
@@ -165,6 +185,8 @@ export const TransactionalEmailRequestSchema = z.object({
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
 })
+
+export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 

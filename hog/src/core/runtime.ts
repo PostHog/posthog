@@ -92,7 +92,10 @@ export function processRuntime(): Runtime {
         sleep: (ms) => Bun.sleep(ms),
         homeDir: () => {
             try {
-                return homedir()
+                const home = homedir()
+                // When HOME is unset and the user has no passwd entry, Node throws but Bun returns "/".
+                // A "/" that came from HOME itself is a real choice, so it still counts.
+                return !home || (home === '/' && !process.env.HOME) ? undefined : home
             } catch {
                 return undefined
             }

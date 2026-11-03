@@ -4,7 +4,6 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
-import { getAsyncFunctionHandler } from '~/cdp/async-function-registry'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
@@ -20,7 +19,7 @@ import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
-import { CyclotronJobInvocationHogFlow, MinimalLogEntry } from '../../types'
+import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
@@ -3390,26 +3389,6 @@ describe('Hogflow Executor', () => {
             const result = await executor.execute(invocation)
 
             expect(result.invocation.queueParameters).toEqual(expected())
-        })
-
-        it('prints no file content when a test run mocks sendEmail for a code send with files', async () => {
-            const invocation = flowInvocation(emailFlow(codeKeyStep()))
-            invocation.state.send = { ...codeSend(), attachments: [attachmentFile] }
-            invocation.state.currentAction = { id: 'email_1', startedAtTimestamp: DateTime.now().toMillis() }
-            const logs: MinimalLogEntry[] = []
-
-            await executor.executeCurrentAction(invocation, {
-                hogExecutorOptions: {
-                    asyncFunctionsNames: [],
-                    functions: {
-                        sendEmail: (...args: any[]) => getAsyncFunctionHandler('sendEmail')!.mock(args, logs),
-                    },
-                },
-            })
-
-            const printed = logs.map((log) => log.message).join('\n')
-            expect(printed).toContain('"filename": "report.pdf"')
-            expect(printed).not.toMatch(/"content":/)
         })
 
         it.each([

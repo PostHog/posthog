@@ -6,7 +6,10 @@
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use replay_core_v4::fetch_history::UrlHistory;
-use replay_core_v4::fetched_image::{image_url_hash, image_url_ref, seal_fetched_image};
+use replay_core_v4::fetched_image::{
+    fetched_url_ref, image_url_hash, public_font_ref_of, seal_fetched_image, FetchedRef,
+};
+use replay_core_v4::refs::{public_url_hash, UrlAsset};
 use replay_core_v4::url_policy::{is_public_host, politeness_key, try_canonicalize};
 
 /// The registrable domain of a host.
@@ -73,18 +76,33 @@ fn is_url_history_value_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
 fn parse_v4_url_ref_ffi(mut cx: FunctionContext) -> JsResult<JsValue> {
     const MAX_SAFE_INTEGER: i64 = (1 << 53) - 1;
     let reference = cx.argument::<JsString>(0)?.value(&mut cx);
-    let Some(parsed) =
-        image_url_ref(&reference).filter(|parsed| parsed.team_id <= MAX_SAFE_INTEGER)
-    else {
-        return Ok(cx.null().upcast());
-    };
     let result = cx.empty_object();
-    let team_id = cx.number(parsed.team_id as f64);
-    result.set(&mut cx, "teamId", team_id)?;
-    let key_month = cx.string(parsed.key_month);
-    result.set(&mut cx, "keyMonth", key_month)?;
-    let hash = cx.string(parsed.hash);
-    result.set(&mut cx, "hash", hash)?;
+    match fetched_url_ref(&reference) {
+        Some(FetchedRef::Team { asset, parsed }) if parsed.team_id <= MAX_SAFE_INTEGER => {
+            let scope = cx.string("team");
+            result.set(&mut cx, "scope", scope)?;
+            let asset = cx.string(match asset {
+                UrlAsset::Image => "image",
+                UrlAsset::Font => "font",
+            });
+            result.set(&mut cx, "asset", asset)?;
+            let team_id = cx.number(parsed.team_id as f64);
+            result.set(&mut cx, "teamId", team_id)?;
+            let key_month = cx.string(parsed.key_month);
+            result.set(&mut cx, "keyMonth", key_month)?;
+            let hash = cx.string(parsed.hash);
+            result.set(&mut cx, "hash", hash)?;
+        }
+        Some(FetchedRef::PublicFont { hash }) => {
+            let scope = cx.string("public");
+            result.set(&mut cx, "scope", scope)?;
+            let asset = cx.string("font");
+            result.set(&mut cx, "asset", asset)?;
+            let hash = cx.string(hash);
+            result.set(&mut cx, "hash", hash)?;
+        }
+        _ => return Ok(cx.null().upcast()),
+    }
     Ok(result.upcast())
 }
 
@@ -116,6 +134,19 @@ fn image_url_hash_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
     Ok(cx.string(image_url_hash(&key, &url)))
 }
 
+fn public_font_ref_of_ffi(mut cx: FunctionContext) -> JsResult<JsValue> {
+    let url = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(match public_font_ref_of(&url) {
+        Some(reference) => cx.string(reference).upcast(),
+        None => cx.null().upcast(),
+    })
+}
+
+fn public_url_hash_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
+    let url = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.string(public_url_hash(&url)))
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("politenessKey", politeness_key_ffi)?;
@@ -126,5 +157,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("parseV4UrlRef", parse_v4_url_ref_ffi)?;
     cx.export_function("sealFetchedImage", seal_fetched_image_ffi)?;
     cx.export_function("imageUrlHash", image_url_hash_ffi)?;
+    cx.export_function("publicFontRefOf", public_font_ref_of_ffi)?;
+    cx.export_function("publicUrlHash", public_url_hash_ffi)?;
     Ok(())
 }
