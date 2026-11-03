@@ -973,11 +973,20 @@ mod tests {
                 "{lines}"
             );
         }
-        // A declined URL as short as a marker's text does not match the marker, so the block is kept.
-        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-            "attributes": [{"id": 99, "attributes": {"src": "https://v4"}}]}}])
-        .to_string();
-        assert!(stored_lines(&events, &[]).contains("imageurl:v4:declined:"));
+        // A declined URL as short as a marker's text does not match the marker, and a `//` in a path does not start
+        // a host, so the block is kept.
+        for (src, alt) in [
+            ("https://v4", "x"),
+            ("https:localhost/assets//logo.png", "/logo.png"),
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": src, "alt": alt}}]}}])
+            .to_string();
+            assert!(
+                stored_lines(&events, &[]).contains("imageurl:v4:declined:"),
+                "{src}"
+            );
+        }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
             "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])

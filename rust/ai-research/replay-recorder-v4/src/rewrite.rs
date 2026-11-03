@@ -137,13 +137,23 @@ struct DeclinedSpellings {
 }
 
 /// A marker such as `imageurl:v4:declined:unchecked` holds no slash, so a declined URL with a short host, such as
-/// `https://v4`, does not match the marker that replaced it.
+/// `https://v4`, does not match the marker that replaced it. Only a `//` at the start or right after the scheme starts
+/// a host, so a `//` in a path does not cut the pattern down to text that a page holds anyway.
 fn slash_before_host(url: &str) -> usize {
-    url.replace('\\', "/")
-        .find("//")
-        .map(|slashes| slashes + 1)
-        .filter(|&slash| slash + 1 < url.len())
-        .unwrap_or(0)
+    let url = url.replace('\\', "/");
+    let after_scheme = url
+        .find(':')
+        .filter(|&colon| {
+            url[..colon]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
+        })
+        .map_or(0, |colon| colon + 1);
+    if url[after_scheme..].starts_with("//") && after_scheme + 2 < url.len() {
+        after_scheme + 1
+    } else {
+        0
+    }
 }
 
 fn declined_matcher<P: AsRef<[u8]>>(patterns: impl IntoIterator<Item = P>) -> Option<AhoCorasick> {
