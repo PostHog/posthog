@@ -13,11 +13,12 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
+    PropertyOperator,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
 
 from posthog.models.team.team import Team
 
@@ -78,8 +79,8 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
 
 
-def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
-    """Matches the events that carry exposures for a resolved exposure event.
+def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
+    """Returns the events that carry exposures for a resolved exposure event.
 
     An experiment on $feature_flag_called also reads $experiment_exposure, unless `read_copies`
     is False. Ingestion stops writing $feature_flag_called to events for an organization on
@@ -89,15 +90,23 @@ def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.E
     rows give the same result as one.
     """
     if event == DEFAULT_EXPOSURE_EVENT and read_copies:
+        return [DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]
+    return [event]
+
+
+def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
+    """Matches the events that `exposure_event_names` returns for a resolved exposure event."""
+    names = exposure_event_names(event, read_copies=read_copies)
+    if len(names) > 1:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=[DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]),
+            right=ast.Constant(value=names),
         )
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["event"]),
-        right=ast.Constant(value=event),
+        right=ast.Constant(value=names[0]),
     )
 
 
@@ -234,12 +243,33 @@ def resolve_filter_test_accounts(exposure_criteria: Union[ExperimentExposureCrit
     return criteria.filterTestAccounts
 
 
+def applies_test_account_filters(
+    team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
+) -> bool:
+    """Whether a query leaves out test accounts: the criteria ask for it, and the project has test account filters."""
+    return (
+        resolve_filter_test_accounts(exposure_criteria)
+        and isinstance(team.test_account_filters, list)
+        and len(team.test_account_filters) > 0
+    )
+
+
+def has_positive_test_account_filter(team: Team) -> bool:
+    """Whether a project test account filter keeps what it matches, by a positive operator. A negative operator leaves
+    out what it matches. A `hogql` filter has no operator to read, so it doesn't count."""
+    if not isinstance(team.test_account_filters, list):
+        return False
+    return any(
+        test_filter.get("type") != "hogql"
+        and not operator_is_negative(test_filter.get("operator") or PropertyOperator.EXACT)
+        for test_filter in team.test_account_filters
+    )
+
+
 def get_test_accounts_filter(
     team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
 ) -> list[ast.Expr]:
-    filter_test_accounts = resolve_filter_test_accounts(exposure_criteria)
-
-    if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
+    if applies_test_account_filters(team, exposure_criteria):
         return [property_to_expr(property, team) for property in team.test_account_filters]
     return []
 

@@ -67,10 +67,10 @@ test('the changed-file ceiling includes its boundary', () => {
 
 for (const [testCount, shardCount] of [
     [0, 0],
-    [342, 1],
-    [343, 2],
-    [1200, 4],
-    [2000, 6],
+    [171, 1],
+    [172, 2],
+    [684, 4],
+    [1368, 8],
     [100000, 8],
 ]) {
     test(`${testCount} related tests use ${shardCount} shards`, () => {

@@ -20,6 +20,7 @@ from posthog.dags.deletes import (
     _DELETE_PREDICATE,
     _SURVIVOR_COUNT_ATTEMPTS,
     DELETES_RUN_CONFIG,
+    SESSIONS_RETENTION_TABLES,
     AdhocEventDeletesDictionary,
     AdhocEventDeletesTable,
     DeleteConfig,
@@ -698,11 +699,46 @@ def _count_by_team_and_partition(cluster: ClickhouseCluster, team_ids: list[int]
     return cluster.any_host(count).result()
 
 
+def _insert_sessions(cluster: ClickhouseCluster, sessions: list[tuple[int, datetime]]) -> None:
+    def insert(client: Client) -> None:
+        rows = [
+            (team_id, started_at, int(started_at.replace(tzinfo=UTC).timestamp() * 1000) << 80)
+            for team_id, started_at in sessions
+        ]
+        v1, v2, v3 = SESSIONS_RETENTION_TABLES
+        client.execute(
+            f"INSERT INTO {v1} (team_id, session_id, min_timestamp) VALUES",
+            [(team_id, str(UUID(int=session_id_v7)), started_at) for team_id, started_at, session_id_v7 in rows],
+        )
+        for table in (v2, v3):
+            client.execute(
+                f"INSERT INTO {table} (team_id, session_id_v7) VALUES",
+                [(team_id, session_id_v7) for team_id, _, session_id_v7 in rows],
+            )
+
+    cluster.any_host(insert).result()
+
+
+def _sessions_by_team_and_partition(cluster: ClickhouseCluster, team_ids: list[int]) -> dict[str, set[tuple[int, int]]]:
+    def read(client: Client) -> dict[str, set[tuple[int, int]]]:
+        return {
+            table: set(
+                client.execute(
+                    f"SELECT DISTINCT team_id, toUInt32(_partition_id) FROM {table} WHERE team_id IN %(team_ids)s",
+                    {"team_ids": team_ids},
+                )
+            )
+            for table in SESSIONS_RETENTION_TABLES
+        }
+
+    return cluster.any_host(read).result()
+
+
 def _teams_with_13_and_18_months() -> tuple[Team, Team, Team]:
     organization = Organization.objects.create(name="Retention")
     thirteen = Team.objects.create(organization=organization, name="13 months")
     eighteen = Team.objects.create(organization=organization, name="18 months")
-    no_retention = Team.objects.create(organization=organization, name="No retention")
+    no_retention = Team.objects.create(organization=organization, name="No retention", event_retention_months=12)
     TeamEventsRetentionConfig.objects.create(team=thirteen, events_retention_months=13)
     TeamEventsRetentionConfig.objects.create(team=eighteen, events_retention_months=18)
     return thirteen, eighteen, no_retention
@@ -784,6 +820,17 @@ def test_monthly_retention_events_cleanup_job(cluster: ClickhouseCluster):
         + _events(eighteen.id, _first_hour_of_month(18), 200, 8)
         + _events(no_retention.id, _mid_month(20), 0, 9),
     )
+    _insert_sessions(
+        cluster,
+        [
+            (thirteen.id, _mid_month(15)),
+            (thirteen.id, _first_hour_of_month(13)),
+            (thirteen.id, _mid_month(24)),
+            (eighteen.id, _mid_month(20)),
+            (eighteen.id, _mid_month(15)),
+            (no_retention.id, _mid_month(20)),
+        ],
+    )
 
     monthly_retention_events_cleanup_job.execute_in_process(resources={"cluster": cluster})
 
@@ -793,6 +840,14 @@ def test_monthly_retention_events_cleanup_job(cluster: ClickhouseCluster):
         (eighteen.id, _partition(_first_hour_of_month(18))): 8,
         (no_retention.id, _partition(_mid_month(20))): 9,
     }
+    surviving_sessions = {
+        (thirteen.id, _partition(_first_hour_of_month(13))),
+        (eighteen.id, _partition(_mid_month(15))),
+        (no_retention.id, _partition(_mid_month(20))),
+    }
+    assert _sessions_by_team_and_partition(cluster, [thirteen.id, eighteen.id, no_retention.id]) == dict.fromkeys(
+        SESSIONS_RETENTION_TABLES, surviving_sessions
+    )
 
 
 @pytest.mark.django_db

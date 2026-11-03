@@ -57,6 +57,7 @@ import {
     getBIVisualizationResponse,
     getBIVisualizationSource,
 } from 'products/business_intelligence/frontend/biQueryResults'
+import { isBIPivotTable } from 'products/business_intelligence/frontend/biTableLayout'
 
 import type {
     DataNode,
@@ -966,7 +967,8 @@ export interface dataVisualizationLogicMeta {
             visualizationType: ChartDisplayType,
             effectiveVisualizationType: ChartDisplayType,
             columns: Column[],
-            conditionalFormattingRules: ConditionalFormattingRule[]
+            conditionalFormattingRules: ConditionalFormattingRule[],
+            query: VisualizationNode
         ) => boolean
         hogVmLoadFailed: (needsHogVm: boolean, hogVmLoadError: unknown) => boolean
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
@@ -1928,15 +1930,23 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         // The Hog VM and its crypto polyfills are large, so only a table that shows formatting rules loads them.
         // Auto resolves to a table until columns arrive, so it waits for them before it decides.
         needsHogVm: [
-            (s) => [s.visualizationType, s.effectiveVisualizationType, s.columns, s.conditionalFormattingRules],
+            (s) => [
+                s.visualizationType,
+                s.effectiveVisualizationType,
+                s.columns,
+                s.conditionalFormattingRules,
+                s.query,
+            ],
             (
                 visualizationType: ChartDisplayType,
                 effectiveVisualizationType: ChartDisplayType,
                 columns: Column[],
-                rules: ConditionalFormattingRule[]
+                rules: ConditionalFormattingRule[],
+                query: VisualizationNode
             ): boolean =>
                 (visualizationType !== ChartDisplayType.Auto || columns.length > 0) &&
-                effectiveVisualizationType === ChartDisplayType.ActionsTable &&
+                (effectiveVisualizationType === ChartDisplayType.ActionsTable ||
+                    (query.kind === NodeKind.BIVisualizationNode && isBIPivotTable(query.config))) &&
                 rules.length > 0,
         ],
         hogVmLoadFailed: [

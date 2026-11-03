@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { renderColumnMeta } from './renderColumnMeta'
 

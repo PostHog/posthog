@@ -111,6 +111,10 @@ describe('Auth', () => {
     // guards that wiring. The payload shaping itself is covered in signupLogic.test.ts.
     it('walks a new email through every signup step and posts what was typed into them', async () => {
         await submitEmail('Test@Example.com')
+
+        await screen.findByTestId('signup-auth-continue')
+        expect(screen.queryByText('Please enter your password to continue')).not.toBeInTheDocument()
+
         await submitPassword('Str0ng-Test-Pass!')
         await fillOnboardingAndSubmit({ name: 'Alice Bob', organizationName: 'Hogflix SpinOff' })
 

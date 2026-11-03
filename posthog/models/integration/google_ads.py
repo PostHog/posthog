@@ -11,6 +11,7 @@ from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.contracts import IntegrationRecord
 
 from . import common, model
 
@@ -51,11 +52,11 @@ def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
 class GoogleAdsIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "google-ads":
             raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @property
     def client(self) -> WebClient:

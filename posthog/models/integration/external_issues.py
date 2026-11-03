@@ -3,6 +3,7 @@
 from typing import Any
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationRecord
 
 from . import model
 from .github import GitHubIntegration
@@ -24,7 +25,7 @@ def is_supported_external_issue_provider(kind: str) -> bool:
     return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 
-def external_issue_url(integration: model.Integration, external_context: dict[str, Any] | None) -> str:
+def external_issue_url(integration: IntegrationRecord, external_context: dict[str, Any] | None) -> str:
     """Link to an external issue from the identifier its integration client stored.
 
     Returns an empty string when the context does not carry the provider's identifier, so a

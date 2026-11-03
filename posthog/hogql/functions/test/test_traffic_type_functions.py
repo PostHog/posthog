@@ -1051,6 +1051,95 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
         )
 
 
+class TestServerAndMobileSdkClassification(ClickhouseTestMixin, BaseTest):
+    def _classify(self, properties: dict, definitions: list[CustomBotRule] | None = None) -> tuple:
+        if definitions:
+            self.team.modifiers = {"customBotDefinitions": [d.model_dump(mode="json") for d in definitions]}
+            self.team.save()
+
+        tag = uuid4().hex
+        _create_event(
+            team=self.team,
+            distinct_id="visitor",
+            event="signed_up",
+            properties={**properties, "_test_tag": tag},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT `$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, "
+            "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`, properties.`$ip`) "
+            f"FROM events WHERE properties._test_tag = '{tag}'",
+            self.team,
+        )
+        assert response.results is not None
+        return response.results[0]
+
+    @parameterized.expand(
+        [
+            ("node", "posthog-node", {}),
+            ("python_empty_user_agent", "posthog-python", {"$raw_user_agent": ""}),
+            ("react_native", "posthog-react-native", {}),
+            ("ios", "posthog-ios", {}),
+        ]
+    )
+    def test_a_server_or_mobile_event_with_no_user_agent_is_regular(self, _name: str, lib: str, properties: dict):
+        assert self._classify({"$lib": lib, **properties}) == (False, "Regular", "regular", "", "", "")
+
+    def test_a_server_event_with_no_user_agent_is_regular_with_cookieless_on(self) -> None:
+        # The cloud default: the cookieless and SDK reasons are combined.
+        self.team.modifiers = {"cookielessTrafficIsRegular": True}
+        self.team.save()
+        assert self._classify({"$lib": "posthog-node"}) == (False, "Regular", "regular", "", "", "")
+
+    @parameterized.expand([("web", {"$lib": "web"}), ("no_lib", {}), ("unknown_lib", {"$lib": "curl"})])
+    def test_other_events_with_no_user_agent_are_still_automation(self, _name: str, properties: dict) -> None:
+        assert self._classify(properties) == (True, "Automation", "no_user_agent", "", "", "no_user_agent")
+
+    @parameterized.expand(
+        [
+            ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}, False),
+            ("ip", {"$ip": "66.249.66.1"}, False),
+            ("user_agent_with_project_rules", {"$raw_user_agent": "Googlebot/2.1"}, True),
+            ("ip_with_project_rules", {"$ip": "66.249.66.1"}, True),
+        ]
+    )
+    def test_positive_bot_signals_still_classify_server_events(
+        self, _name: str, properties: dict, with_project_rules: bool
+    ) -> None:
+        definitions = (
+            [_custom_bot(name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging")]
+            if with_project_rules
+            else None
+        )
+        assert self._classify({"$lib": "posthog-node", **properties}, definitions=definitions) == (
+            True,
+            "Bot",
+            "search_crawler",
+            "Googlebot",
+            "Google",
+            "search_crawler",
+        )
+
+    def test_a_project_rule_still_names_a_server_event(self):
+        is_bot, traffic_type, category, name, _operator, bot_type = self._classify(
+            {"$lib": "posthog-node", "$host": "staging.example.com"},
+            definitions=[
+                _custom_bot(
+                    name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging", category="monitoring"
+                )
+            ],
+        )
+
+        assert (is_bot, traffic_type, category, name, bot_type) == (
+            True,
+            "Bot",
+            "monitoring",
+            "Staging checker",
+            "monitoring",
+        )
+
+
 COOKIELESS_ON = HogQLQueryModifiers(cookielessTrafficIsRegular=True)
 
 

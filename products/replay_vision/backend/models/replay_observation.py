@@ -1,8 +1,9 @@
 from django.db import models
 from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 
+from posthog.migration_helpers import deprecate_field
 from posthog.models.utils import UUIDModel
 
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
@@ -40,16 +41,6 @@ class ObservationTrigger(models.TextChoices):
     ON_DEMAND = "on_demand", "On demand"
     RETRY = "retry", "Retry"
     BACKFILL = "backfill", "Backfill"
-
-
-def watch_rank_contrast() -> Cast:
-    """A ranked row's score; `rlo_ranked_contrast_idx` orders by it."""
-    return Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
-
-
-def watch_group_root() -> Coalesce:
-    """A ranked row's feed group, or the row itself when it has none. `rlo_ranked_feed_group_idx` indexes it."""
-    return Coalesce(KeyTextTransform("group", "watch_rank"), Cast("id", CharField()), output_field=CharField())
 
 
 class ReplayObservation(UUIDModel):
@@ -112,10 +103,14 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
-    watch_rank = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="What to watch ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+    # Ranks live in `ReplayObservationRank`.
+    watch_rank = deprecate_field(
+        models.JSONField(
+            null=True,
+            blank=True,
+            help_text="Highlight feed ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+        ),
+        raise_on_access=True,
     )
     created_task_id = models.UUIDField(
         null=True,
@@ -183,28 +178,6 @@ class ReplayObservation(UUIDModel):
                 fields=["team", "scanner"],
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
-            ),
-            # The pick query counts each scanner's ranked rows here; the anchor version sits in the condition so the count never reads `watch_rank`.
-            models.Index(
-                fields=["scanner", "created_at"],
-                include=["id", "team", "completed_at"],
-                name="rlo_ranked_count_idx",
-                condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
-            ),
-            # The pick query reads each scanner's top rows by score from here.
-            models.Index(
-                F("scanner"),
-                watch_rank_contrast().desc(),
-                F("id").desc(),
-                include=["team", "created_at", "completed_at", "watch_rank"],
-                name="rlo_ranked_contrast_idx",
-                condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
-            ),
-            # Finds the members of the feed picks' groups, to count the sessions and people each one reached.
-            models.Index(
-                watch_group_root(),
-                name="rlo_ranked_feed_group_idx",
-                condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
             models.Index(

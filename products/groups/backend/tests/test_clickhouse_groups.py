@@ -28,10 +28,9 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import GroupUsageMetric, PropertyDefinition
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
@@ -2207,6 +2206,32 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "filters")
+
+    @parameterized.expand(
+        [
+            ("duplicate_name_on_create", "post", {"name": "Events", "filters": {}}, 400, "name"),
+            ("duplicate_name_on_rename", "patch", {"name": "Events"}, 400, "name"),
+            ("own_name_on_update", "patch", {"name": "Signups"}, 200, None),
+            (
+                "test_account_cohort_filter",
+                "post",
+                {"name": "Pageviews", "filters": {"filter_test_accounts": True}},
+                400,
+                "filters",
+            ),
+        ]
+    )
+    def test_save_rejects_invalid_input_with_400(self, _name, method, payload, expected_status, expected_attr):
+        self._create_metric(name="Events")
+        signups = self._create_metric(name="Signups")
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": 999999}]
+        self.team.save()
+        url = self.url if method == "post" else f"{self.url}/{signups.id}"
+
+        response = getattr(self.client, method)(url, payload, format="json")
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(response.json().get("attr"), expected_attr)
 
     def test_create_data_warehouse_metric_accepts_table_with_null_deleted(self):
         table = self._create_dw_table()

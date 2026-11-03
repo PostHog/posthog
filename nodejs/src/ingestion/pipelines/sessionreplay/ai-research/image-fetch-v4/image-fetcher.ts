@@ -9,15 +9,13 @@ import { REQUEST_IDENTITY_HEADERS } from './request-identity'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 /**
- * The raster formats that the fetch lane accepts.
+ * The formats that the fetch lane accepts. The store keeps the bytes as fetched, so an SVG stays an SVG document. An SVG
+ * is text that can carry the page's own data, and redaction downstream of the dataset handles it.
  *
- * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
- * belongs on the inline path rather than on an image model.
- *
- * AVIF is absent because the image store validates only PNG, JPEG, GIF and WebP bytes
+ * AVIF is absent because the image store validates only the formats in `SUPPORTED_IMAGE_MEDIA_TYPES`
  * (`image-transport.ts`), so it would reject every AVIF image that this lane fetched.
  */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'] as const
 
 export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 
