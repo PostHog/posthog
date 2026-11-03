@@ -1,6 +1,7 @@
 import base64
 import asyncio
 import datetime
+import functools
 import threading
 import dataclasses
 from collections.abc import Awaitable, Callable, Iterable
@@ -8,8 +9,20 @@ from enum import StrEnum
 from queue import Queue
 from typing import Any, Optional, TypeVar
 
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.message import Message
 from structlog.types import FilteringBoundLogger
+from temporalio.api.activity.v1 import ActivityExecutionListInfo
+from temporalio.api.schedule.v1 import ScheduleListEntry
+from temporalio.api.workflowservice.v1 import (
+    DescribeNamespaceRequest,
+    DescribeNamespaceResponse,
+    ListActivityExecutionsRequest,
+    ListNamespacesRequest,
+    ListSchedulesRequest,
+)
 from temporalio.client import Client
+from temporalio.converter import decode_search_attributes
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.dataclasses import frozen
@@ -27,9 +40,18 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 class TemporalIOResource(StrEnum):
     Workflows = "workflows"
     WorkflowHistories = "workflow_histories"
+    Schedules = "schedules"
+    Namespaces = "namespaces"
+    StandaloneActivities = "standalone_activities"
 
 
-ENDPOINTS = (TemporalIOResource.Workflows, TemporalIOResource.WorkflowHistories)
+ENDPOINTS = (
+    TemporalIOResource.Workflows,
+    TemporalIOResource.WorkflowHistories,
+    TemporalIOResource.Schedules,
+    TemporalIOResource.Namespaces,
+    TemporalIOResource.StandaloneActivities,
+)
 INCREMENTAL_ENDPOINTS = (TemporalIOResource.Workflows, TemporalIOResource.WorkflowHistories)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
@@ -448,6 +470,162 @@ async def _get_workflow_histories(
             break
 
 
+_LIST_PAGE_SIZE = 100
+
+# Temporal Cloud scopes a client certificate to one namespace, so it can refuse the cluster-wide
+# ListNamespaces call. The configured namespace can still be described on its own.
+_LIST_NAMESPACES_REFUSED_STATUSES = frozenset({RPCStatusCode.PERMISSION_DENIED, RPCStatusCode.UNIMPLEMENTED})
+
+
+def _message_to_row(message: Message) -> dict[str, Any]:
+    return MessageToDict(message, preserving_proto_field_name=True, always_print_fields_with_no_presence=True)
+
+
+def _proto_datetime(message: Message, field: str) -> datetime.datetime | None:
+    if not message.HasField(field):
+        return None
+    return getattr(message, field).ToDatetime(tzinfo=datetime.UTC)
+
+
+def _namespace_row(response: DescribeNamespaceResponse) -> dict[str, Any]:
+    row = _message_to_row(response)
+    return {**row.pop("namespace_info", {}), **row}
+
+
+def _schedule_row(entry: ScheduleListEntry) -> dict[str, Any]:
+    # The memo is left out because the payload codec can encrypt it.
+    return {
+        "id": entry.schedule_id,
+        **_message_to_row(entry.info),
+        "workflow_type": entry.info.workflow_type.name or None,
+        "search_attributes": decode_search_attributes(entry.search_attributes),
+    }
+
+
+def _activity_row(info: ActivityExecutionListInfo) -> dict[str, Any]:
+    return {
+        **_message_to_row(info),
+        "activity_type": info.activity_type.name or None,
+        "schedule_time": _proto_datetime(info, "schedule_time"),
+        "close_time": _proto_datetime(info, "close_time"),
+        "execution_time": _proto_datetime(info, "execution_time"),
+        "search_attributes": decode_search_attributes(info.search_attributes),
+    }
+
+
+async def _paged_rows(
+    fetch_page: Callable[[bytes], Awaitable[Any]],
+    to_rows: Callable[[Any], Iterable[dict[str, Any]]],
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
+):
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page_token = b""
+    if resume_config is not None:
+        page_token = _decode_page_token(resume_config.next_page_token)
+        logger.debug("TemporalIO: resuming from next_page_token")
+
+    while True:
+        response = await _with_transient_rpc_retry(functools.partial(fetch_page, page_token), logger)
+        page_token = response.next_page_token
+        # A full refresh appends without deduplication, so a resume must not read this page again:
+        # stage the token of the next page, then hand the page on as one item so the batcher never
+        # writes part of it.
+        if page_token:
+            yield _ResumePoint(state=TemporalIOResumeConfig(next_page_token=_encode_page_token(page_token)))
+
+        rows = list(to_rows(response))
+        if rows:
+            yield rows
+
+        if not page_token:
+            break
+
+
+async def _get_schedules(
+    config: TemporalIOSourceConfig,
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
+    team_id: int,
+):
+    client = await _get_temporal_client(config, team_id)
+
+    def fetch_page(page_token: bytes):
+        return client.workflow_service.list_schedules(
+            ListSchedulesRequest(
+                namespace=config.namespace, maximum_page_size=_LIST_PAGE_SIZE, next_page_token=page_token
+            ),
+            retry=True,
+        )
+
+    async for item in _paged_rows(
+        fetch_page,
+        lambda response: (_schedule_row(entry) for entry in response.schedules),
+        resumable_source_manager,
+        logger,
+    ):
+        yield item
+
+
+async def _get_standalone_activities(
+    config: TemporalIOSourceConfig,
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
+    team_id: int,
+):
+    client = await _get_temporal_client(config, team_id)
+
+    def fetch_page(page_token: bytes):
+        return client.workflow_service.list_activity_executions(
+            ListActivityExecutionsRequest(
+                namespace=config.namespace, page_size=_LIST_PAGE_SIZE, next_page_token=page_token
+            ),
+            retry=True,
+        )
+
+    async for item in _paged_rows(
+        fetch_page,
+        lambda response: (_activity_row(info) for info in response.executions),
+        resumable_source_manager,
+        logger,
+    ):
+        yield item
+
+
+async def _get_namespaces(
+    config: TemporalIOSourceConfig,
+    logger: FilteringBoundLogger,
+    team_id: int,
+):
+    client = await _get_temporal_client(config, team_id)
+    service = client.workflow_service
+
+    page_token = b""
+    while True:
+        request = ListNamespacesRequest(page_size=_LIST_PAGE_SIZE, next_page_token=page_token)
+        try:
+            response = await _with_transient_rpc_retry(
+                functools.partial(service.list_namespaces, request, retry=True), logger
+            )
+        except RPCError as e:
+            if page_token or e.status not in _LIST_NAMESPACES_REFUSED_STATUSES:
+                raise
+            logger.debug("TemporalIO: ListNamespaces refused, describing the configured namespace", status=e.status)
+            described = await _with_transient_rpc_retry(
+                lambda: service.describe_namespace(DescribeNamespaceRequest(namespace=config.namespace), retry=True),
+                logger,
+            )
+            yield _namespace_row(described)
+            return
+
+        for namespace in response.namespaces:
+            yield _namespace_row(namespace)
+
+        page_token = response.next_page_token
+        if not page_token:
+            break
+
+
 def temporalio_source(
     config: TemporalIOSourceConfig,
     resource: TemporalIOResource,
@@ -510,6 +688,43 @@ def temporalio_source(
             partition_format="day",
             partition_keys=["workflow_close_time"],
             sort_mode="desc",
+        )
+    elif resource == TemporalIOResource.Schedules:
+
+        async def get_schedules_iterator():
+            return _get_schedules(config, resumable_source_manager, logger, team_id)
+
+        schedules = _async_iter_to_sync(
+            asyncio.run(get_schedules_iterator()), save_resume_state=resumable_source_manager.save_state
+        )
+
+        return SourceResponse(name=resource.value, items=lambda: schedules, primary_keys=["id"])
+    elif resource == TemporalIOResource.Namespaces:
+
+        async def get_namespaces_iterator():
+            return _get_namespaces(config, logger, team_id)
+
+        namespaces = _async_iter_to_sync(asyncio.run(get_namespaces_iterator()))
+
+        return SourceResponse(name=resource.value, items=lambda: namespaces, primary_keys=["id"])
+    elif resource == TemporalIOResource.StandaloneActivities:
+
+        async def get_activities_iterator():
+            return _get_standalone_activities(config, resumable_source_manager, logger, team_id)
+
+        activities = _async_iter_to_sync(
+            asyncio.run(get_activities_iterator()), save_resume_state=resumable_source_manager.save_state
+        )
+
+        return SourceResponse(
+            name=resource.value,
+            items=lambda: activities,
+            primary_keys=["activity_id", "run_id"],
+            partition_count=1,  # this enables partitioning
+            partition_size=1,  # this enables partitioning
+            partition_mode="datetime",
+            partition_format="day",
+            partition_keys=["schedule_time"],
         )
     else:
         raise Exception(f"TemporalIOResource '{resource}' not recognised")
