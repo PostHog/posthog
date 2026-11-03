@@ -102,11 +102,15 @@ def refresh_migration(team_id: int, migration_id: UUID) -> contracts.WarehouseMi
     return _to_migration(migration) if migration else None
 
 
-def list_migration_items(team_id: int, migration_id: UUID) -> list[contracts.WarehouseMigrationItem] | None:
+def list_migration_items(
+    team_id: int, migration_id: UUID, *, limit: int, offset: int
+) -> tuple[list[contracts.WarehouseMigrationItem], int] | None:
+    """One page of the migration's items and the total count. Returns None when the migration is not found."""
     if not _migrations(team_id).filter(id=migration_id).exists():
         return None
     items = _WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
-    return [_to_item(item) for item in items.order_by("verdict", "name")]
+    page = items.order_by("verdict", "name", "id")[offset : offset + limit]
+    return [_to_item(item) for item in page], items.count()
 
 
 def skip_migration_items(

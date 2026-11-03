@@ -2031,3 +2031,11 @@ class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottl
 class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "batch_exports_count_rows_burst"
     rate = "20/minute"
+
+
+class WarehouseMigrationCrawlThrottle(_TeamBucketRateThrottle):
+    """Creating or refreshing a warehouse migration starts a full read of the vendor account on the
+    metadata worker. One project-wide bucket, so new keys or members cannot multiply the crawls."""
+
+    scope = "warehouse_migration_crawl"
+    rate = "20/hour"
