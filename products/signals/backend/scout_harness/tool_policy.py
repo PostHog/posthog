@@ -65,8 +65,10 @@ TOOL_NOT_GRANTED_CODE = "scout_tool_not_granted"
 
 
 def resolve_scout_held_tools(*, sandbox_task_id: UUID) -> frozenset[str] | None:
-    allowlist = tasks_facade.mcp_tool_allowlist_for_task(sandbox_task_id)
-    return scout_held_mcp_tools(allowlist) if allowlist is not None else None
+    allowlist = tasks_facade.mcp_tool_allowlist_for_task(
+        sandbox_task_id, builtin_context_tools=scout_held_mcp_tools(())
+    )
+    return frozenset(allowlist) if allowlist is not None else None
 
 
 def scout_tool_denial(

@@ -11172,7 +11172,9 @@ def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int) -> 
     return Task.objects.filter(id=task_id, team_id=team_id).exclude(origin_product=Task.OriginProduct.LOOP).exists()
 
 
-def mcp_tool_allowlist_for_task(task_id: str | UUID) -> list[str] | None:
+def mcp_tool_allowlist_for_task(
+    task_id: str | UUID, *, builtin_context_tools: frozenset[str] = frozenset()
+) -> list[str] | None:
     """The PostHog MCP tools a run picked at dispatch, or None when the run is not narrowed.
 
     Scoped by task rather than by team, because the caller's authority here is a run token
@@ -11180,7 +11182,11 @@ def mcp_tool_allowlist_for_task(task_id: str | UUID) -> list[str] | None:
     closed.
     """
     task = Task.objects.filter(id=task_id).only("id", "origin_product", "state").first()
-    return task.mcp_tool_allowlist if task is not None else None
+    if task is None or (allowlist := task.mcp_tool_allowlist) is None:
+        return None
+    if task.mcp_builtin_agent_key is not None:
+        return sorted(set(allowlist) | builtin_context_tools)
+    return allowlist
 
 
 def capture_context_wiki_changed(

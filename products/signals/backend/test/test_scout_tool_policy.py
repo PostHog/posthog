@@ -24,7 +24,7 @@ from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tool_policy import SANDBOX_HARNESS_OPERATIONS
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 NOTES_ONLY = ["conversations-tickets-notes-create"]
@@ -67,15 +67,22 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         self.notebook = Notebook.objects.create(team=self.team, created_by=self.user)
         self.flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="synthetic-flag", deleted=True)
 
-    def _scout_client(self, *, allowlist: Any, bound: bool = True) -> Task:
+    def _scout_client(
+        self,
+        *,
+        allowlist: Any,
+        bound: bool = True,
+        origin_product: Task.OriginProduct = Task.OriginProduct.SIGNALS_SCOUT,
+        agent_key: MCPBuiltInAgentKey | None = "scout",
+    ) -> Task:
         with patch(DISPATCH):
             task = Task.create_and_run(
                 team=self.team,
                 title="Synthetic scout run",
                 description="Synthetic scout run",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                origin_product=origin_product,
                 user_id=self.user.id,
-                mcp_builtin_agent_key="scout",
+                mcp_builtin_agent_key=agent_key,
                 mcp_tool_allowlist=allowlist if isinstance(allowlist, list) else None,
             )
         if allowlist is not None and not isinstance(allowlist, list):
@@ -210,9 +217,24 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         if expected_status == status.HTTP_403_FORBIDDEN:
             assert response.json()["code"] == "scout_tool_not_granted"
 
-    @parameterized.expand([("empty", []), ("custom", ["insight-query"]), ("unrestricted", None)])
-    def test_introspection_preserves_skill_bootstrap(self, _name: str, allowlist: list[str] | None) -> None:
-        task = self._scout_client(allowlist=allowlist)
+    @parameterized.expand(
+        [
+            ("empty_scout", [], Task.OriginProduct.SIGNALS_SCOUT, "scout"),
+            ("custom_scout", ["insight-query"], Task.OriginProduct.SIGNALS_SCOUT, "scout"),
+            ("unrestricted_scout", None, Task.OriginProduct.SIGNALS_SCOUT, "scout"),
+            ("report_selection", ["execute-sql"], Task.OriginProduct.SIGNAL_REPORT, None),
+            ("slack_selection", ["execute-sql"], Task.OriginProduct.SLACK, None),
+            ("empty_selection", [], Task.OriginProduct.SIGNAL_REPORT, None),
+        ]
+    )
+    def test_introspection_preserves_only_the_callers_tool_grants(
+        self,
+        _name: str,
+        allowlist: list[str] | None,
+        origin_product: Task.OriginProduct,
+        agent_key: MCPBuiltInAgentKey | None,
+    ) -> None:
+        task = self._scout_client(allowlist=allowlist, origin_product=origin_product, agent_key=agent_key)
 
         response = self.client.post("/oauth/introspect/", {"token": "pha_synthetic_scout"}, format="json")
 
@@ -221,6 +243,8 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         assert body["sandbox_task_id"] == str(task.id)
         if allowlist is None:
             assert "mcp_allowed_tools" not in body
+        elif agent_key is None:
+            assert body["mcp_allowed_tools"] == allowlist
         else:
             assert {"skill-get", "skill-file-get", *allowlist} <= set(body["mcp_allowed_tools"])
             assert "skill-update" not in body["mcp_allowed_tools"]
