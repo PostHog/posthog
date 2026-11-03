@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { Toggle } from '@posthog/quill'
 
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 
@@ -33,18 +33,16 @@ export function SavedFilterChips({ edited }: { edited: boolean }): JSX.Element |
     return (
         <>
             {savedFilters.results.slice(0, MAX_CHIPS).map((filter) => (
-                <LemonButton
+                <Toggle
                     key={filter.short_id}
-                    size="small"
-                    type="secondary"
-                    active={!edited && filter.short_id === appliedSavedFilter?.short_id}
-                    onClick={() => apply(filter)}
+                    variant="outline"
+                    pressed={!edited && filter.short_id === appliedSavedFilter?.short_id}
+                    onPressedChange={() => apply(filter)}
                     className="max-w-60"
-                    truncate
                     data-attr="list-saved-filter-chip"
                 >
-                    {filter.name || filter.derived_name || 'Unnamed'}
-                </LemonButton>
+                    <span className="truncate">{filter.name || filter.derived_name || 'Unnamed'}</span>
+                </Toggle>
             ))}
         </>
     )
