@@ -456,6 +456,8 @@ CODE_SEND_FIELDS = (
     "capture_engagement",
     *CODE_SEND_EXTRA_FIELDS,
 )
+# The CDP service accepts a body of at most 20 MiB, and a send carries both bodies, so one body over this is refused.
+CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -479,13 +481,17 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False, trim_whitespace=False, help_text="Subject of the email your code rendered."
     )
     html = serializers.CharField(
-        required=False, allow_blank=True, trim_whitespace=False, help_text="HTML body of the email your code rendered."
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="HTML body of the email your code rendered, at most 5 MiB as UTF-8.",
     )
     text = serializers.CharField(
         required=False,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.",
+        help_text="Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog "
+        "derives the text from `html`.",
     )
     from_address = serializers.CharField(
         required=False,
@@ -547,6 +553,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
                 raise
             raise refusal from None
 
+    def validate_html(self, value: str) -> str:
+        return _within_body_limit(value, "The HTML body")
+
+    def validate_text(self, value: str) -> str:
+        return _within_body_limit(value, "The plain text body")
+
     def validate_from(self, value: str) -> str:
         _name, address = parseaddr(value)
         if not is_bare_address(address):
@@ -563,7 +575,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
                     raise template_send_refusal(code_field)
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
-        if unknown := next((field for field in sorted(sent) if field not in self.fields), None):
+        unknown = next((field for field in sorted(sent) if field not in self.fields), None)
+        if unknown is not None:
             raise serializers.ValidationError(
                 {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
             )
@@ -576,6 +589,14 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _within_body_limit(value: str, body: str) -> str:
+    if len(value.encode()) > CODE_BODY_MAX_BYTES:
+        raise serializers.ValidationError(
+            f"{body} can be at most 5 MiB as UTF-8. Link to large images and files instead of embedding them."
+        )
+    return value
 
 
 class MakeTransactionalSerializer(serializers.Serializer):
@@ -684,7 +705,8 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
-        "verified, the recipient can't be used, or the Idempotency-Key is invalid"
+        "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
+        "the project has reached its limit of template keys and the `template_key` is new"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
@@ -807,7 +829,8 @@ class TransactionalEmailSendMixin:
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
-        # A project secret API key has no user to check, and its scope already limits it to sending.
+        # A project secret API key has no user to check. Its scope limits it to sending and to setting recipient
+        # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         try:

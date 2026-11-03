@@ -40,8 +40,10 @@ import type {
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    SetPreferencesApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
+    TopicPreferencesApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -78,6 +80,27 @@ export const messagingEmailsRetrieve = async (
     return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMessagingPreferencesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/preferences/`
+}
+
+/**
+ * Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry that lands after a newer change undoes that change. Workflows sends skip a marketing topic the recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope, which can also send transactional email.
+ * @summary Set a recipient's topic preferences
+ */
+export const messagingPreferencesCreate = async (
+    projectId: string,
+    setPreferencesApi: SetPreferencesApi,
+    options?: RequestInit
+): Promise<TopicPreferencesApi> => {
+    return apiMutator<TopicPreferencesApi>(getMessagingPreferencesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setPreferencesApi),
     })
 }
 

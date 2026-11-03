@@ -121,6 +121,14 @@ class EmailAttachment:
     content_id: str | None = None
 
 
+class TooManyKeys(TransactionalEmailError):
+    code = "too_many_keys"
+
+
+class ContentTooLarge(TransactionalEmailError):
+    code = "content_too_large"
+
+
 @frozen
 class CodeEmail:
     key: str
