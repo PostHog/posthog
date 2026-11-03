@@ -15,6 +15,7 @@ from products.alerts_platform.backend.facade.api import get_configuration
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.logs.backend.alert_state_machine import NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_source_config import filters_of
 from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
@@ -191,7 +192,7 @@ def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFac
             threshold_count=condition["threshold_count"],
             threshold_operator=condition["threshold_operator"],
             window_minutes=condition["window_minutes"],
-            filters=configuration.source_config["filters"],
+            filters=filters_of(configuration.source_config),
         )
     return facts
 

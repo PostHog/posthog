@@ -500,14 +500,18 @@ def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[st
 
 def _has_incident_destination(check: PlatformAlertCheckInput, destination_alert_id: str) -> bool:
     """Whether a destination of this alert follows the incident events, as a HogFunction or as a
-    destination the platform keeps. Read only on a firing edge."""
+    destination the platform keeps. Read only on a firing edge. A copy's destinations are always
+    HogFunctions, so only an alert with no logs row can have the platform's."""
     return bool(
         configured_destination_template_ids(
             team_id=check.team_id,
             alert_id=destination_alert_id,
             allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
-    ) or has_incident_destination(team_id=check.team_id, configuration_id=check.id)
+    ) or (
+        check.legacy_configuration_id is None
+        and has_incident_destination(team_id=check.team_id, configuration_id=check.id)
+    )
 
 
 # Which event id each announced kind's destinations filter on. Resolved here because the
