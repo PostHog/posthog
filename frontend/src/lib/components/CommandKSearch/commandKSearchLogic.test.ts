@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
@@ -52,6 +55,34 @@ describe('commandKSearchLogic', () => {
         logic.actions.setHighlightedKey(rows[rows.length - 1].key)
         logic.actions.applyKeyIntent({ type: 'move', direction: 1 })
         expect(logic.values.highlightedRow).toBe(rows[rows.length - 1])
+    })
+
+    test.each([
+        ['test', [{ input: 'session replay', picks: { 'product-Session replay': 1 } }]],
+        ['control', []],
+    ])('opening a ranked result in the %s group of unified ranking records the pick', (variant, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: variant })
+        logic.actions.inputChanged('session replay', 14, false)
+
+        logic.actions.activateRow(
+            {
+                kind: 'item',
+                key: 'flat/product-Session replay',
+                item: {
+                    id: 'product-Session replay',
+                    name: 'Session replay',
+                    category: 'products',
+                    onSelect: () => {},
+                },
+                section: 'products',
+                highlightWords: ['session', 'replay'],
+                ranked: true,
+            },
+            false,
+            'click'
+        )
+
+        expect(logic.values.pickMemory).toEqual(expected.map((entry) => expect.objectContaining(entry)))
     })
 
     it('a See all row narrows the search to its type and keeps the words', () => {

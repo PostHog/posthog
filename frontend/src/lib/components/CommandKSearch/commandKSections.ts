@@ -235,6 +235,8 @@ export interface SectionsInput extends SectionsQuery {
     stale: boolean
     personsFirst: boolean
     settingsInResults: boolean
+    unifiedRanking: boolean
+    picks: Map<string, number>
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -316,7 +318,9 @@ function rankedResultsSections(
     state: CommandKSection['state'],
     persons: SearchItem[],
     accounts: SearchItem[],
-    settingsInResults: boolean
+    settingsInResults: boolean,
+    unifiedRanking: boolean,
+    picks: Map<string, number>
 ): CommandKSection[] {
     const words = freeWords(query)
     return buildRankedResults({
@@ -329,6 +333,8 @@ function rankedResultsSections(
         products: localQuery ? local.products : [],
         state,
         scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
+        unifiedRanking,
+        picks,
     })
 }
 
@@ -455,7 +461,9 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             state,
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
-            input.settingsInResults
+            input.settingsInResults,
+            input.unifiedRanking,
+            input.picks
         )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')

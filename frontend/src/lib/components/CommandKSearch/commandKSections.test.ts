@@ -55,6 +55,8 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     stale: false,
     personsFirst: false,
     settingsInResults: false,
+    unifiedRanking: false,
+    picks: new Map(),
     ...overrides,
 })
 

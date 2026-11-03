@@ -1,3 +1,5 @@
+import { PICKED_THRESHOLD } from './commandKPickMemory'
+
 const WORD = /[\p{L}\p{N}_]+/gu
 
 export type RankKey = number[]
@@ -226,4 +228,179 @@ export function strictLocalMatches<T extends { name: string; displayName?: strin
         .filter(({ ranked }) => ranked !== null && -ranked.rank[0] === words && ranked.rank[1] === 0)
         .sort((a, b) => compareRanks(a.ranked!.rank, b.ranked!.rank))
         .map(({ item }) => item)
+}
+
+export const SERVER_FRECENCY_INDEX = 7
+export const SERVER_CREATED_INDEX = 8
+
+export interface RankCandidate {
+    name: string
+    aliases?: string[]
+    identity?: string[]
+    context?: string[]
+    frecency?: number
+    createdAt?: number
+    typePrior?: number
+    indirect?: boolean
+    matchesQuery?: boolean
+    tierBoost?: number
+    picked?: number
+}
+
+interface CandidateRank {
+    rank: RankKey
+    matchedAlias: string | null
+}
+
+const MatchTier = {
+    Exact: 0,
+    ExactSingular: 1,
+    ExactAlias: 2,
+    Prefix: 3,
+    PrefixSingular: 4,
+    NameWords: 5,
+    AliasWords: 6,
+    Identity: 7,
+    Partial: 8,
+    Weak: 9,
+} as const
+
+type MatchTier = (typeof MatchTier)[keyof typeof MatchTier]
+
+type Field = 'name' | 'alias' | 'identity' | 'context'
+
+interface TokenHit {
+    typos: number
+    position: number
+    field: Field
+    wordStart: boolean
+    alias?: string
+}
+
+const MAX_POSITION_PENALTY = 3
+const MIN_PARTIAL_TOKEN_LENGTH = 3
+
+export const isIdentityQuery = (query: string): boolean => /^\S*[.@]\S+$/.test(query.trim())
+
+function hitInWords(token: string, words: string[]): Omit<TokenHit, 'field'> | null {
+    let best: Omit<TokenHit, 'field'> | null = null
+    for (let position = 0; position < words.length; position++) {
+        const typos = tokenTypos(token, words[position])
+        if (typos === 0) {
+            return { typos, position, wordStart: true }
+        }
+        if (typos !== null && (!best || typos < best.typos)) {
+            best = { typos, position, wordStart: true }
+        }
+    }
+    if (best || token.length < MIN_PARTIAL_TOKEN_LENGTH) {
+        return best
+    }
+    const position = words.findIndex((word) => word.includes(token))
+    return position >= 0 ? { typos: 0, position, wordStart: false } : null
+}
+
+function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]): TokenHit | null {
+    const name = hitInWords(token, nameWords)
+    if (name && name.typos === 0 && name.wordStart) {
+        return { ...name, field: 'name' }
+    }
+    for (const alias of candidate.aliases ?? []) {
+        const hit = hitInWords(token, searchWords(alias))
+        if (hit && hit.typos === 0 && hit.wordStart) {
+            return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias', alias }
+        }
+    }
+    if ((candidate.identity ?? []).some((value) => value.toLowerCase().includes(token))) {
+        return { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true }
+    }
+    if (name) {
+        return { ...name, field: 'name' }
+    }
+    const context = hitInWords(token, (candidate.context ?? []).flatMap(searchWords))
+    if (context) {
+        return { ...context, position: MAX_POSITION_PENALTY, field: 'context' }
+    }
+    return candidate.matchesQuery
+        ? { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true }
+        : null
+}
+
+function matchTier(query: string, hits: (TokenHit | null)[], candidate: RankCandidate): MatchTier {
+    const exactQuery = searchWords(query).join(' ')
+    const exactName = searchWords(candidate.name).join(' ')
+    const singularQuery = singularText(query)
+    const singularName = singularText(candidate.name)
+    const identityQuery = isIdentityQuery(query)
+    const rawQuery = query.trim().toLowerCase()
+    const identity = (candidate.identity ?? []).map((value) => value.toLowerCase())
+    if (exactName === exactQuery || (identityQuery && identity.includes(rawQuery))) {
+        return MatchTier.Exact
+    }
+    if (singularName === singularQuery) {
+        return MatchTier.ExactSingular
+    }
+    if ((candidate.aliases ?? []).some((alias) => singularText(alias) === singularQuery)) {
+        return MatchTier.ExactAlias
+    }
+    if (exactName.startsWith(exactQuery) || (identityQuery && identity.some((value) => value.startsWith(rawQuery)))) {
+        return MatchTier.Prefix
+    }
+    if (singularName.startsWith(singularQuery)) {
+        return MatchTier.PrefixSingular
+    }
+    if (!hits.every((hit) => hit !== null)) {
+        return MatchTier.Weak
+    }
+    const found = hits as TokenHit[]
+    const clean = (hit: TokenHit): boolean => hit.wordStart && hit.typos === 0
+    if (found.every((hit) => hit.field === 'name' && clean(hit))) {
+        return MatchTier.NameWords
+    }
+    if (found.every((hit) => (hit.field === 'name' || hit.field === 'alias') && clean(hit))) {
+        return MatchTier.AliasWords
+    }
+    if (found.some((hit) => hit.field === 'identity') && found.every((hit) => hit.field !== 'context')) {
+        return MatchTier.Identity
+    }
+    return found.every((hit) => hit.field === 'name') ? MatchTier.Partial : MatchTier.Weak
+}
+
+const usageTier = (frecency: number): number => (frecency >= 1 ? 0 : frecency > 0 ? 1 : 2)
+
+export function rankCandidate(query: string, candidate: RankCandidate): CandidateRank | null {
+    const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
+    const tokens = [...new Set(searchWords(normalizedQuery))]
+    if (!tokens.length) {
+        return null
+    }
+    const nameWords = searchWords(candidate.name)
+    const hits = tokens.map((token) => tokenHit(token, candidate, nameWords))
+    const found = hits.filter((hit): hit is TokenHit => hit !== null)
+    if (!found.length) {
+        return null
+    }
+    const positions = found.filter((hit) => hit.field === 'name').map((hit) => hit.position)
+    let proximity = 0
+    for (let i = 1; i < positions.length; i++) {
+        proximity +=
+            Math.max(Math.abs(positions[i] - positions[i - 1]) - 1, 0) + (positions[i] < positions[i - 1] ? 1 : 0)
+    }
+    const frecency = candidate.frecency ?? 0
+    return {
+        rank: [
+            -found.length,
+            found.reduce((sum, hit) => sum + hit.typos, 0),
+            Number((candidate.picked ?? 0) < PICKED_THRESHOLD),
+            Math.max(matchTier(normalizedQuery, hits, candidate) - (candidate.tierBoost ?? 0), 0),
+            usageTier(frecency),
+            Math.min(proximity, MAX_POSITION_PENALTY),
+            Math.min(...positions, MAX_POSITION_PENALTY),
+            candidate.typePrior ?? 1,
+            Number(!!candidate.indirect),
+            -Math.round(frecency * 1000),
+            -(candidate.createdAt ?? 0),
+        ],
+        matchedAlias: found.find((hit) => hit.field === 'alias')?.alias ?? null,
+    }
 }

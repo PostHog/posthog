@@ -21,6 +21,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,6 +43,7 @@ import type { CommandOpenSource } from '../Command/commandLogic'
 import { askAiQuestionFor } from './commandKAskAi'
 import { buildFilterOptions, viewAllFor } from './commandKFilterOptions'
 import { ChipSelection, KeyIntent } from './commandKKeys'
+import { PickInput, pickScores, recordPick } from './commandKPickMemory'
 import {
     CursorContext,
     FilterDefinition,
@@ -61,6 +63,7 @@ import {
     resolveQuery,
     tokenAtCursor,
 } from './commandKQuery'
+import { freeWords } from './commandKRanking'
 import {
     CommandKMode,
     CommandKRow,
@@ -84,6 +87,15 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequ
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
 const FAST_REQUESTS = ['objects', 'persons']
+
+const PICK_MEMORY_TEAM_ID = getCurrentTeamIdOrNone()
+const PICK_MEMORY_USER_ID = getCurrentUserIdOrNone()
+const PICK_MEMORY_PERSIST_OPTIONS =
+    PICK_MEMORY_TEAM_ID && PICK_MEMORY_USER_ID
+        ? { persist: true, prefix: `${PICK_MEMORY_TEAM_ID}__${PICK_MEMORY_USER_ID}__` }
+        : { persist: false }
+
+const pickInput = (query: string | undefined): string => freeWords(query ?? '').join(' ')
 const INPUT_HIGHLIGHT_KEY = 'input'
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
@@ -129,6 +141,7 @@ export interface commandKSearchLogicValues {
     localLists: LocalLists
     localQuery: string
     mode: CommandKMode
+    pickMemory: PickInput[]
     recentItems: SearchItem[]
     remote: RemoteSlots
     remoteContext: RemoteContext
@@ -238,6 +251,15 @@ export interface commandKSearchLogicActions {
     }
     moveHighlight: (direction: 1 | -1) => {
         direction: 1 | -1
+    }
+    recordPick: (
+        input: string,
+        itemId: string,
+        now: number
+    ) => {
+        input: string
+        itemId: string
+        now: number
     }
     remoteLoaded: (
         query: string,
@@ -356,7 +378,8 @@ export interface commandKSearchLogicMeta {
                 query: SectionsQuery
                 stale: boolean
             },
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            pickMemory: PickInput[]
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -448,6 +471,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         loadFolders: true,
         foldersLoaded: (folders: FileSystemEntry[]) => ({ folders }),
         markResultOpened: true,
+        recordPick: (input: string, itemId: string, now: number) => ({ input, itemId, now }),
     }),
     reducers({
         text: [
@@ -540,6 +564,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             false,
             {
                 markResultOpened: () => true,
+            },
+        ],
+        pickMemory: [
+            [] as PickInput[],
+            PICK_MEMORY_PERSIST_OPTIONS,
+            {
+                recordPick: (state, { input, itemId, now }) => recordPick(state, input, itemId, now),
             },
         ],
     }),
@@ -719,6 +750,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.remote,
                 s.displayedQuery,
                 s.featureFlags,
+                s.pickMemory,
             ],
             (
                 mode: CommandKMode,
@@ -727,7 +759,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 local: LocalLists,
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                pickMemory: PickInput[]
             ): CommandKSection[] =>
                 buildSections({
                     mode,
@@ -741,6 +774,11 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     settingsInResults:
                         rankableSettings(local, displayed.query.localQuery).length > 0 &&
                         featureFlags[FEATURE_FLAGS.COMMAND_K_SETTINGS_IN_RESULTS] === 'test',
+                    unifiedRanking: featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test',
+                    picks:
+                        featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
+                            ? pickScores(pickMemory, pickInput(displayed.query.remoteQueries.results), Date.now())
+                            : new Map(),
                 }),
         ],
         selectableRows: [
@@ -808,6 +846,14 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 return
             }
             actions.markResultOpened()
+            if (
+                item &&
+                row.kind === 'item' &&
+                row.ranked &&
+                values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
+            ) {
+                actions.recordPick(pickInput(values.remoteQueries.results), item.id, Date.now())
+            }
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
