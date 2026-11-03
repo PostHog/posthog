@@ -23,8 +23,9 @@ const storybookDefaultMocks: Mocks = {
 // font. MSW checks a request against the handlers in order, and each check normalizes the URL and
 // compiles the path pattern. A story loads hundreds of assets, so checking each one against every API
 // handler was most of the main-thread work of a story. This handler matches assets with one regular
-// expression and passes them to the network. API paths never match it, and story mocks added with
-// `worker.use()` still come first.
+// expression and passes them to the network. It must stay first, also before story mocks, because
+// `worker.use()` puts new handlers at the start of the list. API paths never match it, so a story mock
+// for an API path still answers that path.
 const STATIC_ASSET_URL =
     /^https?:\/\/[^/]+\/(?!api\/)(?:(?:assets|static|sb-[\w-]+|@fs|@id|@vite|node_modules)\/.*|[^?#]*\.(?:m?js|jsx|tsx?|css|scss|less|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|ico|map|wasm))$/
 const staticAssetPassthrough = http.get(STATIC_ASSET_URL, () => passthrough())
@@ -36,7 +37,7 @@ export const worker: ReturnType<typeof setupWorker> = setupWorker(
     ...handlers
 )
 
-export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
+export const useStorybookMocks = (mocks: Mocks): void => worker.use(staticAssetPassthrough, ...mocksToHandlers(mocks))
 
 export const mswDecorator = (mocks: Mocks): Decorator<any> => {
     return function StoryMock(Story, { parameters }): JSX.Element {
