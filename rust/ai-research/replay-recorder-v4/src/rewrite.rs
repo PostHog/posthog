@@ -303,7 +303,6 @@ pub struct UrlRewrite {
     srcset_key: AhoCorasick,
     escaped_url_starts: AhoCorasick,
     escaped: Option<EscapedMatchers>,
-    css_escape: AhoCorasick,
     declined_spellings: Option<DeclinedSpellings>,
     declined_respelled: BTreeSet<usize>,
     css_matcher: Option<AhoCorasick>,
@@ -528,7 +527,6 @@ impl UrlRewrite {
             escaped_url_starts: AhoCorasick::new(ESCAPED_URL_STARTS)
                 .expect("two literal patterns build"),
             escaped: None,
-            css_escape: AhoCorasick::new([br"\\"]).expect("one literal pattern builds"),
             declined_spellings,
             declined_respelled: BTreeSet::new(),
             css_matcher,
@@ -702,7 +700,7 @@ impl UrlRewrite {
         for found in spellings.json_urls.find_iter(bytes) {
             note(found.pattern().as_usize(), (found.start(), found.end()));
         }
-        if self.css_escape.is_match(bytes) {
+        if bytes.contains(&b'\\') {
             for_each_escaped_match(&spellings.urls, bytes, &mut note);
         }
     }

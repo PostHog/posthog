@@ -327,9 +327,9 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
     text
 }
 
-/// Calls `on_match` with each match of `patterns` in a JSON string read through its escapes and with each backslash read
-/// as a slash, and the span of the bytes that spell it. Only a string that holds a CSS escape is read, because a match
-/// in any other string has no other spelling.
+/// Calls `on_match` with each match of `patterns` in a JSON string read as a browser reads a URL, and the span of the
+/// bytes that spell it. The string is read through its escapes, with each backslash read as a slash and without tabs
+/// and line breaks. Only a string that holds an escape is read, because any other string reads as its bytes.
 pub fn for_each_escaped_match(
     patterns: &AhoCorasick,
     bytes: &[u8],
@@ -338,21 +338,22 @@ pub fn for_each_escaped_match(
     let mut at = 0;
     while let Some(open) = bytes[at..].iter().position(|&b| b == b'"').map(|i| at + i) {
         let mut end = open + 1;
-        let mut css_escape = false;
+        let mut escaped = false;
         while end < bytes.len() && bytes[end] != b'"' {
             if bytes[end] == b'\\' {
-                css_escape |= bytes.get(end + 1) == Some(&b'\\');
+                escaped = true;
                 end += 1;
             }
             end += 1;
         }
-        if css_escape {
+        if escaped {
             let decoded = |position: usize| {
                 let next = unit(bytes, position);
                 let character = match char::from_u32(next.ch) {
-                    Some('\\') => '/',
-                    Some(character) => character,
-                    None => char::REPLACEMENT_CHARACTER,
+                    Some('\t' | '\n' | '\r') => None,
+                    Some('\\') => Some('/'),
+                    Some(character) => Some(character),
+                    None => Some(char::REPLACEMENT_CHARACTER),
                 };
                 (character, next.len)
             };
@@ -360,7 +361,7 @@ pub fn for_each_escaped_match(
             let mut position = open + 1;
             while position < end {
                 let (character, length) = decoded(position);
-                text.push(character);
+                text.extend(character);
                 position += length;
             }
             // A second walk maps each match to its bytes, because a per-character index costs many times the string.
@@ -368,7 +369,7 @@ pub fn for_each_escaped_match(
             let mut bytes_up_to = |text_end: usize| {
                 while text_at < text_end {
                     let (character, length) = decoded(position);
-                    text_at += character.len_utf8();
+                    text_at += character.map_or(0, char::len_utf8);
                     position += length;
                 }
                 position

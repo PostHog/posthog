@@ -959,14 +959,19 @@ mod tests {
             );
         }
         let quoted = format!("{signed}#\"");
-        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
-            "attributes": [{"id": 99, "attributes": {"src": quoted, "alt": quoted.replace("https:", "HTTPS:")}}]}}])
-        .to_string();
-        let lines = stored_lines(&events, &[]);
-        assert!(
-            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
-            "{lines}"
-        );
+        for (src, copy) in [
+            (quoted.clone(), quoted.replace("https:", "HTTPS:")),
+            (signed.to_owned(), signed.replace("avatar", "ava\ttar")),
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": src, "alt": copy}}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+                "{lines}"
+            );
+        }
         // A declined URL as short as a marker's text does not match the marker, so the block is kept.
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
             "attributes": [{"id": 99, "attributes": {"src": "https://v4"}}]}}])
