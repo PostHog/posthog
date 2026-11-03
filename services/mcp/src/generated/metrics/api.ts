@@ -444,6 +444,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
+export const metricsQueryCreateBodyQueryOnePromqlMax = 10000
+
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
@@ -692,6 +694,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .nullish()
                 .describe(
                     "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) \/ a'. Supports + - \* \/ and parentheses; division by zero yields 0. When set, only the formula result series are returned."
+                ),
+            promql: zod
+                .string()
+                .max(metricsQueryCreateBodyQueryOnePromqlMax)
+                .nullish()
+                .describe(
+                    "A PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (service_name) (rate(http_requests_total[5m]))'. Mutually exclusive with 'metricName' and 'clauses'. Put filters, grouping and functions in the expression; 'metricType', 'rangeFunction', 'quantile', 'filters', 'groupBy' and 'formula' are rejected with it. Use it to test a PromQL metrics insight before you save it. Requires PromQL to be enabled for the project."
                 ),
             dateFrom: zod
                 .string()
