@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -103,6 +103,15 @@ class SenderNotVerified(TransactionalEmailError):
 
 
 @frozen
+class EmailAttachment:
+    filename: str
+    # Base64, as the caller sent it. Kept out of repr so a traceback or log line never carries the file.
+    content: str = field(repr=False)
+    content_type: str | None = None
+    content_id: str | None = None
+
+
+@frozen
 class CodeEmail:
     key: str
     subject: str
@@ -111,6 +120,9 @@ class CodeEmail:
     sender: str | None
     reply_to: tuple[str, ...]
     capture_engagement: bool
+    cc: tuple[str, ...] = ()
+    bcc: tuple[str, ...] = ()
+    attachments: tuple[EmailAttachment, ...] = ()
 
 
 class DeliveryUnavailable(Exception):

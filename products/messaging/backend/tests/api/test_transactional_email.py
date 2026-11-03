@@ -476,6 +476,27 @@ class TestTransactionalEmail(APIBaseTest):
                 {"html": "", "text": "Hi"},
                 {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
             ),
+            (
+                "cc_bcc_and_attachments",
+                {
+                    "cc": "copy@example.com",
+                    "bcc": ["audit@example.com", "archive@example.com"],
+                    "attachments": [
+                        {"filename": "a.csv", "content": "YSxi", "content_type": "text/csv", "content_id": "a"},
+                        {"filename": "notes.txt", "content": "aGk="},
+                    ],
+                },
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True},
+                    "cc": ["copy@example.com"],
+                    "bcc": ["audit@example.com", "archive@example.com"],
+                    "attachments": [
+                        {"filename": "a.csv", "content": "YSxi", "contentType": "text/csv", "contentId": "a"},
+                        {"filename": "notes.txt", "content": "aGk="},
+                    ],
+                },
+            ),
         ]
     )
     def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
@@ -518,11 +539,38 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["attr"] == attr
         mock_post.assert_not_called()
 
-    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
-        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
+    @parameterized.expand(
+        [
+            ("subject", "Hi", "validation_error"),
+            ("cc", "copy@example.com", "invalid_request"),
+            ("bcc", ["audit@example.com"], "invalid_request"),
+            ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),
+        ]
+    )
+    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, field: value})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "subject"
+        assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
+        mock_post.assert_not_called()
+
+    def test_a_refused_attachment_explains_itself_without_repeating_its_content(self, mock_post, _flag, _capture):
+        content = "c2VjcmV0LWludm9pY2UtYnl0ZXM=" + "!"
+        attachments = [{"filename": "invoice.pdf", "content": content}]
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(attachments=attachments), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["type"], body["code"], body["attr"]) == (
+            "invalid_request",
+            "invalid_request",
+            "attachments__0__content",
+        )
+        assert body["why"] and body["fix"]
+        assert "c2VjcmV0" not in response.content.decode()
         mock_post.assert_not_called()
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):

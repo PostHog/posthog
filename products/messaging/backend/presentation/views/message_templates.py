@@ -6,8 +6,6 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import validate_email
 from django.db import transaction
 
 import structlog
@@ -62,9 +60,9 @@ from products.messaging.backend.facade.templates import (
 )
 from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
-    SENDER_ADDRESS_PATTERN,
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -78,6 +76,15 @@ from products.messaging.backend.facade.transactional_email import (
     sender_address_error,
     sync_transactional_workflow,
     transactional_email_stage,
+)
+from products.messaging.backend.presentation.views.code_send_fields import (
+    CODE_SEND_EXTRA_FIELDS,
+    AddressListField,
+    AttachmentListField,
+    CodeSendFieldRefused,
+    code_send_refusal,
+    is_bare_address,
+    template_send_refusal,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -437,7 +444,16 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+CODE_SEND_FIELDS = (
+    "template_key",
+    "subject",
+    "html",
+    "text",
+    "from",
+    "reply_to",
+    "capture_engagement",
+    *CODE_SEND_EXTRA_FIELDS,
+)
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -482,6 +498,21 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         max_length=10,
         help_text="Addresses replies to the email your code rendered go to.",
     )
+    cc = AddressListField(
+        required=False,
+        help_text="Addresses that get a visible copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name.",
+    )
+    bcc = AddressListField(
+        required=False,
+        help_text="Addresses that get a hidden copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name.",
+    )
+    attachments = AttachmentListField(
+        required=False,
+        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
+        "decoding. File types mailbox providers block, such as `.exe`, are refused.",
+    )
     capture_engagement = serializers.BooleanField(
         required=False,
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
@@ -505,9 +536,18 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         fields["from"] = fields.pop("from_address")
         return fields
 
+    def is_valid(self, *, raise_exception: bool = False) -> bool:
+        try:
+            return super().is_valid(raise_exception=raise_exception)
+        except serializers.ValidationError as error:
+            refusal = code_send_refusal(error.detail)
+            if refusal is None:
+                raise
+            raise refusal from None
+
     def validate_from(self, value: str) -> str:
         _name, address = parseaddr(value)
-        if not _is_sender_address(address):
+        if not is_bare_address(address):
             raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
         return value
 
@@ -517,6 +557,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
             if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
+                if code_field in CODE_SEND_EXTRA_FIELDS:
+                    raise template_send_refusal(code_field)
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
         if unknown := next((field for field in sorted(sent) if field not in self.fields), None):
@@ -532,16 +574,6 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
-
-
-def _is_sender_address(address: str) -> bool:
-    if len(address) > SENDER_ADDRESS_MAX_LENGTH or not SENDER_ADDRESS_PATTERN.match(address):
-        return False
-    try:
-        validate_email(address)
-    except DjangoValidationError:
-        return False
-    return True
 
 
 class MakeTransactionalSerializer(serializers.Serializer):
@@ -1117,6 +1149,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def get_throttles(self):
         return transactional_email_throttles()
 
+    def handle_exception(self, exc: Exception) -> Response:
+        response = super().handle_exception(exc)
+        if isinstance(exc, CodeSendFieldRefused):
+            response.data = {**response.data, "why": exc.why, "fix": exc.fix}
+        return response
+
     @validated_request(
         SendEmailSerializer,
         responses=SEND_RESPONSES,
@@ -1165,6 +1203,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            cc=tuple(data.get("cc", ())),
+            bcc=tuple(data.get("bcc", ())),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments", ())),
         )
         return self._queue_send(
             request,

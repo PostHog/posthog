@@ -54,6 +54,26 @@ export interface EmailStatusApi {
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
+export interface EmailAttachmentApi {
+    /**
+     * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
+     * @maxLength 255
+     */
+    filename: string
+    /** The file's bytes as standard base64, without line breaks. */
+    content: string
+    /**
+     * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+     * @maxLength 255
+     */
+    content_type?: string
+    /**
+     * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
+     * @maxLength 255
+     */
+    content_id?: string
+}
+
 export interface SendEmailApi {
     /** Email address of the recipient. */
     to: string
@@ -84,6 +104,15 @@ export interface SendEmailApi {
      * @maxItems 10
      */
     reply_to?: string[]
+    /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. */
+    cc?: string | string[]
+    /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. */
+    bcc?: string | string[]
+    /**
+     * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused.
+     * @maxItems 10
+     */
+    attachments?: EmailAttachmentApi[]
     /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
     capture_engagement?: boolean
     /** Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender. */

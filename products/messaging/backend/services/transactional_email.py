@@ -26,6 +26,7 @@ from posthog.plugins.plugin_server_api import (
 from products.messaging.backend.facade.contracts import (
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
     InvalidIdempotencyKey,
@@ -502,7 +503,24 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
+    if email.cc:
+        accepted["cc"] = list(email.cc)
+    if email.bcc:
+        accepted["bcc"] = list(email.bcc)
+    if email.attachments:
+        accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted
+
+
+def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
+    return _without_empty(
+        {
+            "filename": attachment.filename,
+            "content": attachment.content,
+            "contentType": attachment.content_type,
+            "contentId": attachment.content_id,
+        }
+    )
 
 
 def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
