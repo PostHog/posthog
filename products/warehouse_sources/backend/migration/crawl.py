@@ -128,8 +128,11 @@ def mark_migration_failed(*, team_id: int, migration_id: UUID, auth_failed: bool
 
 def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...], *, delete_missing: bool) -> None:
     items = WarehouseMigrationItem.objects.for_team(migration.team_id).filter(migration=migration)
+    planned_ids = {plan.vendor_connection_id for plan in planned}
+    # Without deletes, only the planned items are read, so a small upload stays small on a large migration.
+    touched = items if delete_missing else items.filter(vendor_connection_id__in=planned_ids)
     # Locked so an apply cannot claim an item between this read and the save below.
-    existing = {item.vendor_connection_id: item for item in items.select_for_update()}
+    existing = {item.vendor_connection_id: item for item in touched.select_for_update()}
 
     for plan in planned:
         item = existing.get(plan.vendor_connection_id)
@@ -153,5 +156,4 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...],
 
     if not delete_missing:
         return
-    planned_ids = {plan.vendor_connection_id for plan in planned}
     items.exclude(vendor_connection_id__in=planned_ids).exclude(status__in=_KEEP_ON_REFRESH).delete()
