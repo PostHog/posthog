@@ -194,6 +194,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
+        canLoadNextData,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
@@ -1171,7 +1172,10 @@ export function DataTable({
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
-                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) &&
+                                    (!context?.dataTableHideLoadNextWhenComplete ||
+                                        canLoadNextData ||
+                                        nextDataLoading) ? (
                                         <LoadNext
                                             query={query.source}
                                             nouns={context?.dataTableNouns}

@@ -255,6 +255,7 @@ export const MarketingAnalyticsTable = ({
             compactDataTableToolbar: true,
             dataTableToolbarClassName: 'pt-3',
             dataTableExportIconOnly: true,
+            dataTableHideLoadNextWhenComplete: true,
             customActions: toolbar,
             insightProps,
             columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
