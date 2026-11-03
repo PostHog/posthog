@@ -31,6 +31,7 @@ import {
     IssueTone,
     failingChecksStatus,
     materializationStatus,
+    nextStepLabel,
     subjectDetail,
     subjectImpact,
     subjectName,
@@ -44,6 +45,7 @@ const SKELETON_ROWS = 3
 const PAGE_SIZE = 10
 const SECTION_ID = 'models-overview-attention-section'
 const HEADING_ID = `${SECTION_ID}-heading`
+const DESCRIPTION_ID = `${SECTION_ID}-description`
 
 interface SubjectCellContext {
     row: { original: AttentionSubject }
@@ -60,6 +62,29 @@ function subjectHref(subject: AttentionSubject): string | null {
     }
     const [check] = subject.failingChecks
     return check ? subjectDetailUrl(check) : null
+}
+
+function nextStepHref(subject: AttentionSubject): string | null {
+    const { node, materialization } = subject
+    if (node && nodeEndpointModel(node)) {
+        return nodeEndpointUrl(node)
+    }
+    if (node) {
+        return urls.nodeDetail(node.id, materialization ? 'materialization' : 'data-quality')
+    }
+    return subjectHref(subject)
+}
+
+function NextStepButton({ subject }: { subject: AttentionSubject }): JSX.Element | null {
+    const href = nextStepHref(subject)
+    if (!href) {
+        return null
+    }
+    return (
+        <Button variant="outline" size="sm" render={<LinkPrimitive to={href} />} data-attr="models-overview-next-step">
+            {nextStepLabel(subject)}
+        </Button>
+    )
 }
 
 function subjectLabel(subject: AttentionSubject): string {
@@ -126,6 +151,9 @@ function NarrowLines({ subject }: { subject: AttentionSubject }): JSX.Element {
             <ProblemBadges subject={subject} />
             <DetailText subject={subject} />
             {impact && <ImpactText impact={impact} />}
+            <div className="pt-1">
+                <NextStepButton subject={subject} />
+            </div>
         </div>
     )
 }
@@ -171,6 +199,17 @@ const COLUMNS: DataTableProps<AttentionSubject, unknown>['columns'] = [
         cell: ({ row }: SubjectCellContext) => (
             <span className={WIDE_ONLY}>
                 <ImpactText impact={subjectImpact(row.original) ?? '-'} />
+            </span>
+        ),
+    },
+    {
+        id: 'next-step',
+        header: '',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }: SubjectCellContext) => (
+            <span className={WIDE_ONLY}>
+                <NextStepButton subject={row.original} />
             </span>
         ),
     },
@@ -235,32 +274,43 @@ export function ModelsOverviewIssues(): JSX.Element {
     const loading = (modelsFirstLoading || checksFirstLoading) && attentionSubjects.length === 0
 
     return (
-        <section id={SECTION_ID} aria-labelledby={HEADING_ID} className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                <Heading size="base" render={<h3 id={HEADING_ID} className="m-0" />}>
-                    <span>Views and tables that need attention</span>
-                    {attentionSubjects.length > 0 && (
-                        <span translate="no" className="ml-2 font-normal text-muted-foreground">
-                            {attentionSubjects.length}
-                        </span>
-                    )}
-                </Heading>
-                <div className="flex gap-2">
-                    <Button
-                        variant="link"
-                        render={<LinkPrimitive to={urls.models('models')} />}
-                        data-attr="models-overview-all-models"
-                    >
-                        All models
-                    </Button>
-                    <Button
-                        variant="link"
-                        render={<LinkPrimitive to={urls.models('data-quality')} />}
-                        data-attr="models-overview-all-checks"
-                    >
-                        All checks
-                    </Button>
+        <section
+            id={SECTION_ID}
+            aria-labelledby={HEADING_ID}
+            aria-describedby={DESCRIPTION_ID}
+            className="flex flex-col gap-2"
+        >
+            <div className="flex flex-col gap-1">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                    <Heading size="base" render={<h3 id={HEADING_ID} className="m-0" />}>
+                        <span>Views and tables that need attention</span>
+                        {attentionSubjects.length > 0 && (
+                            <span translate="no" className="ml-2 font-normal text-muted-foreground">
+                                {attentionSubjects.length}
+                            </span>
+                        )}
+                    </Heading>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="link"
+                            render={<LinkPrimitive to={urls.models('models')} />}
+                            data-attr="models-overview-all-models"
+                        >
+                            All models
+                        </Button>
+                        <Button
+                            variant="link"
+                            render={<LinkPrimitive to={urls.models('data-quality')} />}
+                            data-attr="models-overview-all-checks"
+                        >
+                            All checks
+                        </Button>
+                    </div>
                 </div>
+                <Text size="xs" variant="muted" render={<p id={DESCRIPTION_ID} className="m-0" />}>
+                    These failed to refresh or have failing checks, so anything that reads them may show stale or wrong
+                    data.
+                </Text>
             </div>
             {modelsFailed && (
                 <ErrorCallout

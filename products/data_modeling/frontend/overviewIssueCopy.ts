@@ -74,3 +74,16 @@ export function subjectImpact(subject: AttentionSubject): string | null {
     ].filter(Boolean)
     return parts.length > 0 ? parts.join(', ') : null
 }
+
+const NEXT_STEP_LABELS: Record<MaterializationProblem['kind'], string> = {
+    suspended: 'Fix and resume',
+    failed: 'View error',
+    behind: 'Check schedule',
+}
+
+export function nextStepLabel(subject: AttentionSubject): string {
+    if (subject.materialization) {
+        return NEXT_STEP_LABELS[subject.materialization.kind]
+    }
+    return subject.failingChecks.length > 1 ? 'View checks' : 'View check'
+}
