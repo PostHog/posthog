@@ -129,6 +129,7 @@ PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
 # gateway product. Keyed by origin value.
 INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
+INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"scout_suggestions": "scout_suggestions"}
 
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
@@ -962,6 +963,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state["sandbox_template"] = previous_state["sandbox_template"]
             elif carry_sandbox_template and (stored_profile := task.stored_profile) is not None:
                 state["sandbox_template"] = stored_profile.sandbox_templates[0]
+            if task.origin_product == Task.OriginProduct.KNOWLEDGE_WRITER:
+                state["include_live_context"] = False
             if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,
@@ -994,6 +997,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if interactive_stage and not state.get("ai_stage") and not task.internal:
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
+            internal_stage = INTERNAL_SIGNALS_AI_STAGE_BY_ORIGIN.get(task.origin_product)
+            if internal_stage and not state.get("ai_stage") and task.internal:
+                state["ai_stage"] = internal_stage
 
             # A manual resume can share an internal Task with an automated run. Freeze billing
             # on this run so historical PR charges and pipeline attribution do not change.
