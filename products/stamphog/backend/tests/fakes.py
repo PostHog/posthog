@@ -108,7 +108,6 @@ _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<numbe
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
 _DISMISS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews/(?P<rid>\d+)/dismissals$")
 _LABEL_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels/(?P<label>[^/]+)$")
-_LABEL_ADD_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels$")
 _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$")
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
@@ -172,12 +171,6 @@ class GitHubRecorder:
         # Test hook: force every reaction POST to return this response (e.g. a 500) to
         # exercise the client's fail-open path without monkeypatching bound methods.
         self.reaction_response_override: FakeResponse | None = None
-        # Test hook: force every label-add POST to return this response (e.g. a 422 for a label that
-        # does not exist on the repo) to exercise the handoff's best-effort swallow path.
-        self.add_label_response_override: FakeResponse | None = None
-        # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
-        # exercise the best-effort catch for exception types the client does not raise itself.
-        self.add_label_side_effect: Exception | None = None
         # Set to make posting a COMMENT review blow up, e.g. a rate limit on the failure notice.
         self.comment_review_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
@@ -194,6 +187,10 @@ class GitHubRecorder:
         self.repo_files: dict[tuple[str, str], str] = {}
         # (repo, path) -> link target, for a symlink the contents API reports as a symlink object.
         self.repo_symlinks: dict[tuple[str, str], str] = {}
+        # (path, ref) -> text, for a file whose contents differ between two commits.
+        self.files_at_ref: dict[tuple[str, str], str] = {}
+        # The files every compare lists, for a caller that pins a PR's file list to two commits.
+        self.compare_files: list[dict] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -239,7 +236,9 @@ class GitHubRecorder:
         if method == "GET" and path == "/search/issues":
             return self._search_issues(params)
         if method == "GET" and _COMPARE_RE.match(path):
-            return FakeResponse(200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}})
+            return FakeResponse(
+                200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
+            )
         if method == "GET" and _CHECK_RUNS_RE.match(path):
             return FakeResponse(200, json_data={"check_runs": []})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
@@ -256,7 +255,7 @@ class GitHubRecorder:
             return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             raw = "raw" in (kwargs.get("headers") or {}).get("Accept", "")
-            return self._get_contents(m.group("repo"), m.group("path"), raw=raw)
+            return self._get_contents(m.group("repo"), m.group("path"), raw=raw, ref=str(params.get("ref") or ""))
         if method == "POST" and path == "/graphql":
             return self._graphql(json_body or {})
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
@@ -278,8 +277,6 @@ class GitHubRecorder:
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
         if method == "PUT" and (m := _DISMISS_RE.match(path)):
             return self._dismiss_review(m.group("repo"), int(m.group("number")), int(m.group("rid")), json_body)
-        if method == "POST" and (m := _LABEL_ADD_RE.match(path)):
-            return self._add_label(m.group("repo"), int(m.group("number")), json_body)
         if method == "DELETE" and (m := _LABEL_DELETE_RE.match(path)):
             return self._remove_label(m.group("repo"), int(m.group("number")), m.group("label"))
 
@@ -310,11 +307,11 @@ class GitHubRecorder:
         numbers = self.author_merged.get((repo, author), []) if page == 1 else []
         return FakeResponse(200, json_data={"items": [{"number": n} for n in numbers]})
 
-    def _get_contents(self, repo: str, path: str, *, raw: bool = True) -> FakeResponse:
+    def _get_contents(self, repo: str, path: str, *, raw: bool = True, ref: str = "") -> FakeResponse:
         if (repo, path) in self.repo_symlinks:
             target = self.repo_symlinks[(repo, path)]
             return FakeResponse(200, json_data={"type": "symlink", "path": path, "target": target})
-        content = self.repo_files.get((repo, path), self.policy_files.get(path))
+        content = self.files_at_ref.get((path, ref), self.repo_files.get((repo, path), self.policy_files.get(path)))
         if content is None:
             return FakeResponse(404, text="not found")
         if not raw:
@@ -379,10 +376,11 @@ class GitHubRecorder:
         for name, expression in variables.items():
             if name in ("owner", "name"):
                 continue
-            path = str(expression).split(":", 1)[1]
+            commit, path = str(expression).split(":", 1)
             content = self.repo_files.get((repo, path), self.policy_files.get(path))
             if (repo, path) in self.repo_symlinks:
                 content = self.repo_symlinks[(repo, path)]
+            content = self.files_at_ref.get((path, commit), content)
             if content is None:
                 field[f"f{name[1:]}"] = None
             else:
@@ -423,19 +421,6 @@ class GitHubRecorder:
     def _remove_label(self, repo: str, number: int, label: str) -> FakeResponse:
         self.github_writes.append({"kind": "remove_label", "repo": repo, "number": number, "label": label})
         return FakeResponse(200, json_data=[])
-
-    def _add_label(self, repo: str, number: int, body: dict | None) -> FakeResponse:
-        labels = (body or {}).get("labels", [])
-        self.github_writes.append({"kind": "add_label", "repo": repo, "number": number, "labels": labels})
-        # A side effect set by the test simulates the egress layer raising before the response is
-        # returned — a GitHubRateLimitError (the real raise_if_github_rate_limited is stubbed to a
-        # no-op in the chain, so the rate-limit path is otherwise unreachable in tests) or a
-        # requests.RequestException on a network blip. Exercises the handoff's best-effort catch.
-        if self.add_label_side_effect is not None:
-            raise self.add_label_side_effect
-        if self.add_label_response_override is not None:
-            return self.add_label_response_override
-        return FakeResponse(200, json_data=[{"name": n} for n in labels])
 
     def _dismiss_review(self, repo: str, number: int, review_id: int, body: dict | None) -> FakeResponse:
         self.github_writes.append(

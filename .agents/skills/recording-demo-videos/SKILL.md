@@ -117,7 +117,7 @@ Reset the data, then record again. Read individual frames with ffmpeg when the s
 ### 6. Share
 
 In a PostHog Desktop or cloud task, upload the MP4 as a task artifact.
-For a PR, upload it with `hogli pr:upload-video` and paste the markdown it prints.
+For a PR, run `hogli pr:upload-video`. With an open PR it attaches the video to the description as an inline player. Without one it prints a link to paste.
 PR assets are public forever, so check the frames for private data before every upload.
 
 ## References

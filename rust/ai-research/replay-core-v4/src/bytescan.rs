@@ -7,6 +7,8 @@
 //! callers that need decoded text use [`unescape`], and callers that meet an escaped **key** must fall
 //! back to a real parse — a `\uXXXX` key could alias a routing key, and byte comparison would miss it.
 
+use std::borrow::Cow;
+
 /// Half-open byte range into the scanned buffer.
 pub type Span = (usize, usize);
 
@@ -351,6 +353,108 @@ impl<'b> Iterator for ArrayItems<'b> {
     }
 }
 
+/// The top-level `keys` of each object item of the array that starts at `start`, found in the same pass that finds
+/// where the item ends, so that an array of small objects is scanned once. Items that are not objects are skipped. As
+/// in a parse, the last of a repeated key wins, and an escaped key is not one of `keys`.
+pub fn array_object_fields<'b, const N: usize>(
+    bytes: &'b [u8],
+    start: usize,
+    keys: [&'b [u8]; N],
+) -> Result<ArrayObjectFields<'b, N>> {
+    if bytes.get(start) != Some(&b'[') {
+        return Err(ScanError("not an array"));
+    }
+    Ok(ArrayObjectFields {
+        bytes,
+        keys,
+        pos: start + 1,
+        done: false,
+        first: true,
+    })
+}
+
+pub struct ArrayObjectFields<'b, const N: usize> {
+    bytes: &'b [u8],
+    keys: [&'b [u8]; N],
+    pos: usize,
+    done: bool,
+    first: bool,
+}
+
+impl<const N: usize> ArrayObjectFields<'_, N> {
+    /// Reads the object at `pos`, and returns its end and its fields.
+    fn object(&self, mut pos: usize) -> Result<(usize, [Option<Span>; N])> {
+        let bytes = self.bytes;
+        let mut found = [None; N];
+        pos = skip_ws(bytes, pos + 1);
+        if bytes.get(pos) == Some(&b'}') {
+            return Ok((pos + 1, found));
+        }
+        loop {
+            if bytes.get(pos) != Some(&b'"') {
+                return Err(ScanError("expected object key"));
+            }
+            let key_end = skip_string(bytes, pos)?;
+            let key = &bytes[pos + 1..key_end - 1];
+            pos = skip_ws(bytes, key_end);
+            if bytes.get(pos) != Some(&b':') {
+                return Err(ScanError("expected ':' after object key"));
+            }
+            let value = locate_value(bytes, pos + 1)?;
+            if let Some(index) = self.keys.iter().position(|&k| k == key) {
+                found[index] = Some(value);
+            }
+            pos = skip_ws(bytes, value.1);
+            match bytes.get(pos) {
+                Some(b',') => pos = skip_ws(bytes, pos + 1),
+                Some(b'}') => return Ok((pos + 1, found)),
+                _ => return Err(ScanError("expected ',' between object entries")),
+            }
+        }
+    }
+}
+
+impl<const N: usize> Iterator for ArrayObjectFields<'_, N> {
+    type Item = Result<[Option<Span>; N]>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while !self.done {
+            let bytes = self.bytes;
+            let mut pos = skip_ws(bytes, self.pos);
+            if bytes.get(pos) == Some(&b']') {
+                self.done = true;
+                return None;
+            }
+            if !self.first {
+                if bytes.get(pos) != Some(&b',') {
+                    self.done = true;
+                    return Some(Err(ScanError("expected ',' between array items")));
+                }
+                pos = skip_ws(bytes, pos + 1);
+            }
+            self.first = false;
+            let item = if bytes.get(pos) == Some(&b'{') {
+                self.object(pos).map(|(end, found)| (end, Some(found)))
+            } else {
+                locate_value(bytes, pos).map(|span| (span.1, None))
+            };
+            match item {
+                Ok((end, found)) => {
+                    self.pos = end;
+                    if let Some(found) = found {
+                        return Some(Ok(found));
+                    }
+                }
+                Err(error) => {
+                    self.done = true;
+                    return Some(Err(error));
+                }
+            }
+        }
+        None
+    }
+}
+
 /// Parse a scanned scalar span as a JSON number, mirroring what `JSON.parse` would produce (an f64).
 /// Returns `None` for non-numbers. Accepts the full JSON number grammar (fractions, exponents); the
 /// charset pre-check keeps Rust-isms like `inf`/`NaN` out.
@@ -359,6 +463,19 @@ pub fn parse_number(bytes: &[u8], span: Span) -> Option<f64> {
     let first = *raw.first()?;
     if first != b'-' && !first.is_ascii_digit() {
         return None;
+    }
+    // Most numbers in a recording are small integers, which an f64 holds exactly, so they skip the float parser.
+    let digits = raw.strip_prefix(b"-").unwrap_or(raw);
+    if !digits.is_empty() && digits.len() <= 15 && digits.iter().all(u8::is_ascii_digit) {
+        let value = digits
+            .iter()
+            .fold(0i64, |value, digit| value * 10 + i64::from(digit - b'0'))
+            as f64;
+        return Some(if digits.len() < raw.len() {
+            -value
+        } else {
+            value
+        });
     }
     if !raw
         .iter()
@@ -581,6 +698,69 @@ pub fn write_json_string(s: &str, out: &mut Vec<u8>) {
         }
     }
     out.push(b'"');
+}
+
+/// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
+/// written again as it writes them. Capture writes events that way, but the JSON inside a `cv` payload arrives as the
+/// page wrote it, and a client can send any escape. A URL or a data URI could then hide behind an escape from a reader
+/// that matches bytes.
+pub fn canonical_strings(bytes: &[u8]) -> Cow<'_, [u8]> {
+    if !bytes.contains(&b'\\') {
+        return Cow::Borrowed(bytes);
+    }
+    let mut out: Option<Vec<u8>> = None;
+    let mut copied_to = 0;
+    let mut position = 0;
+    while let Some(start) = bytes[position..]
+        .iter()
+        .position(|&b| b == b'"')
+        .map(|at| position + at)
+    {
+        let mut end = start + 1;
+        let mut canonical = true;
+        while end < bytes.len() && bytes[end] != b'"' {
+            if bytes[end] == b'\\' {
+                match bytes.get(end + 1) {
+                    Some(b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't') => {}
+                    Some(b'u') => canonical &= is_written_escape(bytes.get(end + 2..end + 6)),
+                    _ => canonical = false,
+                }
+                end += 1;
+            }
+            end += 1;
+        }
+        if end >= bytes.len() {
+            break;
+        }
+        if !canonical {
+            if let Ok(text) = unescape(bytes, (start, end + 1)) {
+                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+                out.extend_from_slice(&bytes[copied_to..start]);
+                write_json_string(&text, out);
+                copied_to = end + 1;
+            }
+        }
+        position = end + 1;
+    }
+    match out {
+        Some(mut out) => {
+            out.extend_from_slice(&bytes[copied_to..]);
+            Cow::Owned(out)
+        }
+        None => Cow::Borrowed(bytes),
+    }
+}
+
+/// Whether `write_json_string` writes this `\u` escape: a control character without a short escape, in lowercase hex.
+fn is_written_escape(hex: Option<&[u8]>) -> bool {
+    let Some(&[b'0', b'0', high, low]) = hex else {
+        return false;
+    };
+    let digit = |b: u8| matches!(b, b'0'..=b'9' | b'a'..=b'f');
+    digit(high)
+        && digit(low)
+        && high <= b'1'
+        && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
 }
 
 #[cfg(test)]

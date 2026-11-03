@@ -10,11 +10,11 @@ import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEd
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isEmptyObject } from 'lib/utils/guards'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
+import { membersLogic } from '~/models/membersLogic'
 import { CommentType } from '~/types'
 import type { OrganizationMemberType, UserType } from '~/types'
 

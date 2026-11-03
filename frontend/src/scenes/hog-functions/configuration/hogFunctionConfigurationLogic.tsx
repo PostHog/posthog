@@ -33,6 +33,7 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
@@ -44,6 +45,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     EventsNode,
@@ -53,7 +55,6 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,

@@ -1,7 +1,7 @@
 """Deterministic one-way masking of sensitive warehouse-source columns.
 
 A masked value is replaced with an HMAC-SHA256 digest keyed by the server secret
-(`ENCRYPTION_SALT_KEYS`) over `team_id` and the value. The secret stops anyone who can query the
+(`WAREHOUSE_COLUMN_MASKING_KEY`) over `team_id` and the value. The secret stops anyone who can query the
 column from brute-forcing low-entropy values such as card numbers. `team_id` makes equal values
 mask alike within a team, so they still join, and differently across teams.
 
@@ -11,9 +11,9 @@ Postgres text for numeric, date and time, JSON, bytea and array columns. A maske
 types can therefore hold two digests for one value after a row changes. Text, integer, boolean,
 float8 and UUID columns render alike on both paths.
 
-The key is derived from `ENCRYPTION_SALT_KEYS[0]`, so it never equals the Fernet key of the
-encrypted fields. Prepending a new salt key changes every later digest, while rows already synced
-keep the old one. Every table with masked columns therefore needs a full resync after a rotation.
+The key is its own secret, so rotating the encryption keys of other fields never changes a digest.
+Changing it changes every later digest, while rows already synced keep the old one. Every table with
+masked columns therefore needs a full resync after a change.
 
 Masking does not reach data derived before the mask was set. A materialized view built earlier
 keeps its plaintext copy until it is materialized again.
@@ -27,7 +27,7 @@ from __future__ import annotations
 import hmac
 import asyncio
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -42,29 +42,45 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-# The default in posthog/settings/access.py and the docker-compose files. Anyone can read it, so a
-# digest keyed with it can be brute-forced from the team id alone.
-_PUBLIC_DEFAULT_KEY = "00beef0000beef0000beef0000beef00"
+# Anyone can read this key, so a digest keyed with it can be brute-forced. Development and tests only.
+_DEVELOPMENT_KEY = "development-only-warehouse-column-masking-key"
+_MIN_KEY_LENGTH = 32
+
+MASKING_KEY_UNAVAILABLE_MESSAGE = (
+    f"WAREHOUSE_COLUMN_MASKING_KEY must be set to a secret of at least {_MIN_KEY_LENGTH} characters to mask columns."
+)
 
 
-def masking_key_is_public() -> bool:
-    """Whether the masking key is the shipped default. Local development and tests may use it."""
-    keys = settings.ENCRYPTION_SALT_KEYS
-    return bool(keys) and keys[0] == _PUBLIC_DEFAULT_KEY and not (settings.DEBUG or settings.TEST)
+def masking_key_unavailable() -> bool:
+    """Whether this instance has no usable masking key. Development and tests fall back to a fixed one."""
+    if settings.DEBUG or settings.TEST:
+        return False
+    return len(settings.WAREHOUSE_COLUMN_MASKING_KEY) < _MIN_KEY_LENGTH
 
 
 def get_masking_key() -> bytes:
-    keys = settings.ENCRYPTION_SALT_KEYS
-    if not keys:
-        raise NonRetryableException("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
-    if masking_key_is_public():
-        raise NonRetryableException("ENCRYPTION_SALT_KEYS is the public default. Set a secret value to mask columns.")
-    return hmac.new(keys[0].encode(), b"warehouse-column-masking", hashlib.sha256).digest()
+    if masking_key_unavailable():
+        raise NonRetryableException(MASKING_KEY_UNAVAILABLE_MESSAGE)
+    return (settings.WAREHOUSE_COLUMN_MASKING_KEY or _DEVELOPMENT_KEY).encode()
 
 
 def _mask_base(team_id: int, key: bytes) -> hmac.HMAC:
     # Callers copy this per value, which skips the key schedule and the shared prefix for each cell.
     return hmac.new(key, f"{team_id}:".encode(), hashlib.sha256)
+
+
+def value_masker(team_id: int) -> Callable[[object], str | None]:
+    """`mask_value` for one team, with the key resolved once. Raises when no secret key is set."""
+    base = _mask_base(team_id, get_masking_key())
+
+    def mask(value: object) -> str | None:
+        if value is None:
+            return None
+        digest = base.copy()
+        digest.update(str(value).encode())
+        return digest.hexdigest()
+
+    return mask
 
 
 def mask_value(team_id: int, value: object, *, key: bytes | None = None) -> str | None:
@@ -93,6 +109,21 @@ def ambiguous_masked_columns(masked_columns: list[str], source_columns: Iterable
     return [column for column in masked_columns if counts.get(fold_column_name(column), 0) > 1]
 
 
+def collision_alias_masked_columns(masked_columns: list[str], synced_columns: Iterable[str]) -> list[str]:
+    """Masked entries that name a synced column the pipeline renamed to avoid a name collision.
+
+    The pipeline prefixes `_` to the later of two colliding columns (`Email` and `email` load as `email`
+    and `_email`). Which source column gets the alias depends on the batch, and a batch with only one
+    of them loads it under the plain name, so a mask on the alias would leave that value in plaintext.
+    """
+    folded = {fold_column_name(name) for name in synced_columns}
+    return [
+        column
+        for column in masked_columns
+        if column.startswith("_") and fold_column_name(column[1:]) in folded and fold_column_name(column) in folded
+    ]
+
+
 def protected_masked_columns(masked_columns: list[str] | None, protected_columns: Iterable[str | None]) -> list[str]:
     """Folded masked names that are also a key, partition or cursor column. Callers fail on any.
 
@@ -108,24 +139,42 @@ def mask_table_columns(table: pa.Table, masked_columns: list[str] | None, *, tea
     masked = {fold_column_name(column) for column in masked_columns or []}
     if not masked:
         return table
-    base = _mask_base(team_id, get_masking_key())
+    mask = value_masker(team_id)
     for index, name in enumerate(table.column_names):
         if fold_column_name(name) not in masked:
             continue
         # One chunk at a time, so the Python objects in memory stay bounded by the chunk size.
         masked_chunks: list[pa.Array] = []
         for chunk in table.column(index).chunks:
-            digests: list[str | None] = []
-            for value in chunk.to_pylist():
-                if value is None:
-                    digests.append(None)
-                else:
-                    digest = base.copy()
-                    digest.update(str(value).encode())
-                    digests.append(digest.hexdigest())
-            masked_chunks.append(pa.array(digests, type=pa.string()))
+            masked_chunks.append(pa.array([mask(value) for value in chunk.to_pylist()], type=pa.string()))
         table = table.set_column(index, name, pa.chunked_array(masked_chunks, type=pa.string()))
     return table
+
+
+def raise_if_masked_key_columns(schema: ExternalDataSchema, resource: SourceResponse) -> None:
+    """Fail the sync when a masked column is a key, partition or incremental column.
+
+    The API rejects a mask on a key it knows, but some sources resolve their merge, partition or
+    row-replacement key only at sync time. The loader reads those columns as source values, and
+    skipping the mask syncs plaintext, so fail the sync. A retry reads the same configuration.
+    """
+    if not schema.masked_columns:
+        return
+    key_columns = [
+        *(resource.primary_keys or []),
+        *(resource.partition_keys or []),
+        *(schema.partitioning_keys or []),
+        *(schema.partitioning_keys_override or []),
+        *([resource.replace_scope.column] if resource.replace_scope else []),
+    ]
+    # A full-refresh table keeps the cursor of an earlier sync method in its settings, but reads no cursor.
+    cursor = schema.incremental_field if schema.should_use_incremental_field or schema.is_cdc else None
+    protected = protected_masked_columns(schema.masked_columns, [*key_columns, cursor])
+    if protected:
+        raise NonRetryableException(
+            f"Cannot mask key, partition or incremental columns {protected}. "
+            "Remove them from masked_columns to sync this table."
+        )
 
 
 async def mask_table_if_configured(
@@ -142,20 +191,5 @@ async def mask_table_if_configured(
             f"Cannot mask {sorted(ambiguous)}: two source columns have this name after normalization. "
             "Rename one of the source columns to sync this table."
         )
-    # The API rejects a mask on a key it knows, but some sources resolve their merge, partition or
-    # row-replacement key only at sync time. The loader reads those columns as source values, and
-    # skipping the mask syncs plaintext, so fail the sync. A retry reads the same configuration.
-    key_columns = [
-        *(resource.primary_keys or []),
-        *(resource.partition_keys or []),
-        *(schema.partitioning_keys or []),
-        *(schema.partitioning_keys_override or []),
-        *([resource.replace_scope.column] if resource.replace_scope else []),
-    ]
-    protected = protected_masked_columns(schema.masked_columns, [*key_columns, schema.incremental_field])
-    if protected:
-        raise NonRetryableException(
-            f"Cannot mask key, partition or incremental columns {protected}. "
-            "Remove them from masked_columns to sync this table."
-        )
+    raise_if_masked_key_columns(schema, resource)
     return await asyncio.to_thread(mask_table_columns, table, schema.masked_columns, team_id=schema.team_id)
