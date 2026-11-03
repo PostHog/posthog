@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.cre
     compute_credential_kinds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import SourceKey
 
 RUNTIME_KEY_PREFIXES: tuple[str, ...] = ("cdc_",)
 
@@ -120,21 +120,21 @@ def is_runtime_key(source: AnySource, key: str) -> bool:
 
 
 @functools.cache
-def declared_field_kinds(source_type: ExternalDataSourceType) -> Mapping[str, JobInputKind]:
+def declared_field_kinds(source_type: SourceKey) -> Mapping[str, JobInputKind]:
     """Kinds of the source's top-level form fields. The form is static per deploy, so the result is cached."""
     source = SourceRegistry.get_source(source_type)
     return {field.name: field_kind(field) for field in source.get_source_config.fields}
 
 
 @functools.cache
-def declared_reference_options(source_type: ExternalDataSourceType) -> Mapping[str, frozenset[str]]:
+def declared_reference_options(source_type: SourceKey) -> Mapping[str, frozenset[str]]:
     """Top-level selects that have reference options, with the values of those options."""
     source = SourceRegistry.get_source(source_type)
     options = {field.name: reference_option_values(field) for field in source.get_source_config.fields}
     return {name: values for name, values in options.items() if values}
 
 
-def _stored_aliases(source_type: ExternalDataSourceType) -> dict[str, str]:
+def _stored_aliases(source_type: SourceKey) -> dict[str, str]:
     """Map each stored attribute name of an aliased form field to the form field name.
 
     `serialize_config` stores a parsed config with `dataclasses.asdict`, so a form field whose name is
@@ -151,7 +151,7 @@ def _stored_aliases(source_type: ExternalDataSourceType) -> dict[str, str]:
 
 
 @functools.cache
-def stored_field_kinds(source_type: ExternalDataSourceType) -> Mapping[str, JobInputKind]:
+def stored_field_kinds(source_type: SourceKey) -> Mapping[str, JobInputKind]:
     """`declared_field_kinds` plus the key each aliased field is stored under. Both spellings get the form field's kind."""
     kinds = dict(declared_field_kinds(source_type))
     for stored_name, alias in _stored_aliases(source_type).items():
@@ -169,7 +169,7 @@ class ReferenceOptions:
 
 
 @functools.cache
-def stored_reference_options(source_type: ExternalDataSourceType) -> Mapping[str, ReferenceOptions]:
+def stored_reference_options(source_type: SourceKey) -> Mapping[str, ReferenceOptions]:
     """For each stored select key with reference options: the option values and the OAuth keys they may hold."""
     source = SourceRegistry.get_source(source_type)
     fields_by_name = {field.name: field for field in source.get_source_config.fields}
@@ -186,7 +186,7 @@ def stored_reference_options(source_type: ExternalDataSourceType) -> Mapping[str
     return result
 
 
-def _is_reference_value(source_type: ExternalDataSourceType, key: str, value: Any) -> bool:
+def _is_reference_value(source_type: SourceKey, key: str, value: Any) -> bool:
     options = stored_reference_options(source_type).get(key)
     if options is None or not isinstance(value, Mapping):
         return False
@@ -198,7 +198,7 @@ def _is_reference_value(source_type: ExternalDataSourceType, key: str, value: An
     return all(value[key] in (None, "") for key in stray_keys)
 
 
-def classify_job_input_key(source_type: ExternalDataSourceType, key: str, value: Any = None) -> JobInputKind:
+def classify_job_input_key(source_type: SourceKey, key: str, value: Any = None) -> JobInputKind:
     """Kind of a stored key. Pass the stored value to classify a select that has reference options."""
     if is_runtime_key(SourceRegistry.get_source(source_type), key):
         return JobInputKind.RUNTIME
@@ -207,7 +207,7 @@ def classify_job_input_key(source_type: ExternalDataSourceType, key: str, value:
     return stored_field_kinds(source_type).get(key, JobInputKind.CONNECTION)
 
 
-def split_job_inputs(source_type: ExternalDataSourceType, job_inputs: Mapping[str, Any] | None) -> SplitJobInputs:
+def split_job_inputs(source_type: SourceKey, job_inputs: Mapping[str, Any] | None) -> SplitJobInputs:
     parts: dict[JobInputKind, dict[str, Any]] = {kind: {} for kind in JobInputKind}
     for key, value in (job_inputs or {}).items():
         parts[classify_job_input_key(source_type, key, value)][key] = value
@@ -247,7 +247,7 @@ def render_classification_audit() -> str:
     )
     sources = SourceRegistry.get_all_sources()
     credential_kinds = compute_credential_kinds()
-    for source_type in sorted(sources, key=lambda source_type: source_type.value):
+    for source_type in sorted(sources, key=str):
         kinds = declared_field_kinds(source_type)
         reference_fields = [name for name, kind in kinds.items() if kind == JobInputKind.REFERENCE]
         reference_fields += [
@@ -257,13 +257,13 @@ def render_classification_audit() -> str:
         ]
         writer.writerow(
             [
-                source_type.value,
+                str(source_type),
                 " ".join(name for name, kind in kinds.items() if kind == JobInputKind.CONNECTION),
                 " ".join(reference_fields),
                 " ".join(name for name, kind in kinds.items() if kind == JobInputKind.SELECTOR),
                 " ".join(name for name, kind in kinds.items() if kind == JobInputKind.SETTING),
                 " ".join(sorted(sources[source_type].runtime_job_input_keys)),
-                credential_kinds.get(source_type.value, ""),
+                credential_kinds.get(str(source_type), ""),
             ]
         )
     return output.getvalue()

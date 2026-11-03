@@ -391,6 +391,10 @@ New chat drops it.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
+- Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
+  Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
+  Expanding or collapsing a notice pauses automatic scrolling so it stays in view.
+  Scrolling back also pauses automatic scrolling; scroll to the bottom to follow new messages again.
 - Known PRs remain available while execution is active, idle or terminal. Their state is separate
   from execution; a discovered URL starts unknown until the report supplies authoritative state.
 - Report task status opens that implementation task, including idle and completed runs that can
@@ -418,6 +422,10 @@ does not prevent a later notification from reopening the previous conversation.
 
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
+
+Chat pauses streams while offline. Task and history reads resume when the connection returns. When the connection returns or the app enters the foreground, chat resumes the same run with its saved cursor and transcript. The Reconnect button also restarts streams after the retry limit. Authentication, permission and missing-run errors prevent automatic recovery. Recovery does not resend messages, answers or run creation requests.
+
+A connected device can still fail to reach PostHog. Stream retries and the idle timeout handle these failures. Repeated connected events do not reset the retry limit.
 
 The page opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.

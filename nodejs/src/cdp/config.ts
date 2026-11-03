@@ -191,6 +191,9 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated caps indexed by tier. Both lists must be the same length.
     EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
+    // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
+    // Every other team runs the previous scanner in helpers/utm-legacy.ts.
+    CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -428,6 +431,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
+        CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

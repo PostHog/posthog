@@ -77,9 +77,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.sour
     _INVALID_CREDENTIALS_ERROR,
     MySQLSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
-    PlanetScaleMySQLSource,
-)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
@@ -1164,9 +1161,8 @@ class TestStreamingConnectionTimeouts:
         ],
         ids=["read_timeout", "write_timeout"],
     )
-    @pytest.mark.parametrize("source_class", [MySQLSource, PlanetScaleMySQLSource])
-    def test_driver_timeout_is_retryable(self, source_class, error, kept_out_of_error_tracking):
-        source = source_class()
+    def test_driver_timeout_is_retryable(self, error, kept_out_of_error_tracking):
+        source = MySQLSource()
         assert error_message_matches(str(error), source.get_retryable_errors()) is kept_out_of_error_tracking
         assert not error_message_matches(str(error), {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
