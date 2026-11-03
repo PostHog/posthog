@@ -524,12 +524,6 @@ The pruning stays because one outage at night costs less than the restore time.
 Try this again if PyPI outages occur during working hours or more than a few times each month. Then the developer time and the merge queue kicks change the result.
 A longer step timeout does not help: the 5-minute bound and the retry let the shard fail fast, and this outage was 3 hours long.
 
-Depot's step timeout leaves child processes running, so downloads that hold locks need a shorter process deadline.
-Temporal's SDK also makes retries wait while another downloader updates its `.downloading` file.
-Backend CI runs bounded preparation on a cache miss before pytest runs, and only master saves the completed cache.
-A failed preparation does not fail the job: tests then fall back to the SDK's own download.
-This preparation is CI-only; local pytest uses the SDK's default downloader.
-
 `setup-uv` v9 changed the `prune-cache` default to `false`. Each cache-enabled call sets `prune-cache: true` so that the cache stays at about 3 MB.
 
 _Also asked as:_ uv sync timeout, uv sync SIGTERM, PyPI is slow in CI, cache the Python wheels, why is prune-cache true, exec-step child exited with signal SIGTERM
