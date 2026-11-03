@@ -160,6 +160,15 @@ class TestProjectionPushdown(BaseTest):
             inner_query = inner_query.initial_select_query
         assert len(inner_query.select) > 1
 
+    def test_set_query_branches_keep_lining_up(self):
+        optimized = self._optimize(
+            "SELECT event FROM (SELECT DISTINCT * FROM events UNION ALL SELECT * FROM events) AS sub"
+        )
+        set_query = optimized.select_from.table
+        first = set_query.initial_select_query.select
+        second = set_query.subsequent_select_queries[0].select_query.select
+        assert len(first) == len(second) > 1
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_clause(self):
         """PREWHERE clause columns should be preserved"""

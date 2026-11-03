@@ -70,6 +70,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.union_of: dict[int, ast.SelectSetQuery] = {}
         # Branches of a set query that compares rows (anything but UNION ALL)
         self.strict_set_branches: set[int] = set()
+        # Select leaves of a set query one of whose leaves keeps every column, so the branches keep lining up
+        self.aligned_set_leaves: set[int] = set()
         # True during the collecting passes; gates pruning to the final one (see class docstring)
         self.collecting: bool = False
         self._alias_stack: list[ast.Alias] = []
@@ -183,6 +185,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             self.union_of[id(query)] = node
             if strict:
                 self.strict_set_branches.add(id(query))
+        leaves = self._select_leaves(node)
+        if any(self.keeps_all_columns(leaf) for leaf in leaves):
+            self.aligned_set_leaves.update(id(leaf) for leaf in leaves)
 
         # Propagate parent demands to all branches uniformly
         self._propagate_demands_to_union_branches(node)
@@ -196,6 +201,11 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     def union_queries(self, node: ast.SelectSetQuery) -> list[SubqueryNode]:
         return [node.initial_select_query, *(set_node.select_query for set_node in node.subsequent_select_queries)]
+
+    def _select_leaves(self, node: SubqueryNode) -> list[ast.SelectQuery]:
+        if isinstance(node, ast.SelectSetQuery):
+            return [leaf for query in self.union_queries(node) for leaf in self._select_leaves(query)]
+        return [node]
 
     def _select_names(self, node: SubqueryNode) -> list[str | None]:
         if isinstance(node, ast.SelectSetQuery):
@@ -267,8 +277,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         return columns
 
     def keeps_all_columns(self, node: ast.SelectQuery) -> bool:
-        """Whether dropping a column would change the select's rows or move a position another clause names"""
-        return self.compares_rows(node) or bool(self.positional_columns(node))
+        """Whether dropping a column would change the select's rows, move a position another clause names, or put the
+        select out of line with a sibling branch that keeps its columns"""
+        return self.compares_rows(node) or bool(self.positional_columns(node)) or id(node) in self.aligned_set_leaves
 
     def _demand_passthrough(self, node: ast.SelectQuery, expr: ast.Expr, passthrough: tuple[SubqueryNode, str]) -> None:
         child, child_name = passthrough

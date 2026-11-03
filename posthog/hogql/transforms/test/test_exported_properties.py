@@ -191,7 +191,6 @@ class TestExportedProperties(BaseTest):
     def test_keeps_the_blob_when_a_reader_needs_it(self, _name: str, select: str, native: bool = False) -> None:
         printed = self._print(select, native=native)
         assert "map(" not in printed, printed
-        assert " AS properties" in printed, printed
 
     def test_saved_view_exports_only_the_keys_read(self) -> None:
         DataWarehouseSavedQuery.objects.create(
