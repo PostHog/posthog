@@ -138,8 +138,9 @@ def _calc_route(
 ) -> _CalcRoute:
     """
     A metric that can read precomputed exposures and metric events goes to the precompute queue in the AUTO
-    mode, and the runner checks the gates again when it calculates. Any other metric goes to the activity queue
-    and scans directly, so it never starts a precompute build there.
+    mode, and the runner checks the gates again when it calculates. The route does not use
+    PrecomputationMode.PRECOMPUTED, which is reserved for staff tools, so for now the check runs twice. Any other
+    metric goes to the activity queue and scans directly, so it never starts a precompute build there.
     """
     try:
         runner = ExperimentQueryRunner(

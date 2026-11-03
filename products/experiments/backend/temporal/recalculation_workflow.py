@@ -192,8 +192,6 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
             else None
         )
-        # No patch marker: replay matches a scheduled activity only by its id and type, not by its queue or its
-        # arguments, and a discovery result from before routing has no route, so it dispatches as before.
         dispatches = [_calc_dispatch(metric, activity_task_queue) for metric in metrics]
         results = await asyncio.gather(
             *[

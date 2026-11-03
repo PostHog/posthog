@@ -120,7 +120,8 @@ async def calculate_experiment_metric_for_recalculation(
     workflow passes these arguments by position, so recorded histories depend on their order, not their names.
 
     precomputation_mode comes from discovery. The workflow passes it only for a DIRECT calc on the activity queue,
-    and None keeps the AUTO mode.
+    and None keeps the AUTO mode. A calc on the precompute queue also uses AUTO, because PRECOMPUTED is reserved
+    for staff tools.
 
     Finality is derived from activity.info().attempt against MAX_METRIC_ATTEMPTS, the same constant the
     workflow's RetryPolicy is built from, so both sides agree on which attempt is the last. On the final
