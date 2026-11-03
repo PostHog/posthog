@@ -85,7 +85,6 @@ describe('IngestionApiServer', () => {
                 teamId: 1,
             })
             expect(personsStore.shutdown).toHaveBeenCalledTimes(1)
-            // Closing before shutdown would strand the final flush's writes with no transport.
             expect(closePersonsStore.mock.invocationCallOrder[0]).toBeGreaterThan(
                 personsStore.shutdown.mock.invocationCallOrder[0]
             )

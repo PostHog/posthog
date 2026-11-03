@@ -48,14 +48,13 @@ export type PersonsStoreConfig = Pick<
 
 export interface BuiltPersonsStore {
     personsStore: PersonsStore
-    /** Call after the store's shutdown, since the final flush still needs the clients. A no-op in pg mode. */
+    /** Call after the store's shutdown: the final flush still needs the clients. */
     close: () => void
 }
 
 /** One name across the monolith and the processor split, so personhog-side metrics read the same client. */
 const PERSONHOG_CLIENT_NAME = 'ingestion-persons-store'
 
-/** pg is the Postgres batch store alone; shadow and personhog dial personhog and route through it. */
 export function buildPersonsStore(
     config: PersonsStoreConfig,
     personRepository: PersonRepository,

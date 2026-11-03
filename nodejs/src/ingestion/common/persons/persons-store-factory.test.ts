@@ -32,7 +32,7 @@ describe('buildPersonsStore', () => {
     })
 
     it.each(['shadow', 'personhog'] as const)(
-        '%s mode routes through personhog and shutdown plus close() leaves no poller behind',
+        '%s mode routes through personhog, and shutdown plus close() leaves no session poller to keep the process alive',
         async (mode) => {
             const built = buildPersonsStore(
                 {
@@ -46,7 +46,6 @@ describe('buildPersonsStore', () => {
             )
 
             expect(built.personsStore).toBeInstanceOf(RoutingPersonsStore)
-            // The router and identity clients each poll their session state; a leaked poller keeps the process alive.
             await built.personsStore.shutdown()
             expect(jest.getTimerCount()).toBeGreaterThan(0)
             built.close()

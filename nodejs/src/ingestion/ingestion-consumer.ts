@@ -71,7 +71,6 @@ import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     UsageIngestionConfig &
-    // Read here as in the ingestion api server, so a lane can move to personhog before the processor split.
     PersonsStoreConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
