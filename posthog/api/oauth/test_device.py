@@ -42,6 +42,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
         body = {"client_id": client_id, "scope": "insight:read feature_flag:write llm_gateway:read", **extra}
         response = self.client.post("/oauth/device-authorization/", urlencode(body), content_type=FORM)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response["Cache-Control"], "no-store")
         return response.json()
 
     def _poll(self, device_code: str, client_id: str = "hog-device-client", **extra: str):
@@ -422,20 +423,21 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(responses[:10], [status.HTTP_400_BAD_REQUEST] * 10)
         self.assertEqual(responses[10], status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_a_new_cimd_client_gets_the_cimd_rate_limit(self) -> None:
+    @parameterized.expand([("in the body", False, "invalid_client"), ("in the query string", True, "invalid_request")])
+    def test_a_new_cimd_client_gets_the_cimd_rate_limit(self, _name: str, in_query: bool, expected: str) -> None:
+        client_id = urlencode({"client_id": "https://new-client.example.com/.well-known/oauth-client-metadata.json"})
         throttle = MagicMock(allow_request=MagicMock(return_value=False), wait=MagicMock(return_value=30))
         with (
             patch("posthog.api.oauth.views.CIMD_THROTTLE_CLASSES", new=[MagicMock(return_value=throttle)]),
             patch("posthog.api.oauth.cimd.requests.Session.get") as fetch,
         ):
-            response = self.client.post(
-                "/oauth/device-authorization/",
-                urlencode({"client_id": "https://new-client.example.com/.well-known/oauth-client-metadata.json"}),
-                content_type=FORM,
-            )
+            if in_query:
+                response = self.client.post(f"/oauth/device-authorization/?{client_id}", "", content_type=FORM)
+            else:
+                response = self.client.post("/oauth/device-authorization/", client_id, content_type=FORM)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "invalid_client")
+        self.assertEqual(response.json()["error"], expected)
         fetch.assert_not_called()
 
     def test_a_device_grant_always_asks_for_the_scopes_the_client_requires(self) -> None:
