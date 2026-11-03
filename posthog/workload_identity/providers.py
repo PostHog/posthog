@@ -8,6 +8,7 @@ are listed too, with the reason, so an error can name them.
 
 from __future__ import annotations
 
+import string
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -60,6 +61,14 @@ class WorkloadProvider:
             raise ValueError(f"{self.key}: condition claims must be unique.")
         if {self.subject_claim.name, self.subject_name_claim.name} & set(condition_names):
             raise ValueError(f"{self.key}: the subject claims can't also be condition claims.")
+        # The activity log fills the templates with the recorded claims only, so a field outside them, or a
+        # positional, attribute or index field, would fail or render empty on the first workload write.
+        recorded_names = {claim.name for claim in self.recorded_claims}
+        for template in (self.actor_label_template, self.run_url_template or ""):
+            fields = [name for _, name, _, _ in string.Formatter().parse(template) if name is not None]
+            unknown = sorted(set(fields) - recorded_names)
+            if unknown:
+                raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
 
 
 @frozen
