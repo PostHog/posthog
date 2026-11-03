@@ -31,6 +31,35 @@ const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSche
     },
 })
 
+const ActivitySummarySearchSchema = () => {
+    const SignalsActivitySummaryMembersSearchQueryParams = orvalSchemas.SignalsActivitySummaryMembersSearchQueryParams()
+    return SignalsActivitySummaryMembersSearchQueryParams
+}
+
+const activitySummarySearch = (): ToolBase<
+    ReturnType<typeof ActivitySummarySearchSchema>,
+    Schemas.ActivitySummarySearchResult
+> => ({
+    name: 'activity-summary-search',
+    schema: ActivitySummarySearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ActivitySummarySearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummarySearchResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary_members/search/`,
+            query: {
+                exclude_user_uuids: params.exclude_user_uuids,
+                include_profile: params.include_profile,
+                limit: params.limit,
+                product: params.product,
+                query: params.query,
+                search_mode: params.search_mode,
+            },
+        })
+        return result
+    },
+})
+
 const ActivitySummaryVersionsListSchema = () => {
     const SignalsActivitySummaryVersionsRetrieveQueryParams =
         orvalSchemas.SignalsActivitySummaryVersionsRetrieveQueryParams()
@@ -633,6 +662,30 @@ const inboxReportsFeedbackCreate = (): ToolBase<
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportsForMeSchema = () => {
+    const SignalsReportsForMeRetrieveQueryParams = orvalSchemas.SignalsReportsForMeRetrieveQueryParams()
+    return SignalsReportsForMeRetrieveQueryParams
+}
+
+const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema>, Schemas.PersonalRanking> => ({
+    name: 'inbox-reports-for-me',
+    schema: InboxReportsForMeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsForMeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PersonalRanking>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/for_me/`,
+            query: {
+                focus: params.focus,
+                limit: params.limit,
+                refresh: params.refresh,
+                wait_seconds: params.wait_seconds,
+            },
+        })
+        return result
     },
 })
 
@@ -3616,6 +3669,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-get': activitySummaryGet,
+    'activity-summary-search': activitySummarySearch,
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
@@ -3635,6 +3689,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
+    'inbox-reports-for-me': inboxReportsForMe,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,

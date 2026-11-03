@@ -7,7 +7,7 @@ import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isTrendsQuery } from '~/queries/utils'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 
 import {
     INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD,

@@ -15,7 +15,6 @@ day per day.
 
 import math
 import uuid
-import hashlib
 import datetime
 import dataclasses
 from collections.abc import Callable, Iterable, Sequence
@@ -45,6 +44,7 @@ from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, Ro
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, FileSystemViewLog, Team
 
+from products.signals.backend import org_rollout
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
@@ -54,10 +54,12 @@ from products.signals.backend.activity_summary.render import (
     MAX_LIMITS,
     MAX_SUMMARY_CHARS,
     NOISY_ACTIVITY_SCOPES,
+    PERSON_SCOPE,
     RENDER_VERSION,
     SANDBOX_PROMPT_TITLE_PREFIX,
     SCENE_VIEW_TYPE,
     SCOUT_CLIENT_PREFIX,
+    SETUP_SCOPES,
     RenderLimits,
 )
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
@@ -200,18 +202,15 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
 # A new salt reorders every organization, so change the version only to start a new rollout order.
 _ROLLOUT_SALT = "activity-summary-self-driving-v1"
-_ROLLOUT_BUCKETS = 10_000
 
 
 def organization_rollout_bucket(organization_id: uuid.UUID) -> int:
-    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
-    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{organization_id}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
+    """The organization's fixed place in the percentage rollout, from 0 to 9999."""
+    return org_rollout.organization_rollout_bucket(_ROLLOUT_SALT, organization_id)
 
 
-def _in_rollout(config: ActivitySummaryConfig, organization_id: uuid.UUID) -> bool:
-    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
-    return organization_rollout_bucket(organization_id) < threshold
+def _in_rollout(percentage: float, organization_id: uuid.UUID) -> bool:
+    return org_rollout.in_rollout(_ROLLOUT_SALT, percentage, organization_id)
 
 
 @frozen
@@ -220,6 +219,8 @@ class Enrollment:
     organization_ids: list[uuid.UUID]
     # The organizations that a 100 percent rollout enrolls, with or without manual enrollment.
     qualifying_organization_ids: list[uuid.UUID]
+    # The organization of each enrolled team.
+    team_organization_ids: dict[int, uuid.UUID] = dataclasses.field(default_factory=dict)
 
 
 def enrollment(config: ActivitySummaryConfig) -> Enrollment:
@@ -248,17 +249,30 @@ def enrollment(config: ActivitySummaryConfig) -> Enrollment:
         enrolled |= {
             team_id: organization_id
             for team_id, organization_id in with_source.items()
-            if _in_rollout(config, organization_id)
+            if _in_rollout(config.self_driving_organization_percentage, organization_id)
         }
     return Enrollment(
         team_ids=sorted(enrolled),
         organization_ids=sorted(set(enrolled.values())),
         qualifying_organization_ids=sorted(set(with_source.values())),
+        team_organization_ids=enrolled,
     )
 
 
 def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     return enrollment(config).team_ids
+
+
+def mcp_buffer_team_ids(config: ActivitySummaryConfig, enrolled: Enrollment) -> list[int]:
+    """The enrolled teams whose MCP intents the buffer keeps. The percentage never adds a team that is not enrolled."""
+    if not config.mcp_buffer_enabled:
+        return []
+    listed = _parse_organization_ids(config.mcp_buffer_organization_ids)
+    return sorted(
+        team_id
+        for team_id, organization_id in enrolled.team_organization_ids.items()
+        if organization_id in listed or _in_rollout(config.mcp_buffer_percentage, organization_id)
+    )
 
 
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
@@ -275,7 +289,7 @@ def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -
         return False
     if config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids):
         return True
-    if not _in_rollout(config, team.organization_id):
+    if not _in_rollout(config.self_driving_organization_percentage, team.organization_id):
         return False
     from products.signals.backend.facade.api import (
         has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
@@ -296,15 +310,17 @@ def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool
     return config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids)
 
 
-def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]:
-    # A UUID parse, so an id in another UUID format still matches, and an invalid id matches nothing.
-    parsed: set[uuid.UUID] = set()
-    for organization_id in organization_ids:
-        try:
-            parsed.add(uuid.UUID(organization_id))
-        except ValueError:
-            continue
-    return parsed
+def read_enrolled_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
+    """The teams of `teams` that `is_team_enrolled_for_read` enrolls, in one query."""
+    if not config.enabled:
+        return teams.none()
+    teams = teams.filter(organization__is_ai_data_processing_approved=True).exclude(id__in=config.skip_team_ids)
+    if config.enroll_all_approved:
+        return teams
+    return teams.filter(organization_id__in=_parse_organization_ids(config.organization_ids))
+
+
+_parse_organization_ids = org_rollout.parse_organization_ids
 
 
 def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime, score: float = 0.0) -> None:
@@ -345,7 +361,10 @@ def _after_watermark(
 def _activity_rows(
     team_ids: list[int], start: datetime.datetime, end: datetime.datetime, after_watermark: bool
 ) -> _Pending:
-    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`."""
+    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`.
+
+    Setup rows do not make a pair due, even with an intent. A setup row with an intent still renders
+    when the pair is due for another reason."""
     rows = (
         ActivityLog.objects.filter(
             team_id__in=team_ids, user_id__isnull=False, created_at__gte=start, created_at__lt=end
@@ -354,6 +373,8 @@ def _activity_rows(
         .exclude(was_impersonated=True)
         .exclude(scope__in=NOISY_ACTIVITY_SCOPES)
         .exclude(client__startswith=SCOUT_CLIENT_PREFIX)
+        .exclude(scope__in=SETUP_SCOPES)
+        .exclude(scope=PERSON_SCOPE, activity="deleted")
     )
     unit_count = Count("id")
     if after_watermark:

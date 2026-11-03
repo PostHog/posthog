@@ -225,6 +225,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # events cleanup schedule; no endpoint looks it up by a user-supplied ID.
         "TeamEventsRetentionConfig",
         "TeamFeatureFlagsConfig",
+        # Staff-only OneToOne extension keyed on the team, written by a management command and read
+        # by the realtime cohort pipeline; no endpoint looks it up by a user-supplied ID.
+        "RealtimeCohortTeamAccess",
         # OneToOne extension of Team keyed on team_id, only ever read as get(team=team) via
         # get_or_create_team_extension; no endpoint looks it up by a user-supplied ID.
         "TeamFeatureFlagPolicyConfig",
