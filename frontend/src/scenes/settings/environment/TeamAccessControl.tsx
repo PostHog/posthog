@@ -6,6 +6,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AccessControlTerraformExport } from 'scenes/settings/environment/AccessControlTerraformExport'
+import { TeamObjectAccessControl } from 'scenes/settings/environment/TeamObjectAccessControl'
+import { TeamPropertyAccessControl } from 'scenes/settings/environment/TeamPropertyAccessControl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -13,7 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ResourcesAccessControlsV2 } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2'
 import { AvailableFeature } from '~/types'
 
-export function TeamAccessControl(): JSX.Element {
+export function TeamAccessControl({ scope = 'project' }: { scope?: 'project' | 'object' | 'property' }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
@@ -38,10 +40,16 @@ export function TeamAccessControl(): JSX.Element {
                     </LemonBanner>
                 )}
             {currentTeam?.id ? (
-                <ResourcesAccessControlsV2
-                    projectId={`${currentTeam.id}`}
-                    tabsRightSlot={<AccessControlTerraformExport />}
-                />
+                scope === 'object' ? (
+                    <TeamObjectAccessControl projectId={`${currentTeam.id}`} />
+                ) : scope === 'property' ? (
+                    <TeamPropertyAccessControl projectId={`${currentTeam.id}`} />
+                ) : (
+                    <ResourcesAccessControlsV2
+                        projectId={`${currentTeam.id}`}
+                        tabsRightSlot={<AccessControlTerraformExport />}
+                    />
+                )
             ) : null}
         </div>
     )

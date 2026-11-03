@@ -13,8 +13,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AvailableFeature } from '~/types'
 
 import { SettingSectionId } from '../types'
 
@@ -232,7 +234,69 @@ export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-m
 
 export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
 
-export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
+const accessControlDecorators: Story['decorators'] = [
+    (Story) => {
+        useAvailableFeatures([AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS])
+        return <Story />
+    },
+    mswDecorator({
+        get: {
+            '/api/projects/:id/access_control_defaults': {
+                available_project_levels: ['none', 'member', 'admin'],
+                available_resource_levels: ['none', 'viewer', 'editor', 'manager'],
+                can_edit: true,
+                is_managed_by_terraform: false,
+                project_access_level: 'member',
+                resource_access_levels: {},
+                object_rule_resources: [
+                    {
+                        resource: 'dashboard',
+                        available_access_levels: ['none', 'viewer', 'editor', 'manager'],
+                        minimum_access_level: 'none',
+                    },
+                ],
+            },
+            '/api/projects/:id/access_control_default_objects': {
+                results: [
+                    {
+                        resource: 'dashboard',
+                        resource_id: '1',
+                        name: 'Example dashboard',
+                        short_id: null,
+                        access_level: 'viewer',
+                    },
+                ],
+            },
+            '/api/projects/:id/access_control_default_properties': {
+                results: [
+                    {
+                        property_definition_id: 'email-rule',
+                        property: 'email',
+                        property_type: 'person',
+                        access_level: 'read',
+                    },
+                ],
+            },
+        },
+    }),
+]
+
+export const SettingsEnvironmentAccessControl: Story = {
+    args: { sectionId: 'environment-access-control' },
+    decorators: accessControlDecorators,
+}
+
+export const SettingsEnvironmentObjectAccessControl: Story = {
+    args: { sectionId: 'environment-object-access-control' },
+    decorators: accessControlDecorators,
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
+export const SettingsEnvironmentPropertyAccessControl: Story = {
+    args: { sectionId: 'environment-property-access-control' },
+    decorators: accessControlDecorators,
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
 
 export const SettingsEnvironmentActivityLogs: Story = {
     args: { sectionId: 'environment-activity-logs' },
