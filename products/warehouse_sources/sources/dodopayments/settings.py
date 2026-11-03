@@ -51,6 +51,7 @@ class DodoPaymentsEndpointConfig:
     partition_key: str | None = "created_at"
     # `/brands` is the one list endpoint that takes no query parameters, so it is a single page.
     paginated: bool = True
+    data_selector: str = "items"
     # Fields on these resources are restated in place after creation, so incremental runs need
     # the trailing re-read window above.
     restated: bool = False
@@ -290,6 +291,31 @@ DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
             include_from_parent=["customer_id"],
             parent_field_renames={"customer_id": "customer_id"},
         ),
+    ),
+    # A discount's customer allow list. Each row is only `{"customer_id": ...}`, so the discount id
+    # comes from the parent. There is no date filter, so this is full refresh only.
+    "discount_customers": DodoPaymentsEndpointConfig(
+        path="/discounts/{discount_id}/customers",
+        primary_keys=["discount_id", "customer_id"],
+        partition_key=None,
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="discounts",
+            resolve_param="discount_id",
+            resolve_field="discount_id",
+            include_from_parent=["discount_id"],
+            parent_field_renames={"discount_id": "discount_id"},
+        ),
+    ),
+    # Billable screens per UTC day over the trailing 30 days, as the `daily` array of one object.
+    # The current day's count grows until the day ends and there is no date filter, so this is
+    # full refresh only. Thirty rows at most need no partitioning.
+    "moderation_usage": DodoPaymentsEndpointConfig(
+        path="/moderation/usage",
+        primary_keys=["date"],
+        partition_key=None,
+        paginated=False,
+        data_selector="daily",
     ),
 }
 
