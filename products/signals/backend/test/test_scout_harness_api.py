@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -41,6 +40,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
@@ -5870,9 +5870,7 @@ _LIGHTHOUSE_REPORT = {
 class TestScoutHarnessLighthouseAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(
-            patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
-        )
+        self.enterContext(mock_anti_ssrf_dns_lookup())
         # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
         _authenticate_as_scout(self)
 
