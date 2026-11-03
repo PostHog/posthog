@@ -16,30 +16,6 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const SelfDrivingStatusGetSchema = () => z.object({})
-
-const selfDrivingStatusGet = (): ToolBase<
-    ReturnType<typeof SelfDrivingStatusGetSchema>,
-    Schemas.InboxOnboardingState
-> => ({
-    name: 'self-driving-status-get',
-    schema: SelfDrivingStatusGetSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.InboxOnboardingState>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
-        })
-        const filtered = pickResponseFields(result, [
-            'completed_at',
-            'github_optional_available',
-            'jobs',
-            'first_report',
-        ]) as typeof result
-        return filtered
-    },
-})
-
 const ActivitySummaryGetSchema = () => z.object({})
 
 const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
@@ -2928,6 +2904,30 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
+const SelfDrivingStatusGetSchema = () => z.object({})
+
+const selfDrivingStatusGet = (): ToolBase<
+    ReturnType<typeof SelfDrivingStatusGetSchema>,
+    Schemas.InboxOnboardingState
+> => ({
+    name: 'self-driving-status-get',
+    schema: SelfDrivingStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.InboxOnboardingState>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'completed_at',
+            'github_optional_available',
+            'jobs',
+            'first_report',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -3663,7 +3663,6 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'self-driving-status-get': selfDrivingStatusGet,
     'activity-summary-get': activitySummaryGet,
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
@@ -3747,6 +3746,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
+    'self-driving-status-get': selfDrivingStatusGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,
