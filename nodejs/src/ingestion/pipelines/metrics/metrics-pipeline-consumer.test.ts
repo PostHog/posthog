@@ -91,7 +91,13 @@ describe('MetricsPipelineConsumer', () => {
         expect(usageClient.ingest).toHaveBeenCalledTimes(1)
         expect(usageClient.ingest.mock.calls[0][0]).toEqual(
             expect.arrayContaining([
-                expect.objectContaining({ teamId: team.id, usageKey: 'metrics_bytes', unit: 'bytes', quantity: 100 }),
+                expect.objectContaining({
+                    recordId: 'metrics_ingestion:0:0',
+                    teamId: team.id,
+                    usageKey: 'metrics_bytes',
+                    unit: 'bytes',
+                    quantity: 100,
+                }),
                 expect.objectContaining({
                     teamId: team.id,
                     usageKey: 'metrics_bytes_records',

@@ -66,11 +66,13 @@ pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
     if row.instrumentation_scope.len() > 50 {
         total += row.instrumentation_scope.len();
     }
-    for (k, v) in row.resource_attributes.iter().chain(&row.attributes) {
-        // Capture adds this label itself, so it is not billed.
-        if k != ORIGINAL_TIMESTAMP_ATTRIBUTE {
-            total += k.len() + v.len();
-        }
+    // Capture adds this point label itself, so it is not billed.
+    let point_attributes = row
+        .attributes
+        .iter()
+        .filter(|(k, _)| k.as_str() != ORIGINAL_TIMESTAMP_ATTRIBUTE);
+    for (k, v) in row.resource_attributes.iter().chain(point_attributes) {
+        total += k.len() + v.len();
     }
     total as u64
 }
@@ -619,19 +621,22 @@ mod tests {
         row.metric_name = "rpc.latency".to_string();
         row.histogram_bounds = vec![1.0, 5.0];
         row.histogram_counts = vec![1, 2, 3];
-        row.resource_attributes = HashMap::from([("host".to_string(), "web-1".to_string())]);
+        row.resource_attributes = HashMap::from([
+            ("host".to_string(), "web-1".to_string()),
+            ("$originalTimestamp".to_string(), "x".to_string()),
+        ]);
         row.attributes = HashMap::from([("route".to_string(), "/api".to_string())]);
 
         assert_eq!(
             compute_kafka_metric_row_bytes(&row),
-            8 + 16 + 24 + 11 + 9 + 9
+            8 + 16 + 24 + 11 + 9 + 19 + 9
         );
 
         // The second row's overridden timestamp adds an unbilled `$originalTimestamp` label.
         row.instrumentation_scope = "s".repeat(51);
         assert_eq!(
             sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
-            8 + 16 + 24 + 11 + 9 + 9 + 51 + (8 + "test.metric".len() as u64)
+            8 + 16 + 24 + 11 + 9 + 19 + 9 + 51 + (8 + "test.metric".len() as u64)
         );
     }
 

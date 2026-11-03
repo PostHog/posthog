@@ -1,3 +1,5 @@
+import { Message } from 'node-rdkafka'
+
 export type UsageStats = {
     bytesReceived: number
     recordsReceived: number
@@ -20,8 +22,22 @@ const DEFAULT_USAGE_STATS: UsageStats = {
 
 type UsageStatsByTeam = Map<number, UsageStats>
 
+export interface AllowedMetricsMessage {
+    teamId: number
+    recordId: string
+    bytes: number
+    bytesRecords: number
+    records: number
+}
+
+/** Stable across Kafka replays, so usage-ingestion dedups a replayed message instead of counting it twice. */
+export function kafkaMessageRecordId(message: Message): string {
+    return `${message.topic}:${message.partition}:${message.offset}`
+}
+
 export class MetricsUsageAccumulator {
     private readonly stats: UsageStatsByTeam = new Map()
+    private readonly allowed: AllowedMetricsMessage[] = []
 
     recordReceived(teamId: number, bytes: number, records: number): void {
         const stats = this.statsFor(teamId)
@@ -29,11 +45,16 @@ export class MetricsUsageAccumulator {
         stats.recordsReceived += records
     }
 
-    recordAllowed(teamId: number, bytes: number, records: number, bytesRecords: number): void {
+    recordAllowed(teamId: number, recordId: string, bytes: number, records: number, bytesRecords: number): void {
         const stats = this.statsFor(teamId)
         stats.bytesAllowed += bytes
         stats.bytesAllowedRecords += bytesRecords
         stats.recordsAllowed += records
+        this.allowed.push({ teamId, recordId, bytes, bytesRecords, records })
+    }
+
+    allowedMessages(): readonly AllowedMetricsMessage[] {
+        return this.allowed
     }
 
     recordDropped(teamId: number, bytes: number, records: number): void {

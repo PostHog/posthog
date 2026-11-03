@@ -3,7 +3,6 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { logger } from '~/common/utils/logger'
-import { UUID7 } from '~/common/utils/utils'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -58,21 +57,16 @@ const USAGE_METRIC_NAMES: [keyof UsageStats, string][] = [
     ['recordsDropped', 'records_dropped'],
 ]
 
-const USAGE_RECORD_KEYS: [keyof UsageStats, string, string][] = [
-    ['bytesAllowed', 'metrics_bytes', 'bytes'],
-    ['bytesAllowedRecords', 'metrics_bytes_records', 'bytes'],
-    ['recordsAllowed', 'metrics_records', 'records'],
+const USAGE_RECORD_KEYS: ['bytes' | 'bytesRecords' | 'records', string, string][] = [
+    ['bytes', 'metrics_bytes', 'bytes'],
+    ['bytesRecords', 'metrics_bytes_records', 'bytes'],
+    ['records', 'metrics_records', 'records'],
 ]
 
-export function addMetricsUsageRecords(
-    usageBatch: UsageRecordBatch,
-    usageByTeam: Iterable<[number, UsageStats]>
-): void {
-    for (const [teamId, stats] of usageByTeam) {
-        // A fresh ID per flush stops two pods' flushes for one team from collapsing into one record.
-        const flushId = new UUID7().toString()
-        for (const [statKey, usageKey, unit] of USAGE_RECORD_KEYS) {
-            usageBatch.add(teamId, usageKey, flushId, stats[statKey], unit)
+export function addMetricsUsageRecords(usageBatch: UsageRecordBatch, usage: MetricsUsageAccumulator): void {
+    for (const message of usage.allowedMessages()) {
+        for (const [key, usageKey, unit] of USAGE_RECORD_KEYS) {
+            usageBatch.add(message.teamId, usageKey, message.recordId, message[key], unit)
         }
     }
 }
@@ -138,7 +132,7 @@ export async function emitMetricsUsage(
     usage: MetricsUsageAccumulator
 ): Promise<void> {
     incrementUsageCounters(usage)
-    addMetricsUsageRecords(usageBatch, usage.entries())
+    addMetricsUsageRecords(usageBatch, usage)
     await Promise.all([
         emitUsageRows(outputs, usage),
         usageBatch.flush().catch((error) => {
