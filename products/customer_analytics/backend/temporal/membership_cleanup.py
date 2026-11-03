@@ -34,6 +34,10 @@ with workflow.unsafe.imports_passed_through():
 
 SCHEDULE_ID = "customer-analytics-membership-cleanup"
 TEAM_WORKFLOW_NAME = "customer-analytics-membership-cleanup-team"
+MAX_BATCHES_PER_TEAM = 100
+MAX_TEAM_PAGES_PER_RUN = 10
+TEAM_RUN_BUDGET = timedelta(minutes=10)
+COORDINATOR_RUN_BUDGET = timedelta(minutes=45)
 
 
 @frozen
@@ -63,13 +67,26 @@ async def membership_cleanup_activity(input: MembershipCleanupInput) -> Membersh
 class MembershipCleanupTeamWorkflow:
     @workflow.run
     async def run(self, input: MembershipCleanupInput) -> MembershipCleanupCounts:
-        return await workflow.execute_activity(
-            membership_cleanup_activity,
-            input,
-            start_to_close_timeout=timedelta(minutes=10),
-            heartbeat_timeout=timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        deadline = workflow.now() + TEAM_RUN_BUDGET
+        total = MembershipCleanupCounts()
+        for _ in range(MAX_BATCHES_PER_TEAM):
+            result = await workflow.execute_activity(
+                membership_cleanup_activity,
+                input,
+                start_to_close_timeout=timedelta(minutes=10),
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            total = MembershipCleanupCounts(
+                scanned=total.scanned + result.scanned,
+                recovered=total.recovered + result.recovered,
+                overdue=total.overdue + result.overdue,
+                deleted=total.deleted + result.deleted,
+                has_more=result.has_more,
+            )
+            if not result.has_more or workflow.now() >= deadline:
+                break
+        return total
 
 
 @workflow.defn(name=SCHEDULE_ID)
@@ -80,23 +97,29 @@ class MembershipCleanupWorkflow:
 
     @workflow.run
     async def run(self, input: MembershipCleanupScheduleInput) -> None:
-        teams = await workflow.execute_activity(
-            list_membership_cleanup_teams_activity,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        for team_id in teams:
-            try:
-                await workflow.execute_child_workflow(
-                    MembershipCleanupTeamWorkflow.run,
-                    MembershipCleanupInput(
-                        team_id=team_id, dry_run=input.dry_run, delete_team_ids=input.delete_team_ids
-                    ),
-                    id=f"{TEAM_WORKFLOW_NAME}-{team_id}",
-                    execution_timeout=timedelta(minutes=35),
-                )
-            except (ChildWorkflowError, WorkflowAlreadyStartedError):
-                workflow.logger.exception("Membership cleanup failed for team %s", team_id)
+        deadline = workflow.now() + COORDINATOR_RUN_BUDGET
+        for _ in range(MAX_TEAM_PAGES_PER_RUN):
+            if workflow.now() >= deadline:
+                break
+            teams = await workflow.execute_activity(
+                list_membership_cleanup_teams_activity,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if not teams:
+                break
+            for team_id in teams:
+                try:
+                    await workflow.execute_child_workflow(
+                        MembershipCleanupTeamWorkflow.run,
+                        MembershipCleanupInput(
+                            team_id=team_id, dry_run=input.dry_run, delete_team_ids=input.delete_team_ids
+                        ),
+                        id=f"{TEAM_WORKFLOW_NAME}-{team_id}",
+                        execution_timeout=timedelta(minutes=35),
+                    )
+                except (ChildWorkflowError, WorkflowAlreadyStartedError):
+                    workflow.logger.exception("Membership cleanup failed for team %s", team_id)
 
 
 async def create_membership_cleanup_schedule(client: Client) -> None:

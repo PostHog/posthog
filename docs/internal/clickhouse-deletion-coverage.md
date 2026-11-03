@@ -123,7 +123,11 @@ Team discovery uses primary-key seeks instead of scanning all membership distinc
 Cleanup state has no project foreign key, so project deletion cannot remove pending erasure work.
 Team zero holds the coordinator cursor and never starts a team sweep.
 A lock on each team's scan row prevents concurrent batches, including activity attempts whose database threads still run.
-The coordinator processes at most 25 teams in sequence per run.
+Each team workflow processes at most 100 batches and stops starting batches after 10 minutes.
+It stops early when the membership scan is complete and no full candidate batch made progress.
+The coordinator processes at most 10 pages of 25 teams in sequence.
+It stops at the end of the team scan and stops starting pages after 45 minutes.
+The job saves scan positions between runs when it reaches these limits.
 
 For each missing side, the job records a candidate with `first_missing_at`.
 Repeated discovery preserves that timestamp.
@@ -139,6 +143,8 @@ Failed mutations and failed verification leave candidates pending for a later at
 Each batch submits at most one membership mutation per shard, with one shard query at a time.
 A storage table with five pending mutations refuses more work.
 Queries have a 30-second execution limit, a 256 MiB memory limit, a 1 GiB read limit, and a 4 MiB result limit.
+Shard connections have a 60-second socket timeout so a stalled network read releases the batch lock.
+Mutation task logs omit membership keys.
 Unavailable shards and overflow limits fail the query rather than return partial results.
 
 Deleted-team cleanup also removes eligibility config.

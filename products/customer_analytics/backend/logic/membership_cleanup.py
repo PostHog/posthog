@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver import Client
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
@@ -21,6 +22,7 @@ from posthog.models.deletion_targets import DeletionTarget, placement_for
 
 from products.customer_analytics.backend.logic.membership import (
     QUERY_SETTINGS,
+    QUERY_TIMEOUT_SECONDS,
     MembershipExistence,
     MembershipKey,
     get_membership_existence,
@@ -33,6 +35,7 @@ from products.customer_analytics.backend.models.membership_cleanup import (
 logger = structlog.get_logger(__name__)
 BATCH_SIZE = 100
 TEAM_BATCH_SIZE = 25
+SOCKET_TIMEOUT_SECONDS = QUERY_TIMEOUT_SECONDS * 2
 GRACE_PERIOD = timedelta(hours=24)
 OUTCOMES = Counter("customer_analytics_membership_cleanup_total", "Membership cleanup outcomes", ["outcome"])
 RECOVERY_SECONDS = Histogram(
@@ -89,6 +92,7 @@ class MembershipCleanupCounts:
     recovered: int = 0
     overdue: int = 0
     deleted: int = 0
+    has_more: bool = False
 
 
 class MembershipCleanupStore:
@@ -142,6 +146,7 @@ class MembershipCleanupStore:
             parameters["keys"] = [(key.group_type_index, key.group_key, key.distinct_id) for key in keys]
         cluster = get_cluster(
             host=settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST or settings.CLICKHOUSE_HOST,
+            connection_overrides={"send_receive_timeout": SOCKET_TIMEOUT_SECONDS},
             client_settings={
                 **QUERY_SETTINGS,
                 "log_comment": '{"product":"customer_analytics","workload":"OFFLINE","name":"membership-cleanup"}',
@@ -164,14 +169,16 @@ class MembershipCleanupStore:
         ).result()
         if any(rows[0][0] >= 5 for rows in capacity.values()):
             raise RuntimeError("Membership cleanup mutation capacity is full. Retry the batch later.")
-        placement.cluster.map_one_host_per_shard(
-            Query(
+
+        # The cluster logs the callable representation, so keep membership keys in the closure.
+        def delete_membership(client: Client) -> None:
+            client.execute(
                 f"ALTER TABLE {escape_clickhouse_identifier(target.data_table)} DELETE WHERE {predicate}",
                 parameters,
                 settings={**QUERY_SETTINGS, "mutations_sync": "2"},
-            ),
-            concurrency=1,
-        ).result()
+            )
+
+        placement.cluster.map_one_host_per_shard(delete_membership, concurrency=1).result()
         # nosemgrep: clickhouse-fstring-param-audit -- Only fixed SQL and escaped identifiers enter this string.
         survivors = sync_execute(
             f"SELECT count() FROM {escape_clickhouse_identifier(target.read_table)} WHERE {predicate}",
@@ -206,8 +213,6 @@ def list_membership_cleanup_teams(store: MembershipCleanupStore) -> list[int]:
     with transaction.atomic():
         scan = MembershipCleanupScan.objects.for_team(0).select_for_update().get()
         teams = _list_team_page(store, scan.last_team_id)
-        if not teams and scan.last_team_id:
-            teams = _list_team_page(store, 0)
         scan.last_team_id = teams[-1] if teams else 0
         scan.save(update_fields=["last_team_id"])
         return teams
@@ -326,7 +331,13 @@ def _run_batch(
         overdue=overdue,
         deleted=deleted,
     )
-    return MembershipCleanupCounts(scanned=len(keys), recovered=recovered, overdue=overdue, deleted=deleted)
+    return MembershipCleanupCounts(
+        scanned=len(keys),
+        recovered=recovered,
+        overdue=overdue,
+        deleted=deleted,
+        has_more=len(keys) == BATCH_SIZE or (len(pending) == BATCH_SIZE and deleted + recovered > 0),
+    )
 
 
 def run_membership_cleanup(input: MembershipCleanupInput, store: MembershipCleanupStore) -> MembershipCleanupCounts:

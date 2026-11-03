@@ -186,12 +186,15 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         other = MembershipKey(group_type_index=0, group_key="later-account", distinct_id="later-person")
         self.create_membership(other)
         with patch("products.customer_analytics.backend.logic.membership_cleanup.BATCH_SIZE", 1):
-            self.run_cleanup(dry_run=True)
+            assert self.run_cleanup(dry_run=True).has_more
             scan = MembershipCleanupScan.objects.for_team(self.team.pk).get()
             assert scan.cursor == [self.key.group_type_index, self.key.group_key, self.key.distinct_id]
-            run_membership_cleanup(MembershipCleanupInput(team_id=self.team.pk), MembershipCleanupStore())
+            assert run_membership_cleanup(
+                MembershipCleanupInput(team_id=self.team.pk), MembershipCleanupStore()
+            ).has_more
             scan.refresh_from_db()
             assert scan.cursor == [other.group_type_index, other.group_key, other.distinct_id]
+            assert not self.run_cleanup(dry_run=True).has_more
         with travel(self.now + timedelta(days=2), tick=False):
             self.run_cleanup()
         assert self.get_rows() == []
