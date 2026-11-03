@@ -13,7 +13,7 @@ import { QuillMetricTestsTab } from './QuillMetricTestsTab'
 
 const TABS = [
     ['Lemon', MetricTestsTab, /queries \{metric\}/],
-    ['quill', QuillMetricTestsTab, /No checks on signups yet/],
+    ['quill', QuillMetricTestsTab, /No checks on Daily signups yet/],
 ] as const
 
 describe('MetricTestsTab', () => {
@@ -28,6 +28,7 @@ describe('MetricTestsTab', () => {
                 '/api/projects/:team_id/data_catalog/metrics/signups/': {
                     id: 'metric-1',
                     name: 'signups',
+                    display_name: 'Daily signups',
                     definition_kind: kind,
                 },
                 '/api/projects/:team_id/data_quality_checks/': { results: [] },

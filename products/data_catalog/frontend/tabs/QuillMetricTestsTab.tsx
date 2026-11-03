@@ -53,8 +53,8 @@ export function QuillMetricTestsTab(): JSX.Element | null {
         return null
     }
     if (!supportsMetricChecks) {
-        return <QuillUnsupportedDefinitionTests metricId={metric.id} metricName={metric.name} />
+        return <QuillUnsupportedDefinitionTests metricId={metric.id} metricName={metric.display_name || metric.name} />
     }
 
-    return <QuillMetricChecksPanel metricId={metric.id} metricName={metric.name} />
+    return <QuillMetricChecksPanel metricId={metric.id} metricName={metric.display_name || metric.name} />
 }
