@@ -13,6 +13,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMeasurementSide,
     ExperimentHealthMeasurementUnit,
 )
+from products.experiments.backend.health.checks.forced_variant import assigns_nobody_by_split
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
@@ -20,6 +21,7 @@ from products.experiments.backend.health.skips import (
     NO_FLAG,
     NOT_AFTER_END,
     RUNS_AFTER_LAUNCH,
+    SPLIT_ASSIGNS_NOBODY,
     CheckOutcome,
     CheckPassed,
     CheckSkip,
@@ -92,6 +94,9 @@ def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NO_FLAG)
     if ctx.has_ended:
         return not_applicable(NOT_AFTER_END)
+    # The split's shares then say nothing about the variants' sizes. `forced_variant_release_condition` explains it.
+    if assigns_nobody_by_split(ctx.flag):
+        return not_applicable(SPLIT_ASSIGNS_NOBODY)
     share = _multiple_variant_share(
         variants=ctx.flag.variants,
         excluded_variant_keys=ctx.excluded_variant_keys,

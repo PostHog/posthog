@@ -27,6 +27,7 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     MetricEvents,
+    ReachableCondition,
 )
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -288,6 +289,19 @@ class TestEvaluate(TestCase):
             (
                 "bias_risk_waits_for_exposures",
                 {"exposures": NO_EXPOSURES},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_does_not_apply_when_the_split_assigns_nobody",
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG,
+                        reachable_conditions=(
+                            ReachableCondition(number=1, pinned_variant="test", variant_property=None),
+                        ),
+                    ),
+                    "exposures": _totals_with_multiple(60, 1000),
+                },
                 {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
             ),
         ]

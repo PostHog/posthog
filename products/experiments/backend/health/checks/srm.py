@@ -40,6 +40,7 @@ from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NEEDS_SPLIT_VARIANTS,
     RUNS_AFTER_LAUNCH,
+    SPLIT_ASSIGNS_NOBODY,
     CheckOutcome,
     CheckPassed,
     not_applicable,
@@ -142,7 +143,7 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     # The split then serves nobody, so the test compares nothing. `forced_variant_release_condition` explains it.
     overrides = _flag_of_the_run(ctx)
     if overrides is not None and assigns_nobody_by_split(overrides):
-        return not_applicable("The split assigns nobody, because every release condition sets a variant override")
+        return not_applicable(SPLIT_ASSIGNS_NOBODY)
     p_value = exposures.sample_ratio_mismatch_p_value
     if p_value is None:
         # The exposure query compares only the variants with a share of the split that the analysis keeps, so after
