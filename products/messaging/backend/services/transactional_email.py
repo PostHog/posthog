@@ -9,7 +9,7 @@ from email.utils import parseaddr
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import connection, transaction
 
 import requests
 import structlog
@@ -50,7 +50,6 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
-from products.messaging.backend.models.transactional_email_key import TRANSACTIONAL_EMAIL_KEY_CONSTRAINT
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
@@ -179,6 +178,7 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
+TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -413,30 +413,33 @@ def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
 
 
 def _key_workflow_id(team_id: int, key: str) -> UUID:
-    keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
     known = known_key(team_id, key)
-    if known is not None:
-        if _workflow_exists(team_id, known.hog_flow_id):
-            return known.hog_flow_id
-        known.delete()
-    if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
-        raced = known_key(team_id, key)
-        if raced is not None:
-            return raced.hog_flow_id
-        raise TooManyKeys(
-            f"This project has reached its limit of {TRANSACTIONAL_EMAIL_KEY_LIMIT} template keys, so it can't "
-            "send under a new one. Use one template_key for each type of email, such as `order-shipped`, and "
-            "reuse it for every recipient."
-        )
-    try:
-        with transaction.atomic():
-            hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
-            keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
+    if known is not None and _workflow_exists(team_id, known.hog_flow_id):
+        return known.hog_flow_id
+    with transaction.atomic():
+        _lock_team_keys(team_id)
+        known = known_key(team_id, key)
+        if known is not None:
+            if _workflow_exists(team_id, known.hog_flow_id):
+                return known.hog_flow_id
+            known.delete()
+        keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
+        if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
+            raise TooManyKeys(
+                f"This project has reached its limit of {TRANSACTIONAL_EMAIL_KEY_LIMIT} template keys, so it can't "
+                "send under a new one. Use one template_key for each type of email, such as `order-shipped`, and "
+                "reuse it for every recipient."
+            )
+        hog_flow_id = create_code_email_workflow(team_id=team_id, key=key)
+        keys.create(team_id=team_id, key=key, hog_flow_id=hog_flow_id)
         return hog_flow_id
-    except IntegrityError as error:
-        if TRANSACTIONAL_EMAIL_KEY_CONSTRAINT not in str(error):
-            raise
-    return keys.get(key=key).hog_flow_id
+
+
+def _lock_team_keys(team_id: int) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"]
+        )
 
 
 def require_code_email_access(
