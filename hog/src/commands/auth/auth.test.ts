@@ -436,6 +436,27 @@ describe('hog auth login', () => {
         ],
         ['no stored key', {}, {}, 'not_logged_in', null, []],
         [
+            'a file login whose file entry is gone, but whose old keychain item is still there',
+            {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: {
+                        'https://eu.posthog.com': {
+                            store: 'file',
+                            type: 'personal_api_key',
+                            projectId: '42',
+                            host: 'https://eu.posthog.com',
+                            keychainLeftover: true,
+                        },
+                    },
+                    host: 'https://eu.posthog.com',
+                }),
+            },
+            {},
+            'logged_out',
+            null,
+            [],
+        ],
+        [
             'a posthog.json host that is not the last login',
             {
                 [SETTINGS_FILE]: JSON.stringify({
@@ -585,6 +606,7 @@ describe('hog auth login', () => {
             keychain: {
                 ...KEYCHAIN_LOGIN.keychain,
                 'https://us.posthog.com': JSON.stringify({ apiKey: 'phx_before_fallback' }),
+                'https://posthog.example.com': JSON.stringify({ apiKey: 'phx_before_settings_were_lost' }),
             },
         })
 

@@ -64,7 +64,8 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
         }
         keychainError = error.message
         store = new FileStore(runtime)
-        await writeLogin(runtime, store, key, { lastLogin: true })
+        // The failed keychain write can still land after hog gave up on it.
+        await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
     }
     // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
     if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
