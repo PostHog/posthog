@@ -36,6 +36,10 @@ deny:
                 - 'tools/owners/'
                 - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
+                # The prover behind dependency attestations, and the base-branch actions it runs.
+                - '^\.github/workflows/dependency-proof\.yml$'
+                - '^\.github/scripts/dependency_proof\.py$'
+                - '^\.github/actions/setup-(pnpm|uv)/'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
         rationale: 'These files define what CI blocks, so a small edit can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'

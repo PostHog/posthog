@@ -1,0 +1,70 @@
+# Proves that a pull request's pnpm update is exactly the lockfile pnpm writes for it, and lists the
+# files it proved in a notice that stamphog can read as an attestation. The prover, pnpm and the
+# workspace settings all come from the base branch. See .github/scripts/dependency_proof.py.
+name: Dependency proof
+
+on:
+    pull_request:
+        # `edited` covers a change of base branch, which needs a new proof.
+        types: [opened, synchronize, reopened, edited]
+        paths:
+            - 'pnpm-lock.yaml'
+            - '**/package.json'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    prove:
+        name: Prove dependency update
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Check out the base branch
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.sha }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/actions/setup-pnpm
+                      .github/actions/setup-uv
+                      .github/scripts/dependency_proof.py
+                      /.nvmrc
+                      /package.json
+                      /patches/
+                      /pnpm-workspace.yaml
+                  sparse-checkout-cone-mode: false
+
+            - name: Check out the pull request's manifests
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  path: head
+                  persist-credentials: false
+                  sparse-checkout: |
+                      package.json
+                      /pnpm-lock.yaml
+                  sparse-checkout-cone-mode: false
+
+            # Reads packageManager from the base branch's package.json, never the pull request's.
+            - name: Set up pnpm and Node
+              uses: ./.github/actions/setup-pnpm
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Prove the update
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  HEAD_DIR: head
+              run: uv run --script .github/scripts/dependency_proof.py
