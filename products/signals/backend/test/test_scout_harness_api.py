@@ -11,6 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
