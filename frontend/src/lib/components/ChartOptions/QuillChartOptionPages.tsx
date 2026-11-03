@@ -30,15 +30,17 @@ export function QuillChartOptionPages({
     const returnFocusKey = useRef<string | null>(null)
     // A chart type change can remove the open page, so fall back to the list.
     const openPage = pages.find((page) => page.key === openKey)
+    // Callers rebuild `pages` on every render, so focus follows the key, not the page object.
+    const openPageKey = openPage?.key ?? null
 
     useLayoutEffect(() => {
-        if (openPage) {
+        if (openPageKey) {
             backRef.current?.focus()
         } else if (returnFocusKey.current) {
             rowRefs.current.get(returnFocusKey.current)?.focus()
             returnFocusKey.current = null
         }
-    }, [openPage])
+    }, [openPageKey])
 
     const goBack = (): void => {
         returnFocusKey.current = openKey
