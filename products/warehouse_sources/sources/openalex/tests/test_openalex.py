@@ -1,14 +1,15 @@
 import datetime
+from collections.abc import Iterator
 from typing import Any, Optional
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.openalex._config import OpenalexSourceConfig
 from products.warehouse_sources.sources.openalex.openalex import (
     PAGE_SIZE,
     OpenAlexResumeConfig,
     build_filter,
-    utc_today,
     validate_credentials,
 )
 from products.warehouse_sources.sources.openalex.settings import ENDPOINTS, OPENALEX_ENDPOINTS
@@ -23,7 +24,7 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 INSTITUTION_FILTER = "authorships.institutions.lineage:i27837315"
 SOURCE_FILTER = "source_id:S4306400194"
-TODAY = utc_today()
+TODAY = datetime.date(2026, 7, 20)
 
 
 def _page(cursor: Optional[str], rows: Optional[list[dict[str, Any]]] = None) -> ScriptedResponse:
@@ -133,6 +134,11 @@ class TestPagination:
 
 
 class TestRequestParams:
+    @pytest.fixture(autouse=True)
+    def fixed_clock(self) -> Iterator[None]:
+        with time_machine.travel(datetime.datetime.combine(TODAY, datetime.time(), tzinfo=datetime.UTC), tick=False):
+            yield
+
     def test_incremental_run_sends_the_watermark_as_a_server_side_filter(self) -> None:
         result = _drive(
             "works",
