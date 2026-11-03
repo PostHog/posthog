@@ -104,7 +104,8 @@ class EmailAttachmentSerializer(serializers.Serializer):
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, Mapping):
-            if unknown := next((key for key in sorted(data) if key not in self.fields), None):
+            unknown = next((key for key in sorted(data) if key not in self.fields), None)
+            if unknown is not None:
                 raise serializers.ValidationError(
                     {unknown: "An attachment takes `filename`, `content`, `content_type` and `content_id`."},
                     code="unknown_attachment_field",

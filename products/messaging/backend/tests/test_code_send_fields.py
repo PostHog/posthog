@@ -61,6 +61,11 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 {"attachments": [_attachment(contentId="logo")]},
                 "attachments__0__contentId",
             ),
+            (
+                "attachment_with_an_empty_key",
+                {"attachments": [_attachment(**{"": "", "contentId": "logo"})]},
+                "attachments__0__",
+            ),
             ("too_many_attachments", {"attachments": [_attachment()] * 11}, "attachments"),
             (
                 "attachments_too_large",
