@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import posthog from 'posthog-js'
 import { createElement, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
@@ -9113,6 +9114,65 @@ ${' '}
 | Pageview | 12 |
 |  |  |`)
         expect(document.activeElement).toEqual(getCells()[4])
+    })
+
+    it.each([
+        '| Name | Count |\n| --- | --- |\n| Event | 7 |',
+        '| Name | Count |\n| --- | --- |',
+        '| Name |\n| --- |\n| Event |',
+    ])('adds a row with Tab in the last cell of %s', (value) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(value), onChange }))
+        const getCells = (): HTMLElement[] =>
+            Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+        const cells = getCells()
+        const lastCell = cells[cells.length - 1]
+        selectTextInElement(lastCell, 0, 0)
+        fireEvent.keyDown(lastCell, { key: 'Tab' })
+
+        const columnCount = container.querySelectorAll('th').length
+        expect(getCells()).toHaveLength(cells.length + columnCount)
+        expect(document.activeElement).toEqual(getCells()[cells.length])
+        expect(window.getSelection()?.isCollapsed).toEqual(true)
+        expect(onChange).toHaveBeenCalledTimes(1)
+        expect(capture).toHaveBeenCalledWith('notebook table structure changed', {
+            action: 'add',
+            dimension: 'row',
+            source: 'tab',
+        })
+
+        fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'z', ctrlKey: true })
+        expect(getCells()).toHaveLength(cells.length)
+    })
+
+    it('moves to the preceding block with Shift-Tab in the first table cell', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('| Name |\n| --- |\n| Event |'),
+            })
+        )
+        const cell = container.querySelector('.MarkdownNotebook__table-cell-content') as HTMLElement
+        selectTextInElement(cell, 0, 0)
+        fireEvent.keyDown(cell, { key: 'Tab', shiftKey: true })
+        expect(document.activeElement).toEqual(getEditableTextBlocks(container)[0])
+    })
+
+    it('places a clicked cell caret at the end and selects its contents on double-click', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '| Name |\n| --- |\n| **Sample** value |',
+            })
+        )
+        const cell = container.querySelector('td .MarkdownNotebook__table-cell-content') as HTMLElement
+        selectTextInElement(cell, 0, 0)
+        fireEvent.click(cell, { detail: 1 })
+        expect(window.getSelection()?.isCollapsed).toEqual(true)
+        const range = window.getSelection()?.getRangeAt(0)
+        expect(range?.endContainer.textContent).toEqual(' value')
+        expect(range?.endOffset).toEqual(6)
+        fireEvent.doubleClick(cell)
+        expect(window.getSelection()?.toString()).toEqual('Sample value')
     })
 
     it('adds and removes table rows and columns with controls', () => {
