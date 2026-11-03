@@ -820,6 +820,9 @@ class VerifiedWorkloadAccessToken:
     policy_id: str
     policy_name: str
     scopes: list[str]
+    workload_provider: str
+    workload_subject_name: str
+    # The claims the provider's registry entry records, as the exchange read them from the OIDC token.
     workload_claims: dict[str, str]
 
 
@@ -940,8 +943,10 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
                 detail="The organization owner this workload token acts as is no longer an owner."
             )
 
-        raw_workload_claims = claims.get("workload")
-        workload_claims = raw_workload_claims if isinstance(raw_workload_claims, dict) else {}
+        raw_workload = claims.get("workload")
+        workload = raw_workload if isinstance(raw_workload, dict) else {}
+        raw_recorded_claims = workload.get("claims")
+        recorded_claims = raw_recorded_claims if isinstance(raw_recorded_claims, dict) else {}
         return VerifiedWorkloadAccessToken(
             user=membership.user,
             organization_id=str(claims["org_id"]),
@@ -949,7 +954,9 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
             policy_id=policy_id,
             policy_name=str(claims.get("policy_name") or ""),
             scopes=str(claims["scope"]).split(),
-            workload_claims={str(key): str(value) for key, value in workload_claims.items()},
+            workload_provider=str(workload.get("provider") or ""),
+            workload_subject_name=str(workload.get("subject_name") or ""),
+            workload_claims={str(key): str(value) for key, value in recorded_claims.items()},
         )
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
