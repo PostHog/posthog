@@ -178,6 +178,21 @@ function runHistoryFor(savedQueryId: string): Record<string, unknown> {
     }
 }
 
+const runningSuiteRun = {
+    id: 'suite-run-1',
+    trigger: 'manual',
+    status: 'running',
+    subject_type: null,
+    subject_uuid: null,
+    workflow_id: 'workflow-1',
+    checks_passed: 0,
+    checks_failed: 0,
+    checks_errored: 0,
+    checks_skipped: 0,
+    started_at: '2026-09-15T00:00:00Z',
+    finished_at: null,
+}
+
 function mocks({ databaseFails = false }: { databaseFails?: boolean } = {}): Mocks {
     return {
         get: {
@@ -202,10 +217,12 @@ function mocks({ databaseFails = false }: { databaseFails?: boolean } = {}): Moc
                 results: certifications,
                 count: certifications.length,
             },
+            '/api/projects/:team_id/data_quality_runs/:id/': runningSuiteRun,
             '/api/projects/:team_id/data_catalog/relationship_proposals/': { results: [], count: 0 },
             '/api/projects/:team_id/data_catalog/metrics/': { results: [], count: 0 },
         },
         post: {
+            '/api/projects/:team_id/data_quality_runs/': runningSuiteRun,
             '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                 const { query } = (await request.json()) as { query: { kind: string } }
                 if (query.kind !== NodeKind.DatabaseSchemaQuery) {
@@ -286,4 +303,22 @@ export const ProposedCertifications: Story = {
 
 export const LoadError: Story = {
     parameters: { msw: { mocks: mocks({ databaseFails: true }) } },
+}
+
+export const RunningAllChecks: Story = {
+    play: async ({ canvasElement }) => {
+        const runAll = await waitFor(() => {
+            const button = canvasElement.querySelector<HTMLButtonElement>('[data-attr="data-catalog-tables-run-all"]')
+            if (!button || button.getAttribute('aria-disabled') === 'true') {
+                throw new Error('Run all checks not ready yet')
+            }
+            return button
+        })
+        runAll.click()
+        await waitFor(() => {
+            if (runAll.getAttribute('aria-busy') !== 'true') {
+                throw new Error('Run not started yet')
+            }
+        })
+    },
 }

@@ -5,8 +5,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput, ToggleGroup, ToggleGroupI
 
 import { TableScope } from '../catalogTableRows'
 import { catalogTablesLogic } from '../catalogTablesLogic'
+import { CatalogTablesCheckActions } from './CatalogTablesCheckActions'
 import { CatalogTablesFilterMenu } from './CatalogTablesFilterMenu'
-import { CatalogTablesMoreActions } from './CatalogTablesMoreActions'
 
 const SCOPE_LABELS: Record<TableScope, string> = {
     all: 'All',
@@ -52,9 +52,7 @@ export function CatalogTablesToolbar(): JSX.Element {
                     </ToggleGroupItem>
                 ))}
             </ToggleGroup>
-            <div className="ml-auto">
-                <CatalogTablesMoreActions />
-            </div>
+            <CatalogTablesCheckActions />
         </div>
     )
 }
