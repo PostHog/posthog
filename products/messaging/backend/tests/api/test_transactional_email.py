@@ -803,13 +803,14 @@ class TestTransactionalEmail(APIBaseTest):
         assert TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(key="welcome").count() == 1
         assert HogFlow.objects.filter(team=self.team, name="welcome").count() == 1
 
-    def test_other_first_sends_of_the_project_wait_while_a_new_key_is_added(self, mock_post, _flag, _capture):
+    def test_a_new_key_counts_the_keys_a_racing_first_send_added_while_it_waited(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
-        create = transactional_email.create_code_email_workflow
+        lock = transactional_email._lock_team_keys
         lock_free_for_another_sender: list[bool] = []
 
-        def create_while_another_sender_tries_the_lock(*, team_id: int, key: str) -> UUID:
+        def lock_then_a_racer_takes_the_last_key(team_id: int) -> None:
+            lock(team_id)
             db = connection.settings_dict
             with psycopg.connect(
                 dbname=db["NAME"],
@@ -825,15 +826,22 @@ class TestTransactionalEmail(APIBaseTest):
                 ).fetchone()
             assert row is not None
             lock_free_for_another_sender.append(row[0])
-            return create(team_id=team_id, key=key)
+            racer_workflow_id = transactional_email.create_code_email_workflow(team_id=team_id, key="welcome")
+            TransactionalEmailKey.objects.for_team(team_id, canonical=True).create(
+                team_id=team_id, key="welcome", hog_flow_id=racer_workflow_id
+            )
 
-        with patch.object(
-            transactional_email, "create_code_email_workflow", side_effect=create_while_another_sender_tries_the_lock
+        with (
+            patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", 1),
+            patch.object(transactional_email, "_lock_team_keys", side_effect=lock_then_a_racer_takes_the_last_key),
         ):
             response = psak.post(self.send_email_url, self._code_send(template_key="receipt"), format="json")
 
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "too_many_keys"
         assert lock_free_for_another_sender == [False]
+        assert not HogFlow.objects.filter(team=self.team, name="receipt").exists()
+        mock_post.assert_not_called()
 
     @parameterized.expand(
         [
