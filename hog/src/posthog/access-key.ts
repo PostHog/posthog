@@ -1,8 +1,8 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
+import type { StoreChoice, StoredSecret } from '@/posthog/credential-store/types'
 
 import { sendRequest } from './api'
-import type { StoreChoice, StoredSecret } from './credential-store/types'
 import { hostUrl } from './host'
 import type { LoginRecord } from './settings'
 
@@ -69,8 +69,8 @@ export class PersonalAPIKey implements AccessKey {
         if (response.status === 401) {
             throw new HogError(
                 'key_rejected',
-                'PostHog rejected the personal API key. Someone may have deleted it, or part of it is missing.',
-                'Create a personal API key in PostHog under Settings > Personal API keys, then run `hog auth login`.'
+                `${this.host} rejected the personal API key. The key may belong to another PostHog region or instance, or someone deleted it.`,
+                'Check the host, or create a personal API key in PostHog under Settings > Personal API keys and run `hog auth login`.'
             )
         }
         if (!response.ok) {
