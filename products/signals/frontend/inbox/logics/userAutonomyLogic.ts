@@ -110,10 +110,10 @@ export interface userAutonomyLogicActions {
         errorObject?: any
     }
     loadAutonomyConfigSuccess: (
-        autonomyConfig: SignalUserAutonomyConfigApi | null,
+        autonomyConfig: Partial<SignalUserAutonomyConfigApi> | null,
         payload?: any
     ) => {
-        autonomyConfig: SignalUserAutonomyConfigApi | null
+        autonomyConfig: Partial<SignalUserAutonomyConfigApi> | null
         payload?: any
     }
     openPullRequestReadySettled: () => {
