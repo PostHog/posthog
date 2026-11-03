@@ -3080,6 +3080,66 @@ describe('Workflows E2E (email queue)', () => {
         })
     }
 
+    async function runEmailFetchEmailWorkflow(subjects: [string, string], fetchUrl: string): Promise<void> {
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-fetch',
+            name: 'Workflows E2E Fetch',
+            code: `
+            let res := fetch(inputs.url, {'method': inputs.method});
+            print('Fetch result:', res.status);
+            `,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'method', type: 'string', required: false },
+            ],
+        })
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+            json: () => Promise.resolve({ success: true }),
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+            dump: () => Promise.resolve(),
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction(subjects[0]),
+                    fetch_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: {
+                                url: { value: fetchUrl },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    email_2: emailAction(subjects[1]),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
+                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+    }
+
     // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
     // equality check on the `event` global. The matcher fails closed without bytecode.
     const eventNameFilter = (eventName: string) => ({
@@ -3410,63 +3470,7 @@ describe('Workflows E2E (email queue)', () => {
         //   hogflow worker → email queue (email_1) → email worker sends → routes back to hogflow
         //   → hogflow worker does fetch → email queue (email_2) → email worker sends → exits
         // Proves queueMetadata.originQueue is honored on the return trip from the email worker.
-        await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-workflows-e2e-fetch',
-            name: 'Workflows E2E Fetch',
-            code: `
-            let res := fetch(inputs.url, {'method': inputs.method});
-            print('Fetch result:', res.status);
-            `,
-            inputs_schema: [
-                { key: 'url', type: 'string', required: true },
-                { key: 'method', type: 'string', required: false },
-            ],
-        })
-
-        mockFetch.mockResolvedValue({
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-            json: () => Promise.resolve({ success: true }),
-            text: () => Promise.resolve(JSON.stringify({ success: true })),
-            dump: () => Promise.resolve(),
-        })
-
-        const hogFlow = new FixtureHogFlowBuilder()
-            .withTeamId(team.id)
-            .withStatus('active')
-            .withExitCondition('exit_only_at_end')
-            .withWorkflow({
-                actions: {
-                    trigger: {
-                        type: 'trigger',
-                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
-                    },
-                    email_1: emailAction('First email'),
-                    fetch_1: {
-                        type: 'function',
-                        config: {
-                            template_id: 'template-workflows-e2e-fetch',
-                            inputs: {
-                                url: { value: 'https://example.com/between-emails' },
-                                method: { value: 'POST' },
-                            },
-                        },
-                    },
-                    email_2: emailAction('Second email'),
-                    exit: { type: 'exit', config: {} },
-                },
-                edges: [
-                    { from: 'trigger', to: 'email_1', type: 'continue' },
-                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
-                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
-                    { from: 'email_2', to: 'exit', type: 'continue' },
-                ],
-            })
-            .build()
-        await insertHogFlow(hub.postgres, hogFlow)
-
-        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
-        await backgroundTask
+        await runEmailFetchEmailWorkflow(['First email', 'Second email'], 'https://example.com/between-emails')
 
         // The fetch must fire exactly once — happens on the hogflow worker between
         // the two email queue hops. If it never fires, the email worker is failing
@@ -3506,63 +3510,10 @@ describe('Workflows E2E (email queue)', () => {
         // the logs. This test asserts that on a four-action workflow with two emails and
         // a fetch between them, we still see exactly one Executing line per action and
         // zero Resuming-at-email/fetch lines.
-        await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-workflows-e2e-fetch',
-            name: 'Workflows E2E Fetch',
-            code: `
-            let res := fetch(inputs.url, {'method': inputs.method});
-            print('Fetch result:', res.status);
-            `,
-            inputs_schema: [
-                { key: 'url', type: 'string', required: true },
-                { key: 'method', type: 'string', required: false },
-            ],
-        })
-
-        mockFetch.mockResolvedValue({
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-            json: () => Promise.resolve({ success: true }),
-            text: () => Promise.resolve(JSON.stringify({ success: true })),
-            dump: () => Promise.resolve(),
-        })
-
-        const hogFlow = new FixtureHogFlowBuilder()
-            .withTeamId(team.id)
-            .withStatus('active')
-            .withExitCondition('exit_only_at_end')
-            .withWorkflow({
-                actions: {
-                    trigger: {
-                        type: 'trigger',
-                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
-                    },
-                    email_1: emailAction('Ping-pong email 1'),
-                    fetch_1: {
-                        type: 'function',
-                        config: {
-                            template_id: 'template-workflows-e2e-fetch',
-                            inputs: {
-                                url: { value: 'https://example.com/ping-pong-fetch' },
-                                method: { value: 'POST' },
-                            },
-                        },
-                    },
-                    email_2: emailAction('Ping-pong email 2'),
-                    exit: { type: 'exit', config: {} },
-                },
-                edges: [
-                    { from: 'trigger', to: 'email_1', type: 'continue' },
-                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
-                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
-                    { from: 'email_2', to: 'exit', type: 'continue' },
-                ],
-            })
-            .build()
-        await insertHogFlow(hub.postgres, hogFlow)
-
-        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
-        await backgroundTask
+        await runEmailFetchEmailWorkflow(
+            ['Ping-pong email 1', 'Ping-pong email 2'],
+            'https://example.com/ping-pong-fetch'
+        )
 
         // Wait for both emails sent + the workflow terminated, so all four routing
         // reschedules have happened and all their logs are in Kafka.
