@@ -42,8 +42,8 @@ class HogFunctionTestRunContext(ActivityContextBase):
 
 
 def _integration_ids_in_value(value: Any) -> Iterable[int]:
-    # Mirrors the runtime's resolution, `input?.value?.integrationId ?? input?.value`, in
-    # nodejs/src/cdp/services/hog-inputs.service.ts. An `integration_multi` input holds a list.
+    # An `integration_multi` input holds a list. The `{"integrationId": ...}` form matches
+    # integration_usage.py, so the record can name an id the worker skips but never miss one.
     if isinstance(value, dict):
         value = value.get("integrationId")
     for candidate in value if isinstance(value, list) else [value]:
@@ -51,14 +51,23 @@ def _integration_ids_in_value(value: Any) -> Iterable[int]:
             yield candidate
 
 
-def _integration_ids(inputs_schema: Any, inputs: Any) -> set[int]:
-    if not isinstance(inputs_schema, list) or not isinstance(inputs, dict):
-        return set()
+def _integration_ids(effective: dict[str, Any], mappings: list[dict[str, Any]]) -> set[int]:
+    # Mirrors `loadIntegrationInputs` in nodejs/src/cdp/services/hog-inputs.service.ts. The worker merges
+    # the inputs of each mapping, in order, over the top-level inputs, and reads every schema against that
+    # merged set. A mapping input can therefore replace the integration that a top-level input names.
+    schemas: list[Any] = []
+    merged: dict[str, Any] = {}
+    for scope in (effective, *mappings):
+        if isinstance(scope.get("inputs_schema"), list):
+            schemas.extend(scope["inputs_schema"])
+        if isinstance(scope.get("inputs"), dict):
+            merged.update(scope["inputs"])
     ids: set[int] = set()
-    for schema in inputs_schema:
+    for schema in schemas:
         if not isinstance(schema, dict) or schema.get("type") not in ("integration", "integration_multi"):
             continue
-        entry = inputs.get(schema.get("key"))
+        key = schema.get("key")
+        entry = merged.get(key) if isinstance(key, str) else None
         if isinstance(entry, dict):
             ids.update(_integration_ids_in_value(entry.get("value")))
     return ids
@@ -116,11 +125,9 @@ def destination_test_run_context(
     inputs = effective.get("inputs")
     mappings = [mapping for mapping in effective.get("mappings") or [] if isinstance(mapping, dict)]
 
-    integration_ids = _integration_ids(effective.get("inputs_schema"), inputs)
     mapping_input_keys: set[str] = set()
     mapping_input_references: dict[str, set[str]] = {}
     for mapping in mappings:
-        integration_ids |= _integration_ids(mapping.get("inputs_schema"), mapping.get("inputs"))
         if isinstance(mapping.get("inputs"), dict):
             mapping_input_keys.update(mapping["inputs"].keys())
         for key, referenced in _input_references(mapping.get("inputs")).items():
@@ -128,7 +135,7 @@ def destination_test_run_context(
 
     return HogFunctionTestRunContext(
         mock_async_functions=mock_async_functions,
-        integration_ids=sorted(integration_ids),
+        integration_ids=sorted(_integration_ids(effective, mappings)),
         input_keys=sorted(inputs.keys()) if isinstance(inputs, dict) else [],
         mapping_input_keys=sorted(mapping_input_keys),
         input_references={key: sorted(keys) for key, keys in sorted(_input_references(inputs).items())},
