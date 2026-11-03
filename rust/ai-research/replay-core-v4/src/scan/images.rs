@@ -371,10 +371,10 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Reads the header through CSS escapes and JSON escapes, and skips the tabs and line breaks that a browser removes from a URL, however they are written.
-fn header_char(bytes: &[u8], at: usize, in_css: bool) -> Option<(char, usize)> {
+fn header_char(bytes: &[u8], at: usize, double_quoted: bool) -> Option<(char, usize)> {
     let mut removed = 0;
     loop {
-        let (ch, len) = url_char(bytes, at + removed, in_css)?;
+        let (ch, len) = url_char(bytes, at + removed, double_quoted)?;
         if !matches!(ch, '\t' | '\n' | '\r') {
             return Some((ch, removed + len));
         }
@@ -382,11 +382,11 @@ fn header_char(bytes: &[u8], at: usize, in_css: bool) -> Option<(char, usize)> {
     }
 }
 
-/// A browser keeps every character but the end of the JSON string, and in CSS an escaped quote, which ends the URL there.
-fn url_char(bytes: &[u8], at: usize, in_css: bool) -> Option<(char, usize)> {
+/// A browser keeps every character but the end of the JSON string, and in a double-quoted CSS url an escaped quote, which ends the URL there.
+fn url_char(bytes: &[u8], at: usize, double_quoted: bool) -> Option<(char, usize)> {
     match bytes.get(at..)? {
         [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
-        [b'\\', b'"', ..] if in_css => None,
+        [b'\\', b'"', ..] if double_quoted => None,
         [b'\\', escaped @ ..] => json_escape(escaped).map(|(ch, len)| (ch, 1 + len)),
         [b'"', ..] | [] => None,
         [byte, ..] => Some((char::from(*byte), 1)),
@@ -465,11 +465,11 @@ enum Header {
 }
 
 /// A browser reads parameters of any length, so the header has no length limit.
-fn read_header(bytes: &[u8], meta_start: usize, in_css: bool) -> Header {
+fn read_header(bytes: &[u8], meta_start: usize, double_quoted: bool) -> Header {
     const IMAGE: &[u8] = b"image/";
     let mut meta = String::new();
     let mut at = meta_start;
-    while let Some((ch, len)) = header_char(bytes, at, in_css) {
+    while let Some((ch, len)) = header_char(bytes, at, double_quoted) {
         let ch = ch.to_ascii_lowercase();
         if meta.len() < IMAGE.len() && Some(ch) != IMAGE.get(meta.len()).copied().map(char::from) {
             return Header::Other { read_to: at };
@@ -495,7 +495,7 @@ fn read_data_uri(
     payload_start: usize,
     sink: &mut ImageSink<'_>,
 ) -> DataUri {
-    if holds_css_escape(&bytes[start..payload_start]) && !opens_css_url(bytes, start) {
+    if holds_css_escape(&bytes[start..payload_start]) && css_opener(bytes, start).is_none() {
         return DataUri::Replaced {
             replacement: sink.decline(ImageDecline::Undecodable),
             end: json_string_end(bytes, payload_start),
@@ -558,7 +558,7 @@ fn holds_css_escape(bytes: &[u8]) -> bool {
 /// CSS reads an escape as its character, but an attribute such as `src` holds it as text, so outside CSS a browser can
 /// read the header another way, for example past an escaped comma to a later one. Whitespace before the URI, in any
 /// spelling, does not change where it sits.
-fn opens_css_url(bytes: &[u8], start: usize) -> bool {
+fn css_opener(bytes: &[u8], start: usize) -> Option<u8> {
     let mut start = start;
     loop {
         start = match &bytes[..start] {
@@ -570,18 +570,20 @@ fn opens_css_url(bytes: &[u8], start: usize) -> bool {
             },
         };
     }
-    match start.checked_sub(1).map(|at| bytes[at]) {
-        Some(b'(' | b'\'') => true,
-        Some(b'"') => {
-            bytes[..start - 1]
-                .iter()
-                .rev()
-                .take_while(|&&b| b == b'\\')
-                .count()
-                % 2
-                == 1
-        }
-        _ => false,
+    let opener = start.checked_sub(1).map(|at| bytes[at])?;
+    let escaped_quote = || {
+        bytes[..start - 1]
+            .iter()
+            .rev()
+            .take_while(|&&b| b == b'\\')
+            .count()
+            % 2
+            == 1
+    };
+    match opener {
+        b'(' | b'\'' => Some(opener),
+        b'"' if escaped_quote() => Some(opener),
+        _ => None,
     }
 }
 
@@ -676,7 +678,7 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
             continue;
         }
         let (meta, payload_start) =
-            match read_header(bytes, meta_start, opens_css_url(bytes, start)) {
+            match read_header(bytes, meta_start, css_opener(bytes, start) == Some(b'"')) {
                 Header::Image {
                     meta,
                     payload_start,
@@ -885,6 +887,11 @@ mod tests {
                 r#"{"src":""#,
                 format!(r#"data:image/png;name=a\"b;base64,{base64}"#),
                 r#""}"#,
+            ),
+            (
+                r#"{"textContent":".a{background:url('"#,
+                format!(r#"data:image/png;name=a\"b;base64,{base64}"#),
+                r#"')}"}"#,
             ),
             (
                 r#"{"textContent":".a{background:url(\""#,
