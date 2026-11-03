@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,14 +14,11 @@ from products.ai_observability.backend.hog import compile_ai_observability_hog
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
-    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
     SESSION_TEST_HOG_MAX_SAMPLES,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-    TRACE_EVAL_MAX_WINDOW_SECONDS,
-    TRACE_EVAL_MIN_WINDOW_SECONDS,
     validate_evaluation_configs,
 )
+from products.ai_observability.backend.tools.evaluation_args import EvaluationShapeArgs, OutputType, Target
 
 from ee.hogai.tool import MaxTool
 
@@ -92,39 +89,13 @@ def _format_sample(
     return lines
 
 
-class RunHogEvalTestArgs(BaseModel):
-    output_type: Literal["boolean", "numeric", "categorical"] = Field(
-        default="boolean", description="The evaluation result type"
-    )
-    output_config: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Output settings: allows_na, and for numeric evaluations optional min, max, step and passing_rule; categorical settings include options, selection_mode and passing categories",
-    )
+class RunHogEvalTestArgs(EvaluationShapeArgs):
     source: str = Field(description="Hog evaluation source code to compile and test")
     sample_count: int = Field(
         default=3,
         ge=1,
         le=5,
         description="Number of recent samples to test against (1-5)",
-    )
-    target: Literal["generation", "trace", "session"] = Field(
-        default="generation",
-        description=(
-            "What to sample: 'generation' (individual generations), 'trace' (whole traces), "
-            "or 'session' (whole sessions that have gone quiet)."
-        ),
-    )
-    window_seconds: int = Field(
-        default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-        ge=TRACE_EVAL_MIN_WINDOW_SECONDS,
-        le=TRACE_EVAL_MAX_WINDOW_SECONDS,
-        description="Aggregation window for trace samples, in seconds",
-    )
-    quiet_period_seconds: int = Field(
-        default=SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        ge=SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
-        le=SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
-        description="For session samples: how long a session must have been inactive to be previewed, in seconds",
     )
 
 
@@ -140,10 +111,10 @@ class RunHogEvalTestTool(MaxTool):
         self,
         source: str,
         sample_count: int = 3,
-        target: Literal["generation", "trace", "session"] = "generation",
+        target: Target = "generation",
         window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
         quiet_period_seconds: int = SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        output_type: Literal["boolean", "numeric", "categorical"] = "boolean",
+        output_type: OutputType = "boolean",
         output_config: dict[str, Any] | None = None,
     ) -> tuple[str, Any]:
         from posthog.temporal.ai_observability.message_utils import extract_text_from_messages

@@ -14,7 +14,12 @@ from posthog.sync import database_sync_to_async
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer, save_new_evaluation
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluation_configs import (
+    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+)
 from products.ai_observability.backend.models.provider_keys import LLMProvider
+from products.ai_observability.backend.tools.evaluation_args import EvaluationShapeArgs, OutputType, Target
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -26,8 +31,8 @@ TOOL_DESCRIPTION = """Create an online evaluation for this project. It is always
 - Never create an evaluation the user did not ask for.
 
 # Before calling it
-- For `hog`, test the exact `source` with `run_hog_eval_test` first, using the same `target`, `output_type` and `output_config`.
-  For a trace or session target, pass the `window_seconds` or `quiet_period_seconds` you tested in `target_config`.
+- For `hog`, test the exact `source` with `run_hog_eval_test` first. Pass the same `target`, `output_type`, `output_config`,
+  `window_seconds` and `quiet_period_seconds` here.
 - For `llm_judge`, write `prompt` as instructions to a judge that sees the input and output. You cannot test a judge here.
 - For `sentiment`, no prompt or source is needed. It only supports the `generation` target.
 
@@ -39,7 +44,7 @@ An `llm_judge` evaluation also needs a provider API key before it can be enabled
 EvaluationType = Literal["hog", "llm_judge", "sentiment"]
 
 
-class CreateEvaluationArgs(BaseModel):
+class CreateEvaluationArgs(EvaluationShapeArgs):
     name: str = Field(min_length=1, max_length=400, description="Short name that says what the evaluation checks")
     description: str = Field(default="", description="One or two sentences on the failure mode this guards against")
     evaluation_type: EvaluationType = Field(
@@ -47,20 +52,6 @@ class CreateEvaluationArgs(BaseModel):
     )
     source: str | None = Field(default=None, description="Hog source code. Required for 'hog'.")
     prompt: str | None = Field(default=None, description="Judge instructions. Required for 'llm_judge'.")
-    output_type: Literal["boolean", "numeric", "categorical"] = Field(
-        default="boolean", description="Result type. Use 'boolean' for pass/fail checks."
-    )
-    output_config: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Output settings, matching what you tested: allows_na, true_is_failure for boolean; min, max and passing_rule for numeric; options and passing_rule for categorical",
-    )
-    target: Literal["generation", "trace", "session"] = Field(
-        default="generation", description="What one evaluation run scores"
-    )
-    target_config: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Timing for trace and session targets: {window_seconds} for a trace, {quiet_period_seconds} for a session. Omit for defaults.",
-    )
     rollout_percentage: float = Field(
         default=100,
         gt=0,
@@ -84,10 +75,11 @@ class CreateEvaluationTool(MaxTool):
         description: str = "",
         source: str | None = None,
         prompt: str | None = None,
-        output_type: Literal["boolean", "numeric", "categorical"] = "boolean",
+        output_type: OutputType = "boolean",
         output_config: dict[str, Any] | None = None,
-        target: Literal["generation", "trace", "session"] = "generation",
-        target_config: dict[str, Any] | None = None,
+        target: Target = "generation",
+        window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+        quiet_period_seconds: int = SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
         rollout_percentage: float = 100,
     ) -> tuple[str, dict[str, Any]]:
         return await database_sync_to_async(self._create)(
@@ -99,7 +91,7 @@ class CreateEvaluationTool(MaxTool):
             output_type=output_type,
             output_config=output_config or {},
             target=target,
-            target_config=target_config or {},
+            target_config=self._target_config(target, window_seconds, quiet_period_seconds),
             rollout_percentage=rollout_percentage,
         )
 
@@ -155,6 +147,15 @@ class CreateEvaluationTool(MaxTool):
         if not has_key:
             lines.append("This project has no provider API key, so the user must add one before enabling this judge.")
         return "\n".join(lines), {"evaluation_id": str(evaluation.id), "url": url}
+
+    @staticmethod
+    def _target_config(target: Target, window_seconds: int, quiet_period_seconds: int) -> dict[str, Any]:
+        # The same settle settings run_hog_eval_test previews with.
+        if target == "trace":
+            return {"strategy": "fixed_window", "window_seconds": window_seconds}
+        if target == "session":
+            return {"strategy": "inactivity", "quiet_period_seconds": quiet_period_seconds}
+        return {}
 
     @staticmethod
     def _evaluation_config(evaluation_type: EvaluationType, source: str | None, prompt: str | None) -> dict[str, Any]:
