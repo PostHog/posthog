@@ -9,6 +9,9 @@ import { readSettings } from '@/posthog/settings'
 interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
     host: string | null
+    // Whether PostHog revoked the OAuth login. Null for a personal API key, which hog can't revoke.
+    revoked: boolean | null
+    // Where to delete a personal API key, which keeps working after logout.
     revokeUrl: string | null
     // Why hog couldn't remove the keychain item a file login left behind. Null when there was none.
     keychainLeftover: string | null
@@ -34,7 +37,7 @@ export default defineCommand({
             const hosts = await logoutAll(runtime)
             await clearPending(runtime, LOGIN_COMMAND)
             const status = hosts.length > 0 ? 'logged_out' : 'not_logged_in'
-            return { status, host: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
+            return { status, host: null, revoked: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
         }
         const settings = await readSettings(runtime)
         // The same host order commands use, so logout removes the login they would send. A broken
@@ -46,6 +49,7 @@ export default defineCommand({
         return {
             status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,
+            revoked: outcome?.revoked ?? null,
             revokeUrl: outcome?.revokeUrl ?? null,
             keychainLeftover: outcome?.keychainLeftover ?? null,
             hosts: null,
@@ -58,8 +62,16 @@ export default defineCommand({
         if (loggedOut.length === 0) {
             out.line('hog had no stored key to remove.')
         }
-        for (const { host, revokeUrl, keychainLeftover } of loggedOut) {
+        for (const { host, revoked, revokeUrl, keychainLeftover } of loggedOut) {
             out.line(`${out.style('Logged out', 'green', 'bold')} of ${escapeControls(host ?? '')}.`)
+            if (revoked === false) {
+                out.line(
+                    out.style(
+                        "hog couldn't reach PostHog to revoke the login, so it keeps working in PostHog. Revoke it under Settings > Connected applications.",
+                        'yellow'
+                    )
+                )
+            }
             if (keychainLeftover) {
                 out.line(
                     out.style(

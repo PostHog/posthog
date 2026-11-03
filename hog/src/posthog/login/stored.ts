@@ -5,6 +5,7 @@ import { FileStore } from '@/posthog/credential-store/file'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import { hostKey, type HostKey } from '@/posthog/host'
+import { withLoginLock } from '@/posthog/oauth'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from '@/posthog/settings'
 
 // settings.json and the credentials file hold every host's login, so each write reads them, changes
@@ -83,18 +84,22 @@ export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise
 
 // Logs this machine out of `host`: the key revokes itself where it can, and hog removes its
 // stored copy. Resolves to undefined when hog had no login to remove.
+// Under the renewal lock, so a renewal in another hog process can neither restore the login after
+// this removes it, nor rotate the refresh token this revokes.
 export async function logout(runtime: Runtime, host: string): Promise<LoggedOut | undefined> {
-    const settings = await readSettings(runtime)
-    const login = await readLogin(runtime, settings, host)
-    if (!login) {
-        return undefined
-    }
-    const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, login)])
-    if (!removed) {
-        return undefined
-    }
-    const leftover = loginFor(settings, host)?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
-    return { ...outcome, keychainLeftover: leftover }
+    return withLoginLock(runtime, host, async () => {
+        const settings = await readSettings(runtime)
+        const login = await readLogin(runtime, settings, host)
+        if (!login) {
+            return undefined
+        }
+        const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, login)])
+        if (!removed) {
+            return undefined
+        }
+        const leftover = loginFor(settings, host)?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
+        return { ...outcome, keychainLeftover: leftover }
+    })
 }
 
 async function removeKeychainLeftover(runtime: Runtime, host: string): Promise<string | null> {
