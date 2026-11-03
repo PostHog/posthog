@@ -225,6 +225,7 @@ export function FilterSearchSubMenu({
     loading,
     searchPlaceholder,
     emptyText,
+    onOpen,
     dataAttr,
     optionDataAttr,
 }: {
@@ -237,6 +238,8 @@ export function FilterSearchSubMenu({
     loading?: boolean
     searchPlaceholder: string
     emptyText: string
+    /** Called when the submenu opens, to load its options only once someone wants them. */
+    onOpen?: () => void
     dataAttr?: string
     optionDataAttr?: string
 }): React.ReactElement {
@@ -246,7 +249,7 @@ export function FilterSearchSubMenu({
     const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
     const picked = known.filter((option) => selected.includes(option.value))
     return (
-        <DropdownMenuSub>
+        <DropdownMenuSub onOpenChange={(open) => open && onOpen?.()}>
             <FilterSubMenuRow
                 label={label}
                 value={filterSummary(
