@@ -47,7 +47,7 @@ export function createRecordMetricsReceivedStep<T extends RecordMetricsReceivedI
     }
 }
 
-const USAGE_METRIC_NAMES: [keyof UsageStats, string][] = [
+export const USAGE_METRIC_NAMES: [keyof UsageStats, string][] = [
     ['bytesReceived', 'bytes_received'],
     ['recordsReceived', 'records_received'],
     ['bytesAllowed', 'bytes_ingested'],
