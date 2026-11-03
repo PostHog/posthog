@@ -10,7 +10,6 @@ HIDDEN_TAGS = frozenset({"head", "title", "style", "script", "template"})
 LINK_SCHEMES = ("http://", "https://", "mailto:")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
-# Ends a line block. It becomes a line break unless a line break already sits next to it.
 LINE_END = "\x00"
 LINE_ENDS = re.compile(r"\n?\x00+\n?")
 
@@ -35,8 +34,6 @@ class _LinkEnd:
 class _TextParts:
     def __init__(self) -> None:
         self.parts: list[str] = []
-        # The stripped text of every string in document order, so that a link compares its label to its address
-        # with one slice and does not walk its subtree again. A walk per link is quadratic for nested links.
         self.label_text: list[str] = []
         self.label_length = 0
 

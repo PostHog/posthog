@@ -438,7 +438,6 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 
 
 CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
-# The CDP service accepts a body of at most 20 MiB, and a send carries both bodies, so one body over this is refused.
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 

@@ -172,7 +172,6 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
-# Each new key gets its own hidden workflow, so a key per recipient would grow them without bound.
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 
 
@@ -409,9 +408,7 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
         if _workflow_exists(team_id, known.hog_flow_id):
             return known.hog_flow_id
         known.delete()
-    # Two first sends of new keys can both pass this count, so a project can end a few keys over the limit.
     if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
-        # A racing first send of this same key can take the last slot after our lookup missed it.
         raced = known_key(team_id, key)
         if raced is not None:
             return raced.hog_flow_id
