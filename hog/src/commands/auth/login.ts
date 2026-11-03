@@ -102,7 +102,6 @@ export default defineCommand({
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
 
     async run({ options, ctx }): Promise<LoginResult> {
-        const { env } = ctx.runtime
         const prompts = ctx.prompts
 
         if (options.wait) {
