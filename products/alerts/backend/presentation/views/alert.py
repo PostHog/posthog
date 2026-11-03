@@ -93,6 +93,7 @@ from products.alerts.backend.facade.api import (
     llm_detector_access_error,
 )
 from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_DESTINATION_EVENT_IDS,
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
     MovedAlertCheck,
@@ -1953,7 +1954,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),
-                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
                 hog_function_ids=hog_function_ids,
             )
         except AlertDestinationValidationError as error:
