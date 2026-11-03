@@ -251,7 +251,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - `postgres` holds `PgTeamManager` and the rule caches, `redis_deps` holds `RedisQuotaLimiting` and a reconnecting Redis connection, `usage::GrpcUsageRecordBatch` the usage client, `lazy_loader::LazyLoader` the `LazyLoader` port.
 - `build_deps` builds what the Node server builds. `shadow_deps` applies the shadow rules to any deps.
 - Postgres errors from a lost connection, a pool timeout or one of Node's `POSTGRES_UNAVAILABLE_ERROR_MESSAGES` become `DependencyUnavailableError`.
-- A Kafka produce error becomes `MessageSizeTooLarge` for code 10, `DependencyUnavailableError` for a full queue, else `Error`.
+- `kafka_outputs::classify_produce_error` keeps the rdkafka code as a `KafkaProduceError`, named `MessageSizeTooLarge` for code 10 and `Error` otherwise, so the `logs` output rule applies to real delivery errors. An error with no code is a plain `Error`.
 
 ### `compare`
 
@@ -283,7 +283,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **Offsets after a failed background task.** Node's default consumer (`consumer-v1.ts`, `CONSUMER_USE_V2=false`) stores a batch's offsets in a `finally`, so a failed task's offsets can still commit before the process exits. The port follows `consumer-v2.ts`: a failed task stores nothing from it or any later batch.
 - **Drain on revoke.** `consumer-v2.ts` waits for in-flight tasks inside the revoke callback. The port fences their offset stores by the same per-partition epoch, but does not wait, so the new owner can process a revoked partition while an old task still runs. That costs duplicates, not data.
 - **Consumer telemetry.** The node-rdkafka statistics, loop-stall health check and batch histograms are not ported. Liveness is the lifecycle heartbeat on every loop turn.
-- **A full producer queue.** node-rdkafka fails the produce at once; the port waits up to 10 s for queue space first. Both then quarantine the message, because node-rdkafka sets `isRetriable` only on transactional errors.
+- **A full producer queue.** node-rdkafka fails the produce at once; the port waits up to 10 s for queue space first. Both then retry in place and fail the batch, so the wait runs once per retry attempt.
 - **`USAGE_INGESTION_TLS=true`.** The workspace `tonic` has no TLS feature, so the service refuses to start with it.
 - **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
 - **Rule-cache spans.** The `logs.sampling.*`, `logs.retention.*`, `traces.retention.*` and `logs.patterns.*` span attributes are not ported.

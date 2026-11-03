@@ -47,6 +47,7 @@ The loop follows the Node consumer (`consumer-v2.ts`):
 - Up to `CONSUMER_MAX_BACKGROUND_TASKS` background tasks run at once (default 1).
 - A batch's offsets are stored only after its background task and every earlier one succeeded. librdkafka's auto commit commits them, and shutdown commits once more.
 - A batch that fails, or a background task that fails or runs past `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS` after its dispatch, stops the loop and exits the process with an error. Nothing from that batch or later is stored, so the restart replays it (at least once).
+- A produce to the `logs` topic that fails with a Kafka outage, such as a delivery timeout, a full queue or a topic authorization failure, is retried in place and then fails the batch. Only an error that a replay cannot fix, such as an oversized or invalid record, sends the message to the DLQ.
 - A consume error is tried 3 times, 100 ms apart doubling, as `retryIfRetriable` does, and then exits the process.
 - A revoke bumps the epoch of each revoked partition. A task dispatched before the revoke does not store that partition's offset, as `consumer-v2.ts` fences it.
 - SIGTERM stops fetching, lets the in-flight batch finish, stores and commits its offsets, then exits. A task still running at the `LOGS_RUST_SHUTDOWN_TIMEOUT_SECS` deadline is aborted.

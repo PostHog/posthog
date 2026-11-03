@@ -15,7 +15,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 
-use crate::pipeline::NamedError;
+use crate::pipeline::{KafkaProduceError, NamedError};
 
 use super::config::OutputRoute;
 
@@ -56,16 +56,21 @@ pub fn hostname() -> String {
     std::env::var("HOSTNAME").unwrap_or_else(|_| "logs-ingestion".to_string())
 }
 
-/// How a failed produce reaches the pipeline, as `KafkaProducerWrapper.produce` throws it.
-/// node-rdkafka sets `isRetriable` only on transactional errors, so no produce error becomes
-/// `DependencyUnavailableError` there, and every one except a too-large message quarantines.
+/// How a failed produce reaches the pipeline. The error keeps its librdkafka code, so the
+/// pipeline replays an outage and quarantines only a code that a replay cannot fix.
 pub fn classify_produce_error(error: KafkaError) -> anyhow::Error {
-    match error.rdkafka_error_code() {
-        Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
-            anyhow::Error::new(NamedError::new("MessageSizeTooLarge", error.to_string()))
-        }
-        _ => anyhow::Error::new(NamedError::new("Error", error.to_string())),
-    }
+    let Some(code) = error.rdkafka_error_code() else {
+        return anyhow::Error::new(NamedError::new("Error", error.to_string()));
+    };
+    let name = match code {
+        RDKafkaErrorCode::MessageSizeTooLarge => "MessageSizeTooLarge",
+        _ => "Error",
+    };
+    anyhow::Error::new(KafkaProduceError {
+        code: code as i32,
+        name: name.to_string(),
+        message: error.to_string(),
+    })
 }
 
 struct Route {
@@ -179,22 +184,33 @@ impl IngestionOutputs for KafkaOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pipeline::errors::{error_name, is_dependency_unavailable};
+    use crate::pipeline::errors::{
+        error_name, is_dependency_unavailable, kafka_outage_as_dependency,
+    };
 
     #[test]
-    fn produce_errors_classify_like_the_node_wrapper() {
-        let too_large = classify_produce_error(KafkaError::MessageProduction(
+    fn produce_errors_classify_like_the_node_consumer() {
+        let classify = |error| kafka_outage_as_dependency(classify_produce_error(error));
+        let too_large = classify(KafkaError::MessageProduction(
             RDKafkaErrorCode::MessageSizeTooLarge,
         ));
         assert_eq!(error_name(&too_large), "MessageSizeTooLarge");
+        assert!(!is_dependency_unavailable(&too_large));
+        for error in [
+            KafkaError::MessageProduction(RDKafkaErrorCode::InvalidRecord),
+            KafkaError::Canceled,
+        ] {
+            let classified = classify(error.clone());
+            assert_eq!(error_name(&classified), "Error", "{error:?}");
+            assert!(!is_dependency_unavailable(&classified), "{error:?}");
+        }
         for code in [
             RDKafkaErrorCode::QueueFull,
             RDKafkaErrorCode::MessageTimedOut,
             RDKafkaErrorCode::TopicAuthorizationFailed,
         ] {
-            let error = classify_produce_error(KafkaError::MessageProduction(code));
-            assert_eq!(error_name(&error), "Error", "{code:?}");
-            assert!(!is_dependency_unavailable(&error), "{code:?}");
+            let error = classify(KafkaError::MessageProduction(code));
+            assert!(is_dependency_unavailable(&error), "{code:?}");
         }
     }
 }
