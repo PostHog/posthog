@@ -176,8 +176,8 @@ class TestEvaluate(TestCase):
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             (
-                "test_account_filter_keeps_10_percent_after_the_end",
-                {**ENDED, "exposures": _filtered_totals(100, 1000)},
+                "test_account_filter_keeps_9_percent_after_the_end",
+                {**ENDED, "exposures": _filtered_totals(90, 1000)},
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
@@ -240,7 +240,10 @@ class TestEvaluate(TestCase):
                         _totals_with_multiple(60, 1000), multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN
                     )
                 },
-                {Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED, Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.PASSED},
+                {
+                    Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED,
+                    Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE,
+                },
             ),
             (
                 "flag_traffic_is_left_to_zero_exposures_after_launch",
@@ -271,6 +274,21 @@ class TestEvaluate(TestCase):
                 "event_names_that_get_no_definition_are_not_checked",
                 _events("$$plugin_metrics", {}),
                 dict.fromkeys(EVENT_KEYS, Status.NOT_CHECKED),
+            ),
+            (
+                "test_account_filter_waits_for_enough_exposures",
+                {"exposures": _filtered_totals(5, 60)},
+                {Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_does_not_apply_to_an_even_split",
+                {"flag": EVEN_SPLIT_FLAG},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_waits_for_exposures",
+                {"exposures": NO_EXPOSURES},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
             ),
         ]
     )
@@ -386,9 +404,31 @@ class TestEvaluate(TestCase):
                 ),
             ),
             (
-                "kept_share_below_the_minimum_exposed",
+                "kept_share_at_the_threshold",
                 Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
-                _filtered_totals(5, 60),
+                _filtered_totals(100, 1000),
+                ExperimentHealthMeasurement(
+                    value=10.0,
+                    threshold=10.0,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.BELOW,
+                ),
+            ),
+            (
+                "bias_risk_share",
+                Key.BIAS_RISK_MULTIPLE_EXCLUDED,
+                _totals_with_multiple(0, 1000),
+                ExperimentHealthMeasurement(
+                    value=0.0,
+                    threshold=0.1,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.ABOVE,
+                ),
+            ),
+            (
+                "bias_risk_share_above_the_threshold_from_too_few_users",
+                Key.BIAS_RISK_MULTIPLE_EXCLUDED,
+                _totals_with_multiple(3, 1000),
                 None,
             ),
         ]
