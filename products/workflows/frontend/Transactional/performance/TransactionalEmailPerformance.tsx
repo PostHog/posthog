@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -12,13 +12,29 @@ import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailPerformance(): JSX.Element {
-    const { days, templateStats, templateStatsLoading, domainStats, domainStatsLoading } = useValues(
+    const { days, templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } = useValues(
         transactionalEmailPerformanceLogic
     )
-    const { setDays } = useActions(transactionalEmailPerformanceLogic)
+    const { setDays, loadTemplateStats, loadDomainStats } = useActions(transactionalEmailPerformanceLogic)
+    const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
         <div className="flex flex-col gap-4">
+            {statsFailed && !templateStatsLoading && !domainStatsLoading && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => {
+                            loadTemplateStats()
+                            loadDomainStats()
+                        },
+                        'data-attr': 'transactional-email-performance-retry',
+                    }}
+                >
+                    The numbers couldn't load. Check your connection and try again.
+                </LemonBanner>
+            )}
             <SceneSection
                 title="By email"
                 description="Delivered and bounced count against what was sent. Spam reports, opens and clicks count against what was delivered."
@@ -37,7 +53,7 @@ export function TransactionalEmailPerformance(): JSX.Element {
                     loading={templateStatsLoading}
                     groupTitle="Email"
                     linkFor={(row) => (row.label ? urls.transactionalTemplate(row.key) : null)}
-                    emptyState="No transactional emails were sent in this period"
+                    emptyState={emptyState}
                     dataAttr="transactional-email-performance-by-email"
                 />
             </SceneSection>
@@ -47,7 +63,7 @@ export function TransactionalEmailPerformance(): JSX.Element {
                     rows={domainStats}
                     loading={domainStatsLoading}
                     groupTitle="Sending domain"
-                    emptyState="No transactional emails were sent in this period"
+                    emptyState={emptyState}
                     dataAttr="transactional-email-performance-by-domain"
                 />
             </SceneSection>

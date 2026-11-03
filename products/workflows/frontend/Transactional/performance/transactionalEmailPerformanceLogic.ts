@@ -39,6 +39,7 @@ export interface transactionalEmailPerformanceLogicValues {
     resultsFailed: boolean
     resultsLoading: boolean
     resultsQuery: ResultsQuery
+    statsFailed: boolean
     templateStats: TransactionalEmailStatsRowApi[] | null
     templateStatsLoading: boolean
 }
@@ -126,6 +127,15 @@ export const transactionalEmailPerformanceLogic = kea<transactionalEmailPerforma
                 loadResults: () => false,
                 loadResultsSuccess: () => false,
                 loadResultsFailure: () => true,
+            },
+        ],
+        statsFailed: [
+            false,
+            {
+                loadTemplateStats: () => false,
+                loadDomainStats: () => false,
+                loadTemplateStatsFailure: () => true,
+                loadDomainStatsFailure: () => true,
             },
         ],
         days: [7 as number, { setDays: (_, { days }) => days }],
