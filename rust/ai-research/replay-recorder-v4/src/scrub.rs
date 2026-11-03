@@ -187,7 +187,7 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
             kind: Kind::Continuation,
         };
     }
-    if is_space(next) || (next_len == 1 && is_char(next, b'"')) {
+    if next_len == 1 && is_char(next, b'"') {
         return plain;
     }
     Unit {

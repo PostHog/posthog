@@ -152,8 +152,8 @@ impl EscapedMatchers {
 /// Finds a declined URL in a spelling the rewrite cannot replace, such as with CSS hex escapes, so it fails the block.
 struct DeclinedSpellings {
     /// Each URL from the slash before its host, so that a copy with another scheme or none also matches, with its
-    /// backslashes read as slashes, as a browser reads them. A URL with `//` also matches as `http:` or `https:` and
-    /// its host, because a browser reads a special scheme without its slashes.
+    /// backslashes read as slashes and without tabs and line breaks, as a browser reads them. A URL with `//` also
+    /// matches as `http:` or `https:` and its host, because a browser reads a special scheme without its slashes.
     urls: AhoCorasick,
     /// The same patterns as JSON writes them, to search the stored bytes.
     json_urls: AhoCorasick,
@@ -205,7 +205,10 @@ impl DeclinedSpellings {
         let mut patterns = Vec::new();
         let mut owners = Vec::new();
         for (owner, &index) in declined.iter().enumerate() {
-            let url = targets[index].url.replace('\\', "/");
+            let url = targets[index]
+                .url
+                .replace(['\t', '\n', '\r'], "")
+                .replace('\\', "/");
             let slash = slash_before_host(&url);
             let tail = &url[slash..];
             patterns.push(tail.to_owned());
