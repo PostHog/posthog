@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import __dashboard1 from 'scenes/dashboard/__mocks__/dashboard1.json'
 import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
 import { AddInsightToDashboardModal } from 'scenes/dashboard/addInsightToDashboardModal/AddInsightToDashboardModal'
@@ -90,6 +91,13 @@ export const Default: Story = {
 
 export const WithMoreInsightTypes: Story = {
     render: () => <ModalStory showMore />,
+}
+
+export const WithMoreInsightTypesAndMetrics: Story = {
+    render: () => <ModalStory showMore />,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.METRICS, FEATURE_FLAGS.METRICS_INSIGHT_BUILDER],
+    },
 }
 
 export const Empty: Story = {
