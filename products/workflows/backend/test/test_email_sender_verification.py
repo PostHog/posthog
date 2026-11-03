@@ -380,6 +380,33 @@ class TestEmailSenderVerification(APIBaseTest):
         assert self._verified(sender, sibling) == [False, True]
         assert self._default_sender_id() is None
 
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_a_pending_sender_does_not_hide_another_domain_with_the_same_mail_from_host(
+        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    ) -> None:
+        pending = self._create_sender("a.example.com")
+        ready = self._create_sender("example.com", mail_from_subdomain="feedback.a")
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+        ses.get_identity_mail_from_domain_attributes.side_effect = lambda Identities: {
+            "MailFromDomainAttributes": {
+                domain: {"MailFromDomainStatus": "Success", "MailFromDomain": "feedback.a.example.com"}
+                for domain in Identities
+            }
+        }
+        dmarc = SimpleNamespace(strings=[b"v=DMARC1; p=none;"])
+
+        def resolve(name: str, _record_type: str) -> list[SimpleNamespace]:
+            if name == "_dmarc.a.example.com":
+                raise dns.resolver.NXDOMAIN()
+            return [dmarc]
+
+        mock_resolver.return_value.resolve.side_effect = resolve
+
+        refresh_new_email_senders()
+
+        assert self._verified(pending, ready) == [False, True]
+
     @patch("posthog.models.integration.email.reload_integrations_on_workers")
     @patch(
         "products.workflows.backend.facade.api.verify_ses_email_domain",

@@ -57,8 +57,6 @@ SENDER_AGE_TIERS = (NEW_SENDERS, SETTLED_SENDERS)
 
 
 class EmailSenderVerification:
-    # Each tier holds its own lock, so both sweeps can read SES at the same time from different workers.
-    # Each sweep paces its reads at its share of the rate, so together they stay under the account read limit.
     TIER_READ_INTERVAL_SECONDS = READ_MIN_INTERVAL_SECONDS * len(SENDER_AGE_TIERS)
     PACED_CALL_WORST_CASE_SECONDS = BACKGROUND_CALL_WORST_CASE_SECONDS + TIER_READ_INTERVAL_SECONDS
     STATUS_READ_WORST_CASE_SECONDS = IDENTITY_STATUS_READS_PER_BATCH * PACED_CALL_WORST_CASE_SECONDS
@@ -90,7 +88,7 @@ class EmailSenderVerification:
     def verify_ready_senders(
         self, senders: Iterable[IntegrationRecord], on_sender: Callable[[IntegrationRecord], None] = lambda _: None
     ) -> bool:
-        checked: set[tuple[int, str]] = set()
+        checked: set[tuple[int, str | None, str]] = set()
         for batch in batched(senders, IDENTITY_ATTRIBUTES_BATCH_SIZE, strict=False):
             if not self._has_time_for(self.STATUS_READ_WORST_CASE_SECONDS):
                 return False
@@ -104,7 +102,7 @@ class EmailSenderVerification:
                 if ready_status and not self._has_time_for(self.SENDER_CHECK_WORST_CASE_SECONDS):
                     return False
                 on_sender(sender)
-                key = (sender.team_id, _mail_from_domain(sender))
+                key = (sender.team_id, _domain(sender), _mail_from_subdomain(sender))
                 if ready_status and key not in checked:
                     checked.add(key)
                     self._verify(sender, ready_status)
