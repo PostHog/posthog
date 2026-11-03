@@ -167,44 +167,7 @@ pub fn upload_pairs(
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
         .partition(|pair| pair.sourcemap.is_empty());
-    let mut empty_skipped_wrapper = 0usize;
-    let mut empty_skipped_suspect = 0usize;
-    let mut suspect_paths: Vec<String> = Vec::new();
-    for pair in &empty_pairs {
-        let js_size = pair.source.inner.content.len();
-        let map_path = pair.sourcemap.inner.path.display();
-        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
-            empty_skipped_wrapper += 1;
-            debug!(
-                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
-                map_path, js_size
-            );
-        } else {
-            empty_skipped_suspect += 1;
-            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
-                suspect_paths.push(map_path.to_string());
-            }
-            debug!(
-                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
-                map_path, js_size
-            );
-        }
-    }
-    if empty_skipped_suspect > 0 {
-        let unlisted = empty_skipped_suspect - suspect_paths.len();
-        let rest = if unlisted > 0 {
-            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
-        } else {
-            String::new()
-        };
-        info!(
-            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
-            empty_skipped_suspect,
-            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
-            suspect_paths.join(", "),
-            rest
-        );
-    }
+    let empty_counts = report_empty_pairs(&empty_pairs);
     let empty_skipped = empty_pairs.len();
 
     let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
@@ -218,8 +181,8 @@ pub fn upload_pairs(
             ("file_count", json!(file_count)),
             ("total_bytes", json!(total_bytes)),
             ("empty_skipped", json!(empty_skipped)),
-            ("empty_skipped_wrapper", json!(empty_skipped_wrapper)),
-            ("empty_skipped_suspect", json!(empty_skipped_suspect)),
+            ("empty_skipped_wrapper", json!(empty_counts.wrapper)),
+            ("empty_skipped_suspect", json!(empty_counts.suspect)),
         ],
     );
 
@@ -313,6 +276,56 @@ fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
         }
     }
     uploadable
+}
+
+struct EmptyPairCounts {
+    wrapper: usize,
+    suspect: usize,
+}
+
+fn report_empty_pairs(empty_pairs: &[SourcePair]) -> EmptyPairCounts {
+    let mut empty_skipped_wrapper = 0usize;
+    let mut empty_skipped_suspect = 0usize;
+    let mut suspect_paths: Vec<String> = Vec::new();
+    for pair in empty_pairs {
+        let js_size = pair.source.inner.content.len();
+        let map_path = pair.sourcemap.inner.path.display();
+        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+            empty_skipped_wrapper += 1;
+            debug!(
+                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
+                map_path, js_size
+            );
+        } else {
+            empty_skipped_suspect += 1;
+            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
+                suspect_paths.push(map_path.to_string());
+            }
+            debug!(
+                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
+                map_path, js_size
+            );
+        }
+    }
+    if empty_skipped_suspect > 0 {
+        let unlisted = empty_skipped_suspect - suspect_paths.len();
+        let rest = if unlisted > 0 {
+            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
+        } else {
+            String::new()
+        };
+        info!(
+            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+            empty_skipped_suspect,
+            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
+            suspect_paths.join(", "),
+            rest
+        );
+    }
+    EmptyPairCounts {
+        wrapper: empty_skipped_wrapper,
+        suspect: empty_skipped_suspect,
+    }
 }
 
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
