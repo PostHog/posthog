@@ -69,6 +69,7 @@ export class LocalSes {
     private readonly messageIds = new Set<string>()
     private readonly server: Server
     private error: LocalSesError | undefined
+    private errorsRemaining = Infinity
 
     constructor(private readonly fakeEndpoint = 'http://127.0.0.1:4566') {
         this.server = createServer((request, response) => {
@@ -105,6 +106,12 @@ export class LocalSes {
 
     setError(error: LocalSesError | undefined): void {
         this.error = error
+        this.errorsRemaining = Infinity
+    }
+
+    throttleNextRequests(count: number): void {
+        this.error = 'TooManyRequestsException'
+        this.errorsRemaining = count
     }
 
     private async fetchFake(path: string, options: RequestInit = {}): Promise<Response> {
@@ -154,7 +161,8 @@ export class LocalSes {
         const body = Buffer.concat(chunks).toString('utf8')
         this.requests.push(parseJSON(body) as SendEmailCommandInput)
 
-        if (this.error) {
+        if (this.error && this.errorsRemaining > 0) {
+            this.errorsRemaining--
             response.writeHead(this.error === 'TooManyRequestsException' ? 429 : 400, {
                 'content-type': 'application/json',
                 'x-amzn-errortype': this.error,

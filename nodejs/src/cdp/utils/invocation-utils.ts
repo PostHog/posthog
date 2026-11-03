@@ -265,6 +265,17 @@ export function createInputsFailureResult(
     )
 }
 
+// The route back that routeEmailToQueue stashes. A job on the email queue keeps it until a later fetch step returns
+// the job to its origin queue at its origin priority.
+export function originRoute(
+    queueMetadata: CyclotronJobInvocation['queueMetadata']
+): { originQueue: string; originPriority: number } | undefined {
+    if (!queueMetadata?.originQueue) {
+        return undefined
+    }
+    return { originQueue: queueMetadata.originQueue, originPriority: queueMetadata.originPriority }
+}
+
 /**
  * Safely creates an invocation result from an invocation, cloning it and resetting the relevant queue parameters
  */

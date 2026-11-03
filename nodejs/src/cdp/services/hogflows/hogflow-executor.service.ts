@@ -22,7 +22,7 @@ import {
     WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
-import { createInvocationResult } from '../../utils/invocation-utils'
+import { createInvocationResult, originRoute } from '../../utils/invocation-utils'
 import {
     COHORT_MEMBERSHIP_CHANGED_EVENT,
     COHORT_MEMBERSHIP_VERSION_PROPERTY,
@@ -686,6 +686,9 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
+            // Only the route back carries over to the next action. Per-send keys such as teamCapped or a push retry
+            // count belong to the action that set them.
+            queueMetadata: invocation.queue === 'email' ? originRoute(invocation.queueMetadata) : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 

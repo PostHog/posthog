@@ -23,8 +23,13 @@ import {
     emailSuppressionConfigFromEnv,
 } from '../../../src/cdp/services/messaging/email-suppression.service'
 import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
+import { PushNotificationService } from '../../../src/cdp/services/messaging/push-notification.service'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
+import {
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    HogFunctionType,
+} from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -39,6 +44,7 @@ import {
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -66,6 +72,7 @@ describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorAsyncService
     let hub: Hub
+    const pushNotificationService = { executeSendPushNotification: jest.fn() }
 
     const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
@@ -116,8 +123,7 @@ describe('Hog Executor', () => {
                 hogInputsService,
                 emailService,
                 recipientTokensService,
-                // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
-                pushNotificationService: undefined as any,
+                pushNotificationService: pushNotificationService as unknown as PushNotificationService,
             }
         )
     }
@@ -2687,5 +2693,69 @@ describe('Hog Executor', () => {
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originPriority).toBe(2)
         })
+
+        it.each([
+            ['an email reschedule', 'sendEmail', undefined],
+            ['a team cap reschedule', 'sendEmail', { teamCapped: true }],
+            ['a push retry', 'sendPushNotification', { tries: 1 }],
+        ])(
+            'keeps the route back to the origin queue through %s on the email queue',
+            async (_name, asyncFunctionName, sendMetadata) => {
+                const hogFunction = createHogFunction({ name: 'Send function' })
+                const invocation: CyclotronJobInvocationHogFunction = {
+                    ...createExampleInvocation(hogFunction, { inputs: {} }, 'email'),
+                    queuePriority: 1,
+                    queueMetadata: { originQueue: 'hogflow', originPriority: 2 },
+                }
+                invocation.state.vmState = { stack: [] } as any
+                const hogExecModule = require('../utils/hog-exec')
+                jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
+                    execResult: {
+                        finished: false,
+                        asyncFunctionName,
+                        asyncFunctionArgs: [
+                            asyncFunctionName === 'sendEmail'
+                                ? {
+                                      to: { email: 'user@example.com' },
+                                      from: { integrationId: 1 },
+                                      subject: 'Test',
+                                      html: '<p>Hello</p>',
+                                  }
+                                : { integrationIds: [1], distinctId: 'user-1', payload: { title: 'Hello' } },
+                        ],
+                        state: { syncDuration: 1, maxMemUsed: 100, ops: 10, stack: [] },
+                    },
+                    error: undefined,
+                    durationMs: 1,
+                })
+                const reschedule = (
+                    sent: CyclotronJobInvocationHogFunction
+                ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> =>
+                    createInvocationResult<CyclotronJobInvocationHogFunction>(
+                        sent,
+                        {
+                            queueParameters: sent.queueParameters,
+                            queueMetadata: sendMetadata,
+                            queueScheduledAt: DateTime.utc().plus({ seconds: 10 }),
+                        },
+                        { finished: false }
+                    )
+                jest.spyOn(EmailService.prototype, 'executeSendEmail').mockImplementation((sent) =>
+                    Promise.resolve(reschedule(sent))
+                )
+                pushNotificationService.executeSendPushNotification.mockImplementation((sent) =>
+                    Promise.resolve(reschedule(sent))
+                )
+
+                const result = await executor.executeWithAsyncFunctions(invocation)
+
+                expect(result.invocation.queue).toBe('email')
+                expect(result.invocation.queueMetadata).toEqual({
+                    ...sendMetadata,
+                    originQueue: 'hogflow',
+                    originPriority: 2,
+                })
+            }
+        )
     })
 })
