@@ -98,6 +98,7 @@ test.each(['expo', 'persisted'] as const)(
         expect(router.push).toHaveBeenCalledTimes(1)
         expect(Notifications.clearLastNotificationResponse).toHaveBeenCalledTimes(source === 'expo' ? 1 : 0)
         expect(acknowledgeNotificationTap).toHaveBeenCalledWith(response.notification.request.identifier)
+        expect(acknowledgeNotificationTap).toHaveBeenCalledTimes(2)
     }
 )
 

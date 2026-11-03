@@ -31,7 +31,11 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
         return
     }
     const id = tap.identifier
-    if (handled.has(id) || inFlight.has(id)) {
+    if (handled.has(id)) {
+        acknowledgeNotificationTap(id)
+        return
+    }
+    if (inFlight.has(id)) {
         return
     }
     inFlight.add(id)
