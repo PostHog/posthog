@@ -423,7 +423,10 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         """Map type to subquery node for demand tracking"""
         # Map both the type and the inner SelectQueryType if it's an alias
         self.subquery_map[id(type_annotation)] = subquery
-        if isinstance(type_annotation, ast.SelectQueryAliasType) and type_annotation.select_query_type:
+        if (
+            isinstance(type_annotation, ast.SelectQueryAliasType | ast.SelectViewType)
+            and type_annotation.select_query_type
+        ):
             self.subquery_map[id(type_annotation.select_query_type)] = subquery
 
     def _register_union_subquery(
@@ -435,7 +438,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.subquery_map[id(type_annotation)] = union_query
 
         # Also register with the inner SelectSetQueryType for both aliased and non-aliased cases
-        if isinstance(type_annotation, ast.SelectQueryAliasType):
+        if isinstance(type_annotation, ast.SelectQueryAliasType | ast.SelectViewType):
             # Aliased: register with the inner select_query_type
             if type_annotation.select_query_type:
                 self.subquery_map[id(type_annotation.select_query_type)] = union_query
@@ -450,8 +453,11 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         return self.subquery_map.get(id(table_type))
 
     def child_for(self, table_type: ast.Type) -> SubqueryNode | None:
-        """The registered subquery or CTE query a field's table type refers to, if any"""
-        if isinstance(table_type, ast.SelectQueryType | ast.SelectQueryAliasType | ast.SelectSetQueryType):
+        """The registered subquery, saved view body or CTE query a field's table type refers to, if any. The saved
+        view type has to map as well: otherwise nothing ever reads the view body and the final pass prunes it."""
+        if isinstance(
+            table_type, ast.SelectQueryType | ast.SelectQueryAliasType | ast.SelectSetQueryType | ast.SelectViewType
+        ):
             return self._get_subquery(table_type)
         if isinstance(table_type, ast.CTETableType | ast.CTETableAliasType):
             # For CTE types, get the underlying SelectQueryType and demand from it

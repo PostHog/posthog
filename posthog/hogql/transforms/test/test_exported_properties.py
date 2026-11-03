@@ -17,7 +17,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.models import PropertyDefinition
@@ -50,7 +49,7 @@ class TestExportedProperties(BaseTest):
         if restricted is not None:
             context.restricted_properties = restricted
         query, _ = prepare_and_print_ast(parse_select(select), context, dialect)
-        return pretty_print_in_tests(substitute_params(query, context.values), self.team.pk)
+        return substitute_params(query, context.values).replace(f"team_id, {self.team.pk})", "team_id, 420)")
 
     @parameterized.expand(
         [
@@ -81,7 +80,7 @@ class TestExportedProperties(BaseTest):
             (
                 "union_branches",
                 "SELECT properties.email FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events)",
-                f"{EMAIL_MAP} AS properties FROM events WHERE equals(events.team_id, 99999) UNION ALL SELECT {EMAIL_MAP} AS properties",
+                f"{EMAIL_MAP} AS properties FROM events WHERE equals(events.team_id, 420) UNION ALL SELECT {EMAIL_MAP} AS properties",
                 "JSONExtractRaw(properties['email'])",
             ),
             (
@@ -197,7 +196,10 @@ class TestExportedProperties(BaseTest):
             team=self.team,
             name="pageviews",
             query={"query": "SELECT event, properties FROM events WHERE event = '$pageview'"},
-            columns={"event": "String", "properties": "String"},
+            columns={
+                "event": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "properties": {"clickhouse": "String", "hogql": "StringJSONDatabaseField"},
+            },
         )
         printed = self._print("SELECT properties.email FROM pageviews")
         assert f"{EMAIL_MAP} AS properties" in printed, printed
