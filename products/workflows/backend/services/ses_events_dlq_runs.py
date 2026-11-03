@@ -52,8 +52,8 @@ def _run_key(run_id: str) -> str:
     return f"workflows:ses_events_dlq:run:{run_id}"
 
 
-def _lock_key(queue: DlqQueue) -> str:
-    return f"workflows:ses_events_dlq:lock:{queue.name}"
+def _lock_key(queue_name: str) -> str:
+    return f"workflows:ses_events_dlq:lock:{queue_name}"
 
 
 # The task extends the lock after every message, so the lock outlives the run's SQS leases by this margin.
@@ -62,7 +62,7 @@ LOCK_TTL_SECONDS = VISIBILITY_TIMEOUT_SECONDS + 300
 
 def hold_lock(run_id: str, queue: DlqQueue) -> bool:
     """Take or extend the queue lock for this run. False when another run holds it."""
-    return bool(get_client().eval(_HOLD_LOCK, 1, _lock_key(queue), run_id, LOCK_TTL_SECONDS))
+    return bool(get_client().eval(_HOLD_LOCK, 1, _lock_key(queue.name), run_id, LOCK_TTL_SECONDS))
 
 
 def start_run(queue: DlqQueue, options: ReplayOptions, triggered_by: str) -> str | None:
@@ -70,7 +70,7 @@ def start_run(queue: DlqQueue, options: ReplayOptions, triggered_by: str) -> str
     run_id = str(uuid.uuid4())
     redis = get_client()
     # The task extends the lock when it starts, because the task can wait in the Celery queue first.
-    if not redis.set(_lock_key(queue), run_id, nx=True, ex=LOCK_TTL_SECONDS):
+    if not redis.set(_lock_key(queue.name), run_id, nx=True, ex=LOCK_TTL_SECONDS):
         return None
     run = {
         "id": run_id,
@@ -106,14 +106,14 @@ def update_run(run_id: str, *, status: RunStatus, report: ReplayReport | None = 
 
 def finish_run(
     run_id: str,
-    queue: DlqQueue,
+    queue_name: str,
     *,
     status: RunStatus,
     report: ReplayReport | None = None,
     error: str | None = None,
 ) -> None:
     update_run(run_id, status=status, report=report, error=error)
-    get_client().eval(_RELEASE_LOCK, 1, _lock_key(queue), run_id)
+    get_client().eval(_RELEASE_LOCK, 1, _lock_key(queue_name), run_id)
 
 
 def recent_runs() -> list[dict[str, Any]]:

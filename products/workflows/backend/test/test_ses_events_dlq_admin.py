@@ -110,6 +110,25 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
         assert all(note in run["error"] for note in notes)
         assert start_run(DlqQueue(url=QUEUE.url), options, "staff@example.com") is not None
 
+    def test_a_task_for_a_queue_the_worker_does_not_know_fails_and_frees_the_queue(self) -> None:
+        options = ReplayOptions(dry_run=False, limit=10, max_per_second=5)
+        run_id = start_run(QUEUE, options, "staff@example.com")
+        assert run_id is not None
+
+        with override_settings(SES_EVENTS_DLQ_URLS=[]):
+            replay_ses_events_dlq_task(
+                run_id=run_id,
+                queue_name=QUEUE.name,
+                dry_run=False,
+                limit=10,
+                max_per_second=5,
+                triggered_by="staff@example.com",
+            )
+
+        [run] = recent_runs()
+        assert run["status"] == "failed"
+        assert start_run(QUEUE, options, "staff@example.com") is not None
+
     def test_a_task_that_starts_after_another_run_took_its_queue_reads_nothing(self) -> None:
         options = ReplayOptions(dry_run=False, limit=10, max_per_second=5)
         run_id = start_run(QUEUE, options, "staff@example.com")

@@ -32,10 +32,11 @@ def replay_ses_events_dlq_task(
     queue = find_queue(queue_name)
     if queue is None:
         logger.warning("ses_events_dlq.unknown_queue", run_id=run_id, queue=queue_name)
+        finish_run(run_id, queue_name, status="failed", error="This worker has no queue with this name")
         return
     options = ReplayOptions(dry_run=dry_run, limit=limit, max_per_second=max_per_second)
     if not hold_lock(run_id, queue):
-        finish_run(run_id, queue, status="failed", error="Another run took this queue before this one started")
+        finish_run(run_id, queue_name, status="failed", error="Another run took this queue before this one started")
         return
     update_run(run_id, status="running")
 
@@ -48,7 +49,7 @@ def replay_ses_events_dlq_task(
         report = replay_queue(queue, options, sqs=sqs_client(queue), triggered_by=triggered_by, on_progress=on_progress)
     except Exception as error:
         logger.exception("ses_events_dlq.replay_failed", run_id=run_id, queue=queue_name)
-        finish_run(run_id, queue, status="failed", error=f"{type(error).__name__}: {error}")
+        finish_run(run_id, queue_name, status="failed", error=f"{type(error).__name__}: {error}")
         return
     notes = []
     if report.stopped_reason is not None:
@@ -59,4 +60,4 @@ def replay_ses_events_dlq_task(
             f"SQS did not release {report.unreleased} kept messages. "
             "They return to the queue when their visibility timeout ends."
         )
-    finish_run(run_id, queue, status="finished", report=report, error=" ".join(notes) or None)
+    finish_run(run_id, queue_name, status="finished", report=report, error=" ".join(notes) or None)
