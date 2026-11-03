@@ -270,6 +270,7 @@ rules:
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
                               |KnowledgeSource
+                              |KnowledgeUsageRecord
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
@@ -477,6 +478,7 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |ReviewQueue
@@ -773,6 +775,7 @@ rules:
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
@@ -972,6 +975,7 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |ReviewQueue
@@ -1181,6 +1185,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration

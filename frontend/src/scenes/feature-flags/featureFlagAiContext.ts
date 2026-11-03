@@ -130,6 +130,7 @@ export const FEATURE_FLAG_MUTATION_TOOLS = [
     'feature-flag-disable',
     'feature-flag-archive',
     'feature-flag-unarchive',
+    'feature-flag-restore',
 ]
 
 // Every mutation tool accepts these spellings for the flag id (`param_overrides.id.aliases` in

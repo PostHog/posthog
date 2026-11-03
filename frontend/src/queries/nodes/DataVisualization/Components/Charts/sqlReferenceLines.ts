@@ -1,4 +1,4 @@
-import { max, mean, median, min } from 'd3'
+import { max, mean, median, min } from 'd3-array'
 
 import type { Series } from '@posthog/quill-charts'
 

@@ -52,6 +52,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -870,6 +871,17 @@ function SchemaBulkActions({
     const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
+        const pendingCount = selected.filter(
+            (schema) => !schema.should_sync && schema.pending_self_managed_table
+        ).length
+        if (pendingCount > 0) {
+            confirmPendingSelfManagedSync(pendingCount, enableWithDefaults, 'bulk')
+            return
+        }
+        enableWithDefaults()
+    }
+
+    const enableWithDefaults = (): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
         if (needingDefaults.length === 0) {
             run(() => bulkEnable(selected))

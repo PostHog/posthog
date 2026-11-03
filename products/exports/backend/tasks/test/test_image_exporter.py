@@ -29,6 +29,7 @@ from posthog.settings import (
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -681,7 +682,10 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
             },
         )
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            mock_anti_ssrf_dns_lookup(),
+        ):
             image_exporter.export_image(exported_asset)
 
         url_to_render = mock_screenshot_asset.call_args[0][1]

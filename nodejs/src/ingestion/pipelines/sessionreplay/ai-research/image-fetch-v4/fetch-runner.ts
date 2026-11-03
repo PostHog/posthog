@@ -25,11 +25,11 @@ import {
 import type { RefreshingImageSink } from './image-sink'
 import { ImageFetchPoolMetrics, ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
-import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import type { ResponseUrlBinder } from './response-url-binding'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { urlHistoryExpiresAtMs, urlHistoryStorageExpiresAtMs } from './url-history-expiry'
+import { canonicalizeUrl } from './v4-native'
 
 export type ShedReason =
     | 'breaker_open'

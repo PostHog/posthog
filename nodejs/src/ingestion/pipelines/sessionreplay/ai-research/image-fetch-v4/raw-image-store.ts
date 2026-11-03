@@ -2,7 +2,6 @@ import { CopyObjectCommand, PutObjectCommand, S3Client, S3ServiceException } fro
 import { Counter } from 'prom-client'
 
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
-import { sealV4Frame } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/frame'
 import type { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'
@@ -10,11 +9,9 @@ import type { ImageFetchResult } from './image-fetcher'
 import type { RefreshingImageSink } from './image-sink'
 import { InvalidImageTransportError, prepareFetchedImage } from './image-transport'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
-import { parseV4UrlRef } from './v4-url-ref'
+import { parseV4UrlRef, sealFetchedImage } from './v4-native'
 
 const S3_WRITE_TIMEOUT_MS = 30_000
-/** The `images-v4` lifecycle is 98 days: the 90-day raw window plus this interval and one day. */
-const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 const CONTENT_TYPE = 'application/octet-stream'
 
 const storedImages = new Counter({
@@ -31,7 +28,6 @@ const storedImages = new Counter({
  * overwrites the object of its reference, and `refreshImage` copies it onto itself to reset its age.
  */
 export class RawImageStore implements RefreshingImageSink {
-    public readonly refreshIntervalMs = REFRESH_INTERVAL_MS
     private readonly writes: ConcurrencyController
 
     constructor(
@@ -124,11 +120,7 @@ export class RawImageStore implements RefreshingImageSink {
             storedImages.labels(key.status === 'deleted' ? 'deleted' : 'missing_key').inc()
             return
         }
-        const frame = sealV4Frame(
-            key.key,
-            { teamId, keyMonth, kind: 'image-url', codec: 'none', ref: candidate.originalRef },
-            image
-        )
+        const frame = await sealFetchedImage(key.key, candidate.originalRef, image)
         await this.s3.send(
             new PutObjectCommand({
                 Bucket: this.bucket,
