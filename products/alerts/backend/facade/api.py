@@ -619,7 +619,9 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]
 
 
-def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:
+def assign_alert_owner(
+    *, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool, actor: User | None = None
+) -> None:
     """Make `user` the owner of the alert and record the takeover in the activity log.
 
     `created_by` is excluded from the save diff, so the takeover gets its own activity. An alert with
@@ -639,7 +641,7 @@ def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_imp
     log_activity(
         organization_id=alert.team.organization_id,
         team_id=alert.team_id,
-        user=user,
+        user=actor or user,
         was_impersonated=was_impersonated,
         item_id=alert.id,
         scope="AlertConfiguration",

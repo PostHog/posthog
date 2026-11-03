@@ -994,6 +994,11 @@ export interface AlertDeleteDestinationApi {
     destination_ids?: string[]
 }
 
+export interface TransferOwnershipApi {
+    /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
+    user_uuid?: string
+}
+
 export interface AlertCreatePagerDutyDestinationApi {
     /** The 32-character integration key of a PagerDuty Events API v2 integration. */
     pagerduty_routing_key: string
