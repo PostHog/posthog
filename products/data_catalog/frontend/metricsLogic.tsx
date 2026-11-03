@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -46,6 +47,11 @@ export const DEFAULT_METRICS_FILTERS: MetricsFilters = {
     owner: null,
 }
 
+export interface MetricCreatorOption {
+    uuid: string
+    label: string
+}
+
 export interface MetricFromInsightRequest {
     name: string
     display_name: string
@@ -84,6 +90,7 @@ export interface metricsLogicValues {
     allMetricsLoading: boolean
     bulkActionInFlight: BulkMetricAction | null
     creatingMetricAs: MetricSaveAction | null
+    creatorFilterOptions: MetricCreatorOption[]
     filters: MetricsFilters
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
@@ -185,6 +192,7 @@ export interface metricsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         metrics: (allMetrics: DataCatalogMetricApi[], filters: MetricsFilters) => DataCatalogMetricApi[]
         ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
+        creatorFilterOptions: (allMetrics: DataCatalogMetricApi[]) => MetricCreatorOption[]
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
     }
 }
@@ -310,6 +318,20 @@ export const metricsLogic = kea<metricsLogicType>([
             (s) => [s.allMetrics],
             (allMetrics: DataCatalogMetricApi[]): string[] =>
                 [...new Set(allMetrics.flatMap((metric) => (metric.owner ? [metric.owner] : [])))].sort(),
+        ],
+        creatorFilterOptions: [
+            (s) => [s.allMetrics],
+            (allMetrics: DataCatalogMetricApi[]): MetricCreatorOption[] => {
+                const creators = new Map<string, string>()
+                for (const { created_by } of allMetrics) {
+                    if (created_by) {
+                        creators.set(created_by.uuid, fullNameOrEmail(created_by))
+                    }
+                }
+                return [...creators]
+                    .map(([uuid, label]) => ({ uuid, label }))
+                    .sort((a, b) => a.label.localeCompare(b.label))
+            },
         ],
         proposedCount: [
             (s) => [s.allMetrics],

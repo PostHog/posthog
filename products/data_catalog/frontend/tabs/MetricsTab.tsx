@@ -16,22 +16,25 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
-import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
+import { compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
-import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
+import {
+    approveDisabledReason,
+    bulkApproveDisabledReason,
+    bulkBusyReason as bulkBusyReasonFor,
+    bulkSelectionDisabledReason,
+    deleteDisabledReason,
+    reloadDisabledReason as reloadDisabledReasonFor,
+    resolveMetricSelection,
+} from '../metricActionGuards'
+import { MetricStatusFilter, metricsLogic } from '../metricsLogic'
 
 const STATUS_FILTER_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'proposed', label: 'Proposed' },
     { value: 'approved', label: 'Approved' },
 ]
-
-const OVER_CAP_REASON = `Select at most ${METRIC_BULK_MAX} metrics at a time`
-
-function isApprovable(metric: DataCatalogMetricApi): boolean {
-    return metric.status !== 'approved' && !metric.is_drifted
-}
 
 function StatusTag({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     return (
@@ -80,34 +83,8 @@ export function MetricsTab(): JSX.Element {
         bulkChangeMetricOwner,
     } = useActions(metricsLogic)
 
-    const bulkBusyReason = bulkActionInFlight ? 'A bulk action is running' : undefined
-    // Reload replaces the whole list and takes no breakpoint, so a load that resolves after a
-    // mutation would repaint pre-mutation rows (e.g. bring back rows a bulk delete just removed).
-    // Block it while any mutation is in flight; the view is authoritative again on the next load.
-    const reloadDisabledReason =
-        bulkBusyReason ?? (Object.values(actionsInFlight).some(Boolean) ? 'A metric action is running' : undefined)
-    const otherBulkActionReason = (self: BulkMetricAction): string | undefined =>
-        bulkActionInFlight && bulkActionInFlight !== self ? 'Another bulk action is running' : undefined
-
-    const bulkApproveDisabledReason = (approvableCount: number): string | undefined => {
-        if (approvableCount === 0) {
-            return 'Every selected metric is already approved or has drifted. Refresh a drifted metric first.'
-        }
-        if (approvableCount > METRIC_BULK_MAX) {
-            return OVER_CAP_REASON
-        }
-        return otherBulkActionReason('approve')
-    }
-
-    const bulkSelectionDisabledReason = (selectedCount: number, self: BulkMetricAction): string | undefined => {
-        if (selectedCount === 0) {
-            return 'The selected metrics are no longer available. Reload the list.'
-        }
-        if (selectedCount > METRIC_BULK_MAX) {
-            return OVER_CAP_REASON
-        }
-        return otherBulkActionReason(self)
-    }
+    const bulkBusyReason = bulkBusyReasonFor(bulkActionInFlight)
+    const reloadDisabledReason = reloadDisabledReasonFor(bulkActionInFlight, actionsInFlight)
 
     const confirmDelete = (metric: DataCatalogMetricApi): void => {
         LemonDialog.open({
@@ -214,12 +191,7 @@ export function MetricsTab(): JSX.Element {
                                     <LemonButton
                                         fullWidth
                                         loading={inFlight}
-                                        disabledReason={
-                                            bulkBusyReason ??
-                                            (metric.is_drifted
-                                                ? 'This metric has drifted from its source insight. Refresh it first.'
-                                                : undefined)
-                                        }
+                                        disabledReason={approveDisabledReason(metric, bulkActionInFlight)}
                                         onClick={() => approveMetric(metric.name)}
                                     >
                                         Approve
@@ -238,7 +210,7 @@ export function MetricsTab(): JSX.Element {
                                 <LemonButton
                                     fullWidth
                                     status="danger"
-                                    disabledReason={bulkBusyReason ?? (inFlight ? 'Working' : undefined)}
+                                    disabledReason={deleteDisabledReason(inFlight, bulkActionInFlight)}
                                     onClick={() => confirmDelete(metric)}
                                 >
                                     Delete
@@ -323,10 +295,7 @@ export function MetricsTab(): JSX.Element {
                         // Selection spans pages, so resolve the keys against every metric rather
                         // than ctx.selectedRecords, which only covers the page on screen. Resolving
                         // by id also drops any selected metric that has since left the list.
-                        const selected = new Set(ctx.selectedKeys)
-                        const selectedMetrics = allMetrics.filter((metric) => selected.has(metric.id))
-                        const approvableNames = selectedMetrics.filter(isApprovable).map((metric) => metric.name)
-                        const selectedNames = selectedMetrics.map((metric) => metric.name)
+                        const { selectedNames, approvableNames } = resolveMetricSelection(allMetrics, ctx.selectedKeys)
                         return (
                             <>
                                 <LemonButton
@@ -334,7 +303,10 @@ export function MetricsTab(): JSX.Element {
                                     size="small"
                                     data-attr="data-catalog-metrics-bulk-approve"
                                     loading={bulkActionInFlight === 'approve'}
-                                    disabledReason={bulkApproveDisabledReason(approvableNames.length)}
+                                    disabledReason={bulkApproveDisabledReason(
+                                        approvableNames.length,
+                                        bulkActionInFlight
+                                    )}
                                     onClick={() => bulkApproveMetrics(approvableNames, ctx.clearSelection)}
                                 >
                                     Approve ({approvableNames.length})
@@ -354,7 +326,8 @@ export function MetricsTab(): JSX.Element {
                                             loading={bulkActionInFlight === 'change_owner'}
                                             disabledReason={bulkSelectionDisabledReason(
                                                 selectedNames.length,
-                                                'change_owner'
+                                                'change_owner',
+                                                bulkActionInFlight
                                             )}
                                         >
                                             Change owner
@@ -367,7 +340,11 @@ export function MetricsTab(): JSX.Element {
                                     size="small"
                                     data-attr="data-catalog-metrics-bulk-delete"
                                     loading={bulkActionInFlight === 'delete'}
-                                    disabledReason={bulkSelectionDisabledReason(selectedNames.length, 'delete')}
+                                    disabledReason={bulkSelectionDisabledReason(
+                                        selectedNames.length,
+                                        'delete',
+                                        bulkActionInFlight
+                                    )}
                                     onClick={() => confirmBulkDelete(selectedNames, ctx.clearSelection)}
                                 >
                                     Delete

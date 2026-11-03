@@ -96,6 +96,104 @@ const certifications = [
     },
 ]
 
+const owner = { id: 1, uuid: 'user-1', first_name: 'Ada', last_name: 'Lane', email: 'ada@example.com' }
+
+const metrics = [
+    {
+        id: 'metric-1',
+        name: 'weekly_active_accounts',
+        display_name: 'Weekly active accounts',
+        description: 'Accounts with at least one **pageview** in the last 7 days.',
+        definition_kind: 'HogQLQuery',
+        status: 'approved',
+        is_drifted: false,
+        created_source: 'user',
+        owner: 'ada@example.com',
+        created_by: owner,
+        created_at: '2026-09-01T10:00:00Z',
+    },
+    {
+        id: 'metric-2',
+        name: 'trial_conversion_rate',
+        display_name: 'Trial conversion rate',
+        description: 'Share of trials that convert to a paid plan within 30 days.',
+        definition_kind: 'InsightVizNode',
+        status: 'proposed',
+        is_drifted: false,
+        created_source: 'ai_generated',
+        confidence: 0.82,
+        ai_model: 'example-model',
+        reasoning: 'Trials and upgrades share an account id.',
+        owner: null,
+        created_by: owner,
+        created_at: '2026-09-10T10:00:00Z',
+        source_insight_short_id: 'abc123',
+    },
+    {
+        id: 'metric-3',
+        name: 'net_revenue_retention',
+        display_name: '',
+        description: '',
+        definition_kind: 'HogQLQuery',
+        status: 'proposed',
+        is_drifted: true,
+        created_source: 'user',
+        owner: 'ada@example.com',
+        created_by: owner,
+        created_at: '2026-09-12T10:00:00Z',
+        source_insight_short_id: 'def456',
+    },
+]
+
+const proposals = [
+    {
+        id: 'proposal-1',
+        source_table_name: 'events',
+        source_table_key: 'properties.account_id',
+        joining_table_name: 'stripe_customers',
+        joining_table_key: 'metadata.account_id',
+        field_name: 'stripe_customer',
+        confidence: 0.91,
+        reasoning: 'Both columns hold the same account id format.',
+        evidence: { matched_rows: 1200, sample_size: 1300 },
+        status: 'pending',
+        reviewed_by: null,
+        reviewed_at: null,
+        rejection_reason: '',
+        created_join: null,
+        created_by: null,
+        created_at: '2026-09-14T00:00:00Z',
+    },
+    {
+        id: 'proposal-2',
+        source_table_name: 'orders_daily',
+        source_table_key: 'customer_id',
+        joining_table_name: 'hubspot_contacts',
+        joining_table_key: 'id',
+        field_name: 'contact',
+        confidence: 0.4,
+        reasoning: 'The ids look alike but rarely match.',
+        status: 'rejected',
+        reviewed_by: owner,
+        reviewed_at: '2026-09-14T00:00:00Z',
+        rejection_reason: 'These ids come from different systems.',
+        created_join: null,
+        created_by: null,
+        created_at: '2026-09-13T00:00:00Z',
+    },
+]
+
+const viewLinks = [
+    {
+        id: 'join-1',
+        source_table_name: 'events',
+        source_table_key: 'person_id',
+        joining_table_name: 'persons',
+        joining_table_key: 'id',
+        field_name: 'person',
+    },
+]
+
 const inMainContent =
     (widthClass: string): Decorator =>
     (Story) => (
@@ -137,8 +235,16 @@ const meta: Meta<typeof DataCatalogScene> = {
                         results: certifications,
                         count: certifications.length,
                     },
-                    '/api/projects/:team_id/data_catalog/relationship_proposals/': { results: [], count: 3 },
-                    '/api/projects/:team_id/data_catalog/metrics/': { results: [], count: 0 },
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        results: proposals,
+                        count: 1,
+                    },
+                    '/api/projects/:team_id/data_catalog/metrics/': { results: metrics, count: metrics.length },
+                    '/api/projects/:team_id/warehouse_view_links/': { results: viewLinks, count: viewLinks.length },
+                    '/api/organizations/:organization_id/members/': {
+                        results: [{ id: 'member-1', user: owner, level: 8 }],
+                        count: 1,
+                    },
                 },
             },
         },
@@ -170,4 +276,22 @@ export const OverviewWithoutWarehouseAccess: Story = {
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Access denied')
     },
+}
+
+export const Metrics: Story = {
+    parameters: { pageUrl: urls.dataCatalog('metrics') },
+}
+
+export const MetricsNarrow: Story = {
+    parameters: { pageUrl: urls.dataCatalog('metrics') },
+    decorators: [inMainContent('w-128')],
+}
+
+export const Relationships: Story = {
+    parameters: { pageUrl: urls.dataCatalog('relationships') },
+}
+
+export const RelationshipsNarrow: Story = {
+    parameters: { pageUrl: urls.dataCatalog('relationships') },
+    decorators: [inMainContent('w-128')],
 }
