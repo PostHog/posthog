@@ -53,8 +53,9 @@ class FixtureRepository:
     @property
     def default_branch_sha(self) -> str:
         # Stable per content, so a reseeded catalog reads as the same commit.
-        digest = hashlib.sha1(f"{self.full_name}\n{self.readme}\n{chr(10).join(self.tree_paths)}".encode())
-        return digest.hexdigest()
+        digest = hashlib.sha256(f"{self.full_name}\n{self.readme}\n{chr(10).join(self.tree_paths)}".encode())
+        # A git commit SHA is 40 hex characters.
+        return digest.hexdigest()[:40]
 
 
 REPOSITORIES: tuple[FixtureRepository, ...] = (

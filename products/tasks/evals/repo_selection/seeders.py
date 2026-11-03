@@ -12,7 +12,9 @@ from typing import Any
 
 from django.utils import timezone
 
-from posthog.models.integration import Integration
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -26,31 +28,36 @@ PLACEHOLDER_GITHUB_TOKEN = "fixture-token-not-a-github-credential"
 
 def install_repository_catalog(team_id: int, user_id: int, scenario: RepoSelectionScenario) -> dict[str, Any]:
     now = timezone.now()
-    integration = Integration.objects.create(
-        team_id=team_id,
-        kind=Integration.IntegrationKind.GITHUB,
-        integration_id=f"eval-fixture-{team_id}",
+    record = IntegrationManager.github.oauth.create(
+        team_id,
+        external_id=f"eval-fixture-{team_id}",
         config={"installation_id": f"eval-fixture-{team_id}", "account": {"type": "Organization", "name": ORG}},
         sensitive_config={"access_token": PLACEHOLDER_GITHUB_TOKEN},
-        repository_cache=[
-            {
-                "id": index,
-                "name": repo.name,
-                "full_name": repo.full_name,
-                "private": repo.private,
-                "archived": repo.archived,
-                "language": repo.primary_language,
-                "default_branch": "main",
-            }
-            for index, repo in enumerate(REPOSITORIES, start=1)
-        ],
-        repository_cache_updated_at=now,
         created_by_id=user_id,
+    )
+    # The SDK has no repository cache write: production fills it from GitHub. The fixture writes
+    # the synthetic listing directly so the selector never calls GitHub.
+    github_integration = GitHubIntegration(record, source="repo_selection_eval", priority=Priority.BATCH).integration
+    github_integration.repository_cache = [
+        {
+            "id": index,
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "private": repo.private,
+            "archived": repo.archived,
+            "language": repo.primary_language,
+            "default_branch": "main",
+        }
+        for index, repo in enumerate(REPOSITORIES, start=1)
+    ]
+    github_integration.repository_cache_updated_at = now
+    github_integration.save(  # nosemgrep: integration-model-through-sdk -- synthetic eval fixture; the SDK has no repository cache write
+        update_fields=["repository_cache", "repository_cache_updated_at"]
     )
     IntegrationRepositoryCacheEntry.objects.bulk_create(
         [
             IntegrationRepositoryCacheEntry(
-                integration=integration,
+                integration_id=record.id,
                 team_id=team_id,
                 full_name=repo.full_name.lower(),
                 description=repo.description,
