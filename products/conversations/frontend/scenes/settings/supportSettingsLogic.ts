@@ -8,6 +8,7 @@ import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SlackChannelType, UserBasicType } from '~/types'
@@ -70,6 +71,7 @@ export interface supportSettingsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
+    isAdminOrOwner: boolean | null // organizationLogic
     accountPropertyOptions: AIContextAccountPropertyApi[]
     accountPropertyOptionsLoading: boolean
     addEmailFormVisible: boolean
@@ -697,7 +699,14 @@ export type supportSettingsLogicType = MakeLogicType<
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamLoading'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+            organizationLogic,
+            ['isAdminOrOwner'],
+        ],
         actions: [
             teamLogic,
             [
@@ -2080,7 +2089,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         if (values.slackConnected) {
             actions.loadSlackChannelsWithToken()
         }
-        if (values.teamsConnected) {
+        // The GitHub repo and Teams group/channel lists only feed the admin pickers, and their
+        // endpoints reject non-admins. The saved selection renders from the team settings.
+        const isAdmin = !!values.isAdminOrOwner
+        if (values.teamsConnected && isAdmin) {
             actions.loadTeamsTeamsWithToken()
             const teamsTeamId = values.teamsTeamId
             if (teamsTeamId) {
@@ -2095,7 +2107,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         actions.loadEmailConfigs()
         // Load GitHub integrations for the connect picker
         actions.loadGithubIntegrations()
-        if (values.githubConnected) {
+        if (values.githubConnected && isAdmin) {
             actions.loadGithubRepos()
         }
         actions.loadPlaybook()
