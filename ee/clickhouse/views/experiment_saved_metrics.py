@@ -12,7 +12,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
+from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService, SharedMetricType
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
@@ -184,6 +184,30 @@ class ExperimentSavedMetricSerializer(
                 "Use this for reuse discovery (find a metric by what it measures); distinct from 'search', "
                 "which matches the metric's own name/description/tags.",
             ),
+            OpenApiParameter(
+                name="created_by_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to shared metrics created by the given user(s). Accepts a single user ID, "
+                "or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of tag names. Returns shared metrics carrying at least one of the "
+                'given tags, e.g. `["growth", "checkout"]`.',
+            ),
+            OpenApiParameter(
+                name="metric_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=SharedMetricType.values,
+                description="Filter by metric type. 'funnel' also matches legacy funnel metrics.",
+            ),
         ],
     ),
 )
@@ -203,6 +227,9 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
         # before the mixin's team filter), then matched in Python since event references live deep in the JSON.
         if self.action != "list":
             return queryset
+        queryset = ExperimentSavedMetricService(team=self.team, user=self.request.user).filter_list_queryset(
+            queryset, self.request.query_params
+        )
         event = self.request.query_params.get("event")
         if event:
             # One group per saved metric: (pk, [its query]). `.order_by()` drops the class-level
