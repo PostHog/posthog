@@ -25,7 +25,11 @@ from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.error_tracking.backend.facade import summaries as summaries_facade
-from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
+from products.error_tracking.backend.facade.contracts import (
+    IssueSummaryCategory,
+    IssueSummaryStatus,
+    IssueSummaryUnavailableReason,
+)
 from products.error_tracking.backend.logic import issue_summaries, team_flags
 from products.error_tracking.backend.logic.issue_summaries import (
     IssueSummaryInputs,
@@ -41,6 +45,7 @@ from products.error_tracking.backend.logic.issue_summaries import (
     refresh_issue_summary_on_reopen,
 )
 from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG, ISSUE_SUMMARY_ON_WRITE_FLAG
+from products.error_tracking.backend.logic.issue_summary_prompt import ISSUE_SUMMARY_PROMPT_VERSION
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -219,6 +224,8 @@ class TestIssueSummaryGeneration(BaseTest):
         assert summary is not None
         assert summary.what_happened == SUMMARY_REPLY["what_happened"]
         assert summary.category == expected_category
+        stored = ErrorTrackingIssueSummary.objects.for_team(self.team.id).get(issue_id=self.issue.id)
+        assert stored.content["prompt_version"] == ISSUE_SUMMARY_PROMPT_VERSION
         request = self.completions.call_args.kwargs
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
@@ -396,7 +403,9 @@ class TestIssueSummaryGeneration(BaseTest):
             patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async,
         ):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
-            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user) is False
+            assert (
+                issue_summaries.start_issue_summary_generation(self.team.id, self.issue.id) == IssueSummaryOutcome.FRESH
+            )
         apply_async.assert_not_called()
 
         assert result.outcome == expected
@@ -664,9 +673,10 @@ class TestIssueSummaryGeneration(BaseTest):
 
     def _start(self) -> tuple[bool, bool]:
         with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async:
-            started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
+            outcome = issue_summaries.start_issue_summary_generation(self.team.id, self.issue.id)
+        self.start_outcome = outcome
         self.publish_call = apply_async.call_args
-        return started, apply_async.called
+        return outcome == IssueSummaryOutcome.IN_PROGRESS, apply_async.called
 
     @parameterized.expand(
         [
@@ -693,6 +703,208 @@ class TestIssueSummaryGeneration(BaseTest):
         if queued:
             assert self.publish_call.kwargs["kwargs"] == {"queued_at": NOW.timestamp()}
 
+    def _store_summary(self) -> None:
+        with time_machine.travel(NOW, tick=False):
+            get_or_generate_issue_summary(self.team.id, self.issue.id)
+
+    def _hold_lock(self, value: str) -> None:
+        issue_summaries.get_client().set(self._lock_key, value, ex=60)
+
+    @parameterized.expand(
+        [
+            # name, arrange, start, read after, status, reason, has summary, queued, hint contains
+            (
+                "flag_off",
+                lambda test: test.enterContext(
+                    patch.object(team_flags, "feature_enabled_or_false", return_value=False)
+                ),
+                True,
+                timedelta(0),
+                IssueSummaryStatus.UNAVAILABLE,
+                IssueSummaryUnavailableReason.DISABLED,
+                False,
+                False,
+                None,
+            ),
+            *[
+                (
+                    f"ai_not_approved_{'start' if start else 'peek'}",
+                    lambda test: test._disapprove_ai(),
+                    start,
+                    timedelta(0),
+                    IssueSummaryStatus.UNAVAILABLE,
+                    IssueSummaryUnavailableReason.AI_NOT_APPROVED,
+                    False,
+                    False,
+                    None,
+                )
+                for start in (True, False)
+            ],
+            (
+                "none_start",
+                None,
+                True,
+                timedelta(0),
+                IssueSummaryStatus.GENERATING,
+                None,
+                False,
+                True,
+                "{url}",
+            ),
+            (
+                "none_peek",
+                None,
+                False,
+                timedelta(0),
+                IssueSummaryStatus.NOT_GENERATED,
+                None,
+                False,
+                False,
+                "{url}",
+            ),
+            (
+                "none_peek_queued",
+                lambda test: test._hold_lock(issue_summaries.LOCK_QUEUED),
+                False,
+                timedelta(0),
+                IssueSummaryStatus.GENERATING,
+                None,
+                False,
+                False,
+                "{url}",
+            ),
+            (
+                "none_held_after_failure",
+                lambda test: test._hold_lock(IssueSummaryOutcome.MODEL_ERROR.value),
+                True,
+                timedelta(0),
+                IssueSummaryStatus.UNAVAILABLE,
+                IssueSummaryUnavailableReason.ERROR,
+                False,
+                False,
+                None,
+            ),
+            (
+                "stored_fresh",
+                lambda test: test._store_summary(),
+                True,
+                timedelta(hours=1),
+                IssueSummaryStatus.READY,
+                None,
+                True,
+                False,
+                None,
+            ),
+            (
+                "stored_peek_after_the_run_settles",
+                lambda test: test._store_summary(),
+                False,
+                timedelta(minutes=1),
+                IssueSummaryStatus.READY,
+                None,
+                True,
+                False,
+                None,
+            ),
+            (
+                "stored_peek_while_a_worker_runs",
+                lambda test: (
+                    test._store_summary(),
+                    test._hold_lock(f"{issue_summaries.LOCK_CLAIM_PREFIX}other"),
+                ),
+                False,
+                timedelta(hours=1),
+                IssueSummaryStatus.GENERATING,
+                None,
+                True,
+                False,
+                "{url}",
+            ),
+            (
+                "stored_start_while_a_worker_runs",
+                lambda test: (
+                    test._store_summary(),
+                    test._hold_lock(f"{issue_summaries.LOCK_CLAIM_PREFIX}other"),
+                ),
+                True,
+                timedelta(hours=1),
+                IssueSummaryStatus.GENERATING,
+                None,
+                True,
+                False,
+                "{url}",
+            ),
+            (
+                "read_fails",
+                lambda test: test.enterContext(
+                    patch.object(issue_summaries, "get_issue_summary", side_effect=OperationalError("db down"))
+                ),
+                True,
+                timedelta(0),
+                IssueSummaryStatus.UNAVAILABLE,
+                IssueSummaryUnavailableReason.ERROR,
+                False,
+                False,
+                None,
+            ),
+            (
+                "stored_start_fails",
+                lambda test: (
+                    test._store_summary(),
+                    test.enterContext(
+                        patch.object(issue_summaries, "generation_blocked", side_effect=RedisError("down"))
+                    ),
+                ),
+                True,
+                timedelta(hours=25),
+                IssueSummaryStatus.READY,
+                None,
+                True,
+                False,
+                None,
+            ),
+            (
+                "stored_past_the_interval",
+                lambda test: test._store_summary(),
+                True,
+                timedelta(hours=25),
+                IssueSummaryStatus.GENERATING,
+                None,
+                True,
+                True,
+                "{url}",
+            ),
+        ]
+    )
+    def test_read_reports_status_and_reason_without_waiting(
+        self,
+        _name: str,
+        arrange: Any,
+        start: bool,
+        read_after: timedelta,
+        status: IssueSummaryStatus,
+        reason: IssueSummaryUnavailableReason | None,
+        has_summary: bool,
+        queued: bool,
+        hint_contains: str | None,
+    ) -> None:
+        if arrange is not None:
+            arrange(self)
+
+        with (
+            time_machine.travel(NOW + read_after, tick=False),
+            patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async,
+        ):
+            read = summaries_facade.read_issue_summary(self.team.id, self.issue.id, user=self.user, start=start)
+
+        assert (read.status, read.reason, read.summary is not None) == (status, reason, has_summary)
+        assert apply_async.called == queued
+        if hint_contains is None:
+            assert read.hint is None
+        else:
+            assert read.hint is not None
+            assert hint_contains.format(url=f"/error-tracking/{self.issue.id}") in read.hint
+
     def test_start_generation_queues_when_redis_is_down(self) -> None:
         with patch.object(issue_summaries, "get_client", side_effect=RedisError("down")):
             assert self._start() == (True, True)
@@ -706,12 +918,15 @@ class TestIssueSummaryGeneration(BaseTest):
 
         assert result.outcome == IssueSummaryOutcome.GENERATED
 
-    def test_start_returns_false_when_the_broker_is_down(self) -> None:
+    def test_start_reports_an_error_when_the_broker_is_down(self) -> None:
         capture = self.enterContext(patch.object(issue_summaries, "capture_exception"))
         with patch.object(
             issue_summaries.generate_error_tracking_issue_summary, "apply_async", side_effect=OSError("broker down")
         ):
-            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user) is False
+            assert (
+                issue_summaries.start_issue_summary_generation(self.team.id, self.issue.id)
+                == IssueSummaryOutcome.UNEXPECTED_ERROR
+            )
 
         capture.assert_called_once()
         assert self._start() == (True, True)
@@ -739,6 +954,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
+            ("generated", "completions", _completion(json.dumps(SUMMARY_REPLY)), IssueSummaryOutcome.GENERATED),
             ("failure", "completions", TimeoutError("slow"), IssueSummaryOutcome.MODEL_ERROR),
             ("hold", "build_inputs", IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.NO_EXCEPTION),
         ]
@@ -786,15 +1002,11 @@ class TestIssueSummaryGeneration(BaseTest):
         [
             ("get", lambda test: summaries_facade.get_issue_summary(test.team.id, test.issue.id, user=test.user)),
             (
-                "wait",
-                lambda test: summaries_facade.wait_for_issue_summary(
-                    test.team.id, test.issue.id, user=test.user, checked_after=None, timeout_seconds=0
-                ),
-            ),
-            (
-                "get_or_generate",
-                lambda test: summaries_facade.get_or_generate_issue_summary(
-                    test.team.id, test.issue.id, user=test.user
+                "read",
+                lambda test: (
+                    summaries_facade.read_issue_summary(
+                        test.team.id, test.issue.id, user=test.user, start=False
+                    ).summary
                 ),
             ),
         ]
@@ -829,8 +1041,10 @@ class TestIssueSummaryGeneration(BaseTest):
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
         self._restrict_event_property("$exception_list")
 
-        assert self._start() == (False, False)
-        assert summaries_facade.get_or_generate_issue_summary(self.team.id, self.issue.id, user=self.user) is None
+        with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async:
+            read = summaries_facade.read_issue_summary(self.team.id, self.issue.id, user=self.user, start=True)
+        assert (read.status, read.reason) == (IssueSummaryStatus.UNAVAILABLE, IssueSummaryUnavailableReason.RESTRICTED)
+        apply_async.assert_not_called()
         assert self.llm_calls == 0
 
         get_or_generate_issue_summary(self.team.id, self.issue.id)
@@ -871,30 +1085,11 @@ class TestIssueSummaryGeneration(BaseTest):
         self.addCleanup(signal.signal, signal.SIGALRM, previous)
         signal.alarm(3)
         try:
-            started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
+            outcome = issue_summaries.start_issue_summary_generation(self.team.id, self.issue.id)
         finally:
             signal.alarm(0)
 
-        assert started is False
-
-    @parameterized.expand(
-        [
-            ("any_summary", None, True),
-            ("checked_after_request", NOW - timedelta(seconds=1), True),
-            ("checked_at_request", NOW, False),
-        ]
-    )
-    def test_wait_returns_only_a_summary_checked_after_the_request(
-        self, _name: str, checked_after: datetime | None, found: bool
-    ) -> None:
-        with time_machine.travel(NOW, tick=False):
-            get_or_generate_issue_summary(self.team.id, self.issue.id)
-
-        summary = summaries_facade.wait_for_issue_summary(
-            self.team.id, self.issue.id, user=self.user, checked_after=checked_after, timeout_seconds=0
-        )
-
-        assert (summary is not None) == found
+        assert outcome == IssueSummaryOutcome.UNEXPECTED_ERROR
 
 
 class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):

@@ -58,6 +58,7 @@ import type {
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
     ErrorTrackingIssuesRetrieveParams,
+    ErrorTrackingIssuesSummaryRetrieveParams,
     ErrorTrackingIssuesValuesRetrieveParams,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
@@ -1168,35 +1169,37 @@ export const errorTrackingIssuesSplitCreate = async (
     })
 }
 
-export const getErrorTrackingIssuesSummaryRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/issues/${id}/summary/`
+export const getErrorTrackingIssuesSummaryRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ErrorTrackingIssuesSummaryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/issues/${id}/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/issues/${id}/summary/`
 }
 
 export const errorTrackingIssuesSummaryRetrieve = async (
     projectId: string,
     id: string,
-    options?: RequestInit
-): Promise<ErrorTrackingIssueSummaryResponseApi> => {
-    return apiMutator<ErrorTrackingIssueSummaryResponseApi>(getErrorTrackingIssuesSummaryRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getErrorTrackingIssuesSummaryRegenerateCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/issues/${id}/summary/regenerate/`
-}
-
-export const errorTrackingIssuesSummaryRegenerateCreate = async (
-    projectId: string,
-    id: string,
+    params?: ErrorTrackingIssuesSummaryRetrieveParams,
     options?: RequestInit
 ): Promise<ErrorTrackingIssueSummaryResponseApi> => {
     return apiMutator<ErrorTrackingIssueSummaryResponseApi>(
-        getErrorTrackingIssuesSummaryRegenerateCreateUrl(projectId, id),
+        getErrorTrackingIssuesSummaryRetrieveUrl(projectId, id, params),
         {
             ...options,
-            method: 'POST',
+            method: 'GET',
         }
     )
 }
