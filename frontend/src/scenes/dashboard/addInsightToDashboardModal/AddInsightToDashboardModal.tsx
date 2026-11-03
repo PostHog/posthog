@@ -1,12 +1,8 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
-import {
-    getDashboardWidgetGroupIcon,
-    getDashboardWidgetPickerItem,
-} from '@posthog/products-dashboards/frontend/widget_types/catalog'
-
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconInsightFunnels, IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -14,19 +10,20 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
-import { isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import {
+    INSIGHT_TYPES_METADATA,
+    QUERY_TYPES_METADATA,
+    isInsightTypeCreatable,
+} from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { AddSavedInsightsToDashboard } from 'products/product_analytics/frontend/insights/savedInsights/AddSavedInsightsToDashboard'
 
 import { addInsightToDashboardLogic } from '../addInsightToDashboardModalLogic'
 import { dashboardLogic } from '../dashboardLogic'
-
-const METRICS_WIDGET_PICKER_ITEM = getDashboardWidgetPickerItem('metrics:time_series')
-const MetricsWidgetIcon = getDashboardWidgetGroupIcon('metrics')
 
 const QUICK_CREATE_TYPES = [
     { type: InsightType.TRENDS, icon: IconInsightTrends, label: 'Trend' },
@@ -37,8 +34,7 @@ const QUICK_CREATE_TYPES = [
 export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
-    const { dashboard, addWidgetTileLoading } = useValues(dashboardLogic)
-    const { addWidgetTiles } = useAsyncActions(dashboardLogic)
+    const { dashboard } = useValues(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleClose = (): void => {
@@ -53,30 +49,6 @@ export function AddInsightToDashboardModal(): JSX.Element {
         handleClose()
     }
 
-    // New metrics charts are metric widgets, so this adds a widget and opens its editor instead of the insight editor.
-    const offerMetricsWidget =
-        !!METRICS_WIDGET_PICKER_ITEM &&
-        METRICS_WIDGET_PICKER_ITEM.requiredFlags.every(
-            (flag) => !!(featureFlags as Record<string, boolean | string | undefined>)[flag]
-        )
-
-    const handleNewMetricsWidgetClicked = async (): Promise<void> => {
-        if (!dashboard?.id || !METRICS_WIDGET_PICKER_ITEM) {
-            return
-        }
-        posthog.capture('insight dashboard modal - new insight clicked', {
-            insight_type: METRICS_WIDGET_PICKER_ITEM.widgetType,
-        })
-        // addWidgetTiles toasts and rethrows on failure, so the modal stays open for another try.
-        await addWidgetTiles({
-            dashboardId: dashboard.id,
-            widgets: [
-                { widgetType: METRICS_WIDGET_PICKER_ITEM.widgetType, config: METRICS_WIDGET_PICKER_ITEM.defaultConfig },
-            ],
-        })
-        handleClose()
-    }
-
     const additionalTypes = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([type, meta]) =>
             isInsightTypeCreatable(meta, featureFlags) &&
@@ -84,6 +56,10 @@ export function AddInsightToDashboardModal(): JSX.Element {
             type !== InsightType.HOG &&
             !QUICK_CREATE_TYPES.some((qt) => qt.type === type)
     )
+
+    const metricsEnabled =
+        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
+    const MetricsIcon = QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon
 
     return (
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
@@ -148,19 +124,21 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     </LemonButton>
                                                 )
                                             })}
-                                            {offerMetricsWidget ? (
+                                            {metricsEnabled && (
                                                 <LemonButton
                                                     type="tertiary"
                                                     fullWidth
-                                                    icon={MetricsWidgetIcon ? <MetricsWidgetIcon /> : undefined}
-                                                    loading={addWidgetTileLoading}
-                                                    disabledReason={!dashboard?.id ? 'Loading dashboard' : undefined}
-                                                    data-attr="create-metrics-widget"
-                                                    onClick={() => void handleNewMetricsWidgetClicked().catch(() => {})}
+                                                    icon={<MetricsIcon />}
+                                                    to={urls.insightNew({
+                                                        type: InsightType.METRICS,
+                                                        dashboardId: dashboard?.id,
+                                                    })}
+                                                    data-attr="create-metrics"
+                                                    onClick={() => handleNewInsightClicked(InsightType.METRICS)}
                                                 >
-                                                    Metrics
+                                                    {QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name}
                                                 </LemonButton>
-                                            ) : null}
+                                            )}
                                         </div>
                                     }
                                 >

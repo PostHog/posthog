@@ -8821,12 +8821,6 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.ob
         .describe(
             'Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.'
         ),
-    linear_status_sync_enabled: zod
-        .boolean()
-        .optional()
-        .describe(
-            'Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens.'
-        ),
 })
 
 export const ErrorTrackingSeverityRulesListParams = () => zod.object({
@@ -15334,10 +15328,16 @@ export const ErrorTrackingSymbolSetsListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingSymbolSetsListQueryLimitMax = 100
+
 export const errorTrackingSymbolSetsListQueryStatusDefault = `all`
 
 export const ErrorTrackingSymbolSetsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(errorTrackingSymbolSetsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
