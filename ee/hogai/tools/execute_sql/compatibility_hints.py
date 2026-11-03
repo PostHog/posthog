@@ -296,4 +296,4 @@ def _names_a_string_type(types: str) -> bool:
     unwrapped = types
     while (stripped := _TYPE_WRAPPER_RE.sub(r"\1", unwrapped)) != unwrapped:
         unwrapped = stripped
-    return any(part.strip() == "String" for part in re.split(r" and |, ", unwrapped))
+    return any(part.strip().strip("`") == "String" for part in re.split(r" and |, ", unwrapped))

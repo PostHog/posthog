@@ -124,6 +124,11 @@ class TestBuildCompatibilityHint:
                 "`greater` does not accept `Date`, `UInt8`",
             ),
             (
+                "illegal_parenthesized_string_argument",
+                "Code: 43. DB::Exception: Illegal types of arguments (`String`, `UInt8`) of function `greater`: In scope SELECT greater(properties.amount, 100). (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`greater` does not accept `String`, `UInt8`. Event, person",
+            ),
+            (
                 "aggregate_in_group_by",
                 "Code: 184. DB::Exception: Aggregate function count() is found in GROUP BY in query. (ILLEGAL_AGGREGATION)",
                 "`count()` is an aggregate, so it cannot be a GROUP BY key",
