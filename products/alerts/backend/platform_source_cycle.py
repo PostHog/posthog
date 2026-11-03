@@ -48,9 +48,11 @@ from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, c
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
@@ -772,6 +774,18 @@ def _decide(
             context=_context(alert),
             # History shows this reason by its code, and an errored check that repeats announces nothing.
             check_detail={ERROR_CODE_KEY: LLM_DETECTOR_UNAVAILABLE_ERROR_CODE},
+        )
+    except LLMDetectorPausedError as error:
+        # As production: a withdrawn rollout or consent, or no AI credits left, errors the check
+        # without a retry and leaves the alert enabled, so it resumes once that changes.
+        return _verdict(
+            check,
+            snapshot,
+            CheckInput(threshold_breached=False, error_message=str(error)),
+            now=now,
+            skip=SkipReason.QUERY_FAILED,
+            context=_context(alert),
+            check_detail={ERROR_CODE_KEY: LLM_DETECTOR_PAUSED_ERROR_CODE},
         )
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))

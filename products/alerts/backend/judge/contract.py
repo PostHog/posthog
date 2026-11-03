@@ -46,7 +46,16 @@ class LLMDetectorUnavailableError(LLMDetectorError):
 class LLMDetectorMisconfiguredError(LLMDetectorError):
     """The judge cannot run as configured, so retrying cannot help.
 
-    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
+    The creator is missing, so a person must recreate the alert, and the alert is disabled.
+    """
+
+
+class LLMDetectorPausedError(LLMDetectorError):
+    """The judge will not call the model now, but the alert is still configured correctly.
+
+    The rollout is off for the creator, AI data processing consent is withdrawn, or the
+    organization has no AI credits left. Retrying cannot help until that changes. Disabling the
+    alert would make its owner turn it on again by hand, so the check errors and the alert stays on.
     """
 
 
@@ -59,6 +68,11 @@ LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
 LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
     "The AI detector could not complete this check. The alert is still on and the next check tries again."
 )
+
+
+# The message of a paused check is written for the alert's owner, so this code lets it past the
+# serializer's allowlist, and the notifications drop their advice to retry or contact support.
+LLM_DETECTOR_PAUSED_ERROR_CODE = "llm_detector_paused"
 
 
 @frozen
