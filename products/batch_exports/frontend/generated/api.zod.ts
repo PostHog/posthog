@@ -598,12 +598,6 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
-                    narrowSubqueryProperties: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
-                        ),
                     negatedPersonFiltersNotIn: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1590,12 +1584,6 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
-                    narrowSubqueryProperties: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
-                        ),
                     negatedPersonFiltersNotIn: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2341,12 +2329,6 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
-                    narrowSubqueryProperties: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
-                        ),
                     negatedPersonFiltersNotIn: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3076,12 +3058,6 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
-                        ),
-                    narrowSubqueryProperties: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
                         ),
                     negatedPersonFiltersNotIn: zod
                         .union([zod.boolean(), zod.null()])
@@ -3832,12 +3808,6 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
-                    narrowSubqueryProperties: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
-                        ),
                     negatedPersonFiltersNotIn: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4304,12 +4274,6 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
                         ),
-                    narrowSubqueryProperties: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
-                        ),
                     negatedPersonFiltersNotIn: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4581,12 +4545,6 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
-                    ),
-                narrowSubqueryProperties: zod
-                    .union([zod.boolean(), zod.null()])
-                    .optional()
-                    .describe(
-                        "A subquery that exports the events `properties` column exports only the keys its readers read, as a map, so the native events table reads those subcolumns instead of rebuilding every row's document. Unset means on; `false` turns it off."
                     ),
                 negatedPersonFiltersNotIn: zod
                     .union([zod.boolean(), zod.null()])
