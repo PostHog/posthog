@@ -8,6 +8,7 @@ from .judged import (
     JUDGE_MODEL,
     AsyncOnlyScorerMixin,
     JudgedScorer,
+    judge_model,
 )
 from .tracing import TracedScorer, wrap_scorers
 
@@ -23,6 +24,7 @@ __all__ = [
     "NoToolCall",
     "RequiredToolCall",
     "TracedScorer",
+    "judge_model",
     "normalize_tool_name",
     "wrap_scorers",
 ]
