@@ -13,13 +13,13 @@ from django.db import transaction
 
 import structlog
 
-from posthog.dataclasses import frozen
 from posthog.tasks.alerts.investigation_notifications import (
     INVESTIGATION_NOTIFY_GRACE_MINUTES,
     INVESTIGATION_RUNNING_GRACE_MINUTES,
 )
 from posthog.tasks.alerts.utils import _inconclusive_is_suppressed, _should_suppress_notification
 
+from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.models.alert import AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts_platform.backend.facade import api as platform
@@ -79,16 +79,6 @@ def release_held(
         released_by=released_by,
         now=datetime.now(UTC),
     )
-
-
-@frozen
-class InvestigationRelease:
-    """What a finished investigation hands back to the workflow that ran it."""
-
-    # What the workflow starts: the held firing when the verdict let it go out, or the
-    # announcement of a changed verdict on a firing that already went out.
-    deliveries: tuple[AlertDeliveryRequest, ...]
-    previous_verdict: str | None
 
 
 def _hold_of(investigation: InsightAlertInvestigation) -> HeldDeliveryAddress:
