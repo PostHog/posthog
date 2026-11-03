@@ -150,6 +150,21 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return updated > 0
 
 
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's hold. None when the evaluation was never held or is still held."""
+    value = (
+        PlatformAlertDeliveryHold.objects.for_team(address.team_id)
+        .filter(
+            configuration_id=address.configuration_id,
+            evaluation_key=address.evaluation_key,
+            released_at__isnull=False,
+        )
+        .values_list("released_by", flat=True)
+        .first()
+    )
+    return HoldReleasedBy(value) if value else None
+
+
 def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) -> bool:
     """Whether an evaluation has a hold that is not released with a send.
 

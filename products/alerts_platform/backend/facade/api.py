@@ -92,6 +92,12 @@ def source_suppressed_holds_by_legacy_id(
     return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
 
 
+def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
+    """Who released an evaluation's held delivery, so a source can word the message that the release sent.
+    None when the evaluation was never held or is still held."""
+    return delivery_holds.hold_released_by(address)
+
+
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     """The minute a configuration is due for."""
     return platform_lifecycle.slot_of(next_check_at, cutoff)
@@ -319,8 +325,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
-    """Applies an edit a source made to its own row onto the copy the platform owns.
+    """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
+    changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
+    next due at the cadence's `next_check_at`.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -330,6 +340,8 @@ def update_owned_copy(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+        cadence=cadence,
+        rescheduled=rescheduled,
     )
 
 
