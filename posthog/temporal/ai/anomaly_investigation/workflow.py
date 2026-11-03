@@ -21,15 +21,13 @@ from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.tasks.alerts.charts import png_to_b64, render_series_chart
+from posthog.tasks.alerts.investigation_wording import InvestigationBreaches, notebook_url, verdict_breaches
 from posthog.tasks.alerts.metric_definition import describe_metric_definition
 from posthog.tasks.alerts.utils import (
-    InvestigationSummaryLine,
     _should_suppress_notification,
     dispatch_alert_notification,
-    investigation_summary_teaser,
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )
@@ -79,12 +77,6 @@ SIGNAL_SOURCE_TYPE = "anomaly_investigation"
 ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 40 * 60  # 40 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
-
-_VERDICT_LABELS = {
-    "true_positive": "True positive",
-    "false_positive": "False positive",
-    "inconclusive": "Inconclusive",
-}
 
 # Runs started before the agent released a platform evaluation's held delivery, and replay must not start one.
 _PATCH_PLATFORM_RELEASE = "anomaly-investigation-platform-release-2026-11"
@@ -464,7 +456,7 @@ def _build_investigation_signal_extra(
 ) -> dict:
     """The `extra` payload for an anomaly-investigation signal — a plain dict validated against
     `AnomalyInvestigationSignalExtra` inside `emit_signal`."""
-    notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}") if notebook_short_id else absolute_uri("/alerts")
+    url = notebook_url(notebook_short_id) if notebook_short_id else absolute_uri("/alerts")
     extra: dict = {
         "alert_id": str(alert.id),
         "alert_name": alert.name or "Unnamed alert",
@@ -472,7 +464,7 @@ def _build_investigation_signal_extra(
         "insight_id": str(insight.id),
         "detector_type": detector_type,
         "verdict": report.verdict,
-        "url": notebook_url,
+        "url": url,
     }
     # Optional fields — omit when absent so the schema's None defaults apply.
     if insight.name:
@@ -647,7 +639,7 @@ def _deliver_investigation_outcome(
         # block falls back to a divider when absent).
         extra_properties: dict[str, str] = {}
         if notebook_short_id:
-            extra_properties["investigation_notebook_url"] = absolute_uri(f"/notebooks/{notebook_short_id}")
+            extra_properties["investigation_notebook_url"] = notebook_url(notebook_short_id)
         if insight_chart_url:
             extra_properties["insight_chart_url"] = insight_chart_url
         try:
@@ -709,9 +701,7 @@ def _dispatch_verdict_change_followup(
         summary=summary,
         notebook_short_id=notebook_short_id,
     )
-    extra_properties = (
-        {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")} if notebook_short_id else None
-    )
+    extra_properties = {"investigation_notebook_url": notebook_url(notebook_short_id)} if notebook_short_id else None
     try:
         # The savepoint keeps a database failure inside the dispatch from poisoning the
         # caller's transaction once the handler below swallows it.
@@ -766,12 +756,6 @@ def _dispatch_verdict_change_followup(
     )
 
 
-@frozen
-class _BreachDescriptions:
-    lines: list[str]
-    summary: InvestigationSummaryLine | None
-
-
 def _build_breach_descriptions(
     *,
     alert_check,
@@ -779,42 +763,15 @@ def _build_breach_descriptions(
     previous_verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
-) -> _BreachDescriptions:
-    """Compose the strings that populate the `match_descriptions` list in the
-    existing alert email template. Keeps the current template working while
-    giving gated notifications richer body content.
-
-    The summary line holds a plain-text teaser. Email renders the full Markdown in its place.
-    """
-    lines: list[str] = []
-    if previous_verdict and verdict and verdict != previous_verdict:
-        lines.append(
-            f"Investigation verdict changed from {_VERDICT_LABELS.get(previous_verdict, previous_verdict)} "
-            f"to {_VERDICT_LABELS.get(verdict, verdict)} while this alert keeps firing."
-        )
-    triggered_dates = alert_check.triggered_dates or []
-    if triggered_dates:
-        if len(triggered_dates) == 1:
-            lines.append(f"Anomaly detected on {triggered_dates[0]}.")
-        else:
-            lines.append(f"Anomaly detected from {triggered_dates[0]} to {triggered_dates[-1]}.")
-    elif alert_check.calculated_value is not None:
-        lines.append(f"Calculated value at fire: {alert_check.calculated_value}.")
-    else:
-        lines.append("Anomaly detected.")
-
-    verdict_label = _VERDICT_LABELS.get(verdict or "", "")
-    if verdict_label:
-        lines.append(f"Investigation verdict: {verdict_label}.")
-    summary_line = None
-    teaser = investigation_summary_teaser(summary)
-    if teaser:
-        summary_line = InvestigationSummaryLine(index=len(lines), markdown=summary)
-        lines.append(teaser)
-    if notebook_short_id:
-        notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
-        lines.append(f"See {notebook_url} for the full investigation.")
-    return _BreachDescriptions(lines=lines, summary=summary_line)
+) -> InvestigationBreaches:
+    return verdict_breaches(
+        triggered_dates=alert_check.triggered_dates or [],
+        value=alert_check.calculated_value,
+        verdict=verdict,
+        previous_verdict=previous_verdict,
+        summary=summary,
+        notebook_short_id=notebook_short_id,
+    )
 
 
 async def _mark_running(subject: AlertCheck | InsightAlertInvestigation) -> None:

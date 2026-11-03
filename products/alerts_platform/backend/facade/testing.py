@@ -107,6 +107,24 @@ def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
 
 
+def release_held_delivery(
+    *, team_id: int, configuration_id: UUID, evaluation_key: str, released_by: HoldReleasedBy, at: datetime
+) -> None:
+    """An evaluation whose delivery was held and then released with a send, as a message reader finds it."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=evaluation_key,
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=HoldRelease.SEND,
+        released_by=released_by,
+    )
+
+
 def deliver(request: AlertDeliveryRequest) -> int:
     """Send a recorded evaluation's delivery as the delivery activity does. Returns how many destinations took it."""
     return deliver_evaluation(request).sent
