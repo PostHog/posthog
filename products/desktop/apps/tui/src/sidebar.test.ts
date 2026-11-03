@@ -133,6 +133,32 @@ describe("sidebarRows", () => {
       "New chat",
       "[inbox zero]",
     ]);
+    // A chat opened from search shows there only while the main view holds it.
+    const openedInMain = (taskId: string): string[] =>
+      labels(
+        sidebarRows({
+          layout: openTask(initialLayout(), taskId),
+          work,
+          collapsed: new Set(),
+          working: new Set(),
+          showToday: false,
+          scope: "inbox",
+          inbox: new Set(["b"]),
+        }),
+      ).filter((label) => label !== "");
+    expect(openedInMain("a")).toEqual([
+      "# Work",
+      "## Inbox",
+      "New chat",
+      "Task a",
+      "Task b",
+    ]);
+    expect(openedInMain("b")).toEqual([
+      "# Work",
+      "## Inbox",
+      "New chat",
+      "Task b",
+    ]);
   });
 
   it("keeps one Work list, with split tasks in their workspace and in Chats", () => {

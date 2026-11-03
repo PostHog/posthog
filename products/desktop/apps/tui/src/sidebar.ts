@@ -269,13 +269,9 @@ export function sidebarRows({
         else newChatPaneId = pane.id;
       } else if (listed.has(pane.taskId) || pinnedIds.has(pane.taskId))
         singlePaneOf.set(pane.taskId, pane.id);
-      // Shown once the list has loaded, so loading never lists tasks by saved name alone. The Inbox tab shows it
-      // only when it needs the user, as it would a listed chat.
-      else if (
-        work.tasks !== null &&
-        (scope !== "inbox" ||
-          (inbox.has(pane.taskId) && !persistent.has(pane.taskId)))
-      ) {
+      // Shown once the list has loaded, so loading never lists tasks by saved name alone. On the Inbox tab this is a
+      // chat opened from elsewhere, shown while the main view holds it.
+      else if (work.tasks !== null) {
         unlisted.push(taskRow(pane.taskId, pane.id, false, pane.title));
       }
       return;
