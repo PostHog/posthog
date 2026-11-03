@@ -46,8 +46,8 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                   : null,
           } as unknown as ReplayScanner)
         : []
+    // The date range is never kept either, but "new recordings only" already says so.
     const notKept = [
-        'the date range',
         ...(handoff.pinnedSessionCount > 0 ? [pluralize(handoff.pinnedSessionCount, 'pinned recording')] : []),
         ...(handoff.droppedCommentSearch ? ['the comment search'] : []),
     ].join(', ')
@@ -70,15 +70,12 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                         : 'Create a Replay vision scanner'}
                 </div>
                 <div className="text-xs text-secondary">
-                    A Replay vision scanner watches new session recordings for you.{' '}
-                    {handoff.narrowsSessions
-                        ? 'It starts from these filters, and PostHog AI can narrow them to fit what you ask.'
-                        : 'With no filters, it starts from every new recording, and PostHog AI can narrow that to fit what you ask.'}
+                    A Replay vision scanner watches new session recordings for you.
                 </div>
             </div>
 
-            <div className="flex flex-col gap-1.5 rounded border border-dashed border-primary p-2">
-                <div className="text-xxs font-semibold uppercase text-secondary">Starts from these recordings</div>
+            <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold">Which recordings it watches</span>
                 <div className="flex flex-wrap gap-1">
                     {filterGroups.length > 0 ? (
                         filterGroups.flatMap((group) =>
@@ -96,13 +93,9 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                     )}
                 </div>
                 <div className="text-xs text-secondary">
-                    Not kept: {notKept}. The Replay vision scanner starts from now.
+                    New recordings only. PostHog AI can narrow them to fit your goal.
+                    {notKept ? <span> Not kept: {notKept}.</span> : null}
                 </div>
-                {!handoff.narrowsSessions ? (
-                    <div className="text-xs text-secondary">
-                        To watch only some recordings, close this and add a filter.
-                    </div>
-                ) : null}
             </div>
 
             <div className="flex flex-col gap-1">

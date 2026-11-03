@@ -129,7 +129,7 @@ export interface alertNotificationLogicActions {
         existingHogFunctions: HogFunctionType[]
         payload?: any
     }
-    loadNewAlertPagerDutyAvailable: (query: NewAlertPagerDutyQuery) => any
+    loadNewAlertPagerDutyAvailable: (query: NewAlertPagerDutyQuery) => NewAlertPagerDutyQuery
     loadNewAlertPagerDutyAvailableFailure: (
         error: string,
         errorObject?: any
@@ -139,10 +139,10 @@ export interface alertNotificationLogicActions {
     }
     loadNewAlertPagerDutyAvailableSuccess: (
         newAlertPagerDutyAvailable: boolean,
-        payload?: any
+        payload?: NewAlertPagerDutyQuery
     ) => {
         newAlertPagerDutyAvailable: boolean
-        payload?: any
+        payload?: NewAlertPagerDutyQuery
     }
     removePendingNotification: (index: number) => {
         index: number
