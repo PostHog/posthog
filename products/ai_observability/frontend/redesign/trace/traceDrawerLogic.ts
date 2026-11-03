@@ -74,6 +74,18 @@ function writeUrlParams(method: 'push' | 'replace', changes: Record<string, stri
     )
 }
 
+// Other logics write the router's decoded params back to the URL, and the router decodes `1.50` as the number 1.5.
+function isNumberRewriteOf(current: TraceListRow, previous: TraceListRow): boolean {
+    const pairs = [
+        [previous.traceId, current.traceId],
+        [previous.stepId, current.stepId],
+    ]
+    return (
+        pairs.some(([before, after]) => before !== after) &&
+        pairs.every(([before, after]) => before === after || (before !== null && String(Number(before)) === after))
+    )
+}
+
 function trackDrawerClosed(cache: Record<string, any>): void {
     if (cache.stepsTaken === undefined) {
         return
@@ -266,7 +278,11 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
         },
     })),
     subscriptions(({ actions, cache, props, values }) => ({
-        openRef: (openRef: TraceListRow | null) => {
+        openRef: (openRef: TraceListRow | null, previousRef: TraceListRow | null | undefined) => {
+            if (openRef && previousRef && isNumberRewriteOf(openRef, previousRef)) {
+                writeUrlParams('replace', toDrawerParams(previousRef))
+                return
+            }
             actions.requestStep(openRef?.stepId ?? null)
             if (!openRef) {
                 trackDrawerClosed(cache)

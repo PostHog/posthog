@@ -227,6 +227,16 @@ describe('traceDrawerLogic', () => {
         expect(logic.values.openRef).toEqual({ traceId: '1.50', timestamp: '2026', stepId: '2.0' })
     })
 
+    it('keeps a numeric trace and step as text when another logic rewrites the URL', () => {
+        setUp({ url: `${LIST_PATH}?date_from=-7d&trace=1.50&ts=2026&step=2.0` })
+
+        router.actions.replace(router.values.location.pathname, { ...router.values.searchParams, date_from: '-1d' })
+
+        expect(logic.values.openRef).toEqual({ traceId: '1.50', timestamp: '2026', stepId: '2.0' })
+        expect(param('date_from')).toBe('-1d')
+        expect(browserHistory).toHaveLength(1)
+    })
+
     it('treats an empty trace param as closed', () => {
         setUp({ url: `${LIST_PATH}?trace=` })
 
