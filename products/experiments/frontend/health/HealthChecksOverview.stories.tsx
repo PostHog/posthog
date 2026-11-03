@@ -256,7 +256,9 @@ export const CheckDetailsWithAMeasurement: Story = {
         exposureChecksMissing: false,
     },
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByRole('button', { name: /Users exposed to multiple variants/ }))
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Users exposed to multiple variants/ })
+        )
     },
 }
 
@@ -276,6 +278,8 @@ export const CheckDetailsOfACheckThatDoesNotApply: Story = {
         exposureChecksMissing: false,
     },
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByRole('button', { name: /Variant split changes since launch/ }))
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Variant split changes since launch/ })
+        )
     },
 }
