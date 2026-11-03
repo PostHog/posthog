@@ -17,7 +17,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { buildLogErrorsLogicProps } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/RelatedErrors/buildLogErrorsLogicProps'
 import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-import { getDistinctIdWithKey, getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
+import { getDistinctIdWithKey, getSessionIdFromLogAttributes, getWorkflowIdFromLog } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 import { type ErrorScope } from 'products/tracing/frontend/errorCorrelation'
@@ -27,9 +27,6 @@ import { MissingLinkInvestigate } from './MissingLinkInvestigate'
 import { MissingLink } from './missingLinkPrompt'
 
 export type LogContextLinksSurface = 'drawer' | 'row'
-
-// Must match SERVICE_NAMES in nodejs/src/logs/internal-logs-producer.ts, which sets log_source_id to the workflow ID.
-const INTERNAL_WORKFLOWS_SERVICE = 'posthog-internal-workflows'
 
 // Frozen data-attr values: autocapture dashboards match on them, so the two surfaces keep different trace attrs.
 const TRACE_DATA_ATTR: Record<LogContextLinksSurface, string> = {
@@ -64,10 +61,7 @@ export function LogContextLinks({
     const sessionId = getSessionIdFromLogAttributes(log.attributes, log.resource_attributes, configuredSessionIdKeys)
     const distinctId = getDistinctIdWithKey(log.attributes, log.resource_attributes, configuredDistinctIdKeys)?.value
 
-    const workflowId =
-        log.resource_attributes?.['service.name'] === INTERNAL_WORKFLOWS_SERVICE
-            ? log.attributes.log_source_id
-            : undefined
+    const workflowId = getWorkflowIdFromLog(log)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
