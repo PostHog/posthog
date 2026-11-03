@@ -11142,15 +11142,30 @@ const schema103 = {
             type: 'string',
         },
         response: { type: 'object' },
+        unit: { $ref: '#/definitions/ExperimentWarehouseNativeUnitBinding' },
         version: { description: 'version of the node, used for schema migrations', type: 'number' },
     },
-    required: ['connection_id', 'kind', 'query'],
+    required: ['connection_id', 'kind', 'query', 'unit'],
     type: 'object',
 }
 const schema104 = {
     description: 'The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values.',
     enum: ['total', 'sum'],
     type: 'string',
+}
+const schema105 = {
+    additionalProperties: false,
+    description:
+        'What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on `entity_id` inside the warehouse, and the same connection does not make two queries compatible: one can return account ids and another customer ids. Every warehouse-native source stores its binding so a saved metric keeps it when it is attached to another experiment, and so attachment can compare bindings instead of guessing from SQL. Equal labels are required for compatibility but cannot prove the SQL returns the same identities; the author confirms that.',
+    properties: {
+        id_namespace: { description: 'Which ids represent that unit, such as `billing_customer_id`.', type: 'string' },
+        unit_type: {
+            description: 'What was randomized, as a stable project-scoped label such as `customer` or `account`.',
+            type: 'string',
+        },
+    },
+    required: ['unit_type', 'id_namespace'],
+    type: 'object',
 }
 function validate111(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
@@ -11161,7 +11176,8 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
             if (
                 (data.connection_id === undefined && (missing0 = 'connection_id')) ||
                 (data.kind === undefined && (missing0 = 'kind')) ||
-                (data.query === undefined && (missing0 = 'query'))
+                (data.query === undefined && (missing0 = 'query')) ||
+                (data.unit === undefined && (missing0 = 'unit'))
             ) {
                 validate111.errors = [
                     {
@@ -11176,18 +11192,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (
-                        !(
-                            key0 === 'connection_id' ||
-                            key0 === 'custom_name' ||
-                            key0 === 'kind' ||
-                            key0 === 'math' ||
-                            key0 === 'math_property' ||
-                            key0 === 'query' ||
-                            key0 === 'response' ||
-                            key0 === 'version'
-                        )
-                    ) {
+                    if (!func2.call(schema103.properties, key0)) {
                         validate111.errors = [
                             {
                                 instancePath,
@@ -11362,24 +11367,146 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                 var valid0 = true
                                             }
                                             if (valid0) {
-                                                if (data.version !== undefined) {
-                                                    let data7 = data.version
+                                                if (data.unit !== undefined) {
+                                                    let data7 = data.unit
                                                     const _errs17 = errors
-                                                    if (!(typeof data7 == 'number' && isFinite(data7))) {
-                                                        validate111.errors = [
-                                                            {
-                                                                instancePath: instancePath + '/version',
-                                                                schemaPath: '#/properties/version/type',
-                                                                keyword: 'type',
-                                                                params: { type: 'number' },
-                                                                message: 'must be number',
-                                                            },
-                                                        ]
-                                                        return false
+                                                    const _errs18 = errors
+                                                    if (errors === _errs18) {
+                                                        if (
+                                                            data7 &&
+                                                            typeof data7 == 'object' &&
+                                                            !Array.isArray(data7)
+                                                        ) {
+                                                            let missing1
+                                                            if (
+                                                                (data7.unit_type === undefined &&
+                                                                    (missing1 = 'unit_type')) ||
+                                                                (data7.id_namespace === undefined &&
+                                                                    (missing1 = 'id_namespace'))
+                                                            ) {
+                                                                validate111.errors = [
+                                                                    {
+                                                                        instancePath: instancePath + '/unit',
+                                                                        schemaPath:
+                                                                            '#/definitions/ExperimentWarehouseNativeUnitBinding/required',
+                                                                        keyword: 'required',
+                                                                        params: { missingProperty: missing1 },
+                                                                        message:
+                                                                            "must have required property '" +
+                                                                            missing1 +
+                                                                            "'",
+                                                                    },
+                                                                ]
+                                                                return false
+                                                            } else {
+                                                                const _errs20 = errors
+                                                                for (const key1 in data7) {
+                                                                    if (
+                                                                        !(
+                                                                            key1 === 'id_namespace' ||
+                                                                            key1 === 'unit_type'
+                                                                        )
+                                                                    ) {
+                                                                        validate111.errors = [
+                                                                            {
+                                                                                instancePath: instancePath + '/unit',
+                                                                                schemaPath:
+                                                                                    '#/definitions/ExperimentWarehouseNativeUnitBinding/additionalProperties',
+                                                                                keyword: 'additionalProperties',
+                                                                                params: { additionalProperty: key1 },
+                                                                                message:
+                                                                                    'must NOT have additional properties',
+                                                                            },
+                                                                        ]
+                                                                        return false
+                                                                        break
+                                                                    }
+                                                                }
+                                                                if (_errs20 === errors) {
+                                                                    if (data7.id_namespace !== undefined) {
+                                                                        const _errs21 = errors
+                                                                        if (typeof data7.id_namespace !== 'string') {
+                                                                            validate111.errors = [
+                                                                                {
+                                                                                    instancePath:
+                                                                                        instancePath +
+                                                                                        '/unit/id_namespace',
+                                                                                    schemaPath:
+                                                                                        '#/definitions/ExperimentWarehouseNativeUnitBinding/properties/id_namespace/type',
+                                                                                    keyword: 'type',
+                                                                                    params: { type: 'string' },
+                                                                                    message: 'must be string',
+                                                                                },
+                                                                            ]
+                                                                            return false
+                                                                        }
+                                                                        var valid3 = _errs21 === errors
+                                                                    } else {
+                                                                        var valid3 = true
+                                                                    }
+                                                                    if (valid3) {
+                                                                        if (data7.unit_type !== undefined) {
+                                                                            const _errs23 = errors
+                                                                            if (typeof data7.unit_type !== 'string') {
+                                                                                validate111.errors = [
+                                                                                    {
+                                                                                        instancePath:
+                                                                                            instancePath +
+                                                                                            '/unit/unit_type',
+                                                                                        schemaPath:
+                                                                                            '#/definitions/ExperimentWarehouseNativeUnitBinding/properties/unit_type/type',
+                                                                                        keyword: 'type',
+                                                                                        params: { type: 'string' },
+                                                                                        message: 'must be string',
+                                                                                    },
+                                                                                ]
+                                                                                return false
+                                                                            }
+                                                                            var valid3 = _errs23 === errors
+                                                                        } else {
+                                                                            var valid3 = true
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        } else {
+                                                            validate111.errors = [
+                                                                {
+                                                                    instancePath: instancePath + '/unit',
+                                                                    schemaPath:
+                                                                        '#/definitions/ExperimentWarehouseNativeUnitBinding/type',
+                                                                    keyword: 'type',
+                                                                    params: { type: 'object' },
+                                                                    message: 'must be object',
+                                                                },
+                                                            ]
+                                                            return false
+                                                        }
                                                     }
                                                     var valid0 = _errs17 === errors
                                                 } else {
                                                     var valid0 = true
+                                                }
+                                                if (valid0) {
+                                                    if (data.version !== undefined) {
+                                                        let data10 = data.version
+                                                        const _errs25 = errors
+                                                        if (!(typeof data10 == 'number' && isFinite(data10))) {
+                                                            validate111.errors = [
+                                                                {
+                                                                    instancePath: instancePath + '/version',
+                                                                    schemaPath: '#/properties/version/type',
+                                                                    keyword: 'type',
+                                                                    params: { type: 'number' },
+                                                                    message: 'must be number',
+                                                                },
+                                                            ]
+                                                            return false
+                                                        }
+                                                        var valid0 = _errs25 === errors
+                                                    } else {
+                                                        var valid0 = true
+                                                    }
                                                 }
                                             }
                                         }
@@ -12161,7 +12288,7 @@ function validate85(data, { instancePath = '', parentData, parentDataProperty, r
     validate85.errors = vErrors
     return errors === 0
 }
-const schema105 = {
+const schema106 = {
     additionalProperties: false,
     properties: {
         breakdownAttributionType: {
@@ -12192,9 +12319,9 @@ const schema105 = {
     required: ['kind', 'metric_type', 'series'],
     type: 'object',
 }
-const schema106 = { enum: ['first_touch', 'last_touch', 'all_events', 'step'], type: 'string' }
-const schema109 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
-const schema111 = {
+const schema107 = { enum: ['first_touch', 'last_touch', 'all_events', 'step'], type: 'string' }
+const schema110 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
+const schema112 = {
     discriminator: { propertyName: 'kind' },
     oneOf: [
         { $ref: '#/definitions/EventsNode' },
@@ -12331,7 +12458,7 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema105.properties, key0)) {
+                    if (!func2.call(schema106.properties, key0)) {
                         validate115.errors = [
                             {
                                 instancePath,
@@ -12374,7 +12501,7 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                     instancePath: instancePath + '/breakdownAttributionType',
                                     schemaPath: '#/definitions/BreakdownAttributionType/enum',
                                     keyword: 'enum',
-                                    params: { allowedValues: schema106.enum },
+                                    params: { allowedValues: schema107.enum },
                                     message: 'must be equal to one of the allowed values',
                                 },
                             ]
@@ -12532,7 +12659,7 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
                                                             instancePath: instancePath + '/funnel_order_type',
                                                             schemaPath: '#/definitions/StepOrderValue/enum',
                                                             keyword: 'enum',
-                                                            params: { allowedValues: schema109.enum },
+                                                            params: { allowedValues: schema110.enum },
                                                             message: 'must be equal to one of the allowed values',
                                                         },
                                                     ]
@@ -12878,7 +13005,7 @@ function validate115(data, { instancePath = '', parentData, parentDataProperty, 
     validate115.errors = vErrors
     return errors === 0
 }
-const schema112 = {
+const schema113 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -12902,7 +13029,7 @@ const schema112 = {
     required: ['denominator', 'kind', 'metric_type', 'numerator'],
     type: 'object',
 }
-const schema115 = {
+const schema116 = {
     additionalProperties: false,
     properties: {
         ignore_zeros: { type: 'boolean' },
@@ -12948,7 +13075,7 @@ function validate123(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema112.properties, key0)) {
+                    if (!func2.call(schema113.properties, key0)) {
                         validate123.errors = [
                             {
                                 instancePath,
@@ -13868,7 +13995,7 @@ function validate123(data, { instancePath = '', parentData, parentDataProperty, 
     validate123.errors = vErrors
     return errors === 0
 }
-const schema118 = {
+const schema119 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -13903,7 +14030,7 @@ const schema118 = {
     ],
     type: 'object',
 }
-const schema119 = {
+const schema120 = {
     discriminator: { propertyName: 'kind' },
     oneOf: [
         { $ref: '#/definitions/EventsNode' },
@@ -14016,7 +14143,7 @@ function validate130(data, { instancePath = '', parentData, parentDataProperty, 
     validate130.errors = vErrors
     return errors === 0
 }
-const schema126 = {
+const schema127 = {
     discriminator: { propertyName: 'kind' },
     oneOf: [
         { $ref: '#/definitions/EventsNode' },
@@ -14027,7 +14154,7 @@ const schema126 = {
     required: ['kind'],
     type: 'object',
 }
-const schema127 = {
+const schema128 = {
     additionalProperties: false,
     description:
         "Sentinel start source for retention metrics. It carries no event of its own: at query time it resolves to the experiment's exposure, so one shared metric anchors correctly on any experiment regardless of that experiment's exposure event.",
@@ -14325,7 +14452,7 @@ function validate128(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema118.properties, key0)) {
+                    if (!func2.call(schema119.properties, key0)) {
                         validate128.errors = [
                             {
                                 instancePath,
@@ -14824,7 +14951,7 @@ function validate128(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                     keyword: 'enum',
                                                                                                     params: {
                                                                                                         allowedValues:
-                                                                                                            schema118
+                                                                                                            schema119
                                                                                                                 .properties
                                                                                                                 .start_handling
                                                                                                                 .enum,

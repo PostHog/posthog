@@ -1,7 +1,6 @@
 import json
 import base64
 import hashlib
-from ipaddress import ip_address
 from typing import cast
 from urllib.parse import urlencode
 
@@ -44,6 +43,7 @@ from posthog.models.oauth import (
 )
 from posthog.models.oauth_provisioning import PartnerTier
 from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
@@ -184,7 +184,7 @@ def test_validate_cimd_url_ssrf_blocked(mock_return, url, expected_error):
         assert error == expected_error
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestFetchCimdMetadata(SimpleTestCase):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_success(self, mock_get, _url_mock):
@@ -213,12 +213,12 @@ class TestFetchCimdMetadata(SimpleTestCase):
 
     # Patched in the body: a method-level patch of the class-patched resolver would lose to it.
     def test_unresolvable_host_says_so(self, _url_mock):
-        with patch("posthog.security.url_validation.resolve_host_ips", return_value=set()):
+        with mock_anti_ssrf_dns_lookup(resolves_to=[]):
             with self.assertRaisesRegex(CIMDValidationError, "host name does not resolve"):
                 fetch_cimd_metadata(VALID_CIMD_URL)
 
     def test_internal_address_is_refused_without_naming_it(self, _url_mock):
-        with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("10.0.0.5")}):
+        with mock_anti_ssrf_dns_lookup(resolves_to=["10.0.0.5"]):
             with self.assertRaises(CIMDValidationError) as ctx:
                 fetch_cimd_metadata(VALID_CIMD_URL)
         self.assertIn("not a public internet address", str(ctx.exception))
@@ -370,7 +370,7 @@ class TestFetchCimdMetadata(SimpleTestCase):
         self.assertEqual(ttl, 3600)  # Default 1 hour
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestFetchAndUpsertCimdApplication(APIBaseTest):
     """Tests for fetch_and_upsert_cimd_application — the core fetch+create/update function."""
 
@@ -614,7 +614,7 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         self.assertIsNone(real_cache.get(_fetch_lock_key(VALID_CIMD_URL)))
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestGetOrCreateCimdApplication(APIBaseTest):
     """Tests for get_or_create_cimd_application — the orchestration layer."""
 
@@ -740,7 +740,7 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
         mock_capture.assert_not_called()
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestApplyProvisioningDefaults(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_opting_a_cimd_app_in_grants_the_full_default_profile(self, mock_get, _url_mock):
@@ -848,7 +848,7 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         self.assertTrue(app.provisioning.can_create_accounts)
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCIMDVerificationToken(APIBaseTest):
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_valid_verification_token_links_app_to_organization(self, mock_get, _url_mock):
@@ -1017,7 +1017,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         self.assertEqual(refreshed.provisioning.rate_limits, {"account_requests": 250})
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCIMDVerificationTokenURLBinding(APIBaseTest):
     """The metadata document is public, so the token in it can be read and republished
     by anyone. These lock in that the URL is what decides who the token belongs to."""
@@ -1089,7 +1089,7 @@ class TestCIMDVerificationTokenURLBinding(APIBaseTest):
         self.assertEqual(app.organization_id, self.organization.id)
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
     """`_capture_verification_rejected` emits `cimd_verification_token_rejected`. These lock in:
     the event reaching an injected capture callable (so it isn't silently dropped in Celery),
@@ -1196,7 +1196,7 @@ class TestCIMDVerificationRejectedCaptureEvent(APIBaseTest):
         self.assertEqual(rejected[0].kwargs["properties"]["reason"], "app_url_missing")
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCIMDAuthorizeIntegration(APIBaseTest):
     """Integration tests for the CIMD flow through /oauth/authorize/."""
 
@@ -1423,7 +1423,7 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         self.assertEqual(app.client_type, OAuthApplication.CLIENT_PUBLIC)
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCIMDComPostHogNamespace(APIBaseTest):
     """Tests for the com.posthog namespace: scopes and nested verification_token."""
 

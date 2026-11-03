@@ -1048,6 +1048,40 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         )
 
     @parameterized.expand(
+        [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_write_actions_refuse_a_member_denied_the_view(self, action, mock_sync_connect):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+        node_url = f"{self._list_url()}{self.node.id}/"
+        edge_url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        if action == "update_node":
+            response = self.client.patch(node_url, {"description": "changed"}, format="json")
+        elif action == "update_edge":
+            response = self.client.patch(edge_url, {"properties": {"changed": True}}, format="json")
+        elif action == "delete_node":
+            response = self.client.delete(node_url)
+        elif action == "delete_edge":
+            response = self.client.delete(edge_url)
+        else:
+            response = self.client.post(f"{node_url}{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {})
+        self.node.refresh_from_db()
+        self.assertNotEqual(self.node.description, "changed")
+        self.assertNotEqual(suspension_state(self.node), {})
+        mock_sync_connect.assert_not_called()
+
+    @parameterized.expand(
         [
             ("list_granted", False, "viewer", status.HTTP_200_OK),
             ("list_denied", False, None, status.HTTP_403_FORBIDDEN),

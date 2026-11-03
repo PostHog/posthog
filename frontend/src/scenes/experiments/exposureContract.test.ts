@@ -262,7 +262,12 @@ describe('exposureContract', () => {
         ],
         [
             'a warehouse exposure',
-            { kind: NodeKind.ExperimentWarehouseNativeExposureConfig, connection_id: 'x', query: 'SELECT 1' },
+            {
+                kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+                connection_id: 'x',
+                query: 'SELECT 1',
+                unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+            },
             false,
         ],
     ])(
