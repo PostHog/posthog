@@ -10,7 +10,7 @@ use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::refs::UrlAsset;
 use replay_core_v4::scan::message::read_message;
 use replay_core_v4::seal::image_url_key;
-use replay_core_v4::url_policy::without_credentials;
+use replay_core_v4::url_policy::{redaction, Redaction};
 use replay_recorder_v4::batch::{Block, Origin, SessionKey, Tp};
 use replay_recorder_v4::urls::url_reference;
 use replay_recorder_v4::write::{write_block, WriterCounts};
@@ -59,6 +59,7 @@ enum Slot {
     DataSrc,
     Filter,
     Import,
+    SvgFill,
 }
 
 const SLOTS: &[Slot] = &[
@@ -83,6 +84,7 @@ const SLOTS: &[Slot] = &[
     Slot::DataSrc,
     Slot::Filter,
     Slot::Import,
+    Slot::SvgFill,
 ];
 
 impl Slot {
@@ -109,7 +111,12 @@ impl Slot {
     fn is_link(self) -> bool {
         matches!(
             self,
-            Slot::Href | Slot::FormAction | Slot::DataSrc | Slot::Filter | Slot::Import
+            Slot::Href
+                | Slot::FormAction
+                | Slot::DataSrc
+                | Slot::Filter
+                | Slot::Import
+                | Slot::SvgFill
         )
     }
 
@@ -159,7 +166,7 @@ fn draw_url(tc: &TestCase, index: usize, refused: bool) -> String {
         return format!("{scheme}{ACCEPTED}-{index}.example.com/{path}");
     }
     let host = HOSTS[draw_index(tc, HOSTS.len())];
-    match draw_index(tc, 9) {
+    match draw_index(tc, 10) {
         0 => format!(
             "/{path}{}{SECRET}",
             REFUSALS[draw_index(tc, REFUSALS.len())]
@@ -172,6 +179,11 @@ fn draw_url(tc: &TestCase, index: usize, refused: bool) -> String {
         ),
         // A relative URL's host is the page's, which can be an Oracle bucket.
         6 => format!("/p/{SECRET}/n/ns/b/bucket/o/{path}"),
+        // On a page of its scheme a browser reads this as a path, where the URL parser alone reads a host.
+        7 => format!(
+            "{}bcdn_token={SECRET}&expires=1/{path}",
+            ["https:", "https:/"][draw_index(tc, 2)]
+        ),
         1 => format!("{scheme}u:{SECRET}@{host}/{path}"),
         // The policy finds these tokens by their place in the path, and the Oracle one by its host too.
         2 => format!(
@@ -544,6 +556,7 @@ fn events(tc: &TestCase, placed: &[Placed], shape: Shape) -> String {
                 "style",
                 json!({"_cssText": format!("@import {};", function())}),
             )),
+            Slot::SvgFill => added.push(element(&mut id, "rect", json!({"fill": function()}))),
             Slot::PictureSource => {
                 known.push(element(&mut id, "picture", json!({})));
                 let parent = id;
@@ -754,7 +767,12 @@ fn a_stored_block_holds_a_credential_only_in_copies(tc: TestCase) {
 fn a_url_without_its_credentials_holds_no_secret(tc: TestCase) {
     let url = draw_url(&tc, 0, true);
     let (written, _) = draw_spelling(&tc, Slot::ImgSrc, &url);
-    let kept = without_credentials(&written).unwrap_or_else(|| panic!("{written:?}"));
+    let kept = match redaction(&written) {
+        Redaction::Redacted(kept) => kept,
+        // The block keeps a decline marker in its place.
+        Redaction::Unread => return,
+        Redaction::Clean => panic!("{written:?}"),
+    };
     assert!(
         !kept
             .replace(['\t', '\n'], "")

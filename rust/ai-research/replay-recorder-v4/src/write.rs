@@ -978,6 +978,12 @@ mod tests {
             json!([style(
                 "cursor:pointer;filter:url(https://cdn.example.com/f.svg?X-Amz-Signature=abc123#f)"
             )]),
+            json!([link(
+                "rect",
+                json!({"fill": "url(https://cdn.example.com/p.svg?X-Amz-Signature=abc123#g)"})
+            )]),
+            // On a page of its scheme, a browser reads `https:` with no slashes as a path on the page's host.
+            json!([link("a", json!({"href": "https:bcdn_token=abc123/a.png"}))]),
             // This window has no page URL, so the set's root-relative candidate cannot load, and keeps its place.
             json!([style(
                 "background-image:image-set(url(/a.png?X-Amz-Signature=abc123) 1x)"

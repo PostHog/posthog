@@ -24,15 +24,15 @@ static RELATIVE_BASE: LazyLock<Url> =
 pub enum Redaction {
     Clean,
     Redacted(String),
-    /// The URL can hold a credential, but it is longer than [`MAX_URL_LEN`] or the URL parser does not read it, so the
-    /// redaction cannot tell what the policy would read in it.
+    /// The URL can hold a credential that the redaction cannot cut out: it is longer than [`MAX_URL_LEN`], the URL parser
+    /// does not read it, or one reading of it takes the credential as its host.
     Unread,
 }
 
 /// `raw` without its userinfo, the credential parameters of its query and fragment, and the path segments that hold a
 /// token. The rest stays as the page wrote it, apart from the tabs, line breaks and outer spaces that the URL parser
 /// drops. When the policy still reads a credential after those cuts, as in a path that hides a token behind a dot
-/// segment, only the URL's origin stays.
+/// segment, only the URL's origin stays, and none of it when the origin holds one too.
 pub fn redaction(raw: &str) -> Redaction {
     // A `data:` URI can be tens of megabytes, so its scheme is read before anything else.
     if !is_hierarchical(raw) {
@@ -44,20 +44,29 @@ pub fn redaction(raw: &str) -> Redaction {
     if url.len() > MAX_URL_LEN {
         return Redaction::Unread;
     }
-    let Some(parsed) = parsed_as_the_policy_does(&url) else {
+    let read = readings(&url);
+    let Some(first) = read.first() else {
         return Redaction::Unread;
     };
-    if !holds_credential(&parsed) {
+    if !read.iter().any(holds_credential) {
         return Redaction::Clean;
     }
     let Some(parts) = Parts::of(&url) else {
         return Redaction::Unread;
     };
-    let cut = parts.without_credentials(&url, page_host(&parsed));
-    if parsed_as_the_policy_does(&cut).is_some_and(|cut| !holds_credential(&cut)) {
+    let is_clean = |text: &str| {
+        let read = readings(text);
+        !read.is_empty() && !read.iter().any(holds_credential)
+    };
+    let cut = parts.without_credentials(&url, page_host(first));
+    if is_clean(&cut) {
         return Redaction::Redacted(cut);
     }
-    Redaction::Redacted(parts.origin(&url))
+    let origin = parts.origin(&url);
+    if is_clean(&origin) {
+        return Redaction::Redacted(origin);
+    }
+    Redaction::Unread
 }
 
 pub fn needs_redaction(raw: &str) -> bool {
@@ -71,9 +80,27 @@ pub fn without_credentials(raw: &str) -> Option<String> {
     }
 }
 
-/// The policy parses a URL with a scheme on its own, where `https:host` names a host.
-fn parsed_as_the_policy_does(url: &str) -> Option<Url> {
-    Url::parse(url).or_else(|_| RELATIVE_BASE.join(url)).ok()
+/// The URLs that a browser can read `url` as. The policy parses a URL with a scheme on its own, where `https:host/a`
+/// names a host, but on a page of the same scheme that URL is the path `host/a` when no two slashes follow the scheme.
+fn readings(url: &str) -> Vec<Url> {
+    let Ok(alone) = Url::parse(url) else {
+        return RELATIVE_BASE.join(url).into_iter().collect();
+    };
+    let after_scheme = alone.scheme().len() + 1;
+    let names_its_host = url
+        .as_bytes()
+        .get(after_scheme..after_scheme + 2)
+        .is_some_and(|slashes| slashes.iter().all(|&byte| matches!(byte, b'/' | b'\\')));
+    let reads_as_a_path =
+        alone.scheme() != "file" && SPECIAL_SCHEMES.contains(&alone.scheme()) && !names_its_host;
+    let on_a_page = reads_as_a_path
+        .then(|| {
+            let mut base = RELATIVE_BASE.clone();
+            base.set_scheme(alone.scheme()).ok()?;
+            base.join(url).ok()
+        })
+        .flatten();
+    std::iter::once(alone).chain(on_a_page).collect()
 }
 
 fn holds_credential(parsed: &Url) -> bool {
@@ -481,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_no_url_past_the_fetchers_limit() {
+    fn marks_a_url_whose_credential_it_cannot_cut() {
         let long = format!(
             "https://cdn.example.com{}?token=abc",
             "/a".repeat(16 * 1024 * 1024)
@@ -499,6 +526,10 @@ mod tests {
             redaction("https://cdn.example.com:99999/a.png?token=abc"),
             Redaction::Unread
         );
+        // On a page of their scheme these are paths, so what the URL parser alone reads as a host holds the token.
+        for raw in ["https:bcdn_token=abc/a.png", "https:/bcdn_token=abc/a.png"] {
+            assert_eq!(redaction(raw), Redaction::Unread, "{raw}");
+        }
     }
 
     #[test]

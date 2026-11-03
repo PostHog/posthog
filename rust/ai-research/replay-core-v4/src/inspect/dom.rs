@@ -673,6 +673,24 @@ struct Attributes {
     height: Option<Span>,
     source_type: Option<Span>,
     links: Vec<(Span, LinkForm)>,
+    css_links: Vec<Span>,
+}
+
+/// SVG presentation attributes take a CSS value, and a `url()` in one loads a resource.
+fn is_svg_css_attribute(name: &[u8]) -> bool {
+    const NAMES: &[&[u8]] = &[
+        b"clip-path",
+        b"cursor",
+        b"fill",
+        b"filter",
+        b"marker",
+        b"marker-end",
+        b"marker-mid",
+        b"marker-start",
+        b"mask",
+        b"stroke",
+    ];
+    NAMES.iter().any(|known| known.eq_ignore_ascii_case(name))
 }
 
 /// URL attributes that never hold an image slot, and the `data-` attributes that lazy loaders keep a URL in.
@@ -741,6 +759,8 @@ impl Attributes {
             *slot = Some(value);
         } else if let Some(form) = link_attribute(name) {
             self.links.push((value, form));
+        } else if is_svg_css_attribute(name) {
+            self.css_links.push(value);
         }
     }
 
@@ -823,6 +843,9 @@ impl Attributes {
         }
         for &(value, form) in &self.links {
             walk.push_link(bytes, Some(value), form);
+        }
+        for &value in &self.css_links {
+            walk.push_css_links(bytes, Some(value));
         }
         walk.push_css(bytes, self.style);
         walk.push_css(bytes, self.css_text);
