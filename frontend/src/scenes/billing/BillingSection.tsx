@@ -46,6 +46,19 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
     { key: 'ai-credits', label: 'AI credits' },
 ]
 
+function sectionFromPath(pathname: string, aiCreditsEnabled: boolean, alertsAvailable: boolean): BillingSectionId {
+    if (pathname.includes('ai-credits') && aiCreditsEnabled) {
+        return 'ai-credits'
+    }
+    if (pathname.includes('spend')) {
+        return 'spend'
+    }
+    if (pathname.includes('usage')) {
+        return 'usage'
+    }
+    return pathname.includes('alerts') && alertsAvailable ? 'alerts' : 'overview'
+}
+
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
@@ -55,22 +68,12 @@ export function BillingSection(): JSX.Element {
     const todayRailNav = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const alertsRequested = location.pathname.includes('alerts')
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
+    const alertsAvailable = billingAlertsEnabled || billingAlertsPending
     const tabs = allTabs.filter(
-        (tab) =>
-            (tab.key !== 'alerts' || billingAlertsEnabled || billingAlertsPending) &&
-            (tab.key !== 'ai-credits' || aiCreditsEnabled)
+        (tab) => (tab.key !== 'alerts' || alertsAvailable) && (tab.key !== 'ai-credits' || aiCreditsEnabled)
     )
 
-    const section =
-        location.pathname.includes('ai-credits') && aiCreditsEnabled
-            ? 'ai-credits'
-            : location.pathname.includes('spend')
-              ? 'spend'
-              : location.pathname.includes('usage')
-                ? 'usage'
-                : alertsRequested && (billingAlertsEnabled || billingAlertsPending)
-                  ? 'alerts'
-                  : 'overview'
+    const section = sectionFromPath(location.pathname, aiCreditsEnabled, alertsAvailable)
 
     useEffect(() => {
         // Wait for feature flags before redirecting an alerts deep link away.
