@@ -101,8 +101,9 @@ function NoReportsState(): JSX.Element {
                 <p className="m-0 text-xs text-tertiary">
                     {isCloudOrDev ? 'To configure reporting manually, set' : 'Set'} <code>collectFeedback: true</code>{' '}
                     (TypeScript) or <code>collect_feedback=True</code> (Python) when you initialize the PostHog MCP SDK,
-                    and agents get a <code>send_feedback</code> tool they can call when they&apos;re stuck. Ruby and Go
-                    use <code>report_missing</code> instead, and those reports appear here too.
+                    and agents get a <code>send_feedback</code> tool they can call when they&apos;re stuck. Ruby uses{' '}
+                    <code>report_missing: true</code> and Go uses <code>WithMissingCapabilityTool</code> instead, and
+                    those reports appear here too.
                 </p>
 
                 <LemonButton
