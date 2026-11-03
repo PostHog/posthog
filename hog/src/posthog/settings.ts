@@ -15,6 +15,9 @@ export interface LoginRecord {
     // The host the login was made for, with the path a self-hosted PostHog sits under. The login is
     // keyed by origin, so a posthog.json path on the same origin can't send it elsewhere.
     host: string
+    // Set on a file login that replaced a keychain login while the keychain was unusable, so the old
+    // keychain item can still be there. Logout tries to remove it.
+    keychainLeftover?: true
 }
 
 // What `hog auth login` decided, kept so later runs don't decide again. Nothing in it is secret.
@@ -40,7 +43,8 @@ function parseLoginRecord(origin: string, value: unknown): LoginRecord | undefin
         typeof item.host === 'string' &&
         hostKey(item.host) === hostKey(origin)
     ) {
-        return { store: item.store, type: item.type, projectId: item.projectId, host: item.host }
+        const record: LoginRecord = { store: item.store, type: item.type, projectId: item.projectId, host: item.host }
+        return item.keychainLeftover === true ? { ...record, keychainLeftover: true } : record
     }
     return undefined
 }
