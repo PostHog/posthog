@@ -23,9 +23,11 @@ Two rewrites, each result-equivalent:
    (plain columns, and keys of its `properties` blob) moves into the subquery's WHERE. The subquery has to be a pure
    row filter over events (no DISTINCT, GROUP BY, aggregate, window, stream-dependent function, ARRAY JOIN, ORDER BY
    WITH FILL, LIMIT, OFFSET, LIMIT BY, SAMPLE or JOIN), so filtering its input returns the same rows as filtering its
-   output. A conjunct that names a SELECT alias carries the alias body instead, up to the inliner's budget. The outer
-   query may attach only INNER / LEFT / CROSS joins to it, which a filter on their left side commutes with, and must
-   not read the stream itself (`rowNumberInAllBlocks()`), because an earlier filter changes what streams past.
+   output. A conjunct that names a SELECT alias carries the alias body instead, up to the inliner's budget. A conjunct
+   that draws a random value (`rand()`) stays outside: ClickHouse shares one draw between identical calls in a query,
+   so an outer `rand() AS r` filtered by `r < n` would draw again inside the subquery. The outer query may attach only
+   INNER / LEFT / CROSS joins to it, which a filter on their left side commutes with, and must not read the stream
+   itself (`rowNumberInAllBlocks()`), because an earlier filter changes what streams past.
 2. Every remaining outer `properties.<key>` read of the subquery's blob column becomes a column of the subquery that
    reads the key from the events table, and the outer read points at that column. A bare read of the blob is left
    alone, so a consumer of the whole document still gets it.
@@ -87,6 +89,39 @@ _STREAM_DEPENDENT_FUNCTIONS = frozenset(
         "runningDifference",
         "runningDifferenceStartingWithFirstValue",
     }
+)
+
+# Functions that draw a new value on each evaluation (rewrite 1 in the module docstring). HogQL exposes the first two
+# today; the rest are ClickHouse's other random generators. Lowercased, because `rand` resolves in any case.
+_NONDETERMINISTIC_FUNCTIONS = frozenset(
+    name.lower()
+    for name in (
+        "rand",
+        "nowInBlock",
+        "rand64",
+        "randCanonical",
+        "randConstant",
+        "randUniform",
+        "randNormal",
+        "randLogNormal",
+        "randExponential",
+        "randBernoulli",
+        "randBinomial",
+        "randNegativeBinomial",
+        "randPoisson",
+        "randChiSquared",
+        "randStudentT",
+        "randFisherF",
+        "randomString",
+        "randomFixedString",
+        "randomPrintableASCII",
+        "randomStringUTF8",
+        "fuzzBits",
+        "generateUUIDv4",
+        "generateUUIDv7",
+        "generateSnowflakeID",
+        "generateULID",
+    )
 )
 
 SubqueryFromType = ast.SelectQueryType | ast.SelectQueryAliasType
@@ -347,6 +382,24 @@ def _depends_on_row_stream(exprs: list[ast.Expr | None], *, include_aggregates: 
     return finder.found
 
 
+class _NondeterministicCallFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
+            self.found = True
+        else:
+            super().visit_call(node)
+
+
+def _draws_a_random_value(expr: ast.Expr) -> bool:
+    finder = _NondeterministicCallFinder()
+    finder.visit(expr)
+    return finder.found
+
+
 def _outer_expressions(outer: ast.SelectQuery) -> list[ast.Expr | None]:
     """Every expression slot of a select at its own level, join constraints included; joined tables are their own scope."""
     exprs: list[ast.Expr | None] = [
@@ -536,8 +589,9 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
         except AliasExpansionLimitExceeded:
             return None
         # Checked after alias inlining, because the alias body can hide them. An arrayJoin would multiply rows in a
-        # different scope from the outer copy; an unresolved IN COHORT becomes a join after this pass.
-        if contains_row_multiplying_function(inlined) or contains_in_cohort(inlined):
+        # different scope from the outer copy; an unresolved IN COHORT becomes a join after this pass; a random draw
+        # inside the subquery is a second draw next to the outer copy's.
+        if contains_row_multiplying_function(inlined) or contains_in_cohort(inlined) or _draws_a_random_value(inlined):
             return None
         rewriter = _ConjunctRewriter(columns)
         rewritten = cast(ast.Expr, rewriter.visit(inlined))

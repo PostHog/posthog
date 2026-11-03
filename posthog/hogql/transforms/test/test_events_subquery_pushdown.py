@@ -136,6 +136,10 @@ class TestEventsSubqueryPushdown(BaseTest):
                 "SELECT count() FROM (SELECT event, toDate(timestamp) AS d FROM events ORDER BY d WITH FILL) WHERE event = 'x'",
             ),
             ("alias_chain_over_budget", _alias_chain(12)),
+            (
+                "random_alias",
+                "SELECT rand() AS r, event FROM (SELECT event FROM events) WHERE r < if(event = 'x', 2147483648, 0)",
+            ),
         ]
     )
     def test_declines_when_the_rewrite_would_change_rows(self, _name: str, select: str, native: bool = False) -> None:
