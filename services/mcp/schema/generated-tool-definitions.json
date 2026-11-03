@@ -8484,7 +8484,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "workflows-email-from-code"
+        "feature_flag": "workflows-email-domain-agent-setup"
     },
     "integrations-email-verify-create": {
         "description": "Record that an email sender's domain is verified, by integration ID, so its senders can send. Call it once integrations-email-status-retrieve reports status verified. It asks SES to check the domain again and returns status success when SES has verified it. Needs a project admin.",
@@ -8500,7 +8500,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "workflows-email-from-code"
+        "feature_flag": "workflows-email-domain-agent-setup"
     },
     "integrations-github-repos-retrieve": {
         "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to next_offset to get the next page. Set `compact` to false only when you need the extra repository details. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",

@@ -102,7 +102,7 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         writes_after_create = list(self.world.ses.writes)
         self.feature_flags.side_effect = lambda key, *args, **kwargs: {
             "workflows-email-domain-wizard": wizard_enabled,
-            "workflows-email-from-code": agent_enabled,
+            "workflows-email-domain-agent-setup": agent_enabled,
         }.get(key, False)
         response = self.get_status(sender)
         assert response.status_code == expected_status, response.json()

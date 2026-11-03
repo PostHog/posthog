@@ -2823,7 +2823,7 @@ class IntegrationViewSet(
                 },
                 send_feature_flag_events=False,
             )
-            for flag in ("workflows-email-domain-wizard", "workflows-email-from-code")
+            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
         ):
             raise NotFound()
         instance = self.get_object()

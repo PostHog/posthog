@@ -124,7 +124,8 @@ export const emailDomainAgentLogic = kea<emailDomainAgentLogicType>([
     selectors({
         agentSetupEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP],
         ],
         setupPrompt: [
             (s) => [
