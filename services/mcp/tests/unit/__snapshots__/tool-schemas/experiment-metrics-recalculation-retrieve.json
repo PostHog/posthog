@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A unique integer value identifying this experiment.",
+            "description": "The experiment's numeric ID, not the recalculation run UUID. Get it from experiment-get or from the response of experiment-metrics-recalculation-create. The run UUID goes in recalculation_id.",
             "type": "number"
         },
         "recalculation_id": {

@@ -98,6 +98,71 @@ export const normalizeParamAliases = (aliasMap: Record<string, readonly string[]
     return normalize
 }
 
+/** Hyphenated UUID in any version, the shape of PostHog run / resource UUIDs. */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const looksLikeUuid = (v: unknown): boolean => typeof v === 'string' && UUID_SHAPE.test(v)
+
+const looksLikeInt = (v: unknown): boolean =>
+    (typeof v === 'number' && Number.isInteger(v)) || (typeof v === 'string' && /^-?\d+$/.test(v))
+
+/**
+ * Move a UUID an agent put under an integer-id param into the UUID param it
+ * belongs to, before validation.
+ *
+ * October 2026 production traces show `experiment-metrics-recalculation-retrieve`
+ * rejecting calls with "parameter 'id' must be of type number" because agents
+ * pass the recalculation run UUID as `id` — the tool takes the experiment's
+ * integer id as `id` and the run UUID as `recalculation_id`. The existing
+ * `cast` / `aliases` overrides are per-param, so neither can express "this
+ * value is for the other param".
+ *
+ * `redirects` maps the integer-id param → the UUID param. For each pair, when
+ * the integer param holds a UUID-shaped string:
+ * - UUID param absent → the UUID moves there and the integer param is removed,
+ *   so validation fails only on the missing integer id, with that field's own
+ *   description naming what to send.
+ * - UUID param holds an integer (or integer string) → the two values swap, the
+ *   call was right apart from the key assignment, and it proceeds.
+ * - anything else → the input passes through untouched so zod rejects with its
+ *   honest error.
+ *
+ * Wired up declaratively via `param_overrides: { id: { uuid_redirect: '...' } }`
+ * in product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
+ * Composed inside the `normalizeParamAliases` wrapper, so alias keys are folded
+ * to canonical names before the redirect looks at them.
+ */
+export const redirectMisplacedUuids = (redirects: Record<string, string>): ((input: unknown) => unknown) => {
+    return (input: unknown): unknown => {
+        if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+            return input
+        }
+        const record = input as Record<string, unknown>
+        const applies = Object.entries(redirects).some(
+            ([intParam, uuidParam]) =>
+                looksLikeUuid(record[intParam]) && (record[uuidParam] === undefined || looksLikeInt(record[uuidParam]))
+        )
+        if (!applies) {
+            return input
+        }
+        const result = { ...record }
+        for (const [intParam, uuidParam] of Object.entries(redirects)) {
+            if (!looksLikeUuid(result[intParam])) {
+                continue
+            }
+            if (result[uuidParam] === undefined) {
+                result[uuidParam] = result[intParam]
+                delete result[intParam]
+            } else if (looksLikeInt(result[uuidParam])) {
+                const uuid = result[intParam]
+                result[intParam] = result[uuidParam]
+                result[uuidParam] = uuid
+            }
+        }
+        return result
+    }
+}
+
 /**
  * Alias maps keyed by the preprocess function that applies them. Telemetry reads the
  * map back off a tool's schema to record which alias a call carried, so the map has

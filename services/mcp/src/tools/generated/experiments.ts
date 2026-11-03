@@ -9,7 +9,7 @@ import {
     ExperimentVariantScreenshotMediaIdsSchema,
     SavedMetricsAttachSchema,
 } from '@/schema/tool-inputs'
-import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import { castStringToInt, normalizeParamAliases, redirectMisplacedUuids } from '@/tools/cast-helpers'
 import hooks_experimentCreate from '@/tools/experiments/createExperimentHooks'
 import hooks_experimentGet from '@/tools/experiments/getExperimentHooks'
 import hooks_experimentList from '@/tools/experiments/listExperimentsHooks'
@@ -959,9 +959,17 @@ const ExperimentMetricsRecalculationRetrieveSchema = () => {
             id: ['experimentId', 'experiment_id'],
             recalculation_id: ['run_id', 'runId', 'recalculationId'],
         }),
-        ExperimentsMetricsRecalculationRetrieveParams.omit({ project_id: true }).extend({
-            id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']),
-        })
+        z.preprocess(
+            redirectMisplacedUuids({ id: 'recalculation_id' }),
+            ExperimentsMetricsRecalculationRetrieveParams.omit({ project_id: true }).extend({
+                id: z.preprocess(
+                    castStringToInt,
+                    ExperimentsMetricsRecalculationRetrieveParams.shape['id'].describe(
+                        "The experiment's numeric ID, not the recalculation run UUID. Get it from experiment-get or from the response of experiment-metrics-recalculation-create. The run UUID goes in recalculation_id."
+                    )
+                ),
+            })
+        )
     )
 }
 

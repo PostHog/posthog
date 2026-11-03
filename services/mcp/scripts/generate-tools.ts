@@ -501,6 +501,12 @@ interface SchemaComposition {
      * `z.preprocess(normalizeParamAliases(...), ...)` when non-empty.
      */
     paramAliases: Record<string, string[]>
+    /**
+     * Maps integer-id param name → sibling UUID param, from
+     * `param_overrides.<param>.uuid_redirect`. `generateToolCode` wraps the composed
+     * schema with `z.preprocess(redirectMisplacedUuids(...), ...)` when non-empty.
+     */
+    paramUuidRedirects: Record<string, string>
 }
 
 function composeToolSchema(
@@ -701,6 +707,7 @@ function composeToolSchema(
     const schemaRefBlocks: string[] = []
     const paramFallbacks: Record<string, string> = {}
     const paramAliases: Record<string, string[]> = {}
+    const paramUuidRedirects: Record<string, string> = {}
     // Fields added via param_overrides (input_schema/schema_ref) need to participate in
     // the body builder for write ops — otherwise the override is in the schema but
     // the handler never forwards the value to the API. On PATCH (partial update) the
@@ -718,6 +725,10 @@ function composeToolSchema(
 
             if (override.aliases?.length) {
                 paramAliases[renameMap.get(paramName) ?? paramName] = override.aliases
+            }
+
+            if (override.uuid_redirect) {
+                paramUuidRedirects[renameMap.get(paramName) ?? paramName] = override.uuid_redirect
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -882,6 +893,17 @@ function composeToolSchema(
         }
     }
 
+    // A redirect to a param the operation does not declare would park the value on a
+    // key the schema strips (or rejects), silently dropping it.
+    for (const [paramName, target] of Object.entries(paramUuidRedirects)) {
+        if (target === paramName || !declaredParamNames.has(target)) {
+            throw new Error(
+                `${config.operation}: uuid_redirect target "${target}" for param "${paramName}" is not another ` +
+                    'declared parameter of this operation. Fix "uuid_redirect:" in the tool\'s YAML.'
+            )
+        }
+    }
+
     return {
         orvalImports,
         toolInputsImports,
@@ -896,6 +918,7 @@ function composeToolSchema(
         renamedFields,
         paramFallbacks,
         paramAliases,
+        paramUuidRedirects,
     }
 }
 
@@ -1194,6 +1217,18 @@ function generateToolCode(
         }
     }
     schemaExpr = withRequiredWhenSet(schemaExpr, config)
+
+    // `param_overrides.<param>.uuid_redirect` — move a UUID sent under an
+    // integer-id param to the UUID param it belongs to, before validation. Wrapped
+    // inside the alias wrapper below so alias keys fold to canonical names first.
+    const uuidRedirectEntries = Object.entries(composition.paramUuidRedirects)
+    if (uuidRedirectEntries.length > 0) {
+        composition.castHelperImports.add('redirectMisplacedUuids')
+        const redirectMapLiteral = `{ ${uuidRedirectEntries
+            .map(([param, target]) => `${param}: '${target}'`)
+            .join(', ')} }`
+        schemaExpr = `z.preprocess(redirectMisplacedUuids(${redirectMapLiteral}), ${schemaExpr})`
+    }
 
     // `param_overrides.<param>.aliases` — normalize alias keys to the canonical
     // param before validation. Outermost wrapper so the rename happens before any

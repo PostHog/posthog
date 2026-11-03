@@ -16,6 +16,7 @@ import {
     castStringToInt,
     normalizeParamAliases,
     readParamAliases,
+    redirectMisplacedUuids,
 } from '../../src/tools/cast-helpers'
 
 describe('castStringToInt', () => {
@@ -110,6 +111,53 @@ describe('castBooleanToString', () => {
         ['empty array', []],
     ] as const)('rejects non-boolean, non-string input: %s', (_label, input) => {
         expect(() => schema.parse(input)).toThrow()
+    })
+})
+
+describe('redirectMisplacedUuids', () => {
+    const redirect = redirectMisplacedUuids({ id: 'recalculation_id' })
+    const uuid = '0199a1c0-0000-7000-8000-000000000000'
+
+    it('moves a UUID sent as the integer param to the absent UUID param', () => {
+        expect(redirect({ id: uuid })).toEqual({ recalculation_id: uuid })
+    })
+
+    it('swaps the values when the UUID param holds an integer', () => {
+        expect(redirect({ id: uuid, recalculation_id: 42 })).toEqual({ id: 42, recalculation_id: uuid })
+    })
+
+    it('swaps the values when the UUID param holds an integer string', () => {
+        expect(redirect({ id: uuid, recalculation_id: '42' })).toEqual({ id: '42', recalculation_id: uuid })
+    })
+
+    it('leaves the input untouched when both params hold UUIDs', () => {
+        const input = { id: uuid, recalculation_id: uuid }
+        expect(redirect(input)).toBe(input)
+    })
+
+    it('leaves a well-formed call untouched', () => {
+        const input = { id: 7, recalculation_id: uuid }
+        expect(redirect(input)).toBe(input)
+    })
+
+    it('leaves a non-UUID string under the integer param for zod to reject', () => {
+        const input = { id: 'not-a-uuid' }
+        expect(redirect(input)).toBe(input)
+    })
+
+    it.each([
+        ['null', null],
+        ['array', [1]],
+        ['string', 'id'],
+        ['number', 7],
+    ] as const)('passes non-object input through: %s', (_label, input) => {
+        expect(redirect(input)).toBe(input)
+    })
+
+    it('does not mutate the caller input when it rewrites', () => {
+        const input = { id: uuid }
+        redirect(input)
+        expect(input).toEqual({ id: uuid })
     })
 })
 

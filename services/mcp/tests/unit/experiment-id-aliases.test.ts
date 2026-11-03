@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
+import { formatInputValidationError } from '@/tools/exec'
 import { GENERATED_TOOLS as EXPERIMENT_TOOLS } from '@/tools/generated/experiments'
 import { GENERATED_TOOLS as FEATURE_FLAG_TOOLS } from '@/tools/generated/feature_flags'
 
@@ -98,6 +99,62 @@ describe('experiment id aliases', () => {
 
         it('still rejects a call with no run id', () => {
             expect(schema.safeParse({ id: 1 }).success).toBe(false)
+        })
+    })
+
+    // October 2026 traces: 73 rejections across 33 orgs where agents sent the recalculation
+    // run UUID as `id`, so the tool answered "parameter 'id' must be of type number" —
+    // accurate but useless. The uuid_redirect override moves the UUID where it belongs and
+    // leaves the failure (when there is one) on the field the agent actually needs to fix.
+    describe('experiment-metrics-recalculation-retrieve redirects a run UUID sent as `id`', () => {
+        const schema = EXPERIMENT_TOOLS['experiment-metrics-recalculation-retrieve']!().schema
+        const runId = '0199a1c0-0000-7000-8000-000000000000'
+
+        it('swaps the values when both ids are present under the wrong keys', () => {
+            const result = schema.safeParse({ id: runId, recalculation_id: 123 })
+            expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            const data = result.data as Record<string, unknown>
+            expect(data.id).toBe(123)
+            expect(data.recalculation_id).toBe(runId)
+        })
+
+        it('swaps even when the experiment id arrives as a string', () => {
+            const result = schema.safeParse({ id: runId, recalculation_id: '123' })
+            expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            const data = result.data as Record<string, unknown>
+            expect(data.id).toBe(123)
+            expect(data.recalculation_id).toBe(runId)
+        })
+
+        it('redirects through the aliases too', () => {
+            const result = schema.safeParse({ experimentId: runId, run_id: 123 })
+            expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            const data = result.data as Record<string, unknown>
+            expect(data.id).toBe(123)
+            expect(data.recalculation_id).toBe(runId)
+        })
+
+        it('fails on the missing experiment id, naming what it needs, when only the UUID was sent', () => {
+            const input = { id: runId }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+            const issuePaths = result.error!.issues.map((issue) => issue.path.join('.'))
+            expect(issuePaths).toEqual(['id'])
+            const message = formatInputValidationError(
+                'experiment-metrics-recalculation-retrieve',
+                result.error!,
+                input,
+                schema as never
+            )
+            expect(message).toContain('missing required parameter: id')
+            expect(message).toContain('numeric ID')
+            expect(message).toContain('experiment-get')
+        })
+
+        it('keeps the honest type error when the UUID param already holds a different UUID', () => {
+            const other = '0199a1c0-1111-7000-8000-000000000000'
+            const result = schema.safeParse({ id: runId, recalculation_id: other })
+            expect(result.success).toBe(false)
         })
     })
 
