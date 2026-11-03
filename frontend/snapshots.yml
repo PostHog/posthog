@@ -6878,6 +6878,10 @@ snapshots:
         hash: v1.k794b7964.010da65c2bb2e55daed38244a9918ab578c84f020a1c8df2ed847a4670005aec.M8-1Oet6RSJ7ulOk_R2yYMfKo4IUctrRZQulmG15BVk
     products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types--light:
         hash: v1.k794b7964.6c001db5555f48832f11ae8d9dcc535dff4e22044bb6dfce15db3a2a522f1fa9.GQCxp64JkEqDCNEeSD6gPtc5rwlzjHFJ-QnZu4lRips
+    products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types-and-metrics--dark:
+        hash: v1.k794b7964.ae47defe4c15916f4bc9dbbc552a3aef89d54102aa4a9ae94d9961613189782a.QCkri5EX6WvUH40v6bfL147fml_W9EOjEAIGK-FQjAk
+    products-dashboards-add-insight-to-dashboard-modal--with-more-insight-types-and-metrics--light:
+        hash: v1.k794b7964.0d90933bf7fe46580b45cd8bedc78895be3e1694ac2d25e8dbbaf4156995e8b2.uDZhPMLvnomVB-RV_1Lmmgjzy2AMIcYu411UKLZjpnM
     products-dashboards-dashboard-widgets-overview--all-widget-types--dark:
         hash: v1.k794b7964.3b3689c002c42da7502405c35d4ebe2285aeaeda2015418d9e700bfe9dc47205.ByGuHj3aUBKZNgl5AzGDwbuMXT-HGQhG-Vcab7mz4Yw
     products-dashboards-dashboard-widgets-overview--all-widget-types--light:
@@ -8419,25 +8423,25 @@ snapshots:
     products-workflows-editor-graph--with-navigation--light:
         hash: v1.k794b7964.80893cf0e8c8e443606cad555c64cc7e33323c3d4da76599c8e63f7ca1c291bd.5ATLbGHLQWlJfeMpGAo-7Zld7eNzLRqjOkp2MwxmpV4
     products-workflows-editor-tile-canvas--long-emails--dark:
-        hash: v1.k794b7964.fd71da5c1231d1036556e7e58e34b68a931b14812134201ce9f7fb2008d195c9.Eyw-ZqzqCvOOfKSecjq358TQw_kZtHC2hXzISMuEP9Q
+        hash: v1.k794b7964.1952a127037bb7742f34a262ba7383326e4f5e04c86ffd58caf988de908d8fe0.lASWXxfI4hHT-xShH9moFcK8Fsd5JbnWjflhV6hu1dI
     products-workflows-editor-tile-canvas--long-emails--light:
-        hash: v1.k794b7964.f7c8b7f120b9d77bbc35e34c228c4d94875408d06b86935452594036a21bd3e4.EEU2unhqDjBNtYEvkX9wh3AgvSoqLlkNF9EPIeTxjuw
+        hash: v1.k794b7964.2f2b3c752c4f010a1a6f6e9f0064ef2f9ebcaf974a68617004d48169e2825207.JeVtmRCcAbwRA5XD3qf8UWnfW_CJpok5N0aUWYhkoe0
     products-workflows-editor-tile-canvas--paths-collapsed--dark:
-        hash: v1.k794b7964.fbc02489e48230560f38677e2c0564544ba43ba5fccb814d9c58d21141f7bd56.mSexBQ6C7P2Tfnhl5JcaUMWxhpEgUdYwGzc0bsnnEKE
+        hash: v1.k794b7964.2db6eff86fd9e7ab3ad02322c32b76820b358288969fe3d1c2d0768fb3b5f3f2.U2-0fg3YEmHB5NfrBnLB1_dxozv03EeIMzJdYQjH9Dc
     products-workflows-editor-tile-canvas--paths-collapsed--light:
-        hash: v1.k794b7964.3d1637648ee51ef3722219862d7d1fb06bf5a6a557e717256576e7894d861fb6.jmfY3wnm_MZTY_6DZYAw1yw54aqt5k9lM6qyf2PCW-I
+        hash: v1.k794b7964.fa53ed40abbff04e3b400d16e602425b64e1cb2dc243381f9a5ea5c69e2c6e63.2zpDbbpmxK6a8oDXnG-unhtxVASlt8xoNe0av_2dKbs
     products-workflows-editor-tile-canvas--paths-open--dark:
-        hash: v1.k794b7964.814198da2522e4b84347f93ed982501c269854725253835786e532db662a00b2.HrvlQqF-r9XB80Wk5t8Dh933q4t_scSHWTVmOfd7s6E
+        hash: v1.k794b7964.d3d47bc1351aa7293b4e5d90dd46d2adeae5f8f85eb2e814bb870d7e68729cff.NjIakT0uJmtshrpzvna3XCjjvemJFbQgpgGAPVUuYMo
     products-workflows-editor-tile-canvas--paths-open--light:
-        hash: v1.k794b7964.cee0f349c18a1b78a05c1ab61307e904993b24d116b8c243a2ba0a0ad60f9e18.Igdbc6OD8bF9oJ_1c8lUUIVcieG4JvrXa49np3otQIU
+        hash: v1.k794b7964.e9b74962cdcabd5fd75afc8638e036eb19a8bf15ed04f165e027976602d87fff.MgLraG0WhRe09Mr9IXm-q0riB7tn_vibXFxvEeoDaSw
     products-workflows-editor-tile-canvas--time-window-and-webhook--dark:
-        hash: v1.k794b7964.b1a47db1602c1e0703b2f3b521ac52dcbc5a3ebba76f4e7d2d309c3b4c7c4b7a._LObcIoA9-yXUI0LuwW34VQfGxEUdGcreQQvdLF1-Aw
+        hash: v1.k794b7964.5619f27b26cc0897dbcf28dca61ceb1cc0a9f847fcade41d25c49f71f214c731.DGGpKPpM3NMJ5BG-KVbFglz5IRPUcE7HXvY_vxaJK3U
     products-workflows-editor-tile-canvas--time-window-and-webhook--light:
-        hash: v1.k794b7964.96225fdd020c0c75c161f88680367e556a5c95ea9616dbfb4540e526038198c8.5Bl9S5lwxwuPa6gPDab0DYRVBhU9njZz8tg2puTozyk
+        hash: v1.k794b7964.11b35d0c89a16ab3c5f9aecffcd99725cbd31d584ac7a67f27039cb453bbcf72.5LRNbjHVw5Fo9Khk1YPOe0ip2ex2MtkX1QR2FPb9VFk
     products-workflows-editor-tile-canvas--with-step-counts--dark:
-        hash: v1.k794b7964.de5dddfb98e5dcb9ad68c0fbeb72adc735052df9f6adaa2409863b4ff49febf3.CvpVLCAl5s20yCLvaCQj7Y0yOmvGr-X9bjdS9br6m4M
+        hash: v1.k794b7964.7c7eac0a64e20be352335e9955c4abccf70d7ec2b180217d33e275e59061a7af.RfzdMvzPcl8UMVgMFh5cr00tXX09P7bfm2EC7tBQdVs
     products-workflows-editor-tile-canvas--with-step-counts--light:
-        hash: v1.k794b7964.d28c0e207d14d3f1ee827602f1600c4e3eb47ec9c790e4357757388aa1172f9a.yjhNs4J_VVtzYX_ksVtLrSzDD0vw8lAknbYlYncjD9A
+        hash: v1.k794b7964.50beae04f0b949a710da41fdca70c671369ae0ac0499d284b69e1c57e931f1bc.o27SKj0cbEgIAZ6OSgXLX9_lFEaYUAWLmXef1W0TB3w
     products-workflows-editor-tree--add-on-promotion-emails--dark:
         hash: v1.k794b7964.17e5ae30b6cfa98729709e1bb572aa329eea7d267ee0fd757a8bcbb1d065f805.UCtBAJZoCAO4I9fElU_pbm8QniucCrnrfH8XHXnsEZA
     products-workflows-editor-tree--add-on-promotion-emails--light:
@@ -13683,13 +13687,17 @@ snapshots:
     scenes-app-marketing-analytics-recommendations--missing-tables--light:
         hash: v1.k794b7964.caf7a21c4c18fdae6c949d9221b7bb849467836773b52d0afc0f3bc03cb21a1c.934bgxS4q3xLz9ut7UZPOl-pcuyT9cwFSm75XVwLAaU
     scenes-app-marketing-analytics-recommendations--missing-tables-in-modal--dark:
-        hash: v1.k794b7964.6f1b534875c960cd10431d6e4fb378b06ea600a197b73affe46a30c147e56af5.1ndbogVcT2vWlWyHJlTEFkkYvtsGtji19zF45SdV4Dg
+        hash: v1.k794b7964.b6b0fd695398c90a92d399b449c84f0c14fd2389bdec339c408cff7dc269184a.p8T2G9qRfwkCHRmYsZGO7KvD776RSk64AW2hlzIwokQ
     scenes-app-marketing-analytics-recommendations--missing-tables-in-modal--light:
-        hash: v1.k794b7964.7c74367fc4eeacc1f525352bcbb0accdfec06e6c2bc13b9dc2d978a26d2c69fd.v0rqI3hSg8KgI7c8M73aoxW7GLcYND2t2ayv-3ZaA6Y
+        hash: v1.k794b7964.fa9f7cb18bdeec3decf5dc1e7c3faf0afddd5b6248f816d69e38d71d92a9082d.bZfgXNPPX4zFLQGGVVvYMskOAvBNgDos57Jhs03oBKY
     scenes-app-marketing-analytics-recommendations--modal--dark:
         hash: v1.k794b7964.912485b9ea2606940db74c824e0e19607c42b51099ee2f4a28e0550ed49fd972.iT4FxMcmuLx7AAhxnwWlgIUL-oq_r6S0UiW8UhzpRFM
     scenes-app-marketing-analytics-recommendations--modal--light:
         hash: v1.k794b7964.c04f2966e2cc693edb8a6594142f2b32664619e532b659bb01ceec6a6c71e8a0.10rYCjA5Qfk5wA1lJ_--JIPJDDSGuq-cbUo4OeCGts8
+    scenes-app-marketing-analytics-recommendations--modal-instructions--dark:
+        hash: v1.k794b7964.0dd609452aacdef0b6a6a95bf1507258a3006b05f25e653d62f59a8e35e51ecf.wIid_-9Jwl37jSjw9rAOA8WlALo5_r0mxBOfkd4RO-w
+    scenes-app-marketing-analytics-recommendations--modal-instructions--light:
+        hash: v1.k794b7964.7181cda23c5cca64ec249b584e2131423d8c0a59ae82d90d706c299d59e43db6.urS-gTejpJOfQnmNssOHEK4jZ7t3yJEnMBfaM4TgbNY
     scenes-app-marketing-analytics-recommendations--no-sources--dark:
         hash: v1.k794b7964.063052d5d1be49433dbfb7c0c4b31c09d493afa2e9d8f138cec2966ac3f71089.OHLVA25PfjtZS0UoPTaX9Zyx3Yy3vbl7oroS6qE3z80
     scenes-app-marketing-analytics-recommendations--no-sources--light:
@@ -15271,13 +15279,13 @@ snapshots:
     scenes-app-replay-vision-recordingtimeline--very-long-recording--light:
         hash: v1.k794b7964.a04715d7aa78cff8fcfb049420139f30f87ac31872679219f3ee7f4be8475cf2.RW9X9AswVQmbJBWPH6SLAV52RPjoUy5MIcCOXDIGeBM
     scenes-app-replay-vision-replayfiltersscannerpopover--all-new-recordings--dark:
-        hash: v1.k794b7964.08cc8aa558a5de23f4ed1306ad96af14729761554fce4cb505c6bf77e4360174.UfBYc1JFK9vfM6_t3rnC6RKmG8K_EXmySNpk0Ka19sg
+        hash: v1.k794b7964.15592011f5c06432864a949f721e9580a8c9f0763e7cd1fe8c0804e0c9d0781e.dwsurkPHhS63bVQNopCI4naGPcoVzC2-aCUu9QguZ8s
     scenes-app-replay-vision-replayfiltersscannerpopover--all-new-recordings--light:
-        hash: v1.k794b7964.ad2fa34bb32b8f83ddd9dff95548bb82f9ea24b58c9502b620633e7ed1fd26fa.CItre1_4DH5y_Ewg62HwBoYBlJi4u49h7JGqvs5Deuw
+        hash: v1.k794b7964.de4a3cb351a61cf07311748096107dbe8dc211cfea65cdec9024bf6121b3b6a7.eg65GNz1KuC-2Z3G0jn12-oyDZTAVPDl-c-plnYGTZw
     scenes-app-replay-vision-replayfiltersscannerpopover--with-filters--dark:
-        hash: v1.k794b7964.2a6736d2a3ec4972e36d3d0a4b9b693cd6c1301c4542fcb35b2108c6ebe39ed2.KDhm67EpypyqZcTOqmy5izF4WJaVokAdhf2eYmRI0wY
+        hash: v1.k794b7964.059eac9c88afe5f0b25add080231ba1671ad32fc76d0b7ec970f3d8e317cd9c6.5dF_s3MTqRDIdgGou0Y5B3k76aqbh5L24z949PL1k4w
     scenes-app-replay-vision-replayfiltersscannerpopover--with-filters--light:
-        hash: v1.k794b7964.498913275afda254c5b42c2969da4f4b4521ef9850ee19fd666ca52595f6fde2.1fwBcq3d4CeG70mWC6BIPkQ-Zvvrn7NGtbV-g8JFO3k
+        hash: v1.k794b7964.32069c3c2b71b3345dca1832585da07024e9ef7542abcdc8d74fd87d94f836dc._mjTc5-muU4PakvZcVs4LicyaBjIQIlNcab1JLgRKNw
     scenes-app-replay-vision-spendtrajectorychart--hits-the-limit--dark:
         hash: v1.k794b7964.cf96414912c6d8f0d73808db3f1d833c661d12b3b0449cdd49b95d4dc8059e80.3sA2mn18MksUWQQ4mq6wEPbkJhGP3O258Y6Q2fTWhgM
     scenes-app-replay-vision-spendtrajectorychart--hits-the-limit--light:
