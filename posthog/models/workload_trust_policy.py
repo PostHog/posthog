@@ -23,8 +23,8 @@ from posthog.scopes import UNPRIVILEGED_SCOPES
 #   acts as the owner. Add them back if a workload needs them.
 # - `project:write` lets a token rotate the project's secret token.
 # - `streamlit_app` returns a one-hour OAuth token to connect to a running app.
-# - `webhook:write` and `batch_export:write` set up data feeds that keep sending after the token expires,
-#   like sharing links.
+# - `webhook:write`, `batch_export:write` and `subscription:write` set up feeds that keep sending after the
+#   policy is revoked. A subscription can send to any email address.
 WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
     {
         "workload_trust_policy:read",
@@ -39,6 +39,7 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
         "signal_scout:write",
         "streamlit_app:read",
         "streamlit_app:write",
+        "subscription:write",
         "task:read",
         "task:write",
         "webhook:write",
