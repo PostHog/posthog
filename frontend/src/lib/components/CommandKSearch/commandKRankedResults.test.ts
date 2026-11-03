@@ -311,6 +311,15 @@ describe('buildRankedResults', () => {
             expected: ['Results: Revenue board, Revenge'],
         },
         {
+            name: 'with unified ranking, a match inside a word beats a word that needs a typo',
+            query: 'stripe',
+            results: [result('1', 'Stripe revenue', 'insight', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
+            products: [],
+            accounts: [account('account-1', 'Pinstripe Strive')],
+            unifiedRanking: true,
+            expected: ['Results: Stripe revenue, Pinstripe Strive'],
+        },
+        {
             name: 'with unified ranking, a search keyword still matches with a typo',
             query: 'recordigns',
             results: [],

@@ -303,11 +303,9 @@ function hitInWords(token: string, words: string[]): Omit<TokenHit, 'field'> | n
             best = { typos, position, wordStart: true }
         }
     }
-    if (best || token.length < MIN_PARTIAL_TOKEN_LENGTH) {
-        return best
-    }
-    const position = words.findIndex((word) => word.includes(token))
-    return position >= 0 ? { typos: 0, position, wordStart: false } : null
+    // A literal match inside a word needs no typo, so it beats a fuzzy word match.
+    const inside = token.length < MIN_PARTIAL_TOKEN_LENGTH ? -1 : words.findIndex((word) => word.includes(token))
+    return inside >= 0 ? { typos: 0, position: inside, wordStart: false } : best
 }
 
 const isClean = (hit: Omit<TokenHit, 'field'> | null): boolean => !!hit && hit.typos === 0 && hit.wordStart
