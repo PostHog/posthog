@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resources,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
@@ -371,15 +372,17 @@ def zapsign_source(
     if endpoint == DOCUMENTS_RESOURCE:
         webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
+    def dict_rows() -> Iterator[list[dict[str, Any]]]:
+        for page in resource:
+            yield [row for row in page if isinstance(row, dict)]
+
+    # The guard holds no rows between pages. As a `Resource` it keeps the framework's per-page safe points.
+    pages = Resource(dict_rows, name=endpoint, hints=resource._hints)
+
     def items() -> Any:
         if webhook_enabled:
             return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-
-        def pages() -> Iterator[list[dict[str, Any]]]:
-            for page in resource:
-                yield [row for row in page if isinstance(row, dict)]
-
-        return pages()
+        return pages
 
     partition_keys = PARTITION_KEYS.get(endpoint)
     return SourceResponse(

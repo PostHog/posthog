@@ -1,0 +1,168 @@
+from typing import cast
+
+from products.warehouse_sources.sources.aws_config._config import AwsConfigSourceConfig
+from products.warehouse_sources.sources.aws_config.aws_config import (
+    AwsConfigResumeConfig,
+    aws_config_source,
+    validate_credentials as validate_aws_config_credentials,
+)
+from products.warehouse_sources.sources.aws_config.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aws_config.settings import (
+    CONFIG_API_VERSION,
+    ENDPOINT_DESCRIPTIONS,
+    ENDPOINTS,
+    ERROR_MESSAGES,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+)
+from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    aws_auth_field,
+    build_endpoint_schemas,
+    detect,
+    resolve_aws_credentials,
+)
+
+
+@SourceRegistry.register
+class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConfig]):
+    codebase_detection = detect(
+        npm=("@aws-sdk/client-config-service",),
+        cargo=("aws-sdk-config",),
+        go=("github.com/aws/aws-sdk-go-v2/service/configservice",),
+        maven=("software.amazon.awssdk:config", "com.amazonaws:aws-java-sdk-config"),
+        rubygems=("aws-sdk-configservice",),
+    )
+
+    lists_tables_without_credentials = True
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-config"
+    supported_versions = (CONFIG_API_VERSION,)
+    default_version = CONFIG_API_VERSION
+    api_docs_url = "https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.AWSCONFIG
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Config request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: AwsConfigSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # The lookback reads rows again, so appending would duplicate them.
+            merge_only=INCREMENTAL_LOOKBACK_SECONDS.keys(),
+            descriptions=ENDPOINT_DESCRIPTIONS,
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
+
+    def validate_credentials(
+        self,
+        config: AwsConfigSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_config_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsConfigResumeConfig]:
+        return ResumableSourceManager(inputs, AwsConfigResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AwsConfigSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AwsConfigResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return aws_config_source(
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.AWSCONFIG,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="AWS Config",
+            caption="""Sync resource configurations and their history, rules, compliance status and evaluation results, conformance packs, remediation executions, proactive evaluations, and aggregated resources from one AWS region.
+
+Grant these IAM permissions for the tables you want to sync:
+- `config:SelectResourceConfig`
+- `config:DescribeConfigRules`
+- `config:DescribeComplianceByConfigRule`
+- `config:GetComplianceDetailsByConfigRule`
+- `config:DescribeConformancePacks`
+- `config:ListConformancePackComplianceScores`
+- `config:DescribeConfigurationAggregators` and `config:SelectAggregateResourceConfig`
+- `config:SelectResourceConfig` and `config:GetResourceConfigHistory`
+- `config:DescribeConformancePacks` and `config:GetConformancePackComplianceDetails`
+- `config:DescribeConfigRules` and `config:DescribeRemediationExecutionStatus`
+- `config:ListResourceEvaluations`
+
+Enable an AWS Config recorder for resource inventory. The resources table contains current configurations and excludes deleted resources.
+The aggregated resources table reads every configuration aggregator in the selected region.
+The resource configuration history table reads the history of each current resource. A full refresh or a first incremental sync reads the last 90 days.
+Connect with an IAM role, or with access keys. Add a session token if you use temporary credentials, and replace them when they expire.""",
+            iconPath="/static/services/aws_config.png",
+            docsUrl="https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html",
+            releaseStatus=ReleaseStatus.BETA,
+            keywords=["aws", "config", "compliance", "inventory"],
+            fields=cast(
+                list[FieldType],
+                [
+                    aws_auth_field(),
+                    SourceFieldInputConfig(
+                        name="region",
+                        label="AWS region",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="us-east-1",
+                        caption="Defaults to us-east-1. Only the selected region is synced.",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

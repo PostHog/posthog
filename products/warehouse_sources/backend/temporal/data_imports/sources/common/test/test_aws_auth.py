@@ -18,7 +18,6 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     ExternalRoleArnNotConfiguredError,
     InvalidCredentialsError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source import AwsConfigSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_FIELD_NAME,
     KEY_CONNECTION_FOR_ROLE_ERROR,
@@ -160,7 +159,10 @@ class TestResolveAwsCredentials(BaseTest):
             resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
 
         assert str(raised.exception) == ROLE_CREDENTIALS_RETRY_ERROR
-        assert not error_message_matches(str(raised.exception), AwsConfigSource().get_non_retryable_errors())
+        assert not error_message_matches(
+            str(raised.exception),
+            SourceRegistry.get_source(ExternalDataSourceType.AWSCONFIG).get_non_retryable_errors(),
+        )
 
     @parameterized.expand(
         [

@@ -1951,6 +1951,8 @@ export interface AccountsTableRelationshipDefinitionApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export interface AccountsTableCustomPropertyHistoryPointApi {
@@ -4897,6 +4899,7 @@ export type AccountNotesListParams = {
     created_by?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4912,6 +4915,7 @@ export type AccountNotesListParams = {
 export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4934,6 +4938,7 @@ export const AccountRelationshipDefinitionsListPagination = {
 export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4968,6 +4973,7 @@ export type AccountsListParams = {
     include_ignored?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5017,6 +5023,7 @@ export type AccountsRelationshipsListParams = {
 export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5028,6 +5035,7 @@ export type AccountsEmailThreadsListParams = {
 export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -5039,6 +5047,7 @@ export type AccountsEmailThreadMessagesListParams = {
 export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5054,6 +5063,7 @@ export type AccountsMeetingsListParams = {
 export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5065,6 +5075,7 @@ export type AccountsSummariesListParams = {
 export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -5085,6 +5096,7 @@ export type AccountsByExternalIdRetrieveParams = {
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5096,6 +5108,7 @@ export type AnnouncementsListParams = {
 export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5129,6 +5142,7 @@ export type CustomPropertyDefinitionsValuesRetrieveParams = {
 export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5140,6 +5154,7 @@ export type CustomPropertySourcesListParams = {
 export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5155,6 +5170,7 @@ export type CustomPropertySourcesRunsListParams = {
 export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5166,6 +5182,7 @@ export type CustomerJourneysListParams = {
 export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5298,6 +5315,7 @@ export type FeatureRequestsListParams = {
     created_by_ids?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

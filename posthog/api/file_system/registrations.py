@@ -107,26 +107,6 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
     )
 
 
-def _experiment_post_restore(context: RestoreContext, experiment: Any) -> None:
-    _log_restore_activity(
-        context,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
-        object_type="experiment",
-    )
-
-
-def _experiment_post_delete(context: DeletionContext, experiment: Any) -> None:
-    _log_deletion_activity(
-        context,
-        scope="Experiment",
-        item_id=experiment.id,
-        name=_first_non_blank(getattr(experiment, "name", None)) or "Untitled experiment",
-        object_type="experiment",
-    )
-
-
 def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
     _log_deletion_activity(
         context,
@@ -360,15 +340,6 @@ def register_core_file_system_types() -> None:
     register_post_delete_hook("feature_flag", _feature_flag_post_delete)
     register_pre_restore_hook("feature_flag", _feature_flag_pre_restore)
     register_post_restore_hook("feature_flag", _feature_flag_post_restore)
-
-    register_file_system_type(
-        "experiment",
-        "experiments",
-        "Experiment",
-        undo_message="Send PATCH /api/projects/@current/experiments/{id} with deleted=false.",
-    )
-    register_post_delete_hook("experiment", _experiment_post_delete)
-    register_post_restore_hook("experiment", _experiment_post_restore)
 
     register_file_system_type(
         "insight",

@@ -46,6 +46,7 @@ class DeprecatePayload:
     subject_name: str
     refresh_seconds_per_month: float
     refresh_bytes_per_month: float
+    materialized: bool = True
 
 
 @frozen
@@ -189,6 +190,7 @@ class AcceptOptions:
     unique_key: tuple[str, ...] | None = None
     lookback_seconds: int | None = None
     keep_materialized: bool | None = None
+    delete_view: bool | None = None
 
 
 @frozen
@@ -196,7 +198,13 @@ class UnmaterializationAsset:
     saved_query_id: str
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
+@frozen
+class DeletionAsset:
+    saved_query_id: str
+    stopped_materialization: bool
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset | DeletionAsset
 
 
 @frozen
@@ -207,12 +215,6 @@ class SuggestionStatus:
     window_days: int
     paused_reason: str | None
     refreshed_at: datetime | None
-
-
-@frozen
-class SuggestionPage:
-    count: int
-    results: list[Suggestion]
 
 
 class SuggestionNotFoundError(Exception):

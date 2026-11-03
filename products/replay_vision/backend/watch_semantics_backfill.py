@@ -1,5 +1,5 @@
-"""Brings observations ranked before the consumer wrote everything it writes today up to date: category scores,
-anchor similarities, feed groups and search themes, so the feed and the suggestions start from history."""
+"""Brings observations ranked before the consumer wrote everything it writes today up to date: anchor similarities,
+feed groups and search themes, so the feed and the suggestions start from history."""
 
 import uuid
 from collections import defaultdict
@@ -15,7 +15,6 @@ from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
 
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
@@ -23,10 +22,11 @@ from products.replay_vision.backend.watch_rank import (
     WatchCategory,
     anchor_vectors,
     classify,
+    current_ranks,
     save_anchor_similarities,
 )
 from products.replay_vision.backend.watch_rank_backfill import stored_vectors_between
-from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics_batch, merge_watch_ranks
+from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics_batch
 from products.replay_vision.backend.watch_themes import name_theme, naming_candidates
 
 logger = structlog.get_logger(__name__)
@@ -45,7 +45,6 @@ class _Pending:
     scanner_id: str
     created_at: datetime
     needs_group: bool
-    needs_scores: bool
     needs_similarities: bool
 
 
@@ -61,15 +60,14 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
     the Search tab can suggest."""
     has_similarities = Exists(
         ReplayObservationAnchorSimilarity.objects.for_team(team_id).filter(
-            observation_id=OuterRef("id"), anchor_version=ANCHOR_VERSION
+            observation_id=OuterRef("observation_id"), anchor_version=ANCHOR_VERSION
         )
     )
     pending = (
-        ReplayObservation.objects.filter(
-            team_id=team_id, status="succeeded", created_at__gte=since, watch_rank__anchor_version=ANCHOR_VERSION
-        )
+        current_ranks(team_id)
+        .filter(created_at__gte=since)
         .annotate(has_similarities=has_similarities)
-        .filter(Q(watch_rank__group__isnull=True) | Q(watch_rank__scores__isnull=True) | Q(has_similarities=False))
+        .filter(Q(feed_group_id__isnull=True) | Q(has_similarities=False))
     )
     if dry_run:
         return SemanticBackfillResult(observations=pending.count(), assigned=0, named=0)
@@ -80,13 +78,13 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
     # One page per query and per slice, because a pooled connection buffers a whole result however it is iterated.
     after: tuple[datetime, uuid.UUID] | None = None
     while True:
-        page = pending.order_by("created_at", "id")
+        page = pending.order_by("created_at", "observation_id")
         if after:
-            page = page.filter(Q(created_at__gt=after[0]) | Q(created_at=after[0], id__gt=after[1]))
+            page = page.filter(Q(created_at__gt=after[0]) | Q(created_at=after[0], observation_id__gt=after[1]))
         values = list(
-            page.values_list(
-                "id", "scanner_id", "created_at", "watch_rank__group", "watch_rank__scores", "has_similarities"
-            )[:_SLICE_ROWS]
+            page.values_list("observation_id", "scanner_id", "created_at", "feed_group_id", "has_similarities")[
+                :_SLICE_ROWS
+            ]
         )
         if not values:
             break
@@ -96,10 +94,9 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
                 scanner_id=str(scanner_id),
                 created_at=created_at,
                 needs_group=group is None,
-                needs_scores=scores is None,
                 needs_similarities=not has_row,
             )
-            for observation_id, scanner_id, created_at, group, scores, has_row in values
+            for observation_id, scanner_id, created_at, group, has_row in values
         ]
         observations += len(slice_rows)
         assigned += _backfill_slice(team_id, slice_rows, anchors)
@@ -122,7 +119,7 @@ def _backfill_slice(team_id: int, slice_rows: list[_Pending], anchors: dict[Watc
     readings: dict[str, AnchorReading] = {
         row.observation_id: classify(vectors[row.observation_id], anchors)
         for row in slice_rows
-        if row.observation_id in vectors and (row.needs_scores or row.needs_similarities)
+        if row.observation_id in vectors and row.needs_similarities
     }
     save_anchor_similarities(
         team_id,
@@ -130,14 +127,6 @@ def _backfill_slice(team_id: int, slice_rows: list[_Pending], anchors: dict[Watc
             row.observation_id: readings[row.observation_id].similarities
             for row in slice_rows
             if row.needs_similarities and row.observation_id in readings
-        },
-    )
-    merge_watch_ranks(
-        team_id,
-        {
-            row.observation_id: {"scores": readings[row.observation_id].rank.scores}
-            for row in slice_rows
-            if row.needs_scores and row.observation_id in readings
         },
     )
     by_scanner: dict[str, list[SemanticItem]] = defaultdict(list)

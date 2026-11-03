@@ -19,7 +19,11 @@ class TestWorkflowSendingRulesAPI(APIBaseTest):
 
         response = self.client.patch(
             self._url(),
-            {"marketing_frequency_cap_max_messages": 1, "marketing_frequency_cap_window_days": 2},
+            {
+                "marketing_frequency_cap_max_messages": 1,
+                "marketing_frequency_cap_window_days": 2,
+                "marketing_frequency_cap_hold_hours": 48,
+            },
             format="json",
         )
 
@@ -27,6 +31,7 @@ class TestWorkflowSendingRulesAPI(APIBaseTest):
         body = self.client.get(self._url()).json()
         assert body["marketing_frequency_cap_max_messages"] == 1
         assert body["marketing_frequency_cap_window_days"] == 2
+        assert body["marketing_frequency_cap_hold_hours"] == 48
 
     @parameterized.expand(
         [
