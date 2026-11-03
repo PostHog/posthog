@@ -42,7 +42,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
-from products.alerts.backend.platform_investigation import claim_requested_investigations, run_metrics_investigation
+from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
@@ -999,7 +999,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert len(self.deliveries) == 1
 
     @parameterized.expand([("found", None, InvestigationStatus.DONE), ("failed", RuntimeError("no data"), "failed")])
-    def test_a_metrics_firing_records_its_investigation_without_holding_the_firing(
+    def test_a_metrics_firing_is_held_until_its_investigation_ends(
         self, _name: str, error: Exception | None, status: str
     ) -> None:
         alert = self._alert(investigation_agent_enabled=True, investigation_gates_notifications=True)
@@ -1015,12 +1015,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             side_effect=error,
             return_value="queue.depth moved up.",
         ) as investigate:
-            for run in claims.metrics * 2:
-                run_metrics_investigation(run)
+            released = [
+                run_platform_metrics_investigations_activity(MetricsInvestigationsInputs(runs=claims.metrics))
+                for _ in range(2)
+            ]
 
-        assert outcome.held_delivery is None
-        assert len(self.deliveries) == 1
+        assert outcome.held_delivery is not None
+        assert self.deliveries == ()
         assert (claims.starts, len(claims.metrics)) == ((), 1)
+        # Released once the run ends, whatever it found, and a retry gets the same request back.
+        assert released == [[outcome.held_delivery.request]] * 2
         investigate.assert_called_once()
         assert investigate.call_args.kwargs["fired_at"] == CUTOFF
         investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
