@@ -80,6 +80,7 @@ from products.replay_vision.backend.billing import (
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import unreported_spend_by_org
 from products.signals.backend.facade.billing import (
+    TeamSignalsCredits,
     credited_refund_credits_for_org,
     signals_billing_credits_by_team,
     signals_spend_billing_credits_by_team,
@@ -2208,8 +2209,8 @@ def get_teams_with_signals_spend_credits_used_in_period(
 @timed_log()
 def get_teams_with_signals_spend_quota_credits_used_in_period(
     begin: datetime, end: datetime
-) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- counter API rows
-    return [(row.team_id, row.credits) for row in signals_spend_quota_credits_by_team(begin, end)]
+) -> list[TeamSignalsCredits]:
+    return signals_spend_quota_credits_by_team(begin, end)
 
 
 def get_signals_credited_refund_credits_for_org(

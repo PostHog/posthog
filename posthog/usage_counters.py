@@ -330,7 +330,7 @@ class UsageCounterService:
         if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
             rows = self._quota_events_query(begin, end, count_distinct=False)
         elif caller == "quota_limiting" and counter == UsageCounter.SIGNALS_SPEND_CREDITS:
-            rows = self._quota_signals_spend_query(begin, end)
+            return [(row.team_id, row.credits) for row in self._quota_signals_spend_query(begin, end)]
         else:
             rows = self._queries[counter](begin, end)
         # Flag readers return string team IDs, and the rows synced and exported readers return dictionaries.
