@@ -3800,6 +3800,16 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeUnitBinding = {
+        /**
+         * Which ids represent that unit, such as `billing_customer_id`.
+         */
+        id_namespace: string;
+        /**
+         * What was randomized, as a stable project-scoped label such as `customer` or `account`.
+         */
+        unit_type: string;
+    };
     export type ExperimentWarehouseNativeExposureConfig = {
         /**
          * The direct-query source (an ExternalDataSource id) the SQL is written for.
@@ -3811,6 +3821,7 @@ export namespace Schemas {
          */
         query: string;
         response?: (Record<string, unknown> | null) | undefined;
+        unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
     export type MultipleVariantHandling = "exclude" | "first_seen";
@@ -3919,6 +3930,7 @@ export namespace Schemas {
          */
         query: string;
         response?: (Record<string, unknown> | null) | undefined;
+        unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
     export type ExperimentMeanMetric = {

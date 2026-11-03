@@ -4,7 +4,7 @@
 //! The index rows go to the index topic, and the Parquet sink writes them to S3. The flush does not wait for their
 //! delivery: the data is stored by then, and a lost row is counted.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -26,7 +26,7 @@ use crate::batch::Block;
 use crate::history::{mark_fresh, FetchHistory};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
-use crate::urls::{fetch_jobs, records, FlushImages};
+use crate::urls::{fetch_jobs, records, FetchJobs, FlushUrls};
 use crate::watermark::FlushDone;
 use crate::write::{
     block_index_rows, compress_block, new_images, object_key, seal_blocking, seal_compressed,
@@ -178,7 +178,7 @@ pub async fn write_flush(
             .sent_urls
             .contains_key(&(day.clone(), reference.to_owned()))
     };
-    let images = FlushImages::new(
+    let urls = FlushUrls::new(
         blocks.iter().map(|block| &**block),
         &keys,
         month,
@@ -215,7 +215,7 @@ pub async fn write_flush(
         stream::iter(seals)
             .buffer_unordered(concurrency.max(1))
             .collect::<Vec<_>>(),
-        mark_fresh_images(writer, &images, &day),
+        mark_fresh_urls(writer, &urls, &day),
     );
     for result in results {
         match result {
@@ -258,7 +258,7 @@ pub async fn write_flush(
         kept[index] = true;
     }
     let jobs = fetch_jobs(
-        &images,
+        &urls,
         blocks
             .iter()
             .zip(stats.iter_mut())
@@ -268,7 +268,7 @@ pub async fn write_flush(
         now.timestamp_millis(),
         &already_sent,
     );
-    drop(images);
+    drop(urls);
 
     let session_frames = session_keyed_frames(&sealed);
     let image_rows = write_images(
@@ -321,7 +321,7 @@ pub async fn write_flush(
     Ok(())
 }
 
-async fn mark_fresh_images(writer: &Writer, images: &FlushImages, day: &str) {
+async fn mark_fresh_urls(writer: &Writer, urls: &FlushUrls, day: &str) {
     let Some(history) = &writer.fetch_history else {
         return;
     };
@@ -329,7 +329,7 @@ async fn mark_fresh_images(writer: &Writer, images: &FlushImages, day: &str) {
     mark_fresh(
         history.as_ref(),
         &writer.sent_urls,
-        images.unsent_references(),
+        urls.unsent_references(),
         day,
         deadline,
     )
@@ -339,12 +339,7 @@ async fn mark_fresh_images(writer: &Writer, images: &FlushImages, day: &str) {
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.
 /// A send that fails does not fail the flush, because its blocks are stored by then. The references it did not send
 /// stay unmarked, so a later flush that sees them sends them again.
-async fn produce_jobs(
-    writer: &Writer,
-    jobs: BTreeMap<String, Vec<serde_json::Value>>,
-    day: &str,
-    now_ms: i64,
-) {
+async fn produce_jobs(writer: &Writer, jobs: FetchJobs, day: &str, now_ms: i64) {
     let captured_at = now_ms.to_string();
     let deliveries: Vec<_> = records(jobs)
         .into_iter()
