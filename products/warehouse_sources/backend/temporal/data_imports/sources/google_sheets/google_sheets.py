@@ -1,6 +1,7 @@
 import re
 import time
 import random
+import functools
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
@@ -8,11 +9,13 @@ from urllib.parse import quote
 
 import gspread
 import requests
+from babel.core import UnknownLocaleError
+from babel.numbers import get_decimal_symbol, get_group_symbol
 from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import absolute_range_name, fill_gaps, numericise_all
+from gspread.utils import absolute_range_name, fill_gaps, numericise, numericise_all
 
 from posthog.credentials_service.errors import CredentialsSecretError
 from posthog.dataclasses import frozen
@@ -198,15 +201,77 @@ def _resolve_column_names(headers: list[str]) -> list[str]:
     return resolved
 
 
-def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
+@frozen
+class _DecimalCommaFormat:
+    decimal_symbol: str
+    group_symbols: tuple[str, ...]
+    number_pattern: re.Pattern[str]
+
+
+_WHITESPACE_GROUP_SYMBOLS = ("\u00a0", "\u202f", " ")
+
+
+@functools.lru_cache(maxsize=64)
+def _decimal_comma_format(locale: str) -> _DecimalCommaFormat | None:
+    try:
+        decimal_symbol = get_decimal_symbol(locale)
+        group_symbol = get_group_symbol(locale)
+    except (UnknownLocaleError, ValueError, TypeError):
+        return None
+    if decimal_symbol == ".":
+        return None
+
+    # Sheets and CLDR disagree on which space character groups digits (for example fr_FR), so any
+    # space counts as a group separator when the locale groups with a space.
+    group_symbols = _WHITESPACE_GROUP_SYMBOLS if group_symbol.isspace() else (group_symbol,)
+    group = "[" + "".join(re.escape(symbol) for symbol in group_symbols) + "]"
+    decimal = re.escape(decimal_symbol)
+    # Groups must be exactly three digits, so a formatted date such as "15.01.2024" stays text.
+    number_pattern = re.compile(rf"[+-]?(?:\d{{1,3}}(?:{group}\d{{3}})+|\d+)(?:{decimal}\d+)?(?:[eE][+-]?\d+)?")
+    return _DecimalCommaFormat(
+        decimal_symbol=decimal_symbol, group_symbols=group_symbols, number_pattern=number_pattern
+    )
+
+
+def _numericise_decimal_comma(text: str, number_format: _DecimalCommaFormat) -> int | float | str | None:
+    if text == "":
+        return None
+    if number_format.number_pattern.fullmatch(text):
+        canonical = text
+        for group_symbol in number_format.group_symbols:
+            canonical = canonical.replace(group_symbol, "")
+        canonical = canonical.replace(number_format.decimal_symbol, ".")
+        try:
+            return int(canonical)
+        except ValueError:
+            return float(canonical)
+    # gspread's `numericise` treats every comma as a thousands separator, which is wrong when the
+    # comma is the decimal separator. Text without one still goes through it, so values such as
+    # "nan" parse as they did before.
+    if number_format.decimal_symbol in text:
+        return text
+    return numericise(text, default_blank=None)
+
+
+def _records_from_grid(grid: list[list[str]], locale: str | None = None) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
     column_names = _resolve_column_names(list(grid[0]))
 
-    # default_blank defaults to "", which turns empty cells into strings and breaks numeric
-    # columns that legitimately have gaps. None lets blank cells import as null instead.
-    records = [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
+    # The grid holds formatted text, so a number uses the spreadsheet locale's separators. Only
+    # decimal-comma locales need a different parse. Every other locale keeps gspread's parse, so
+    # its column types do not change.
+    number_format = _decimal_comma_format(locale) if locale else None
+    if number_format is None:
+        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
+        # columns that legitimately have gaps. None lets blank cells import as null instead.
+        records = [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
+    else:
+        records = [
+            dict(zip(column_names, [_numericise_decimal_comma(cell, number_format) for cell in row]))
+            for row in grid[1:]
+        ]
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
@@ -329,6 +394,14 @@ def _get_worksheet(
         return _open_spreadsheet(google_sheets_client(), spreadsheet_url).get_worksheet_by_id(worksheet_id)
 
     return _retry_on_transient_api_error(execute)
+
+
+def _spreadsheet_locale(worksheet: gspread.Worksheet) -> str | None:
+    # `open_by_url` already fetched the spreadsheet properties, so this makes no API call.
+    try:
+        return worksheet.spreadsheet.locale
+    except KeyError:
+        return None
 
 
 @frozen
@@ -564,7 +637,7 @@ def google_sheets_source(
                 grid = []
             else:
                 raise
-        values = _records_from_grid(grid)
+        values = _records_from_grid(grid, _spreadsheet_locale(worksheet))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
