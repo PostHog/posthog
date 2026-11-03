@@ -21,6 +21,8 @@ use crate::url_policy::{
 pub const MAX_RESOLVED_URLS: usize = 1024;
 /// Far more than a real `image-set()` lists. A longer set gets no rewrite, so the inspector never holds its candidates.
 const MAX_IMAGE_SET_CANDIDATES: usize = 32;
+/// The depth at which `cssparser` enters no more blocks, to keep the stack bounded. Its default, set here so that [`Declarations`] can see it.
+const NESTED_BLOCK_LIMIT: u8 = 75;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CssUrl<'a> {
@@ -38,6 +40,8 @@ pub enum CssUrl<'a> {
     },
     /// A [`CssUrl::Resolved`] font URL of a family that the renderer does not ship.
     ResolvedFont(&'a str),
+    /// Rules nest to [`NESTED_BLOCK_LIMIT`], where a rule reads as declarations of the block around it, so an `@font-face` there names no URL.
+    NestedTooDeep,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,7 +143,7 @@ pub fn rewrite_font_src_functions(
 ) -> Option<String> {
     let mut out: Option<String> = None;
     let mut copied_to = 0;
-    for declaration in declarations(css) {
+    for declaration in declarations(css).found {
         if !matches!(declaration.kind, DeclarationKind::FontSrc(_)) {
             continue;
         }
@@ -158,7 +162,14 @@ pub fn rewrite_font_src_functions(
 
 /// Calls `found` with each URL and rewrite in `css`: a `style` attribute, `<style>` text or `_cssText`.
 pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
-    let declarations = declarations(css);
+    let Declarations {
+        found: declarations,
+        nested_too_deep,
+        ..
+    } = declarations(css);
+    if nested_too_deep {
+        found(CssUrl::NestedTooDeep);
+    }
     let mut families: Vec<Option<&str>> = Vec::new();
     for declaration in &declarations {
         if let DeclarationKind::FontFamily(face) = declaration.kind {
@@ -197,7 +208,8 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
                         CssUrl::Resolved(_)
                         | CssUrl::Unshown(_)
                         | CssUrl::Font { .. }
-                        | CssUrl::ResolvedFont(_) => {}
+                        | CssUrl::ResolvedFont(_)
+                        | CssUrl::NestedTooDeep => {}
                     },
                 );
             }
@@ -261,28 +273,41 @@ enum Block {
 }
 
 /// The text can be a style attribute, a style sheet or one rule, so its top level reads as a rule body, which holds declarations and rules alike.
-fn declarations(css: &str) -> Vec<Declaration> {
+fn declarations(css: &str) -> Declarations {
     let mut declarations = Declarations {
         found: Vec::new(),
         font_faces: 0,
         block: Block::Style,
+        depth: 0,
+        nested_too_deep: false,
     };
-    declarations.read_block(&mut Parser::new(css), Block::Style);
-    declarations.found
+    let mut input = Parser::new(css);
+    input.set_nested_block_limit(NESTED_BLOCK_LIMIT);
+    declarations.read_block(&mut input, Block::Style);
+    declarations
 }
 
 struct Declarations {
     found: Vec<Declaration>,
     font_faces: usize,
     block: Block,
+    depth: u8,
+    nested_too_deep: bool,
 }
 
 impl Declarations {
     fn read_block(&mut self, input: &mut Parser<'_>, block: Block) {
         let outer = std::mem::replace(&mut self.block, block);
+        self.nested_too_deep |= self.depth >= NESTED_BLOCK_LIMIT;
         let body: RuleBodyParser<'_, '_, Self, (), ()> = RuleBodyParser::new(input, self);
         for _ in body {}
         self.block = outer;
+    }
+
+    fn read_nested_block(&mut self, input: &mut Parser<'_>, block: Block) {
+        self.depth += 1;
+        self.read_block(input, block);
+        self.depth -= 1;
     }
 }
 
@@ -348,7 +373,7 @@ impl<'i> AtRuleParser<'i> for Declarations {
         _: &ParserState,
         input: &mut Parser<'i>,
     ) -> Result<(), ParseError<()>> {
-        self.read_block(input, block);
+        self.read_nested_block(input, block);
         Ok(())
     }
 }
@@ -369,7 +394,7 @@ impl<'i> QualifiedRuleParser<'i> for Declarations {
         _: &ParserState,
         input: &mut Parser<'i>,
     ) -> Result<(), ParseError<()>> {
-        self.read_block(input, Block::Style);
+        self.read_nested_block(input, Block::Style);
         Ok(())
     }
 }
@@ -829,6 +854,7 @@ mod tests {
                 ),
                 CssUrl::Font { url, family } => format!("font {url} {family:?}"),
                 CssUrl::ResolvedFont(url) => format!("resolved font {url}"),
+                CssUrl::NestedTooDeep => "nested too deep".to_owned(),
             })
         });
         found

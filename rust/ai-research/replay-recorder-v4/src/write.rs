@@ -969,13 +969,25 @@ mod tests {
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": "@\\66 ont-face{font-family:Escaped;src:url(https://fonts.example.com/escaped.woff2)}"}, "childNodes": [], "id": 4}),
         ];
-        // Each escaped URL takes a rewrite, so past the rewrite budget its URL is not named.
+        // Each escaped URL takes a rewrite, so past the rewrite budget its URL is not named, even where a line continuation splits its scheme.
         let escaped_faces: String = (0..=MAX_BLOCK_REMOTE_URLS)
             .map(|i| format!("@font-face{{font-family:Escaped{i};src:url(https://fonts.example.com/{i}\\2e woff2)}}"))
             .collect();
+        let split_face = "@font-face{font-family:Split;src:url(\"htt\\\nps://fonts.example.com/split.woff2?token=secret\")}";
         let escaped_fonts = vec![
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": escaped_faces}, "childNodes": [], "id": 2}),
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": split_face}, "childNodes": [], "id": 4}),
+        ];
+        let deep_face = format!(
+            "{}@font-face{{font-family:Deep;src:url(\"https://fonts.example.com/deep.woff2?token=secret\")}}{}",
+            "@media all{".repeat(80),
+            "}".repeat(80)
+        );
+        let nested_fonts = vec![
+            json!({"type": 2, "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png"}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": deep_face}, "childNodes": [], "id": 3}),
+            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 4}),
         ];
         use posthog_replay_anonymizer::v4_image_refs::{
             FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
@@ -999,6 +1011,12 @@ mod tests {
                 FONT_URL_UNCHECKED_MARKER,
                 URL_UNCHECKED_MARKER,
             ),
+            (
+                nested_fonts,
+                "imageurl:v4:7:2026-10:",
+                URL_UNCHECKED_MARKER,
+                FONT_URL_UNCHECKED_MARKER,
+            ),
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
             let lines = stored_lines(&events, &[]);
@@ -1007,7 +1025,9 @@ mod tests {
                 lines.contains(marker) && !lines.contains(other_marker),
                 "{marker}"
             );
-            assert!(!lines.contains("https://cdn.") && !lines.contains("https://fonts."));
+            for raw in ["https://cdn.", "https://fonts.", "token=secret"] {
+                assert!(!lines.contains(raw), "{raw}");
+            }
             assert_eq!(
                 lines.contains(link),
                 marker == FONT_URL_UNCHECKED_MARKER,

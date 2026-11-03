@@ -36,6 +36,8 @@ enum Kind {
     StringEnd,
     /// A character a CSS escape names. It is part of the URL whatever it is.
     CssEscaped,
+    /// An escaped line break, which a CSS string drops, so it is no character of the URL.
+    Continuation,
 }
 
 /// One character of the stored bytes and the bytes that spell it.
@@ -149,6 +151,20 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
         return plain;
     }
     let (next, next_len) = json_unit(bytes, end);
+    if is_char(next, b'\n') || is_char(next, b'\r') || is_char(next, 0x0c) {
+        end += next_len;
+        if is_char(next, b'\r') && end < bytes.len() {
+            let (after, after_len) = json_unit(bytes, end);
+            if is_char(after, b'\n') {
+                end += after_len;
+            }
+        }
+        return Unit {
+            ch: next,
+            len: end - at,
+            kind: Kind::Continuation,
+        };
+    }
     if is_space(next) || (next_len == 1 && is_char(next, b'"')) {
         return plain;
     }
@@ -172,8 +188,11 @@ fn remote_start(bytes: &[u8], at: usize) -> Option<Start> {
         if next.kind == Kind::StringEnd {
             break;
         }
-        chars[count] = lower(next.ch);
         pos += next.len;
+        if next.kind == Kind::Continuation {
+            continue;
+        }
+        chars[count] = lower(next.ch);
         count += 1;
     }
     let slash = |ch: u32| is_char(ch, b'/') || is_char(ch, b'\\');
@@ -221,7 +240,7 @@ fn closer_after(prev: Option<Unit>) -> Closer {
 fn ends_url(next: Unit, closer: Closer) -> bool {
     match next.kind {
         Kind::StringEnd => true,
-        Kind::CssEscaped => false,
+        Kind::CssEscaped | Kind::Continuation => false,
         Kind::Plain => match closer {
             Closer::Whitespace => is_space(next.ch),
             Closer::Nothing => false,
@@ -256,6 +275,10 @@ fn scan(bytes: &[u8]) -> Scan {
                 Some(start) => strings.push((start, at)),
                 None => string_start = Some(at + 1),
             }
+        }
+        if current.kind == Kind::Continuation {
+            at += current.len;
+            continue;
         }
         let first = lower(current.ch);
         let starts = string_start.is_some()
@@ -296,7 +319,9 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
     let mut at = start;
     while at < end {
         let next = unit(bytes, at);
-        text.extend(char::from_u32(lower(next.ch)));
+        if next.kind != Kind::Continuation {
+            text.extend(char::from_u32(lower(next.ch)));
+        }
         at += next.len;
     }
     text
@@ -488,6 +513,15 @@ mod tests {
             (
                 r#"{"style":"url(\\2f\\2f bucket.example.com/a.png?sig=x)"}"#.to_owned(),
                 format!(r#"{{"style":"url({m})"}}"#),
+            ),
+            // A CSS string drops an escaped line break, so a browser reads a URL that one splits whole.
+            (
+                r#"{"style":"url(\"htt\\\nps://cdn.example.com/a.png?token=x\")"}"#.to_owned(),
+                format!(r#"{{"style":"url(\"{m}\")"}}"#),
+            ),
+            (
+                r#"{"style":"url('ht\\\r\ntps://cdn.example.com/a.png?token=x')"}"#.to_owned(),
+                format!(r#"{{"style":"url('{m}')"}}"#),
             ),
             // A browser reads a backslash as a slash, and the inspector reads any host after two of them as remote.
             (
