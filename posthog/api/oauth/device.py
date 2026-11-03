@@ -66,6 +66,13 @@ USER_CODE_LENGTH = 8
 # jitter doesn't earn a well-behaved client a slow_down.
 POLL_INTERVAL_TOLERANCE = timedelta(seconds=1)
 
+# The approval page shows only the client's self-declared name, and a code can be sent to someone
+# else to approve, so only clients PostHog staff verified can use the grant.
+UNVERIFIED_CLIENT_DESCRIPTION = (
+    "PostHog hasn't verified this app. Device login only works for apps PostHog has verified, "
+    "which are PostHog's own apps."
+)
+
 
 def generate_user_code() -> str:
     code = "".join(secrets.choice(USER_CODE_ALPHABET) for _ in range(USER_CODE_LENGTH))
@@ -263,6 +270,8 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
             return _error_response(
                 rfc6749_errors.UnauthorizedClientError(description="This client can't use the device grant.")
             )
+        if not application.is_verified:
+            return _error_response(rfc6749_errors.UnauthorizedClientError(description=UNVERIFIED_CLIENT_DESCRIPTION))
 
         OAuthDeviceGrant.objects.create(
             client_id=application.client_id,
@@ -342,6 +351,13 @@ def _invalid_code() -> Response:
     )
 
 
+def _unverified_client() -> Response:
+    return Response(
+        {"error": "unverified_client", "error_description": UNVERIFIED_CLIENT_DESCRIPTION},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 def _capture(request: Request, event: str, grant: OAuthDeviceGrant, **properties: object) -> None:
     """Device approval events share the `oauth_*` client properties, so they line up with
     `oauth_token_issued` for the same client."""
@@ -388,6 +404,9 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
         application = grant and OAuthApplication.objects.filter(client_id=grant.client_id).first()
         if grant is None or application is None:
             return _invalid_code()
+        # Staff can withdraw a verification while a grant is pending.
+        if not application.is_verified:
+            return _unverified_client()
         # pinned: analytics event names, which dashboards depend on
         _capture(request, "oauth_device_authorization_viewed", grant)
         return Response(
@@ -457,6 +476,8 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             grant = _pending_grant(serializer.validated_data["user_code"], lock=True)
             if grant is None:
                 return _invalid_code()
+            if not OAuthApplication.objects.filter(client_id=grant.client_id, is_verified=True).exists():
+                return _unverified_client()
             if block := _gateway_blocklist_block(
                 request, grant.scope or "", access_level="team", scoped_team_ids=[team.id]
             ):
