@@ -53,7 +53,6 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
-    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
     UserAccessControl,
     model_to_resource,
@@ -62,7 +61,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
-from products.authorization.backend.presentation.resources import resource_for_object
+from products.authorization.backend.presentation.resources import MEMBERSHIP_RESOURCES, resource_for_object
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -1209,12 +1208,9 @@ REQUIRED_LEVEL_ACTIONS: dict[AccessControlLevel, Action] = {
 }
 
 
-def sdk_resource_type(scope: Optional[str]) -> Optional[ResourceType]:
-    """The SDK type for an API scope object, or None when the SDK has no such type."""
-    try:
-        return ResourceType(scope) if scope else None
-    except ValueError:
-        return None
+def is_outside_any_project(scope: str, obj: Model, team: Optional[Team]) -> bool:
+    """Whether neither the object nor its view has a project, as for an organization's plugins."""
+    return team is None and getattr(obj, "team_id", None) is None and ResourceType(scope) not in MEMBERSHIP_RESOURCES
 
 
 def resource_for_ref(ref: ObjectAccessRef) -> Resource:
@@ -1309,21 +1305,19 @@ class AccessControlPermission(ScopeBasePermission):
             # Permissions do not apply to models without a related scope
             return True
 
-        if sdk_resource_type(scope) is None:
-            # The SDK has no type for this scope yet, so the current rules answer directly.
-            uac = self._get_user_access_control(request, view)
-            if isinstance(object, ObjectAccessRef):
-                has_access = uac.check_access_level_for_ref(object, required_level=required_level)
-            else:
-                has_access = uac.check_access_level_for_object(object, required_level=required_level)
-        else:
-            resource = (
-                resource_for_ref(object)
-                if isinstance(object, ObjectAccessRef)
-                else resource_for_object(object, team=None if isinstance(object, Team) else view_team(view))
+        team = None if isinstance(object, (Team, ObjectAccessRef)) else view_team(view)
+        if not isinstance(object, ObjectAccessRef) and is_outside_any_project(scope, object, team):
+            # The current rules scope these objects' rules to the organization, which an SDK resource cannot name.
+            has_access = self._get_user_access_control(request, view).check_access_level_for_object(
+                object, required_level=required_level
             )
+        else:
             has_access = authorization.check(
-                resource=resource, action=REQUIRED_LEVEL_ACTIONS[required_level], subject=request_subject(request)
+                resource=resource_for_ref(object)
+                if isinstance(object, ObjectAccessRef)
+                else resource_for_object(object, team=team),
+                action=REQUIRED_LEVEL_ACTIONS[required_level],
+                subject=request_subject(request),
             )
 
         if not has_access:
@@ -1375,16 +1369,11 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         # TODO: Scope object should probably be applied against the `required_scopes` attribute
-        resource_type = sdk_resource_type(scope_object)
-        if resource_type is None or scope_object in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
-            # The SDK has no type, or no resource-level rule, for this scope yet.
-            has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
-        else:
-            has_access = authorization.check(
-                resource=Resource(type=resource_type, project_id=team.id),
-                action=REQUIRED_LEVEL_ACTIONS[required_level],
-                subject=request_subject(request),
-            )
+        has_access = authorization.check(
+            resource=Resource(type=ResourceType(scope_object), project_id=team.id),
+            action=REQUIRED_LEVEL_ACTIONS[required_level],
+            subject=request_subject(request),
+        )
         if has_access:
             return True
         elif getattr(view, "requires_resource_level_access", False):

@@ -13,6 +13,7 @@ from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_FALLBACK_MAP,
+    AccessControlLevelMember,
     AccessControlLevelResource,
     UserAccessControl,
 )
@@ -49,6 +50,11 @@ MEMBERSHIP_LEVELS: dict[ResourceType, dict[Action, OrganizationMembership.Level]
     ResourceType.ROLE: {**_ADMIN_ACTIONS, Action.VIEW: _Level.MEMBER},
 }
 
+# A project or organization check without an id asks about the type. The current rules answer it
+# from the type's default level, read with these levels.
+MEMBERSHIP_TYPE_LEVELS: dict[Action, AccessControlLevelMember] = {Action.VIEW: "member", Action.EDIT: "admin"}
+MEMBERSHIP_TYPES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT})
+
 
 def check(requests: Sequence[CheckRequest], context: Context | None) -> list[bool]:
     if context is not None and context != Context():
@@ -65,6 +71,8 @@ def permissions(resource: Resource, subject: Subject | None, context: Context | 
 
 def _check(session: Session, request: CheckRequest) -> bool:
     resource, action = request.resource, request.action
+    if resource.type in MEMBERSHIP_TYPES and resource.id is None:
+        return _check_membership_type(session, request)
     if resource.type in MEMBERSHIP_LEVELS:
         return _check_membership(session, request)
     level = RESOURCE_LEVELS.get(action)
@@ -138,6 +146,20 @@ def _check_membership(session: Session, request: CheckRequest) -> bool:
         organization_id = UUID(resource.id)
     membership = get_cached_organization_membership(organization_id, principal)
     return membership is not None and membership.level >= level
+
+
+def _check_membership_type(session: Session, request: CheckRequest) -> bool:
+    resource = request.resource
+    level = MEMBERSHIP_TYPE_LEVELS.get(request.action)
+    if level is None:
+        raise ValueError(f"{request.action} does not apply to every {resource.type}.")
+    if resource.project_id is None:
+        raise ValueError(f"A {resource.type} check needs `id`, or `project_id` for a check on the type.")
+    principal = _principal(session, request.subject)
+    if principal is None:
+        return False
+    access = _access(session, principal, resource.project_id)
+    return access is not None and access.check_access_level_for_resource(_scope(resource.type), level)
 
 
 def _check_project(

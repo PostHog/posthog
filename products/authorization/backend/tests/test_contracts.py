@@ -5,10 +5,17 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.scopes import API_SCOPE_OBJECTS
+
 from products.authorization.backend.facade.contracts import ObjectIds, Resource, Subject
 from products.authorization.backend.facade.enums import ResourceType
 
 PROJECT = Resource(type=ResourceType.PROJECT, id="1")
+
+
+class TestResourceType(SimpleTestCase):
+    def test_every_api_scope_has_a_type(self) -> None:
+        assert set(API_SCOPE_OBJECTS) - {resource_type.value for resource_type in ResourceType} == set()
 
 
 class TestSubject(SimpleTestCase):
