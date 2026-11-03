@@ -1,18 +1,31 @@
 import json
+from datetime import datetime
 from hashlib import sha256
+from typing import cast
+
+from posthog.schema import AccountUsersQuery, ActorsQuery, ActorsQueryResponse, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.person_group_membership import PersonGroupMembershipTable
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tags_context
 from posthog.hogql_queries.actor_strategies import person_email_property_keys
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import Team, User
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade.api import get_accessible_account_id, get_account
+from products.customer_analytics.backend.facade.contracts import (
+    AccountPerson,
+    AccountPersonsOptions,
+    AccountPersonsPage,
+    AccountPersonsPropertyAccessError,
+)
 
 ACCOUNT_PERSONS_FLAG = "customer-analytics-account-persons-api"
 
@@ -186,3 +199,65 @@ class AccountPersonsReader:
             ]
         )
         return condition
+
+    def get_query(self, options: AccountPersonsOptions, restricted_properties: frozenset[str]) -> ActorsQuery:
+        if any(item.key in restricted_properties for item in options.filters) or (
+            options.sort_column not in {"id", "display_name", "account_first_seen", "account_last_seen"}
+            and options.sort_column in restricted_properties
+        ):
+            raise AccountPersonsPropertyAccessError()
+        columns = [key for key in options.properties if key not in restricted_properties]
+        display_name = self.get_display_name(restricted_properties)
+        selected = [
+            "persons.id",
+            "source.distinct_ids",
+            display_name.to_hogql(),
+            "source.account_first_seen",
+            "source.account_last_seen",
+            *[ast.Field(chain=["properties", key]).to_hogql() for key in columns],
+        ]
+        sort_fields: dict[str, ast.Expr] = {
+            "id": ast.Field(chain=["persons", "id"]),
+            "display_name": display_name,
+            "account_first_seen": ast.Field(chain=["source", "account_first_seen"]),
+            "account_last_seen": ast.Field(chain=["source", "account_last_seen"]),
+        }
+        sort_field = sort_fields.get(options.sort_column, ast.Field(chain=["properties", options.sort_column]))
+        order = ast.OrderExpr(expr=sort_field, order="DESC" if options.sort_direction == "desc" else "ASC")
+        return ActorsQuery(
+            source=AccountUsersQuery(accountId=self.account_id),
+            select=selected,
+            properties=options.filters,
+            search=options.search.strip() or None,
+            orderBy=[order.to_hogql(), "persons.id ASC"],
+            limit=options.limit,
+            offset=options.offset,
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
+        )
+
+    def list_persons(self, options: AccountPersonsOptions, restricted_properties: frozenset[str]) -> AccountPersonsPage:
+        query = self.get_query(options, restricted_properties)
+        with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS):
+            runner = get_query_runner(query, team=self.team, user=self.user)
+            runner.is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            response = cast(ActorsQueryResponse, runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user))
+        columns = [key for key in options.properties if key not in restricted_properties]
+        results = [
+            AccountPerson(
+                id=str(row[0]),
+                distinct_ids=row[1],
+                display_name=row[2],
+                account_first_seen=row[3],
+                account_last_seen=row[4],
+                properties=dict(zip(columns, row[5:])),
+            )
+            for row in cast(list[tuple[str, list[str], str, datetime, datetime, *tuple[object, ...]]], response.results)
+        ]
+        return AccountPersonsPage(
+            results=results,
+            columns=columns,
+            limit=options.limit,
+            offset=options.offset,
+            has_more=bool(response.hasMore),
+            next_offset=options.offset + options.limit if response.hasMore else None,
+        )
