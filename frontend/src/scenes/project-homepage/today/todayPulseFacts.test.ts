@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { pulsePeak, pulseWhy } from './todayPulseFacts'
+import { pulseWhy } from './todayPulseFacts'
 import { makePulseMetric } from './todayTestFixtures'
 
 describe('todayPulseFacts', () => {
@@ -30,14 +30,5 @@ describe('todayPulseFacts', () => {
         ['a metric computed before reasons existed', { reason: null }, null],
     ] as const)('explains %s', (_name, overrides, expected) => {
         expect(pulseWhy(makePulseMetric(overrides), today)).toBe(expected)
-    })
-
-    it('finds the highest value with the period it belongs to, skipping missing values', () => {
-        const metric = makePulseMetric({
-            interval: 'day',
-            series: [3, NaN, 9, 4],
-            period_starts: ['2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29'],
-        })
-        expect(pulsePeak(metric)).toEqual({ label: 'Top day', value: 9, start: '2026-09-28', latest: null })
     })
 })

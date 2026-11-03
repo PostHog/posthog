@@ -19,9 +19,9 @@ import { cn } from 'lib/utils/css-classes'
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import { TodayPulseMovers } from './TodayPulseMovers'
 import { todayNumber } from './todayNumbers'
-import { pulseChange, pulseComparison, pulsePeakNote, pulseWhy } from './todayPulseFacts'
+import { pulseChange, pulsePeriodCaption, pulsePriorLabel, pulseWhy } from './todayPulseFacts'
+import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
 
@@ -43,32 +43,31 @@ export function TodayPulseCard({
     onHide: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
-    const peakNote = pulsePeakNote(metric, formatValue)
     const why = pulseWhy(metric)
     const change = pulseChange(metric)
     return (
-        <div className="flex flex-col" data-attr="today-pulse-card">
+        <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
             <div className="flex flex-col gap-4 p-3 pb-3">
-                <div className="flex flex-col">
-                    <Text size="sm" weight="semibold" render={<span />} className="line-clamp-2">
-                        {metric.name}
-                    </Text>
-                    <div className="mt-1 flex items-baseline gap-2">
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-baseline justify-between gap-3">
+                        <Text size="sm" weight="semibold" render={<span />} className="line-clamp-2">
+                            {metric.name}
+                        </Text>
+                        <Text size="xs" variant="muted" render={<span />} className="shrink-0">
+                            {pulsePeriodCaption(metric)}
+                        </Text>
+                    </div>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
                         <Heading size="xl" render={<span />} className="tabular-nums" translate="no">
                             {formatValue(metric.value)}
                         </Heading>
-                        <span className="text-sm text-muted-foreground">
-                            <TodayChange change={change.value} unit={change.unit} tone={tone} />
-                        </span>
+                        {change.value !== null && (
+                            <span className="text-sm text-muted-foreground">
+                                <TodayChange change={change.value} unit={change.unit} tone={tone} />
+                                <span> {pulsePriorLabel(metric)}</span>
+                            </span>
+                        )}
                     </div>
-                    <Text size="xs" variant="muted" render={<span />} className="mt-1.5">
-                        {pulseComparison(metric, formatValue)}
-                    </Text>
-                    {peakNote && (
-                        <Text size="xs" variant="muted" render={<span />} className="mt-0.5">
-                            {peakNote}
-                        </Text>
-                    )}
                 </div>
                 {metric.movers.length > 1 && (
                     <div className="flex flex-col gap-1">

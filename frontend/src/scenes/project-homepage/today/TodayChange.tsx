@@ -18,10 +18,10 @@ export function TodayChange({
         unit === 'pp'
             ? `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded)} pp`
             : rounded >= 1000
-            ? `${Math.round(1 + change / 100)}×`
-            : rounded === 0
-              ? '0%'
-              : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`
+              ? `${Math.round(1 + change / 100)}×`
+              : rounded === 0
+                ? '0%'
+                : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`
     return (
         <span
             className="TodayChange"

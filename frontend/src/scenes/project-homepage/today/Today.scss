@@ -310,6 +310,11 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
+.TodayPulseCard .TodayChange {
+    font-size: inherit;
+    color: inherit;
+}
+
 .TodayPulse__spark {
     display: block;
     width: 100%;
