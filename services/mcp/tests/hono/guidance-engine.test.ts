@@ -222,6 +222,77 @@ describe('GuidanceEngine', () => {
         ])
     })
 
+    it.each([
+        ['an empty result', true, true],
+        ['a populated result', false, false],
+        ['a result of unknown size', undefined, false],
+    ])('a resultEmpty rule handles %s', (_label, resultEmpty, expected) => {
+        const emptyRule: GuidanceRule = {
+            ...rule,
+            trigger: { tool: 'execute-sql', resultEmpty: true, outcome: 'any', presets: ['user'] },
+        }
+        expect(triggerMatches(emptyRule, { ...otherQuery, resultEmpty })).toBe(expected)
+    })
+
+    describe('a rule with a condition', () => {
+        const conditionalRule = (condition: GuidanceRule['condition']): GuidanceRule => ({
+            ...rule,
+            threshold: 1,
+            condition,
+        })
+
+        it('does not spend the session cap on a call the condition rejects', async () => {
+            const condition = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            await expect(run(engine, makeState(), [replayQuery, replayQuery])).resolves.toEqual([
+                undefined,
+                'test-rule:shown',
+            ])
+        })
+
+        it('skips the condition once the rule reaches its cap', async () => {
+            const condition = vi.fn().mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            await run(engine, makeState(), [replayQuery, replayQuery])
+            expect(condition).toHaveBeenCalledTimes(1)
+        })
+
+        it('applies the condition to a caller with the flag off', async () => {
+            const condition = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            const state = makeState({ toolFeatureFlags: {} })
+            await expect(run(engine, state, [replayQuery, replayQuery])).resolves.toEqual([
+                undefined,
+                'test-rule:flag_off',
+            ])
+        })
+
+        it('records suppression without reading the condition', async () => {
+            const condition = vi.fn().mockResolvedValue(true)
+            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            await expect(run(engine, makeState(), [visionCall, replayQuery])).resolves.toEqual([
+                undefined,
+                'test-rule:suppressed',
+            ])
+            expect(condition).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    it('builds function text from the call, only when the notice is shown', async () => {
+        const text = vi.fn((call: GuidanceCall) => `Used ${call.toolName}.`)
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1, text }])
+        await expect(engine.evaluate(makeState({ toolFeatureFlags: {} }), replayQuery)).resolves.toEqual({
+            ruleId: 'test-rule',
+            outcome: 'flag_off',
+        })
+        expect(text).not.toHaveBeenCalled()
+        const shown = await new GuidanceEngine(makeGuidanceRedis(), [{ ...rule, threshold: 1, text }]).evaluate(
+            makeState(),
+            replayQuery
+        )
+        expect(shown?.text).toBe('Used execute-sql.')
+    })
+
     it('shows nothing and logs when Redis fails', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         const engine = new GuidanceEngine(makeGuidanceRedis(true), [{ ...rule, threshold: 1 }])

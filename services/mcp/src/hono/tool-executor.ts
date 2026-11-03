@@ -9,6 +9,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     handleToolError,
@@ -501,6 +502,7 @@ export class ToolExecutor {
                 toolName: tool.name,
                 args: validation.data,
                 isError: false,
+                resultEmpty: isEmptyToolResult(handlerResult, tool.name),
             })
 
             let response: ToolResultPayload
@@ -742,6 +744,7 @@ export class ToolExecutor {
                 execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
                 args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
                 isError: innerFailure !== undefined,
+                resultEmpty: execMetrics.resultEmpty,
             })
 
             void trackToolCall(

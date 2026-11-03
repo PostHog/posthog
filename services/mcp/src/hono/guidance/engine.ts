@@ -6,6 +6,7 @@ import type { RedisLike } from '../cache/RedisCache'
 import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
+import { GuidanceProductState } from './product-state'
 import { GUIDANCE_RULES, type GuidanceRule } from './rules'
 
 // A conversation handle outlives any single request, so its counters keep the session store's
@@ -20,6 +21,8 @@ export interface GuidanceCall {
     execVerb?: string | undefined
     args: Record<string, unknown> | undefined
     isError: boolean
+    /** The tool returned zero rows. Unset on a failed call. */
+    resultEmpty?: boolean | undefined
 }
 
 export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed' | 'no_consent'
@@ -60,6 +63,9 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
         return false
     }
     if (trigger.outcome === 'error' && !call.isError) {
+        return false
+    }
+    if (trigger.resultEmpty !== undefined && trigger.resultEmpty !== (call.resultEmpty === true)) {
         return false
     }
     if (trigger.excludeArgs?.some((path) => isSet(readArgPath(call.args, path)))) {
@@ -150,15 +156,18 @@ export class GuidanceEngine {
             const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
             // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
             const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
+            const productState = new GuidanceProductState(this.redis, state)
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
-                const result = await this.touchRule(rule, scope, ttl, call, winner === undefined)
+                const result = await this.touchRule(rule, scope, ttl, call, winner === undefined, productState)
                 if (result === RuleResult.Fired) {
                     const outcome = firedOutcome(rule, state)
                     winner = {
                         ruleId: rule.id,
                         outcome,
-                        ...(outcome === 'shown' ? { text: rule.text } : {}),
+                        ...(outcome === 'shown'
+                            ? { text: typeof rule.text === 'string' ? rule.text : rule.text(call) }
+                            : {}),
                     }
                 } else if (result === RuleResult.Suppressed && !winner) {
                     winner = { ruleId: rule.id, outcome: 'suppressed' }
@@ -197,13 +206,24 @@ export class GuidanceEngine {
         scope: string,
         ttl: number,
         call: GuidanceCall,
-        canFire: boolean
+        canFire: boolean,
+        productState: GuidanceProductState
     ): Promise<RuleResult> {
         const suppressing = rule.suppressIfCalled.some((pattern) => matchesToolPattern(pattern, call.toolName))
         if (!suppressing && !triggerMatches(rule, call)) {
             return RuleResult.None
         }
         const key = (suffix: string): string => `${scope}:${rule.id}:${suffix}`
+        // The condition runs before the script, so a call it rejects does not spend `maxPerSession`.
+        // The cap check comes first, so a rule that used up its notices does no product-state read.
+        if (!suppressing && rule.condition) {
+            if (!canFire || Number((await this.redis.get(key('shown'))) ?? 0) >= rule.maxPerSession) {
+                return RuleResult.None
+            }
+            if (!(await rule.condition({ call, productState }))) {
+                return RuleResult.None
+            }
+        }
         const fired = await this.redis.eval(
             RULE_STATE_SCRIPT,
             3,

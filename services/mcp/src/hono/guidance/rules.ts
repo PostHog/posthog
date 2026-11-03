@@ -2,7 +2,16 @@ import { z } from 'zod'
 
 import { MCP_SCOPE_PRESET, type McpScopePreset } from '@/lib/scope-preset'
 
+import type { GuidanceCall } from './engine'
+import type { GuidanceProductState } from './product-state'
+
 const scopePresets = Object.values(MCP_SCOPE_PRESET) as [McpScopePreset, ...McpScopePreset[]]
+
+type GuidanceCondition = (input: {
+    call: GuidanceCall
+    productState: GuidanceProductState
+}) => boolean | Promise<boolean>
+type GuidanceText = (call: GuidanceCall) => string
 
 const guidanceRuleSchema = z.object({
     id: z.string().regex(/^[a-z0-9-]+$/),
@@ -20,6 +29,8 @@ const guidanceRuleSchema = z.object({
         argMaxLength: z.number().int().min(1).optional(),
         /** Call arguments that rule the call out when they are set, such as a target outside the project. */
         excludeArgs: z.array(z.string().min(1)).optional(),
+        /** Whether the tool must have returned zero rows. */
+        resultEmpty: z.boolean().optional(),
         outcome: z.enum(['any', 'success', 'error']),
         presets: z.array(z.enum(scopePresets)).min(1),
     }),
@@ -32,7 +43,12 @@ const guidanceRuleSchema = z.object({
     requiresTool: z.array(z.string().min(1)).min(1),
     /** The notice sends the agent to an AI feature, so it is withheld (and stamped) without org consent. */
     requiresAiConsent: z.boolean().optional(),
-    text: z.string().min(1).max(2000),
+    /**
+     * Runs after the trigger matches and for every outcome, so `shown` and `flag_off` callers stay
+     * comparable. A call it rejects does not count toward `threshold` or `maxPerSession`.
+     */
+    condition: z.custom<GuidanceCondition>((value) => typeof value === 'function').optional(),
+    text: z.union([z.string().min(1).max(2000), z.custom<GuidanceText>((value) => typeof value === 'function')]),
 })
 
 export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
