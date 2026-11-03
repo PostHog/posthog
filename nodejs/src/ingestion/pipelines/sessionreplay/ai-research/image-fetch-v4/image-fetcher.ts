@@ -4,8 +4,8 @@ import type { ImageFetchBlockReason } from './block-reason'
 import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'
-import { canonicalizeUrl } from './politeness-key'
 import { REQUEST_IDENTITY_HEADERS } from './request-identity'
+import { canonicalizeUrl } from './v4-native'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
 /**

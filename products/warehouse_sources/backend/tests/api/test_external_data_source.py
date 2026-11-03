@@ -23,17 +23,21 @@ from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.integrations import IntegrationNotFound
+from posthog.constants import AvailableFeature
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_INPUT_KEY
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -57,6 +61,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSwitchGroupConfig,
 )
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
+from products.warehouse_sources.backend.logic.source_credentials_rollout import (
+    reset_caches as reset_credentials_rollout_caches,
+)
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
@@ -79,6 +88,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     strip_sensitive_from_dict,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
+from products.warehouse_sources.backend.temporal.data_imports import schema_flags
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -15502,3 +15512,199 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
             assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
         else:
             assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
+    return_value=(True, None),
+)
+class TestSourceUpdateCredentialsRow(APIBaseTest):
+    INPUTS: dict[str, Any] = {
+        "host": "db.example.com",
+        "port": "5432",
+        "database": "app",
+        "user": "reader",
+        "password": "fake-password",
+        "schema": "public",
+        # The API writes the parsed config, which has this default.
+        "verify_server_certificate": "False",
+    }
+
+    def setUp(self) -> None:
+        super().setUp()
+        reset_credentials_rollout_caches()
+        self.addCleanup(reset_credentials_rollout_caches)
+        flag = patch.object(schema_flags.posthoganalytics, "feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def _create(self, inputs: dict[str, Any]) -> ExternalDataSource:
+        return SourceInputsStore.create(
+            inputs=inputs,
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="Postgres",
+            created_by=self.user,
+        )
+
+    def _reference(self, source: ExternalDataSource) -> str:
+        reference = ExternalDataSource.objects.get(pk=source.pk).credentials_integration_id
+        assert reference is not None
+        return reference
+
+    def _sharing(self, source: ExternalDataSource, inputs: dict[str, Any]) -> ExternalDataSource:
+        other = self._create(inputs)
+        ExternalDataSource.objects.filter(pk=other.pk).update(credentials_integration_id=self._reference(source))
+        return other
+
+    def _patch(self, source: ExternalDataSource, job_inputs: dict[str, Any], query: str = "") -> Any:
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/{query}",
+            data={"job_inputs": job_inputs},
+            format="json",
+        )
+
+    @parameterized.expand(
+        [("query", "?update_shared_credentials=true", {}), ("body", "", {"update_shared_credentials": True})]
+    )
+    def test_edit_of_shared_credentials_needs_a_confirmation(
+        self, _validate: MagicMock, _name: str, query: str, body: dict[str, Any]
+    ) -> None:
+        first = self._create(self.INPUTS)
+        second = self._sharing(first, self.INPUTS)
+        rotated = {**self.INPUTS, "password": "fake-rotated"}
+
+        refused = self._patch(first, rotated)
+
+        assert refused.status_code == status.HTTP_409_CONFLICT, refused.json()
+        assert refused.json()["code"] == "shared_credentials"
+        assert refused.json()["usages"] == [
+            {"type": "warehouse_source", "id": str(second.id), "name": "Postgres"},
+        ]
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=first.pk))["password"] == "fake-password"
+
+        confirmed = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{first.pk}/{query}",
+            data={"job_inputs": rotated, **body},
+            format="json",
+        )
+
+        assert confirmed.status_code == status.HTTP_200_OK, confirmed.json()
+        row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, int(self._reference(first)))
+        assert row.sensitive_config["fields"]["password"] == "fake-rotated"
+        assert self._reference(second) == self._reference(first)
+
+    def test_an_edit_keeps_the_stored_reference(self, _validate: MagicMock) -> None:
+        source = self._create(self.INPUTS)
+        reference = self._reference(source)
+
+        response = self._patch(source, {**self.INPUTS, "password": "fake-rotated"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._reference(source) == reference
+        assert len(IntegrationManager.source("postgresql").credentials.list(self.team.pk)) == 1
+
+    @parameterized.expand([("unshared", False), ("shared", True)])
+    def test_an_edit_that_points_the_source_at_another_row_adopts_its_credentials(
+        self, _validate: MagicMock, _name: str, shared: bool
+    ) -> None:
+        source = self._create(self.INPUTS)
+        other = self._create({**self.INPUTS, "password": "fake-other"})
+        if shared:
+            self._sharing(other, {**self.INPUTS, "password": "fake-other"})
+        target = int(self._reference(other))
+        rows = IntegrationManager.source("postgresql").credentials
+        before = rows.get(self.team.pk, target).sensitive_config
+
+        response = self._patch(source, {**self.INPUTS, CREDENTIALS_REFERENCE_INPUT_KEY: target})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._reference(source) == str(target)
+        stored = SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+        assert stored["password"] == "fake-other"
+        assert CREDENTIALS_REFERENCE_INPUT_KEY not in stored
+        assert rows.get(self.team.pk, target).sensitive_config == before
+
+    def test_a_failed_source_save_rolls_back_the_row_write(self, _validate: MagicMock) -> None:
+        source = self._create(self.INPUTS)
+        reference = int(self._reference(source))
+
+        with patch.object(ExternalDataSource, "save", side_effect=RuntimeError("database down")):
+            response = self._patch(source, {**self.INPUTS, "password": "fake-rotated"})
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, reference)
+        assert row.sensitive_config["fields"]["password"] == "fake-password"
+
+    @parameterized.expand([("other_team",), ("oauth_row",), ("missing",)])
+    def test_an_edit_cannot_point_the_source_at_a_row_it_cannot_use(self, _validate: MagicMock, case: str) -> None:
+        source = self._create(self.INPUTS)
+        reference = self._reference(source)
+        if case == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            other_source = ExternalDataSource.objects.create(
+                team_id=other_team.pk, source_id="s", connection_id="c", source_type="Postgres"
+            )
+            requested: Any = WarehouseSourceCredentialsStore.create(other_source, {"host": "h"}).legacy_id
+        elif case == "oauth_row":
+            requested = IntegrationManager.slack.oauth.create(self.team.pk, external_id="T1", config={}).id
+        else:
+            requested = 999999999
+
+        response = self._patch(source, {**self.INPUTS, CREDENTIALS_REFERENCE_INPUT_KEY: requested})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._reference(source) == reference
+
+    def _log_in_without_access_to(self, restricted: ExternalDataSource) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(restricted.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+
+    def test_an_edit_cannot_adopt_credentials_of_a_source_the_user_cannot_edit(self, _validate: MagicMock) -> None:
+        source = self._create(self.INPUTS)
+        reference = self._reference(source)
+        restricted = self._create({**self.INPUTS, "password": "fake-restricted"})
+        self._log_in_without_access_to(restricted)
+
+        response = self._patch(
+            source, {**self.INPUTS, CREDENTIALS_REFERENCE_INPUT_KEY: int(self._reference(restricted))}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._reference(source) == reference
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-password"
+
+    def test_a_shared_credentials_edit_hides_and_protects_sources_the_user_cannot_access(
+        self, _validate: MagicMock
+    ) -> None:
+        source = self._create(self.INPUTS)
+        restricted = self._sharing(source, self.INPUTS)
+        self._log_in_without_access_to(restricted)
+        rotated = {**self.INPUTS, "password": "fake-rotated"}
+
+        refused = self._patch(source, rotated)
+
+        assert refused.status_code == status.HTTP_409_CONFLICT, refused.json()
+        assert refused.json()["usages"] == []
+        assert refused.json()["hidden_usages_count"] == 1
+        assert str(restricted.id) not in json.dumps(refused.json())
+
+        confirmed = self._patch(source, rotated, query="?update_shared_credentials=true")
+
+        assert confirmed.status_code == status.HTTP_403_FORBIDDEN, confirmed.json()
+        row = IntegrationManager.source("postgresql").credentials.get(self.team.pk, int(self._reference(source)))
+        assert row.sensitive_config["fields"]["password"] == "fake-password"

@@ -106,6 +106,7 @@ export class EmailServiceFixture {
     readonly workflowsConfig: TeamWorkflowsConfigService
     readonly suppression: EmailSuppressionService
     readonly recipients: RecipientsManagerService
+    readonly activationReporter = { report: jest.fn() }
     private readonly services: EmailService[] = []
 
     constructor(private readonly hub: Hub) {
@@ -135,6 +136,7 @@ export class EmailServiceFixture {
             emailSuppressionService: this.suppression,
             recipientsManager: this.recipients,
             emailStatusService: null,
+            workflowsActivationReporter: this.activationReporter,
             ...overrides,
             sesConfig: overrides.sesConfig ? { ...this.sesConfig, ...overrides.sesConfig } : this.sesConfig,
         })
