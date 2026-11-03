@@ -98,11 +98,16 @@ impl<'k> ImageSink<'k> {
         }
     }
 
+    /// Takes base64 that may hold `%` escapes. It checks the size first, so an oversized payload is never copied.
     pub(crate) fn take_base64(&mut self, payload: &[u8]) -> String {
-        if payload.len() > self.limits.max_image_bytes.div_ceil(3) * 4 {
+        let escapes = payload
+            .windows(3)
+            .filter(|w| w[0] == b'%' && w[1].is_ascii_hexdigit() && w[2].is_ascii_hexdigit())
+            .count();
+        if payload.len() - 2 * escapes > self.limits.max_image_bytes.div_ceil(3) * 4 {
             return self.decline(ImageDecline::OverLimit);
         }
-        match FORGIVING_BASE64.decode(payload) {
+        match FORGIVING_BASE64.decode(percent_decoded_base64(payload)) {
             Ok(bytes) => self.take(bytes),
             Err(_) => self.decline(ImageDecline::Undecodable),
         }
@@ -553,13 +558,9 @@ fn read_data_uri(
     } else if !readable {
         sink.decline(ImageDecline::Undecodable)
     } else if end == run_end {
-        sink.take_base64(&percent_decoded_base64(&bytes[payload_start..end]))
+        sink.take_base64(&bytes[payload_start..end])
     } else {
-        sink.take_base64(&percent_decoded_base64(&wrapped_payload(
-            bytes,
-            payload_start,
-            end,
-        )))
+        sink.take_base64(&wrapped_payload(bytes, payload_start, end))
     };
     DataUri::Replaced { replacement, end }
 }
