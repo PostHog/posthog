@@ -235,4 +235,24 @@ describe('traceExportLogic', () => {
             exportsLogic.actionCreators.downloadExport(toExportedAsset(createdExport)),
         ])
     })
+
+    test('a browser without clipboard writes shows a failed export without an unhandled rejection', async () => {
+        Object.defineProperty(globalThis, 'ClipboardItem', { value: undefined, configurable: true })
+        createdExport = makeTraceExport({ status: 'failed', exception: 'This trace is no longer available.' })
+        const unhandled: unknown[] = []
+        const recordUnhandled = (reason: unknown): void => {
+            unhandled.push(reason)
+        }
+        process.on('unhandledRejection', recordUnhandled)
+        try {
+            const logic = await mountForCopy()
+            await expectLogic(logic, () => logic.actions.copyTrace()).toDispatchActions(['copyTraceFinished'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        } finally {
+            process.off('unhandledRejection', recordUnhandled)
+        }
+
+        expect(lemonToast.error).toHaveBeenCalledWith('This trace is no longer available.')
+        expect(unhandled).toEqual([])
+    })
 })
