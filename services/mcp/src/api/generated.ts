@@ -48090,6 +48090,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -48119,6 +48120,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
       MetricsNotMatured: 'metrics_not_matured',
+      FlagShared: 'flag_shared',
     } as const;
 
     /**
@@ -48190,7 +48192,8 @@ export namespace Schemas {
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `early_significance` - Early Significance
-       * * `metrics_not_matured` - Metrics Not Matured */
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `flag_shared` - Flag Shared */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -48225,6 +48228,7 @@ export namespace Schemas {
 
     /**
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -48252,6 +48256,7 @@ export namespace Schemas {
 
     export const ExperimentHealthCheckKeyEnum = {
       FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
       FlagHistory: 'flag_history',
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
@@ -48295,6 +48300,7 @@ export namespace Schemas {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
        * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
        * * `flag_history` - Flag History
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -62074,7 +62080,7 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsRecommendationStep {
-      /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+      /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
       copyValue?: string | null;
       /** The words in `text` that link to `url`, usually the section name. */
       linkText?: string | null;
