@@ -7,8 +7,6 @@ from products.error_tracking.backend.logic.auto_assignment.gate import AutoAssig
 
 class HistoryVote(Processor):
     name = "history"
-    # Embeddings exist only for organizations that approved AI data processing.
-    sends_data_to_model = True
 
     def threshold(self, config: AutoAssignmentConfig) -> float:
         return config.history.min_confidence

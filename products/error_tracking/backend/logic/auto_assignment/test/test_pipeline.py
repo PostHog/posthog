@@ -56,9 +56,8 @@ def _evidence(ai_approved: bool = True) -> MagicMock:
     return evidence
 
 
-@patch("products.error_tracking.backend.logic.auto_assignment.pipeline.auto_assignment_enabled", return_value=True)
 class TestPipeline(SimpleTestCase):
-    def test_first_candidate_over_its_threshold_wins_and_later_processors_do_not_run(self, _enabled: MagicMock) -> None:
+    def test_first_candidate_over_its_threshold_wins_and_later_processors_do_not_run(self) -> None:
         none = FakeProcessor("none", confidence=None)
         weak = FakeProcessor("weak", confidence=0.4, threshold=0.5)
         strong = FakeProcessor("strong", confidence=0.6, threshold=0.5)
@@ -77,12 +76,12 @@ class TestPipeline(SimpleTestCase):
         assert result.outcomes[1].candidate is not None and result.outcomes[1].candidate.confidence == 0.4
         assert later.calls == 0
 
-    def test_confidence_equal_to_threshold_is_accepted(self, _enabled: MagicMock) -> None:
+    def test_confidence_equal_to_threshold_is_accepted(self) -> None:
         result = run(_evidence(), processors=[FakeProcessor("p", confidence=0.5, threshold=0.5)], config=CONFIG)
 
         assert result.decision is not None
 
-    def test_model_processor_is_skipped_without_ai_approval(self, _enabled: MagicMock) -> None:
+    def test_model_processor_is_skipped_without_ai_approval(self) -> None:
         model = FakeProcessor("model", confidence=1.0, sends_data_to_model=True)
         local = FakeProcessor("local", confidence=1.0)
 
@@ -95,7 +94,7 @@ class TestPipeline(SimpleTestCase):
         assert model.calls == 0
 
     @patch("products.error_tracking.backend.logic.auto_assignment.pipeline.capture_exception")
-    def test_failing_processor_does_not_stop_the_next(self, _capture: MagicMock, _enabled: MagicMock) -> None:
+    def test_failing_processor_does_not_stop_the_next(self, _capture: MagicMock) -> None:
         broken = FakeProcessor("broken", confidence=None, error=RuntimeError("boom"))
         working = FakeProcessor("working", confidence=1.0)
 
@@ -103,16 +102,6 @@ class TestPipeline(SimpleTestCase):
 
         assert [o.status for o in result.outcomes] == [ProcessorStatus.FAILED, ProcessorStatus.ACCEPTED]
         _capture.assert_called_once()
-
-    def test_gate_off_runs_nothing(self, enabled: MagicMock) -> None:
-        enabled.return_value = False
-        processor = FakeProcessor("p", confidence=1.0)
-
-        result = run(_evidence(), processors=[processor], config=CONFIG)
-
-        assert result.decision is None
-        assert [o.status for o in result.outcomes] == [ProcessorStatus.SKIPPED_GATE_OFF]
-        assert processor.calls == 0
 
 
 class TestConfig(SimpleTestCase):

@@ -10,11 +10,7 @@ from posthog.exceptions_capture import capture_exception
 from products.error_tracking.backend.logic.auto_assignment import PROCESSORS
 from products.error_tracking.backend.logic.auto_assignment.base import Candidate, Decision, Processor
 from products.error_tracking.backend.logic.auto_assignment.evidence import IssueEvidence
-from products.error_tracking.backend.logic.auto_assignment.gate import (
-    AutoAssignmentConfig,
-    auto_assignment_enabled,
-    load_auto_assignment_config,
-)
+from products.error_tracking.backend.logic.auto_assignment.gate import AutoAssignmentConfig, load_auto_assignment_config
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +20,6 @@ class ProcessorStatus(StrEnum):
     BELOW_THRESHOLD = "below_threshold"
     NO_CANDIDATE = "no_candidate"
     FAILED = "failed"
-    SKIPPED_GATE_OFF = "skipped_gate_off"
     SKIPPED_AI_NOT_APPROVED = "skipped_ai_not_approved"
     SKIPPED_ALREADY_DECIDED = "skipped_already_decided"
 
@@ -51,13 +46,6 @@ def run(
     processors: Sequence[Processor] = PROCESSORS,
     config: AutoAssignmentConfig | None = None,
 ) -> PipelineRun:
-    if not auto_assignment_enabled(evidence.team.id):
-        return PipelineRun(
-            decision=None,
-            outcomes=tuple(
-                ProcessorOutcome(processor=p.name, status=ProcessorStatus.SKIPPED_GATE_OFF) for p in processors
-            ),
-        )
     config = config or load_auto_assignment_config(evidence.team.id)
 
     decision: Decision | None = None
