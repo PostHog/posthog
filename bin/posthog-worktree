@@ -300,6 +300,7 @@ setup_worktree_environment() {
     print_color blue "  bin/start"
     echo ""
     print_color yellow "Tip: only running the app needs this full setup — for edit+commit work, plain 'git worktree add' is enough (hooks borrow the main clone's toolchain)."
+    print_color yellow "Each worktree takes several GB. To see which old worktrees you can clear, run 'hogli worktrees:clean --before 7d --mode deps --dry-run'."
 }
 
 # Function to list all worktrees

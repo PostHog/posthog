@@ -375,6 +375,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function sha1HmacChain (data, encoding, options) { return 'sha1HmacChain not implemented' }",
         [],
     ],
+    "sha256HmacBase64Key": [
+        "function sha256HmacBase64Key (key, data, encoding, options) { return 'sha256HmacBase64Key not implemented' }",
+        [],
+    ],
     "isIPAddressInRange": [
         """
 function isIPAddressInRange(address, prefix) {

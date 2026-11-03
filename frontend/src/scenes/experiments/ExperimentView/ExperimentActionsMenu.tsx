@@ -4,17 +4,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 
+import { QuillExperimentActionsMenu } from 'products/experiments/frontend/components/QuillExperimentActionsMenu'
+
 import { useExperimentActions } from './useExperimentActions'
 
 export function ExperimentActionsMenu(): JSX.Element | null {
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // The scene menu bar already surfaces every action in its File/Edit menus.
     if (sceneMenuBarEnabled) {
         return null
     }
 
-    return <ExperimentActionsMenuInner />
+    return todayRailNav ? <QuillExperimentActionsMenu /> : <ExperimentActionsMenuInner />
 }
 
 function ExperimentActionsMenuInner(): JSX.Element | null {

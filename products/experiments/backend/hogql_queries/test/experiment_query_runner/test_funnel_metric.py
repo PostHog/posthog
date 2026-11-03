@@ -28,7 +28,7 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.constants import GroupTypeIndex
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action

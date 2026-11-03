@@ -121,7 +121,6 @@ describe('DashboardModals', () => {
                     buttonTileId: null,
                     terraformModalOpen: false,
                     addWidgetModalOpen: false,
-                    dashboardWidgetsEnabled: false,
                     addWidgetTileLoading: false,
                 }
             }
@@ -164,7 +163,6 @@ describe('DashboardModals', () => {
                       buttonTileId: null,
                       terraformModalOpen: false,
                       addWidgetModalOpen: false,
-                      dashboardWidgetsEnabled: false,
                       addWidgetTileLoading: false,
                       [visibleKey]: true,
                   }

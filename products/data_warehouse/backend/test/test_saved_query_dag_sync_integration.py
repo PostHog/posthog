@@ -33,7 +33,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         assert node.dag is not None
         self.assertEqual(node.dag.name, DEFAULT_DAG_NAME)
 
-    def test_update_saved_query_syncs_to_dag(self):
+    def test_rename_saved_query_syncs_name_to_dag(self):
         # create
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -48,19 +48,11 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         saved_query_id = create_response.json()["id"]
-        latest_history_id = create_response.json().get("latest_history_id")
 
-        # update
+        # rename
         update_response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/",
-            {
-                "name": "dag_sync_update_test_renamed",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "SELECT 2",
-                },
-                "edited_history_id": latest_history_id,
-            },
+            {"name": "dag_sync_update_test_renamed"},
             format="json",
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
@@ -69,6 +61,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         assert node is not None
         assert node.saved_query is not None
         self.assertEqual(node.saved_query.name, "dag_sync_update_test_renamed")
+        self.assertEqual(node.name, "dag_sync_update_test_renamed")
 
     def test_delete_saved_query_removes_from_dag(self):
         # create

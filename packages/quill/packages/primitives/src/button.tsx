@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const buttonVariants = cva(
     'quill-button group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap',
@@ -66,7 +67,59 @@ export type ButtonProps = ButtonPrimitive.Props &
          * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
          */
         elevated?: boolean
+        /**
+         * A dot on the top-right corner that flags something waiting behind the button, such as unread
+         * items. Say what it means in the `aria-label`. Off the app background, set
+         * `--quill-button-indicator-ring` to the surface behind the button. `warning` and `destructive`
+         * color the dot for a problem rather than news.
+         */
+        indicator?: 'default' | 'warning' | 'destructive'
+        /** Text shown on hover and focus. Icon-only buttons need one, matching their `aria-label`. */
+        tooltip?: React.ReactNode
+        /**
+         * Disables the button and says why in its tooltip. The button stays hoverable and focusable,
+         * so the reason is always reachable. Takes the place of `tooltip` while set. A rendered link
+         * loses its destination while disabled, so a modifier click cannot open it either.
+         */
+        disabledReason?: React.ReactNode
     }
+
+/**
+ * Whether the `render` element needs Base UI's non-native button handling. A plain element is a
+ * button only when it is `<button>`. A component is assumed to render one unless it carries a link
+ * destination: `LinkPrimitive` renders an anchor only when given `to`, and composed triggers such
+ * as `ComboboxTrigger` render a real `<button>`.
+ */
+function rendersNonButton(render: ButtonPrimitive.Props['render']): boolean {
+    if (!React.isValidElement<{ to?: unknown; href?: unknown }>(render)) {
+        return false
+    }
+    if (typeof render.type === 'string') {
+        return render.type !== 'button'
+    }
+    return render.props.to !== undefined || render.props.href !== undefined
+}
+
+/**
+ * A disabled button keeps no destination. The browser handles a modifier click on a rendered link
+ * before any click guard runs, so a kept `href` or `to` would still open in a new tab.
+ */
+function rendersLink(render: ButtonPrimitive.Props['render']): boolean {
+    return (
+        React.isValidElement<{ to?: unknown; href?: unknown }>(render) &&
+        (render.props.to !== undefined || render.props.href !== undefined)
+    )
+}
+
+function withoutDestination(render: ButtonPrimitive.Props['render']): ButtonPrimitive.Props['render'] {
+    if (!React.isValidElement<{ to?: unknown; href?: unknown }>(render)) {
+        return render
+    }
+    if (render.props.to === undefined && render.props.href === undefined) {
+        return render
+    }
+    return React.cloneElement(render, { to: undefined, href: undefined })
+}
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     (
@@ -78,33 +131,59 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             left = false,
             elevated = false,
             loading = false,
+            indicator,
             disabled,
+            tooltip,
+            disabledReason,
+            nativeButton,
+            render,
             children,
             ...props
         },
         ref
     ) => {
-        return (
+        const hasDisabledReason = hasTooltipContent(disabledReason)
+        const isDisabled = disabled || loading || hasDisabledReason
+        const renderTarget = isDisabled ? withoutDestination(render) : render
+        const button = (
             <ButtonPrimitive
                 ref={ref}
                 data-quill
                 data-slot="button"
                 data-size={size}
                 data-loading={loading || undefined}
+                data-indicator={indicator || undefined}
                 aria-busy={loading || undefined}
-                disabled={disabled || loading}
+                disabled={isDisabled}
+                nativeButton={nativeButton ?? !rendersNonButton(renderTarget)}
+                render={renderTarget}
+                // Base UI gives every non-native button role="button", which would hide a rendered link
+                // from link queries and screen readers. A caller's own role still wins.
+                {...(rendersLink(renderTarget) ? { role: 'link' } : {})}
                 // While loading, stay focusable: Base UI then renders aria-disabled instead of
                 // the native disabled attribute, keeping the button in the tab order so screen
-                // readers can reach it and announce busy. Activation stays blocked.
-
-                focusableWhenDisabled={loading ? true : focusableWhenDisabled}
+                // readers can reach it and announce busy. Activation stays blocked. A disabled
+                // reason needs the same, because its tooltip only opens on hover or focus.
+                focusableWhenDisabled={loading || hasDisabledReason ? true : focusableWhenDisabled}
                 className={cn(buttonVariants({ variant, size, className, focusableWhenDisabled, left, elevated }))}
                 {...props}
             >
                 {children}
+                {indicator && (
+                    <span
+                        aria-hidden
+                        data-slot="button-indicator"
+                        data-variant={indicator}
+                        className="quill-button__indicator"
+                    />
+                )}
                 {loading && <Spinner className="quill-button__spinner" />}
             </ButtonPrimitive>
         )
+        return withTooltip(button, hasDisabledReason ? disabledReason : tooltip, {
+            target: 'self',
+            delay: size?.startsWith('icon') ? 0 : undefined,
+        })
     }
 )
 Button.displayName = 'Button'

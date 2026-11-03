@@ -22,7 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_message,
 )
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
-from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, PendingBatch
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, PendingBatch, build_status_dual_write_sql
 from products.warehouse_sources_queue.backend.testing import ensure_queue_tables, get_test_database_url
 
 PRODUCER_DATABASE_URL_PATH = (
@@ -69,7 +69,15 @@ class PostgresQueueReplay:
             try:
                 process_message(batch.to_export_signal())
             except Exception:
-                pass
+                continue
+            # The real consumer records each loaded batch, and a final batch completes its job only
+            # when every earlier batch of the run has this state. The write must commit outside the
+            # test transaction, because the loader reads the queue on its own connection.
+            with psycopg.connect(get_test_database_url(), autocommit=True) as queue_conn:
+                queue_conn.execute(
+                    build_status_dual_write_sql(with_batch_created_at=False),
+                    {"batch_id": row["id"], "job_state": "succeeded", "attempt": 1, "error_response": None},
+                )
 
     def get_run_uuids_for_job(self, job_id: str) -> list[str]:
         with django_conn.cursor() as cur:
@@ -155,6 +163,7 @@ async def replay_v3_consumer(
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
             DATAWAREHOUSE_BUCKET=bucket_name,
+            WAREHOUSE_SOURCES_DATABASE_URL=get_test_database_url(),
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.is_batch_already_processed",

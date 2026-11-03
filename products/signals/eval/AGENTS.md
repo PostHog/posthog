@@ -18,7 +18,7 @@ interleaved across groups to simulate real-world arrival patterns.
 
 ### Pipeline stages per signal
 
-1. **Pre-emit** — summarize long descriptions, check actionability (Claude Haiku via the internal LLM gateway).
+1. **Pre-emit** — summarize long descriptions, check actionability (Claude Haiku via the Go ai-gateway).
    Signals that fail actionability are dropped.
 2. **Match** — generate search queries (LLM), embed queries (OpenAI),
    cosine search against stored signals, LLM match to existing report or create new, verify specificity of match (LLM).
@@ -41,18 +41,19 @@ pytest products/signals/eval/eval_grouping_e2e.py -xvs --limit 10 --no-capture
 
 ### Required environment variables
 
-Set in `.env` at the repo root (loaded automatically):
+Set in `.env` at the repo root (loaded automatically).
+The gateway token expires, so pass it per run instead: `AI_GATEWAY_API_KEY=$(hogli gateway:token) pytest ...`.
 
-| Variable                       | Purpose                                                                                                    |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`               | Embeddings (text-embedding-3-small)                                                                        |
-| `LLM_GATEWAY_URL`              | Internal LLM gateway base URL (all LLM calls: matching, specificity, summarization, actionability, safety) |
-| `LLM_GATEWAY_PERSONAL_API_KEY` | Bearer token for the LLM gateway (PostHog personal API key)                                                |
-| `SIGNALS_EVAL_TEAM_ID`         | Team id used for LLM cost attribution headers (defaults to `1`)                                            |
-| `POSTHOG_OFFLINE_EVAL_API_KEY` | Offline result uploads; requires `offline_evaluation_ingestion:write`                                      |
-| `POSTHOG_OFFLINE_EVAL_HOST`    | Offline API origin (defaults to `https://us.posthog.com`; project `2`)                                     |
-| `POSTHOG_PROJECT_API_KEY`      | Optional LLM trace capture                                                                                 |
-| `POSTHOG_HOST`                 | Trace destination (defaults to `http://localhost:8010`)                                                    |
+| Variable                       | Purpose                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | Embeddings (text-embedding-3-small)                                                            |
+| `AI_GATEWAY_URL`               | Go ai-gateway base URL with `/v1`, e.g. `https://ai-gateway.us.posthog.com/v1` (all LLM calls) |
+| `AI_GATEWAY_API_KEY`           | Developer-mode `phe_` token from `hogli gateway:token` (8h TTL, $25 per token, $50 per day)    |
+| `SIGNALS_EVAL_TEAM_ID`         | Team id used for LLM cost attribution headers (defaults to `1`)                                |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Offline result uploads; requires `offline_evaluation_ingestion:write`                          |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | Offline API origin (defaults to `https://us.posthog.com`; project `2`)                         |
+| `POSTHOG_PROJECT_API_KEY`      | Optional LLM trace capture                                                                     |
+| `POSTHOG_HOST`                 | Trace destination (defaults to `http://localhost:8010`)                                        |
 
 ### CLI options
 

@@ -6,7 +6,6 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -37,6 +36,7 @@ CANNOT_LIST_WITHOUT_CREDENTIALS = {"Github"}
 # descriptions reach nobody. Fix the key or expose the endpoint, then drop the entry.
 DESCRIPTIONS_NOT_IN_SCHEMAS = {
     "BrowserUse",
+    "Census",
     "CheckoutCom",
     "EZOfficeInventory",
     "Flutterwave",

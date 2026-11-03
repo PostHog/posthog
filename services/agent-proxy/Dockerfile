@@ -10,8 +10,8 @@
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
 # The digest wins over the tag — update both together when bumping NODE_VERSION.
-ARG NODE_VERSION=24.13.0
-ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f
+ARG NODE_VERSION=24.22.1
+ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 
 #
 # Build stage — install workspace deps, bundle the Hono entry into a single .mjs.

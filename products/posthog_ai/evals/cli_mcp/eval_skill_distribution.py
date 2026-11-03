@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -18,6 +18,7 @@ from products.posthog_ai.evals.cli_mcp.skill_distribution_scorers import (
     skill_distribution_expectations,
 )
 from products.posthog_ai.evals.error_tracking.seeders import seed_error_tracking_issues
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN, CustomPromptSandboxContext
 
 
@@ -171,8 +172,20 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-skill-distribution-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_skill_distribution::eval_skill_distribution",
+            metrics=[
+                "skill_search_first",
+                "expected_skill_discovered",
+                "expected_skill_loaded",
+                "excluded_skill_not_loaded",
+                "skill_loaded_before_tool",
+                "no_bundled_skill_bypass",
+                "no_exec_skill_bypass",
+            ],
+        ),
         cases=cases,
         scorers=[
             SkillSearchFirst(),

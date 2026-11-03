@@ -25,6 +25,14 @@ PRODUCTS_ROOT = REPO_ROOT / "products"
 
 SOURCE_SUFFIXES = (".ts", ".tsx")
 
+# Scene directories whose product directory has a different name. Name matching finds the rest.
+SCENE_PRODUCT_ALIASES = {
+    "insights": "product_analytics",
+    "persons-management": "persons",
+    "saved-insights": "product_analytics",
+    "trends": "product_analytics",
+}
+
 
 @dataclass(frozen=True)
 class SceneDir:
@@ -64,6 +72,13 @@ def product_directories() -> dict[str, str]:
     return {entry.name.replace("_", ""): entry.name for entry in sorted(PRODUCTS_ROOT.iterdir()) if entry.is_dir()}
 
 
+def product_for(scene_name: str, products: dict[str, str]) -> str | None:
+    alias = SCENE_PRODUCT_ALIASES.get(scene_name)
+    if alias in products.values():
+        return alias
+    return products.get(scene_name.replace("-", "").replace("_", ""))
+
+
 def scan() -> dict[str, SceneDir]:
     if not SCENES_ROOT.is_dir():
         return {}
@@ -75,7 +90,7 @@ def scan() -> dict[str, SceneDir]:
         scene_files = count_sources(entry)
         if scene_files == 0:
             continue
-        product = products.get(entry.name.replace("-", "").replace("_", ""))
+        product = product_for(entry.name, products)
         found[entry.name] = SceneDir(
             name=entry.name,
             scene_files=scene_files,
@@ -102,7 +117,7 @@ def main() -> int:
         d = found.get(args.directory)
         if not d:
             products = product_directories()
-            product = products.get(args.directory.replace("-", "").replace("_", ""))
+            product = product_for(args.directory, products)
             if product:
                 print(f"No frontend/src/scenes/{args.directory}/ — put the UI in products/{product}/frontend/.")
             else:

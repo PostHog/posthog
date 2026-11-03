@@ -46,7 +46,7 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.experiments.scorers import (
@@ -61,6 +61,7 @@ from products.posthog_ai.evals.experiments.seeders import (
     seed_paused_and_resumed_experiment,
     seed_running_experiment,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_midrun_changes(ctx: EvalContext) -> None:
@@ -150,8 +151,13 @@ async def eval_midrun_changes(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-experiments-diagnose-midrun-changes-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_midrun_changes::eval_midrun_changes",
+            metrics=["diagnosis_group", "does_not_recommend_edit", "advises_against_shipping"],
+        ),
         cases=cases,
         scorers=[
             CitesDiagnosticGroup(),

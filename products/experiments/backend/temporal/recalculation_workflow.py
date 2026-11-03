@@ -10,9 +10,12 @@ from temporalio.exceptions import (
     TimeoutError as TemporalTimeoutError,
 )
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from posthog.schema import PrecomputationMode
+
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
         METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
@@ -39,6 +42,31 @@ with temporalio.workflow.unsafe.imports_passed_through():
         update_recalculation_progress,
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
+
+
+@frozen
+class _CalcDispatch:
+    """Where one metric's calc activity runs, and the precompute mode it passes."""
+
+    task_queue: str | None
+    precomputation_mode: PrecomputationMode | None
+
+
+def _calc_dispatch(metric: ExperimentMetricToRecalculate, activity_task_queue: str | None) -> _CalcDispatch:
+    # Only a run on the activity queue flag uses the route that discovery set.
+    if activity_task_queue and metric.task_queue:
+        return _CalcDispatch(task_queue=metric.task_queue, precomputation_mode=metric.precomputation_mode)
+    return _CalcDispatch(task_queue=activity_task_queue, precomputation_mode=None)
+
+
+def _calc_args(
+    metric: ExperimentMetricToRecalculate, recalculation_id: str, query_to: str, dispatch: _CalcDispatch
+) -> list[object]:
+    args: list[object] = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
+    # An AUTO calc keeps the five arguments, so a worker that predates the mode argument still runs it.
+    if dispatch.precomputation_mode is not None:
+        args.append(dispatch.precomputation_mode)
+    return args
 
 
 def _ended_by_temporal(error: ActivityError) -> bool:
@@ -157,26 +185,29 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             maximum_interval=timedelta(seconds=RECALCULATION_RETRY_MAX_INTERVAL_SECONDS),
             maximum_attempts=MAX_METRIC_ATTEMPTS,
         )
+        # Pre-patch histories scheduled every calculation on the workflow's queue, even when an old worker
+        # received a run with the field set, so they must replay with None.
+        activity_task_queue = (
+            inputs.activity_task_queue
+            if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
+            else None
+        )
+        dispatches = [_calc_dispatch(metric, activity_task_queue) for metric in metrics]
         results = await asyncio.gather(
             *[
                 temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[
-                        metric.experiment_id,
-                        metric.metric_uuid,
-                        recalculation_id,
-                        query_to,
-                        metric.role,
-                    ],
+                    args=_calc_args(metric, recalculation_id, query_to, dispatch),
                     start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                     schedule_to_close_timeout=timedelta(seconds=METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS),
                     heartbeat_timeout=timedelta(seconds=METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS),
                     retry_policy=calc_retry_policy,
+                    task_queue=dispatch.task_queue,
                     # Round-robin dispatch across orgs under backlog; a no-op on namespaces without
                     # fairness support.
                     priority=Priority(fairness_key=inputs.fairness_key),
                 )
-                for metric in metrics
+                for metric, dispatch in zip(metrics, dispatches)
             ],
             return_exceptions=True,
         )

@@ -52,6 +52,26 @@ rules:
                 - pattern-not: Integration.objects. ... .get(..., team=$TEAM, ...)
                 - pattern-not: Integration.objects. ... .filter(..., team_id=$TEAM, ...). ... [$INDEX]
                 - pattern-not: Integration.objects. ... .filter(..., team=$TEAM, ...). ... [$INDEX]
+          # One GitHub row out of an SDK installation lookup that no project filter narrows.
+          - patterns:
+                - pattern-either:
+                      - pattern: $ACCESSOR.list_by_external_id(...)[$INDEX]
+                      - pattern: next(iter($ACCESSOR.list_by_external_id(...)), ...)
+                      - patterns:
+                            - pattern-inside: |
+                                  $ROWS = $ACCESSOR.list_by_external_id(...)
+                                  ...
+                            - pattern-not-inside: |
+                                  $ROWS = $ACCESSOR.list_by_external_id(..., team_ids=$TEAMS, ...)
+                                  ...
+                            - pattern-either:
+                                  - pattern: $ROWS[$INDEX]
+                                  - pattern: next(iter($ROWS), ...)
+                - metavariable-regex:
+                      metavariable: $ACCESSOR
+                      regex: (?i).*github.*
+                - pattern-not: $ACCESSOR.list_by_external_id(..., team_ids=$TEAMS, ...)[$INDEX]
+                - pattern-not: next(iter($ACCESSOR.list_by_external_id(..., team_ids=$TEAMS, ...)), ...)
       paths:
           include:
               - ee/**/*.py

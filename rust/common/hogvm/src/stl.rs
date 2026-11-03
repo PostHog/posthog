@@ -1205,6 +1205,24 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "sha256HmacBase64Key",
+            native_func(|vm, args| {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(VmError::NativeCallFailed(
+                        "sha256HmacBase64Key takes 2 or 3 arguments".to_string(),
+                    ));
+                }
+                let key: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let data: &str = args[1].deref(&vm.heap)?.try_as()?;
+                let mut mac = <HmacSha256 as Mac>::new_from_slice(&base64_decode_bytes(key)?)
+                    .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
+                mac.update(data.as_bytes());
+                let digest = mac.finalize().into_bytes().to_vec();
+                let encoding = encoding_arg(vm, &args, 2)?;
+                Ok(HogLiteral::from(encode_digest(&digest, &encoding)?).into())
+            }),
+        ),
+        (
             "base64Encode",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "base64Encode")?;
@@ -2723,17 +2741,20 @@ fn to_hex(bytes: &[u8]) -> String {
 }
 
 // Node's `Buffer.from(s, 'base64').toString()` — lenient about padding, UTF-8 decode lossily.
-fn base64_decode_to_string(s: &str) -> Result<String, VmError> {
+fn base64_decode_bytes(s: &str) -> Result<Vec<u8>, VmError> {
     let engine = base64::engine::GeneralPurpose::new(
         &base64::alphabet::STANDARD,
         base64::engine::GeneralPurposeConfig::new()
             .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
             .with_decode_allow_trailing_bits(true),
     );
-    let bytes = engine
+    engine
         .decode(s.trim())
-        .map_err(|e| VmError::NativeCallFailed(format!("base64 decode failed: {e}")))?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+        .map_err(|e| VmError::NativeCallFailed(format!("base64 decode failed: {e}")))
+}
+
+fn base64_decode_to_string(s: &str) -> Result<String, VmError> {
+    Ok(String::from_utf8_lossy(&base64_decode_bytes(s)?).into_owned())
 }
 
 // JS `encodeURIComponent`: keep the unreserved set, percent-encode every other UTF-8 byte.

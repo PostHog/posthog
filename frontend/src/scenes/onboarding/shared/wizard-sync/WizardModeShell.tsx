@@ -21,6 +21,9 @@ import { ReactRouterLogo } from '../logos/ReactRouterLogo'
 import svelteImage from '../logos/svelte.svg'
 import vueImage from '../logos/vue.svg'
 
+/** The hedgehog beside the wizard's content; `null` drops it, e.g. when an outer shell already shows one. */
+export type WizardShellHog = ComponentType<{ className?: string }> | null
+
 /** One "Supports:" chip; icon-less items (e.g. "+ 30 more") render as text only. */
 export interface WizardBadgeItem {
     name: string
@@ -28,7 +31,7 @@ export interface WizardBadgeItem {
 }
 
 // Frameworks the wizard can set up — the same whichever way it runs, so both modes show them.
-const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
+export const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
     { name: 'Next.js', icon: nextjsImage },
     { name: 'React', icon: reactImage },
     { name: 'Angular', icon: angularImage },
@@ -47,6 +50,25 @@ const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
     { name: 'Python', icon: pythonImage },
 ]
 
+const ICON_SIZE_CLASSES = {
+    sm: 'w-3 h-3 [&_svg]:!w-3 [&_svg]:!h-3',
+    md: 'w-4 h-4 [&_svg]:!w-4 [&_svg]:!h-4',
+}
+
+export function WizardFrameworkIcon({
+    icon: Icon,
+    size,
+}: {
+    icon: NonNullable<WizardBadgeItem['icon']>
+    size: keyof typeof ICON_SIZE_CLASSES
+}): JSX.Element {
+    return (
+        <span className={cn('inline-flex shrink-0', ICON_SIZE_CLASSES[size])}>
+            {typeof Icon === 'string' ? <img src={Icon} alt="" className="w-full h-full" /> : <Icon />}
+        </span>
+    )
+}
+
 export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: WizardBadgeItem[] } = {}): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1.5 items-center justify-center">
@@ -56,13 +78,7 @@ export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: W
                     key={fw.name}
                     className="inline-flex items-center gap-1 text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
                 >
-                    {typeof fw.icon === 'string' ? (
-                        <img src={fw.icon} alt="" className="w-3 h-3 shrink-0" />
-                    ) : fw.icon ? (
-                        <span className="inline-flex w-3 h-3 shrink-0 [&_svg]:!w-3 [&_svg]:!h-3">
-                            <fw.icon />
-                        </span>
-                    ) : null}
+                    {fw.icon ? <WizardFrameworkIcon icon={fw.icon} size="sm" /> : null}
                     {fw.name}
                 </span>
             ))}
@@ -81,19 +97,18 @@ export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: W
 export function WizardModeShell({
     children,
     hogCastKey = 0,
-    hideHog = false,
+    hog: Hog = WizardHog,
     'data-attr': dataAttr,
 }: {
     children: ReactNode
     hogCastKey?: number
-    /** Drop the hedgehog for compact placements that have no room for it. */
-    hideHog?: boolean
+    hog?: WizardShellHog
     'data-attr'?: string
 }): JSX.Element {
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
-            {!hideHog && (
-                <WizardHog
+            {Hog && (
+                <Hog
                     key={`hog-${hogCastKey}`}
                     className={cn(
                         'w-28 h-28 hidden sm:block shrink-0 self-center',
@@ -101,12 +116,7 @@ export function WizardModeShell({
                     )}
                 />
             )}
-            {/* With the hog hidden (compact placement), center the content at its natural
-                width instead of stretching it full-bleed — so the command block and the GitHub-connect
-                block sit centered without expanding. With the hog shown, keep the left-aligned column. */}
-            <div className={cn('flex-1 flex flex-col justify-center gap-3', hideHog && 'items-center text-center')}>
-                {children}
-            </div>
+            <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">{children}</div>
         </div>
     )
 }

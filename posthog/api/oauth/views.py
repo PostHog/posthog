@@ -3,6 +3,7 @@ import uuid
 import hashlib
 import calendar
 from collections.abc import Iterable
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, TypedDict, cast
@@ -76,7 +77,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -157,8 +158,14 @@ def get_region_info() -> dict | None:
 # The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
 _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.posthog.com"}
 
+# Why the last CIMD client_id failed to resolve, as (client_id, reason). oauthlib's
+# InvalidClientIdError doesn't carry the request, so this is how error_response learns the
+# reason. validate_client_id resets it on every call, and error_response only uses it for the
+# same client_id.
+_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
 
-def unknown_client_id_description(client_id: str | None) -> str:
+
+def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
     """Describe an unknown `client_id` so the client can act on the 400.
 
     An OAuth application exists in one region only, and a request sent to the other
@@ -166,9 +173,15 @@ def unknown_client_id_description(client_id: str | None) -> str:
     region is what makes that case recognizable.
 
     A CIMD client_id is a metadata URL resolved on demand rather than a registration
-    we hold, so it fails for a different reason and gets a different description.
+    we hold, so it fails for a different reason and gets a different description. When
+    /authorize knows why the document failed, `cimd_error` names it. CIMD errors are
+    written to be shown to the client: they describe the client's own public document.
     """
     if is_cimd_client_id(client_id):
+        if cimd_error:
+            return (
+                f"PostHog could not use the client metadata document at this client_id: {cimd_error[:500].rstrip('.')}."
+            )
         return (
             "PostHog could not read the client metadata document at this client_id. "
             "Check that the URL is reachable over HTTPS and returns valid client metadata."
@@ -372,14 +385,7 @@ def _gateway_blocklist_block(
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
         refused = False
-    if not refused and not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id),
-        email=request.user.email,
-        surface="oauth_authorize",
-        user_uuid=str(request.user.uuid),
-        organization_ids=[str(organization_id) for organization_id in organization_ids],
-        team_ids=scoped_team_ids or [],
-    ):
+    if not refused:
         return None
     return Response(
         {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
@@ -729,13 +735,15 @@ class OAuthValidator(OAuth2Validator):
         """
 
         # CIMD URLs always go through get_or_create to ensure metadata refresh
+        _cimd_resolution_error.set(None)
         if is_cimd_client_id(client_id):
             try:
                 app = get_or_create_cimd_application(client_id)
                 request.client = app
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
-                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
+                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
+                _cimd_resolution_error.set((client_id, str(e)))
                 return False
 
         # Standard UUID lookup
@@ -1953,7 +1961,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if isinstance(oauthlib_error, InvalidClientIdError):
             # An unknown client_id is fatal, so DOT never redirects it and this description
             # only ever reaches the JSON body.
-            oauthlib_error.description = unknown_client_id_description(self.request.query_params.get("client_id"))
+            client_id = self.request.query_params.get("client_id")
+            failure = _cimd_resolution_error.get()
+            oauthlib_error.description = unknown_client_id_description(
+                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+            )
 
         redirect, error_response = super().error_response(error, **kwargs)
 
@@ -2396,6 +2408,7 @@ def _active_access_token_response(
     scoped_teams: list[int],
     scoped_organizations: list[str],
     application: OAuthApplication | None,
+    sandbox_task_id: uuid.UUID | None = None,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2410,6 +2423,16 @@ def _active_access_token_response(
     if application:
         data["client_id"] = application.client_id
         data["client_name"] = application.name
+    if sandbox_task_id is not None:
+        # The policy resolves API routes, which import these views.
+        from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
+
+        data["sandbox_task_id"] = str(sandbox_task_id)
+        # The MCP server hides and refuses every tool outside this list. The API enforces the
+        # same list per operation, so a client that ignores it gains nothing.
+        held_tools = resolve_scout_held_tools(sandbox_task_id=sandbox_task_id)
+        if held_tools is not None:
+            data["mcp_allowed_tools"] = sorted(held_tools)
     return JsonResponse(data)
 
 
@@ -2621,6 +2644,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 scoped_teams=access_token.scoped_teams or [],
                 scoped_organizations=access_token.scoped_organizations or [],
                 application=access_token.application,
+                sandbox_task_id=access_token.sandbox_task_id,
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has

@@ -37,13 +37,16 @@ class TestSlackMessageIncludesSummary:
 
         message_data = _prepare_slack_message(sub, [asset], 1, change_summary="- Pageviews up 15%")
 
-        mrkdwn_blocks = [
+        summary_blocks = [
             b
             for b in message_data.blocks
-            if b.get("type") == "section" and "AI summary" in (b.get("text", {}).get("text", ""))
+            if b.get("type") == "container" and "AI summary" in b.get("title", {}).get("text", "")
         ]
-        assert len(mrkdwn_blocks) == 1
-        assert "Pageviews up 15%" in mrkdwn_blocks[0]["text"]["text"]
+        assert len(summary_blocks) == 1
+        summary_list = summary_blocks[0]["child_blocks"][0]["elements"][0]
+        assert summary_list["type"] == "rich_text_list"
+        assert summary_list["style"] == "bullet"
+        assert summary_list["elements"][0]["elements"][0]["text"] == "Pageviews up 15%"
 
     def test_no_summary_block_when_none(self):
         sub = _make_subscription()
@@ -51,9 +54,10 @@ class TestSlackMessageIncludesSummary:
 
         message_data = _prepare_slack_message(sub, [asset], 1, change_summary=None)
 
-        mrkdwn_texts = [b.get("text", {}).get("text", "") for b in message_data.blocks if b.get("type") == "section"]
-        for text in mrkdwn_texts:
-            assert "AI summary" not in text
+        assert not any(
+            b.get("type") == "container" and "AI summary" in b.get("title", {}).get("text", "")
+            for b in message_data.blocks
+        )
 
     def test_summary_truncated_to_block_limit(self):
         sub = _make_subscription()
@@ -65,7 +69,8 @@ class TestSlackMessageIncludesSummary:
         summary_blocks = [
             b
             for b in message_data.blocks
-            if b.get("type") == "section" and "AI summary" in (b.get("text", {}).get("text", ""))
+            if b.get("type") == "container" and "AI summary" in b.get("title", {}).get("text", "")
         ]
         assert len(summary_blocks) == 1
-        assert len(summary_blocks[0]["text"]["text"]) <= 3000
+        summary_text = summary_blocks[0]["child_blocks"][0]["elements"][0]["elements"][0]["text"]
+        assert summary_text == "x" * 2797 + "..."

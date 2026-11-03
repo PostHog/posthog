@@ -4,8 +4,6 @@ import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 
 import { ApiError, RecordingDeletedError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
@@ -41,33 +39,6 @@ describe('snapshotDataLogic', () => {
         logic.mount()
     })
 
-    describe('follow live flag gate', () => {
-        it.each([
-            { flagOn: false, polls: false },
-            { flagOn: true, polls: true },
-        ])(
-            'with the flag on: $flagOn, a live request polls before all sources load: $polls',
-            async ({ flagOn, polls }) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_FOLLOW_LIVE]: flagOn })
-                const pollingLogic = snapshotDataLogic({
-                    sessionRecordingId: 'live-gate',
-                    blobV2PollingDisabled: false,
-                })
-                pollingLogic.mount()
-
-                const expectation = expectLogic(pollingLogic, () => pollingLogic.actions.setLivePolling(true))
-                if (polls) {
-                    await expectation.toDispatchActions(['startPolling'])
-                } else {
-                    await expectation.toNotHaveDispatchedActions(['startPolling'])
-                }
-                expect(pollingLogic.values.livePolling).toBe(flagOn)
-
-                pollingLogic.unmount()
-            }
-        )
-    })
-
     describe('recording deleted selectors', () => {
         it('isRecordingDeleted is false when no error', () => {
             expect(logic.values.isRecordingDeleted).toBe(false)
@@ -92,6 +63,26 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.recordingDeletedBy).toBe(null)
         })
 
+        it('marks the recording deleted when the sources listing returns 410, and a later block load keeps it so', async () => {
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [
+                        410,
+                        { error: 'recording_deleted', deleted_at: 1700000000, deleted_by: 'admin@example.com' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesFailure'])
+                .toMatchValues({ isRecordingDeleted: true, recordingDeletedBy: 'admin@example.com' })
+
+            logic.actions.loadSnapshotsForSourceSuccess({ sources: [BLOB_SOURCE] })
+            expect(logic.values.isRecordingDeleted).toBe(true)
+        })
+
         it('recordingDeletedAt is null when deleted_at is not provided', () => {
             const error = new RecordingDeletedError(null, null)
             logic.actions.loadSnapshotsForSourceFailure('Recording deleted', error)
@@ -111,6 +102,16 @@ describe('snapshotDataLogic', () => {
                 logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
                 logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
             }).toDispatchActions(['snapshotSourceLoadExhausted'])
+            consoleError.mockRestore()
+        })
+
+        it('gives up on the first 429, because retrying within seconds cannot outlast the per-user quota', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Too many requests', new ApiError('Throttled', 429))
+            })
+                .toDispatchActions(['snapshotSourceLoadExhausted'])
+                .toMatchValues({ snapshotLoadErrorKind: 'snapshotRateLimited' })
             consoleError.mockRestore()
         })
 

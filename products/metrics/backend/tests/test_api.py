@@ -20,6 +20,7 @@ from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboard
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -131,6 +132,7 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
 
         assert cached.status_code == status.HTTP_200_OK
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert throttled["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
         assert run.call_count == 1
 
     def test_a_failed_options_query_is_shared_with_the_next_caller(self) -> None:

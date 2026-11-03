@@ -10,9 +10,6 @@ from posthog.schema import (
     EntityType,
     EventsNode,
     EventsQuery,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
-    FunnelCorrelationResultsType,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
@@ -301,44 +298,12 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["funnel_step"])
 
-    def test_extract_events_funnel_correlation_actors_query(self):
-        """Test extracting events from FunnelCorrelationActorsQuery"""
-
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="funnel_event")], funnelsFilter=FunnelsFilter(exclusions=[])
-        )
-        actors_query = FunnelsActorsQuery(source=funnels_query)
-        source_query = FunnelCorrelationQuery(
-            source=actors_query,
-            funnelCorrelationExcludeEventNames=["exclude_event"],
-            funnelCorrelationEventNames=["correlation_event"],
-            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
-        )
-        query = FunnelCorrelationActorsQuery(source=source_query)
-        result = self.extractor.extract_events(query)
-        self.assertCountEqual(result, ["funnel_event", "correlation_event", "exclude_event"])
-
     def test_extract_events_stickiness_actors_query(self):
         """Test extracting events from StickinessActorsQuery"""
         source_query = StickinessQuery(series=[EventsNode(event="sticky_event")])
         query = StickinessActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["sticky_event"])
-
-    def test_extract_events_funnel_correlation_query(self):
-        """Test extracting events from FunnelCorrelationQuery"""
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="funnel_event")], funnelsFilter=FunnelsFilter(exclusions=[])
-        )
-        actors_query = FunnelsActorsQuery(source=funnels_query)
-        source_query = FunnelCorrelationQuery(
-            source=actors_query,
-            funnelCorrelationExcludeEventNames=["exclude_event"],
-            funnelCorrelationEventNames=["correlation_event"],
-            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
-        )
-        result = self.extractor.extract_events(source_query)
-        self.assertCountEqual(result, ["funnel_event", "correlation_event", "exclude_event"])
 
     def test_extract_events_from_dict(self):
         """Test extracting events from dictionary input"""

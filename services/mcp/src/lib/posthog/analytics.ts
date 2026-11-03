@@ -10,6 +10,9 @@ export enum AnalyticsEvent {
 // keeps the property stable for dashboards that already filter on it.
 export const MCP_ANALYTICS_VERSION = 2
 
+// Matches the truncation the MCP analytics queries apply to `$mcp_error_type`.
+const MAX_ERROR_TOKEN_LENGTH = 200
+
 export type MCPAnalyticsContext = {
     organizationId?: string
     projectId?: string
@@ -48,3 +51,16 @@ export const buildMCPContextProperties = (
     ...(ctx.projectUuid ? { [`${prefix}project_uuid`]: ctx.projectUuid } : {}),
     ...(ctx.projectName ? { [`${prefix}project_name`]: ctx.projectName } : {}),
 })
+
+/**
+ * Backend error codes and DRF field paths come from server code, never caller
+ * values, but they cross a network boundary. Strip control characters and cap
+ * the length so a malformed body can't pollute the property.
+ */
+export function sanitizeErrorToken(token: string): string | undefined {
+    const sanitized = token
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim()
+        .slice(0, MAX_ERROR_TOKEN_LENGTH)
+    return sanitized || undefined
+}

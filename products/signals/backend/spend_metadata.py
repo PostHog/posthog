@@ -11,6 +11,7 @@ from posthog.schema import EmbeddingModelName
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import producer_scope
@@ -68,6 +69,7 @@ class _SignalEmbedding:
 def _read_embedding(team: Team, signal_id: str, model: EmbeddingModelName) -> _SignalEmbedding | None:
     result = execute_hogql_query(
         query_type="SignalsRefreshSpendMetadata",
+        ch_user=ClickHouseUser.SIGNALS,
         query="""
             SELECT document_id, argMax(tuple(content, metadata, timestamp, embedding, inserted_at), inserted_at)
             FROM document_embeddings

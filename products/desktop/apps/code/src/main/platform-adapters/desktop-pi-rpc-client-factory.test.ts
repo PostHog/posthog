@@ -131,6 +131,7 @@ describe("DesktopPiRpcClientFactory", () => {
       factory.create({
         taskContext: {
           taskId: "task-1",
+          taskRunId: "run-1",
           cwd: "/workspace",
           customInstructions: "Keep the patch small.",
           additionalDirectories: ["/tmp/shared"],
@@ -143,7 +144,11 @@ describe("DesktopPiRpcClientFactory", () => {
       legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion("dev-cloud")),
       headers: {
         "x-posthog-property-task_id": "task-1",
+        "x-posthog-property-task_run_id": "run-1",
+        "x-posthog-property-task_runtime_adapter": "pi",
+        "x-posthog-property-task_execution_environment": "local",
         "x-posthog-property-$ai_session_id": "task-1",
+        "X-PostHog-Task-Run-Id": "run-1",
         "X-PostHog-Project-Id": "1",
       },
     });
@@ -188,6 +193,7 @@ describe("DesktopPiRpcClientFactory", () => {
         projectId: 1,
         apiHost: "https://app.dev.posthog.dev",
         taskId: "task-1",
+        taskRunId: "run-1",
         cwd: "/workspace",
         environment: "local",
         customInstructions: "Keep the patch small.",
@@ -290,6 +296,8 @@ describe("DesktopPiRpcClientFactory", () => {
         legacyGatewayUrl: getLlmGatewayUrl("https://us.posthog.com"),
         headers: {
           "x-posthog-property-task_id": "task-9",
+          "x-posthog-property-task_runtime_adapter": "pi",
+          "x-posthog-property-task_execution_environment": "local",
           "x-posthog-property-$ai_session_id": "task-9",
           "X-PostHog-Project-Id": "7",
         },

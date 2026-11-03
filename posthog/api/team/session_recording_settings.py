@@ -1,16 +1,37 @@
 """Validators for session recording and replay settings."""
 
 import re
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from rest_framework import exceptions
+from rest_framework.request import Request
 
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.data_retention import VALID_RETENTION_PERIODS, validate_retention_period
+
+from products.feature_flags.backend.session_recording_links import flag_exists_in_project
 
 from . import settings_validation
 
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-def validate_session_recording_linked_flag(value) -> dict | None:
+
+def can_read_feature_flags(request: Request | None) -> bool:
+    """True for session auth, which carries no scopes. Access control alone limits which flags it can view."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["feature_flag:read"])
+
+
+def validate_session_recording_linked_flag(
+    value: Any, *, stored: Any, project_id: int | None, user_access_control: "UserAccessControl | None"
+) -> dict | None:
+    """Shared by the team and project serializers, because both endpoints can PATCH the link.
+
+    `stored` is the link the team holds before this request.
+    `project_id` is None when the request creates the project, so it has no flags to link yet.
+    """
     if value is None:
         return None
 
@@ -29,7 +50,27 @@ def validate_session_recording_linked_flag(value) -> dict | None:
     flag_id = settings_validation._replay_gate_flag_id(value["id"])
     if flag_id is None:
         raise exceptions.ValidationError("Must provide an integer 'id'.")
-    return {**value, "id": flag_id}
+
+    # A client that sends the whole team back also sends the link it did not change. A 400 on that
+    # link would reject the other edits in the same request. Accepting it reveals nothing, because a
+    # GET of the team returns the stored link. The key rewrite leaves a flag that the user cannot view
+    # as sent, so a match on the id alone would let a request store any key for that flag.
+    # A stored link can hold its id as a numeric string, so the stored id is normalized too.
+    normalized = {**value, "id": flag_id}
+    if isinstance(stored, dict) and normalized == {
+        **stored,
+        "id": settings_validation._replay_gate_flag_id(stored.get("id")),
+    }:
+        return normalized
+
+    # The SDKs treat a flag they cannot resolve as "do not record", so a link to a missing,
+    # deleted, or other-project flag turns replay off for the team without an error.
+    # A flag that the user cannot view gets the same error, so the error does not reveal that it exists.
+    if project_id is None or not flag_exists_in_project(flag_id, project_id, user_access_control):
+        raise exceptions.ValidationError(
+            f"Feature flag {flag_id} doesn't exist in this project or has been deleted. Choose a different flag."
+        )
+    return normalized
 
 
 def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:

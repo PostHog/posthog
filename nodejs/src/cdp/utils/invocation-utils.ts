@@ -285,6 +285,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         | 'metrics'
         | 'error'
         | 'execResult'
+        | 'emailSendResult'
     > = {}
 ): CyclotronJobInvocationResult<T> {
     return {

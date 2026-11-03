@@ -29,15 +29,17 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import slack_event_props
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.interview_recruitment import MODAL_INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
 logger = structlog.get_logger(__name__)
-
-SLACK_INTEGRATION_KIND = "slack"
 
 TURN_FEEDBACK_MODAL_CALLBACK_ID = "slack_app_turn_feedback_modal"
 _MODAL_TEXT_BLOCK_ID = "feedback_text"
@@ -88,7 +90,7 @@ class _FeedbackTarget:
     way; ``_trace_id`` says what stands behind it instead.
     """
 
-    integration: Integration
+    integration: WorkspaceIntegration
     run_id: str
     task_id: str | None
     turn_id: str | None
@@ -137,7 +139,7 @@ def extract_modal_hint(payload: dict) -> int | None:
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integration | None:
+def _local_integration(integration_id: Any, slack_team_id: str | None) -> WorkspaceIntegration | None:
     """The integration a rating names, if this region owns it for that Slack team.
 
     Scoped to the Slack team the rating came from, so a forged id resolves to nothing
@@ -146,23 +148,13 @@ def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integr
     """
     if not slack_team_id or not isinstance(integration_id, int):
         return None
-    return (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        )
-        # The event properties and the capture's groups both read through to the team and
-        # its organization, and Slack gives the interaction three seconds.
-        .select_related("team__organization")
-        .first()
-    )
+    return get_workspace_integration(integration_id, slack_team_id)
 
 
 def _resolve_target(
     value: dict[str, Any],
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack_user_id: str,
     turn_id: str | None,
 ) -> _FeedbackTarget | None:
@@ -310,7 +302,7 @@ def _capture(target: _FeedbackTarget, event: str, properties: dict[str, Any]) ->
         logger.warning("slack_app_turn_feedback_capture_failed", captured_event=event, exc_info=True)
 
 
-def _render_reason_modal(private_metadata: str) -> dict[str, Any]:
+def _render_reason_modal(private_metadata: str, invite_button: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "modal",
         "callback_id": TURN_FEEDBACK_MODAL_CALLBACK_ID,
@@ -330,7 +322,9 @@ def _render_reason_modal(private_metadata: str) -> dict[str, Any]:
                     "max_length": FEEDBACK_TEXT_MAX_LENGTH,
                     "placeholder": {"type": "plain_text", "text": "What did you expect instead?"},
                 },
-            }
+            },
+            {"type": "divider"},
+            invite_section(MODAL_INVITE_MESSAGE, invite_button),
         ],
     }
 
@@ -348,9 +342,12 @@ def _open_reason_modal(payload: dict, target: _FeedbackTarget) -> None:
             "trace_id": target.trace_id,
         }
     )
+    invite_button = book_button(
+        target.integration.id, "bad_rating_modal", run_id=target.run_id, trace_id=target.trace_id
+    )
     try:
         SlackIntegration(target.integration).client.views_open(
-            trigger_id=trigger_id, view=_render_reason_modal(private_metadata)
+            trigger_id=trigger_id, view=_render_reason_modal(private_metadata, invite_button)
         )
     except Exception:
         logger.warning("slack_app_turn_feedback_modal_open_failed", run_id=target.run_id, exc_info=True)
@@ -388,6 +385,9 @@ def handle_turn_feedback_click(payload: dict) -> HttpResponse:
     # resolves the clicker's identity against the database on its way out.
     if sentiment == "negative":
         _open_reason_modal(payload, target)
+    record_feature_used(
+        target.integration.integration_id, payload.get("user", {}).get("id"), SlackFeature.ANSWER_RATING
+    )
     _capture(
         target,
         "$ai_metric",
@@ -454,7 +454,9 @@ def reaction_sentiment(reaction: Any) -> str | None:
     return _REACTION_SENTIMENTS.get(_reaction_base(reaction))
 
 
-def _fetch_reacted_message(workspace_integration: Integration, channel: str, message_ts: str) -> dict[str, Any] | None:
+def _fetch_reacted_message(
+    workspace_integration: WorkspaceIntegration, channel: str, message_ts: str
+) -> dict[str, Any] | None:
     """The reacted message, read back from Slack so its blocks can say which run it is.
 
     ``conversations.replies`` accepts the ts of any message in a thread, and agent replies
@@ -497,7 +499,9 @@ def _feedback_value_from_message(message: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration: Integration) -> ReactionOutcome:
+def handle_reaction_added(
+    event: dict, slack_team_id: str, workspace_integration: WorkspaceIntegration
+) -> ReactionOutcome:
     """Record a thumbs reaction on an agent reply as a rating.
 
     ``workspace_integration`` is any of this region's integrations for the Slack team; its
@@ -557,4 +561,29 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
             "reaction": _reaction_base(reaction),
         },
     )
+    record_feature_used(integration.integration_id, event.get("user"), SlackFeature.ANSWER_RATING)
+    if rating == "bad" and target.slack_user_id:
+        _offer_interview_after_reaction(target, channel, message.get("thread_ts") if message else None)
     return REACTION_HANDLED
+
+
+def _offer_interview_after_reaction(target: _FeedbackTarget, channel: str, thread_ts: Any) -> None:
+    """A thumbs-down reaction opens no modal, so a private message carries the invitation instead.
+
+    The offer runs on Celery, because the flag check and the post make network calls inside Slack's
+    three-second ack budget.
+    """
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import offer_interview_invite_after_reaction  # noqa: PLC0415
+
+    try:
+        offer_interview_invite_after_reaction.delay(
+            team_id=target.integration.team_id,
+            integration_id=target.integration.id,
+            slack_user_id=target.slack_user_id,
+            channel=channel,
+            thread_ts=thread_ts if isinstance(thread_ts, str) and thread_ts else target.turn_id or "",
+            trace_id=target.trace_id,
+        )
+    except Exception:
+        logger.warning("slack_app_interview_invite_after_reaction_failed", run_id=target.run_id, exc_info=True)

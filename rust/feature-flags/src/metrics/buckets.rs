@@ -64,8 +64,8 @@ const INMEM_LOAD_BUCKETS_MS: &[f64] = &[
 // band, so the sub-ms buckets that `INMEM_LOAD_BUCKETS_MS` carries for
 // Redis would be permanently empty here. 1ms floor still captures
 // immediate errors (short-circuit before any network call) without
-// losing them in an unbounded `<le_inf>` bucket. 10s ceiling covers the
-// 3s `s3_timeout` plus headroom for the post-timeout emission.
+// losing them in an unbounded `<le_inf>` bucket. 10s ceiling matches the
+// largest `HYPERCACHE_S3_TIMEOUT_MS` that startup accepts.
 const S3_OP_BUCKETS_MS: &[f64] = &[
     1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
 ];

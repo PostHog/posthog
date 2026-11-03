@@ -40,7 +40,7 @@ def test_handler_commits_only_a_cursor_whose_rows_are_written(
     manager = MagicMock()
     manager.has_staged_state.return_value = staged
     handler = PipelineSafePointHandler(
-        shutdown_monitor=MagicMock(),
+        raise_if_should_hand_off=lambda: None,
         resumable_source_manager=manager,
         has_unwritten_rows=lambda: unwritten_rows,
         commit_interval_seconds=30.0,
@@ -54,11 +54,9 @@ def test_handler_commits_only_a_cursor_whose_rows_are_written(
 
 
 def test_handler_confirms_the_cursor_and_raises_the_shutdown_before_it_commits() -> None:
-    monitor = MagicMock()
-    monitor.raise_if_is_worker_shutdown.side_effect = RuntimeError("worker shutting down")
     manager = MagicMock()
     handler = PipelineSafePointHandler(
-        shutdown_monitor=monitor,
+        raise_if_should_hand_off=MagicMock(side_effect=RuntimeError("worker shutting down")),
         resumable_source_manager=manager,
         has_unwritten_rows=lambda: False,
         commit_interval_seconds=0.0,

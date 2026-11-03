@@ -88,11 +88,11 @@ degrades toward a floor with nothing to alert on.
 The endpoint answers one outcome per request, counted on
 `posthog_wizard_gateway_token_requests_total{outcome}`: `unconfigured`,
 `invalid_token`, `not_wizard_app`, `scope_missing`, `team_ambiguous`,
-`team_missing`, `unauthorized`, `blocked`, `not_rolled_out`, `program_unknown`,
+`team_missing`, `unauthorized`, `blocked`, `program_unknown`,
 `throttled`, `mint_failed`, or `minted`.
 
 Refusals that an older CLI absorbed by falling back to the legacy gateway
-(`unconfigured`, `not_rolled_out`, `program_unknown`) answer 403 with a reason
+(`unconfigured`, `program_unknown`) answer 403 with a reason
 only to a client that sent `reads_refusal_reason: true`. Any other client still
 receives 404, which is the signal its fallback depends on. That branch retires
 once those builds are gone.

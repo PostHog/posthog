@@ -2,6 +2,7 @@
     "name": "@posthog/products-business-intelligence",
     "private": true,
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
@@ -17,6 +18,7 @@
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "react": "*"
     }

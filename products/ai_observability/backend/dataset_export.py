@@ -81,10 +81,10 @@ def export_dataset_jsonl(asset: ExportedAsset) -> None:
         dataset_id = UUID(str(context["dataset_id"]))
         revision = int(context["dataset_revision"])
     except (KeyError, TypeError, ValueError) as error:
-        raise DatasetExportError("The dataset export configuration is invalid.") from error
+        raise DatasetExportError("The dataset export configuration is invalid.", reportable=True) from error
 
     if not asset.is_dataset_export or revision < 1 or asset.created_by is None:
-        raise DatasetExportError("The dataset export configuration is invalid.")
+        raise DatasetExportError("The dataset export configuration is invalid.", reportable=True)
 
     dataset = Dataset.objects.for_team(asset.team_id, canonical=True).filter(id=dataset_id).first()
     if dataset is None:

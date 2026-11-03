@@ -1,12 +1,15 @@
 import time
 from datetime import datetime
+from itertools import batched
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
+
+import structlog
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
@@ -17,6 +20,7 @@ from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature
 from posthog.models import Team
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 from posthog.redis import get_client, redis
+from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
@@ -25,8 +29,18 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
 
+logger = structlog.get_logger(__name__)
+
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+TEAM_KEY_CHECK_BATCH_SIZE = 1000
+
+# Per-team counts of the local evaluation requests that Django served, held until the next usage report.
+# The legacy local evaluation counter also holds requests that the Rust definitions service counted
+# and reported itself, so reporting from that counter would count those requests twice.
+DJANGO_LOCAL_EVALUATION_USAGE_KEY = "posthog:django_local_evaluation_usage"
+# usage-ingestion rejects a request with more records than USAGE_INGESTION_MAX_BATCH_SIZE, which defaults to 500.
+USAGE_RECORDS_PER_REQUEST = 500
 
 # SDK library names must match the Rust Library::as_str() values in
 # rust/feature-flags/src/handler/types.rs
@@ -38,6 +52,9 @@ SDK_LIBRARIES = [
     "posthog-convex",
     "posthog-python",
     "posthog-python-mcp",
+    "posthog-rs-mcp",
+    "posthog-go-mcp",
+    "posthog-ruby-mcp",
     "posthog-php",
     "posthog-ruby",
     "posthog-rails",
@@ -53,6 +70,8 @@ SDK_LIBRARIES = [
     "posthog-flutter",
     "posthog-kmp",
     "posthog-unity",
+    "posthog-godot",
+    "posthog-unreal",
     "posthog-server",
     "other",
 ]
@@ -68,6 +87,8 @@ _REQUEST_BUCKET_PREFIXES = {
     FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
     FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
 }
+
+EXPORTED_REQUEST_TYPES = (FlagRequestType.DECIDE, FlagRequestType.LOCAL_EVALUATION, FlagRequestType.REMOTE_CONFIG)
 
 USAGE_EVENT_NAMES = {
     FlagRequestType.DECIDE: "decide usage",
@@ -102,6 +123,42 @@ def increment_request_count(
         client.hincrby(key_name, time_bucket, count)
     except Exception as error:
         capture_exception(error)
+
+
+def increment_local_evaluation_request_counts(team_id: int) -> None:
+    # One round trip for both counters, so a Redis stall delays the flag list request once.
+    try:
+        pipe = get_client().pipeline(transaction=False)
+        pipe.hincrby(
+            get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION),
+            str(int(time.time() / CACHE_BUCKET_SIZE)),
+            1,
+        )
+        pipe.hincrby(DJANGO_LOCAL_EVALUATION_USAGE_KEY, str(team_id), 1)
+        pipe.execute()
+    except Exception as error:
+        capture_exception(error)
+
+
+def report_django_local_evaluation_usage() -> None:
+    # One transaction reads and clears the counts, so a request counted after it waits for the next report.
+    pipe = get_client().pipeline(transaction=True)
+    pipe.hgetall(DJANGO_LOCAL_EVALUATION_USAGE_KEY)
+    pipe.delete(DJANGO_LOCAL_EVALUATION_USAGE_KEY)
+    counts, _ = pipe.execute()
+    records = [
+        UsageRecord(
+            record_id=str(uuid4()),
+            producer_id="feature-flags-django",
+            team_id=int(team_id),
+            usage_key="feature_flag_local_evaluation_requests",
+            unit="requests",
+            quantity=int(count),
+        )
+        for team_id, count in counts.items()
+    ]
+    for chunk in batched(records, USAGE_RECORDS_PER_REQUEST, strict=False):
+        report_usage(chunk, site="django_flag_definitions")
 
 
 def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> tuple[int, int, int]:
@@ -180,8 +237,23 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+    client = get_client()
+    teams = Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid")
+    # Most teams have no flag requests, so one pipelined key check per batch skips them in bulk.
+    for batch in batched(teams, TEAM_KEY_CHECK_BATCH_SIZE, strict=False):
+        pipe = client.pipeline(transaction=False)
+        for team in batch:
+            pipe.exists(*(get_team_request_key(team.id, request_type) for request_type in EXPORTED_REQUEST_TYPES))
+        try:
+            key_counts = pipe.execute()
+        except redis.exceptions.RedisError as error:
+            # Export the whole batch so that one failed check does not stop the pass.
+            # The per-team export catches its own Redis errors.
+            capture_exception(error)
+            key_counts = [len(EXPORTED_REQUEST_TYPES)] * len(batch)
+        for team, existing_keys in zip(batch, key_counts):
+            if existing_keys:
+                capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
 def _capture_team_usage_for_request_type(
@@ -223,11 +295,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in (
-                FlagRequestType.DECIDE,
-                FlagRequestType.LOCAL_EVALUATION,
-                FlagRequestType.REMOTE_CONFIG,
-            ):
+            for request_type in EXPORTED_REQUEST_TYPES:
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:
@@ -269,11 +337,17 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
     result = sync_execute(_build_enriched_analytics_query(), {"begin": begin, "end": end})
 
     for row in result:
-        team_id = row[0]
-        flag_key = row[1]
-        team = Team.objects.only("project_id").get(id=team_id)
+        if not isinstance(row, tuple | list) or len(row) < 2:
+            logger.warning(
+                "find_flags_with_enriched_analytics_malformed_row",
+                row_type=type(row).__name__,
+                row_length=len(row) if isinstance(row, tuple | list) else None,
+            )
+            continue
 
+        team_id, flag_key = row[0], row[1]
         try:
+            team = Team.objects.only("project_id").get(id=team_id)
             flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag_key)
             if not flag.has_enriched_analytics:
                 # A failed enrichment rolls back the flag update, so the next run retries this
@@ -283,7 +357,7 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
                     flag.save()
                     if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
                         add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
-        except FeatureFlag.DoesNotExist:
+        except (Team.DoesNotExist, FeatureFlag.DoesNotExist):
             pass
         except Exception as e:
             capture_exception(e)

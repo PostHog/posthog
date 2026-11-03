@@ -119,6 +119,27 @@
             margin: 0;
         }
 
+        &.CardMeta--header-status {
+            .CardMeta__primary {
+                gap: 0.25rem;
+                padding-right: 0.75rem;
+            }
+
+            .CardMeta__main {
+                flex: 1;
+            }
+
+            .CardMeta__controls {
+                position: static;
+                flex-shrink: 0;
+                align-self: flex-start;
+
+                .LemonButton {
+                    height: 1.75rem;
+                }
+            }
+        }
+
         @container (min-width: 14rem) {
             .CardMeta__heading {
                 // Let the top-heading row participate in CardMeta__top flex layout without an extra wrapper box.
@@ -219,5 +240,9 @@
 @container (max-width: 22rem) {
     .CardMeta:hover .CardMeta__refresh {
         visibility: hidden;
+    }
+
+    .CardMeta--header-status .CardMeta__refresh {
+        display: none;
     }
 }

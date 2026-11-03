@@ -74,14 +74,20 @@ export function sendAudience(
     if (flow.trigger_type !== 'batch') {
         return { cohortIds: [], filters: [], accounts: false, address: flow.email_to || null }
     }
-    const properties = flow.audience_properties as unknown as AnyPropertyFilter[]
-    // An excluded cohort is not a recipient list, so it stays a filter with its operator.
+    return audienceFromProperties(
+        flow.audience_properties as unknown as AnyPropertyFilter[],
+        flow.audience_type === 'accounts'
+    )
+}
+
+export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
+    // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
     const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
         filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
         filters: properties.filter((filter) => !isCohortInclusion(filter)),
-        accounts: flow.audience_type === 'accounts',
+        accounts,
         address: null,
     }
 }
@@ -131,7 +137,8 @@ export function describeRepeat(schedule: Pick<HogFlowScheduleApi, 'rrule' | 'sta
 /** The send times of a schedule inside a range, as real moments. */
 export function scheduleSendTimes(
     schedule: Pick<HogFlowScheduleApi, 'rrule' | 'starts_at' | 'timezone'>,
-    range: CalendarRange
+    range: CalendarRange,
+    maxSends: number = MAX_SENDS_PER_SCHEDULE
 ): dayjs.Dayjs[] {
     const timezone = schedule.timezone || 'UTC'
     // RRule expands dates in "fake UTC": the UTC fields hold the wall-clock time in the schedule time
@@ -145,7 +152,7 @@ export function scheduleSendTimes(
     try {
         const rule = new RRule({ ...RRule.parseString(schedule.rrule), dtstart: toFakeUtc(dayjs(schedule.starts_at)) })
         return rule
-            .between(toFakeUtc(range.start), toFakeUtc(range.end), true, (_, index) => index < MAX_SENDS_PER_SCHEDULE)
+            .between(toFakeUtc(range.start), toFakeUtc(range.end), true, (_, index) => index < maxSends)
             .map((date) => fakeUtcToReal(date, timezone))
             .filter((time) => !time.isBefore(range.start) && time.isBefore(range.end))
     } catch {
@@ -156,7 +163,8 @@ export function scheduleSendTimes(
 export function calendarSendsForFlow(
     flow: SendCalendarFlowApi,
     range: CalendarRange,
-    now: dayjs.Dayjs
+    now: dayjs.Dayjs,
+    maxSendsPerSchedule: number = MAX_SENDS_PER_SCHEDULE
 ): CalendarSend[] {
     const base = {
         flowId: flow.id,
@@ -178,7 +186,7 @@ export function calendarSendsForFlow(
             }
             const repeat = describeRepeat(schedule)
             const isRecurring = !isOneTimeSchedule(schedule.rrule)
-            for (const at of scheduleSendTimes(schedule, future)) {
+            for (const at of scheduleSendTimes(schedule, future, maxSendsPerSchedule)) {
                 sends.push({
                     ...base,
                     key: `${schedule.id}:${at.valueOf()}`,
@@ -352,4 +360,34 @@ export function groupSendsByDay(sends: CalendarSend[], timezone: string): Record
         ;(byDay[day] ??= []).push(send)
     }
     return byDay
+}
+
+/** Splits a range into consecutive pieces of at most `maxDays`, for an endpoint that limits the range it takes. */
+export function splitRange(range: CalendarRange, maxDays: number): CalendarRange[] {
+    const pieces: CalendarRange[] = []
+    let start = range.start
+    while (start.isBefore(range.end)) {
+        const end = start.add(maxDays, 'day').isBefore(range.end) ? start.add(maxDays, 'day') : range.end
+        pieces.push({ start, end })
+        start = end
+    }
+    return pieces
+}
+
+/** Joins the flows of several range loads. A flow shows up in each piece, with only the runs of that piece. */
+export function mergeCalendarFlows(loads: SendCalendarFlowApi[][]): SendCalendarFlowApi[] {
+    const byId = new Map<string, SendCalendarFlowApi>()
+    for (const flow of loads.flat()) {
+        const known = byId.get(flow.id)
+        if (!known) {
+            byId.set(flow.id, flow)
+            continue
+        }
+        const runIds = new Set(known.batch_jobs.map((run) => run.id))
+        byId.set(flow.id, {
+            ...known,
+            batch_jobs: [...known.batch_jobs, ...flow.batch_jobs.filter((run) => !runIds.has(run.id))],
+        })
+    }
+    return [...byId.values()]
 }

@@ -370,7 +370,7 @@ class TestNodeViewSet(APIBaseTest):
     @parameterized.expand(
         [("upstream_from_a_reader", "upstream", False), ("downstream_from_a_managed_view", "downstream", True)]
     )
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_a_run_stays_on_the_side_of_a_managed_view_it_started_from(
         self, _name, direction, start_from_managed_view, mock_sync_connect
     ):
@@ -390,7 +390,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["node_ids"], [str(start.id)])
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_downstream_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -426,7 +426,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(detail).json()["suspended"], {})
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
         # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
         mock_sync_connect.return_value = AsyncMock()
@@ -480,7 +480,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIsNone(suspension_reset_at(self.view_node, "clickhouse"))
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_starts_the_execute_dag_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -938,8 +938,13 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
 
-        edge_ids = {edge["id"] for edge in response.json()["results"]}
-        self.assertEqual(str(self.edge.id) in edge_ids, expected_visible)
+        edges = {edge["id"]: edge for edge in response.json()["results"]}
+        self.assertEqual(str(self.edge.id) in edges, expected_visible)
+        if expected_visible:
+            self.assertEqual(
+                edges[str(self.edge.id)],
+                {"id": str(self.edge.id), "source_id": str(self.edge.source_id), "target_id": str(self.edge.target_id)},
+            )
 
     @parameterized.expand(
         [
@@ -1041,6 +1046,40 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(
             type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
         )
+
+    @parameterized.expand(
+        [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_write_actions_refuse_a_member_denied_the_view(self, action, mock_sync_connect):
+        source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        edge = Edge.objects.create(team=self.team, dag=self.dag, source=source, target=self.node)
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+        node_url = f"{self._list_url()}{self.node.id}/"
+        edge_url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
+
+        if action == "update_node":
+            response = self.client.patch(node_url, {"description": "changed"}, format="json")
+        elif action == "update_edge":
+            response = self.client.patch(edge_url, {"properties": {"changed": True}}, format="json")
+        elif action == "delete_node":
+            response = self.client.delete(node_url)
+        elif action == "delete_edge":
+            response = self.client.delete(edge_url)
+        else:
+            response = self.client.post(f"{node_url}{action}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {})
+        self.node.refresh_from_db()
+        self.assertNotEqual(self.node.description, "changed")
+        self.assertNotEqual(suspension_state(self.node), {})
+        mock_sync_connect.assert_not_called()
 
     @parameterized.expand(
         [

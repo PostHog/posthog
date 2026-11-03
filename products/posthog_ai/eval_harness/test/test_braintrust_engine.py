@@ -5,17 +5,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from braintrust import (
-    framework as bt_framework,
-    logger as bt_logger,
-)
+from braintrust import framework as bt_framework
 from braintrust.framework import EvalResult, EvalResultWithSummary
-from braintrust.logger import ExperimentSummary, ScoreSummary, SpanImpl
-from braintrust.span_identifier_v3 import SpanObjectTypeV3
-from braintrust.util import LazyValue
+from braintrust.logger import ExperimentSummary, ScoreSummary
 
-from products.posthog_ai.eval_harness.engines import braintrust as engine_module
-from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine, _BraintrustCaseHooks
+from products.posthog_ai.eval_harness.engines.braintrust import BraintrustEngine
 from products.posthog_ai.eval_harness.engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec
 from products.posthog_ai.eval_harness.harness.trial_stats import trial_stats
 
@@ -69,42 +63,16 @@ def test_translate_preserves_none_scores_and_stringifies_errors() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("has_key", [False, True])
 @pytest.mark.parametrize("scorer_fails", [False, True])
-@pytest.mark.parametrize("metadata_fails", [False, True])
-async def test_public_trial_metadata_keeps_final_scoring_durations(
-    monkeypatch: pytest.MonkeyPatch, scorer_fails: bool, metadata_fails: bool
+async def test_local_results_keep_final_scoring_durations_without_uploading(
+    monkeypatch: pytest.MonkeyPatch, has_key: bool, scorer_fails: bool
 ) -> None:
-    logger = MagicMock()
-    monkeypatch.setattr(engine_module, "logger", logger)
-    events: list[dict[str, Any]] = []
-    flushed: list[list[dict[str, Any]]] = []
-    background = MagicMock()
-    background.log.side_effect = lambda event: events.append(event.get())
-    updating_metadata = False
-
-    def flush() -> None:
-        if updating_metadata and metadata_fails:
-            raise ConnectionError("metadata upload failed")
-        flushed.append(list(events))
-
-    background.flush.side_effect = flush
-    monkeypatch.setattr(bt_logger._state, "global_bg_logger", lambda: background)
-
-    def start_span(name: str, **kwargs: Any) -> SpanImpl:
-        return SpanImpl(
-            parent_object_type=SpanObjectTypeV3.EXPERIMENT,
-            parent_object_id=LazyValue(lambda: "example-experiment", use_mutex=False),
-            parent_compute_object_metadata_args=None,
-            parent_span_ids=None,
-            name=name,
-            event=kwargs,
-        )
-
-    experiment = MagicMock(dataset=None)
-    experiment.start_span.side_effect = start_span
-    experiment.summarize.return_value = _summary()
-    experiment.flush.side_effect = background.flush
-    monkeypatch.setattr(bt_framework, "init_experiment", lambda **_: experiment)
+    monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
+    if has_key:
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-only-key")
+    remote = MagicMock(side_effect=AssertionError("Braintrust reporting must never initialize"))
+    monkeypatch.setattr(bt_framework, "init_experiment", remote)
     trials = 0
 
     async def task(input: dict[str, Any], hooks: CaseHooks) -> dict[str, Any]:
@@ -120,9 +88,6 @@ async def test_public_trial_metadata_keeps_final_scoring_durations(
         return 1.0
 
     async def on_results(result: ExperimentResult) -> None:
-        nonlocal updating_metadata
-        assert flushed
-        updating_metadata = True
         for case in result.results:
             assert (case.error is not None) is scorer_fails
             case.metadata["phase_durations"]["scoring"] = 3.0
@@ -134,28 +99,15 @@ async def test_public_trial_metadata_keeps_final_scoring_durations(
             task=task,
             scorers=[score],
             trial_count=2,
-            is_public=True,
-            no_send_logs=False,
             metadata={},
             on_results=on_results,
         )
     )
-
-    rows: dict[str, dict[str, Any]] = {}
-    for event in flushed[-1]:
-        if event.get("span_attributes", {}).get("name") == "eval":
-            rows[event["id"]] = event
-        elif event["id"] in rows:
-            rows[event["id"]].update(event)
-    assert len(rows) == 2
-    assert {row["metadata"]["trial_id"] for row in rows.values()} == {"trial-0", "trial-1"}
-    if metadata_fails:
-        logger.warning.assert_called_once_with(
-            "Could not upload final trial metadata; completed eval results remain available", exc_info=True
-        )
-    else:
-        assert all(row["metadata"]["phase_durations"] == {"agent": 2.0, "scoring": 3.0} for row in rows.values())
-    assert all(case.metadata["phase_durations"]["scoring"] == 3.0 for case in result.results)
+    remote.assert_not_called()
+    assert result.summary.experiment_url is None
+    assert len(result.results) == 2
+    assert {case.metadata["trial_id"] for case in result.results} == {"trial-0", "trial-1"}
+    assert all(case.metadata["phase_durations"] == {"agent": 2.0, "scoring": 3.0} for case in result.results)
 
 
 def test_translate_summary_raw_round_trips_as_json() -> None:
@@ -164,49 +116,3 @@ def test_translate_summary_raw_round_trips_as_json() -> None:
 
     # The jsonl export must stay byte-identical to what braintrust would write.
     assert translated.summary.as_json() == summary.as_json()
-
-
-class _FakeSpan:
-    def __init__(self) -> None:
-        self.logs: list[dict[str, Any]] = []
-
-    def log(self, **kwargs: Any) -> None:
-        self.logs.append(kwargs)
-
-    def __enter__(self) -> _FakeSpan:
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
-        return None
-
-
-class _FakeSpanFactory:
-    def __init__(self) -> None:
-        self.started: list[tuple[str, dict[str, Any], _FakeSpan]] = []
-
-    def start_span(self, *, name: str, span_attributes: dict[str, Any]) -> _FakeSpan:
-        span = _FakeSpan()
-        self.started.append((name, span_attributes, span))
-        return span
-
-
-class _FakeEvalHooks:
-    def __init__(self) -> None:
-        self.metadata: dict[str, Any] = {}
-        self.span = _FakeSpanFactory()
-
-
-def test_case_hooks_adapter_writes_through_metadata_and_translates_spans() -> None:
-    hooks = _FakeEvalHooks()
-    adapter = _BraintrustCaseHooks(hooks)  # type: ignore[arg-type]
-
-    adapter.metadata["trace_id"] = "t1"
-    # Write-through: mutations must land on the underlying braintrust hooks.
-    assert hooks.metadata == {"trace_id": "t1"}
-
-    with adapter.start_span("agent", "llm") as span:
-        span.log(output="hi")
-
-    name, attrs, started_span = hooks.span.started[0]
-    assert (name, attrs) == ("agent", {"type": "llm"})
-    assert started_span.logs == [{"output": "hi"}]

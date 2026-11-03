@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from email.utils import parsedate_to_datetime
 from typing import Any, Optional
@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 
@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
     BoundaryCheckpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -323,7 +326,12 @@ def _wait_klaviyo(retry_state: RetryCallState) -> float:
     return _backoff(retry_state)
 
 
-@retry(
+def _server_delay(retry_state: RetryCallState) -> float | None:
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    return exc.retry_after if isinstance(exc, KlaviyoRetryableError) else None
+
+
+@retry_with_deadline(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
     retry=retry_if_exception_type(
@@ -336,6 +344,7 @@ def _wait_klaviyo(retry_state: RetryCallState) -> float:
     ),
     stop=stop_after_attempt(5),
     wait=_wait_klaviyo,
+    requested_wait=_server_delay,
     reraise=True,
 )
 def _fetch_page(
@@ -373,8 +382,12 @@ def _iter_resource_ids(
     logger: FilteringBoundLogger,
     path: str,
     page_size: int,
+    safe_point: Callable[[], None] | None = None,
 ) -> Iterator[str]:
-    """Page through a Klaviyo collection and yield each row's id, following the cursor links."""
+    """Page through a Klaviyo collection and yield each row's id, following the cursor links.
+
+    `safe_point` runs after each page. Pass it only when the caller buffers no rows.
+    """
     # Some collections (e.g. /object-types) reject page[size]; page_size <= 0 means "omit it and
     # page by cursor links alone", mirroring _build_initial_params for top-level endpoints.
     params = {"page[size]": page_size} if page_size > 0 else {}
@@ -383,6 +396,8 @@ def _iter_resource_ids(
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
             yield item["id"]
+        if safe_point is not None:
+            safe_point()
 
         next_url = data.get("links", {}).get("next")
         if not next_url:
@@ -395,6 +410,7 @@ def _iter_fan_out_parents(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     fan_out: KlaviyoFanOutConfig,
+    safe_point: Callable[[], None],
 ) -> Iterator[tuple[dict[str, str], str]]:
     """Yield (ancestor columns, parent id) for every parent the child endpoint fans out over.
 
@@ -403,17 +419,19 @@ def _iter_fan_out_parents(
     formats the parent path with each grandparent id, tagging every parent with that id.
     """
     if fan_out.grandparent is None:
-        for parent_id in _iter_resource_ids(session, headers, logger, fan_out.parent_path, fan_out.parent_page_size):
+        for parent_id in _iter_resource_ids(
+            session, headers, logger, fan_out.parent_path, fan_out.parent_page_size, safe_point
+        ):
             yield {}, parent_id
         return
 
     grandparent = fan_out.grandparent
     for grandparent_id in _iter_resource_ids(
-        session, headers, logger, grandparent.parent_path, grandparent.parent_page_size
+        session, headers, logger, grandparent.parent_path, grandparent.parent_page_size, safe_point
     ):
         path = fan_out.parent_path.format(**{grandparent.parent_id_column: grandparent_id})
         try:
-            for parent_id in _iter_resource_ids(session, headers, logger, path, fan_out.parent_page_size):
+            for parent_id in _iter_resource_ids(session, headers, logger, path, fan_out.parent_page_size, safe_point):
                 yield {grandparent.parent_id_column: grandparent_id}, parent_id
         except requests.HTTPError as exc:
             # A grandparent deleted between enumeration and this fetch 404s; its children are gone
@@ -467,7 +485,8 @@ def _get_fan_out_rows(
     """
     fan_out = config.fan_out
     assert fan_out is not None
-    parents = list(_iter_fan_out_parents(session, headers, logger, fan_out))
+    # Parents are listed before any row is batched, so each parent page is a safe point.
+    parents = list(_iter_fan_out_parents(session, headers, logger, fan_out, resumable_source_manager.safe_point))
     parent_ids = [parent_id for _, parent_id in parents]
 
     # Resolve the saved parent-ID bookmark to the slice of parents still to process. If the
@@ -505,6 +524,9 @@ def _get_fan_out_rows(
                             resumable_source_manager.save_state(
                                 KlaviyoResumeConfig(next_url=next_url, list_id=parent_id)
                             )
+
+                if not batcher.should_yield(include_incomplete_chunk=True):
+                    resumable_source_manager.safe_point()
 
                 if not next_url:
                     break

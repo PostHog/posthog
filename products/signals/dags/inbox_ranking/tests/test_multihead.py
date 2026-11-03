@@ -31,6 +31,8 @@ TEAMS = (2, 3)
 # One latent outcome per head, each written into its own component of the report vector, so a
 # network that reads one head's output for another head ranks at chance.
 HEAD_COMPONENTS = {"open": 0, "action": 1, "fixed": 2}
+# Cycled by position rather than drawn, so the random vectors stay the same.
+PRIORITIES = ("P0", "P1", "P2", "P3", "P4", None)
 
 
 def _birth(day: int) -> pd.Timestamp:
@@ -48,6 +50,7 @@ class _SyntheticInbox:
                     "report_id": f"r-{day}-{index}",
                     "born": day,
                     "team": TEAMS[index % len(TEAMS)],
+                    "priority": PRIORITIES[index % len(PRIORITIES)],
                     **{head: bool(rng.random() < 0.4) for head in HEAD_COMPONENTS},
                 }
                 for day in range(DAYS)
@@ -69,6 +72,7 @@ class _SyntheticInbox:
                     "report_age_hours": (day - live["born"]) * 24.0 + 12.0,
                     "signal_count": 1,
                     "report_team_id": live["team"],
+                    "priority": live["priority"],
                 },
                 index=live.index,
             )

@@ -29,7 +29,7 @@ from . import timing
 from .hogland_backend import HoglandBackend
 from .stack import PostHogPreviewStack
 
-DEFAULT_HOST = os.environ.get("HOG_HOST", "https://hogland.hedgehog-kitefin.ts.net")
+DEFAULT_HOST = os.environ.get("HOG_HOST", "https://hogland-dev.hedgehog-kitefin.ts.net")
 
 
 def build_backend(args: argparse.Namespace) -> HoglandBackend:

@@ -27,6 +27,7 @@ from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
     ActivityCredential,
     activity_storage,
+    is_uncached_reverse_one_to_one,
 )
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
@@ -49,6 +50,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",
@@ -74,6 +76,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "ReplayScanner",
+    "ReplayObservation",
     "VisionAlertConfiguration",
     "Comment",
     "Team",
@@ -111,18 +114,21 @@ ActivityScope = Literal[
     "EvaluationDirectory",
     "LLMPrompt",
     "LLMPromptLabel",
+    "LLMSkill",
     "LLMTrace",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "PlatformAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
     "TracesRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "TicketMacro",
     "KnowledgeSource",
     "KnowledgeLibrary",
     "InstanceSetting",
@@ -135,6 +141,9 @@ ActivityScope = Literal[
     "DataQualityCheck",
     "DataQualityCheckSchedule",
     "WarehouseSuggestion",
+    "AccessControl",
+    "DataWarehouseTable",
+    "DataWarehouseJoin",
     "Billing",
     "Loop",
     "StamphogRepoConfig",
@@ -255,6 +264,12 @@ class ActivityLog(UUIDTModel):
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
             ),
+            # One user's rows in a time window, for the activity summary. Not partial, because the
+            # query keeps rows where `is_system` and `was_impersonated` are NULL.
+            models.Index(
+                fields=["team_id", "user", "-created_at"],
+                name="idx_alog_team_user_created_at",
+            ),
         ]
 
     team_id = models.PositiveIntegerField(null=True)
@@ -367,8 +382,20 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    # Any activity-log reader sees these rows, including readers denied the tables they name.
+    "DataWarehouseJoin": [
+        "source_table_name",
+        "source_table_key",
+        "joining_table_name",
+        "joining_table_key",
+        "field_name",
+        "configuration",
+    ],
+    "SignalTeamConfig": ["onboarding"],
     "AccountView": ["name", "content", "text_content"],
     "WarehouseSuggestion": ["dismissal_note"],
+    # Macro replies are support content; activity-log readers may lack ticket access.
+    "TicketMacro": ["body"],
     "HogFunction": [
         "inputs",
         "mappings",
@@ -436,6 +463,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # Observation notes are gated on observation access, which activity_log:read does not imply.
+    "ReplayObservation": ["content"],
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
@@ -494,6 +523,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "github_issue_writeback_enabled": "comment back on GitHub issues",
         "pull_request_label_enabled": "label self-driving PRs",
         "pull_request_label": "self-driving PR label",
+        "anomaly_scoring_enabled": "anomaly scoring",
         "scout_instructions": "scout instructions",
         "research_instructions": "research instructions",
         "implementation_instructions": "implementation instructions",
@@ -534,10 +564,8 @@ replay_scanner_machine_fields = [
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
-    "search_suggestions",
-    "search_suggestions_watermark",
-    "search_suggestions_generated_at",
-    "search_last_viewed_at",
+    "filter_error",
+    "filter_error_at",
     "prompt_question",
     "prompt_question_source",
     "prompt_valence",
@@ -561,6 +589,18 @@ vision_alert_machine_fields = [
     "updated_at",
 ]
 
+# Written by checks, ownership handovers and the logs route's snooze, never by a settings edit.
+platform_alert_runtime_fields = [
+    "next_check_at",
+    "snooze_until",
+    "consecutive_failures",
+    "check_status",
+    "owner",
+    "owner_changed_at",
+    "switched_off_at",
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -581,6 +621,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "PlatformAlertConfiguration": platform_alert_runtime_fields,
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -613,6 +654,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_precheck_outcome",
         "last_precheck_row_count",
     ],
+    # Inserts bump these on every use. They are not a settings edit.
+    "TicketMacro": ["usage_count", "last_used_at"],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -646,10 +689,11 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
-        # Staff-only email sending suspension flips: the acting staff user must not leak into the
-        # org activity log. The customer is told via email and in-app notification instead.
+        # Staff-only email sending controls: the acting staff user must not leak into the org
+        # activity log. Suspensions and automatic tier moves reach the customer through email and
+        # in-app notification, and the Reputation tab shows the current tier.
         "scope": "Team",
-        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
+        "activities": ["email_sending_suspended", "email_sending_unsuspended", "email_sending_tier_changed"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -707,6 +751,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
@@ -719,6 +764,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
+    # The reverse relations hold runtime state per group and per notification thread.
+    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.
@@ -910,6 +957,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
+    "DataWarehouseJoin": ["deleted_at"],
+    # The subject is the identity of a rule and never changes. The receiver names it in the
+    # context, so the diff does not load the role and the membership for both sides.
+    "AccessControl": ["organization_member", "role"],
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
@@ -966,6 +1017,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "lease_id",
         "backoff_attempt",
         "backoff_until",
+        "pending_commit",
     ],
     "Integration": [
         "sensitive_config",
@@ -1171,7 +1223,8 @@ def safely_get_field_value(instance: models.Model | None, field: str):
             if hasattr(field_id, "pk"):
                 field_id = field_id.pk
             # Only fetch the actual object if we have a valid ID
-            related_model = field_obj.related_model
+            # Widen the stub type to keep the guard against an unresolved lazy "app.Model" reference.
+            related_model: type[models.Model] | str = field_obj.related_model
             if isinstance(related_model, type) and issubclass(related_model, models.Model):
                 return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
             else:
@@ -1188,6 +1241,23 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     # don't need any additional information about it other than the fact that it was deleted.
     except (ObjectDoesNotExist, FieldDoesNotExist):
         return None
+
+
+def _is_unchanged_without_a_query(
+    field: Any, previous: models.Model, current: models.Model, current_deferred: set[str]
+) -> bool:
+    """Decide from loaded values alone whether a field can differ, so the diff skips its read."""
+    if is_uncached_reverse_one_to_one(field, previous, current):
+        return True
+    if not field.concrete:
+        return False
+    if field.attname in current_deferred:
+        # A save writes only the loaded fields of a deferred instance, so the row keeps the value `previous` holds.
+        return True
+    if isinstance(field, models.ForeignKey | models.OneToOneField):
+        # Both sides fetch the related row by this id, so the same id gives the same value.
+        return getattr(previous, field.attname) == getattr(current, field.attname)
+    return False
 
 
 def changes_between(
@@ -1215,8 +1285,12 @@ def changes_between(
         masked_fields = field_with_masked_contents.get(model_type, [])
         filtered_fields = [f for f in fields if f.name not in excluded_fields]
         filtered_field_names = [f.name for f in filtered_fields]
+        current_deferred = current.get_deferred_fields() if current is not None else set()
 
         for field in filtered_fields:
+            if current is not None and _is_unchanged_without_a_query(field, previous, current, current_deferred):
+                continue
+
             field_name = field.name
             left = safely_get_field_value(previous, field_name)
             right = safely_get_field_value(current, field_name)
@@ -1545,6 +1619,7 @@ def log_activity_with_soft_delete(
     user: "User | None",
     was_impersonated: bool,
     name: str | None = None,
+    organization_id: UUID | None = None,
 ) -> None:
     instance = current or previous
     if instance is None:
@@ -1556,7 +1631,7 @@ def log_activity_with_soft_delete(
     if deleted_change:
         activity = "deleted" if deleted_change.after else "restored"
     log_activity(
-        organization_id=None,
+        organization_id=organization_id,
         team_id=instance.serializable_value("team"),
         user=user,
         was_impersonated=was_impersonated,
@@ -1688,6 +1763,7 @@ def load_activity(
     item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
+    user: Union["User", AnonymousUser, None] = None,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 
@@ -1697,6 +1773,9 @@ def load_activity(
 
     if item_ids is not None:
         activity_query = activity_query.filter(item_id__in=item_ids)
+
+    if user is not None:
+        activity_query = apply_activity_visibility_restrictions(activity_query, user)
 
     return get_activity_page(activity_query, limit, page)
 

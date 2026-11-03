@@ -386,8 +386,11 @@ tools:
             idempotent: true
         title: Get organization details.
         description: >
-            Get details of an organization by ID including name, membership level, member count, teams, and projects. If
-            no ID is provided, returns the active organization.
+            Get details of an organization by ID including name, membership level, member count, teams, projects, and
+            the plan features available to it. Each entry in `available_product_features` has a `key` and a `limit`. For
+            example, `organizations_projects` gives the maximum number of non-demo projects. Teams include `project_id`
+            and `is_demo` so multiple environments of one project count once and demo projects can be excluded. These
+            lists include only projects visible to the caller. If no ID is provided, returns the active organization.
         param_overrides:
             id:
                 description: |
@@ -406,8 +409,11 @@ tools:
                 - teams.*.id
                 - teams.*.name
                 - teams.*.project_id
+                - teams.*.is_demo
                 - projects.*.id
                 - projects.*.name
+                - available_product_features.*.key
+                - available_product_features.*.limit
     organizations-list:
         operation: list
         enabled: true

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import { ApiError } from 'lib/api-error'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -14,6 +15,7 @@ import {
     metricsDashboardTemplatesApproveCreate,
     metricsDashboardTemplatesList,
     metricsDashboardTemplatesPreviewCreate,
+    metricsDashboardTemplatesRegenerateCreate,
     metricsDashboardTemplatesRejectCreate,
     metricsDashboardTemplatesRetrieve,
 } from 'products/metrics/frontend/generated/api'
@@ -39,6 +41,7 @@ export interface metricsDashboardReviewSceneLogicValues {
     previewError: string | null
     previewLoading: boolean
     previewRequestTemplateId: string | null
+    regenerable: boolean
     reviewable: boolean
     statusFilter: ReviewStatusFilter
     template: MetricsDashboardTemplateApi | null
@@ -79,6 +82,9 @@ export interface metricsDashboardReviewSceneLogicActions {
     ) => {
         template: MetricsDashboardTemplateApi | null
         payload?: any
+    }
+    confirmRegenerate: () => {
+        value: true
     }
     loadTemplate: () => any
     loadTemplateFailure: (
@@ -131,6 +137,21 @@ export interface metricsDashboardReviewSceneLogicActions {
             templateId: string
         }
     }
+    regenerateTemplate: () => any
+    regenerateTemplateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    regenerateTemplateSuccess: (
+        template: MetricsDashboardTemplateApi | null,
+        payload?: any
+    ) => {
+        template: MetricsDashboardTemplateApi | null
+        payload?: any
+    }
     rejectTemplate: () => any
     rejectTemplateFailure: (
         error: string,
@@ -162,6 +183,7 @@ export interface metricsDashboardReviewSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         previewLoading: (previewRequestTemplateId: string | null, templateId: string | null) => boolean
         reviewable: (template: MetricsDashboardTemplateApi | null) => boolean
+        regenerable: (template: MetricsDashboardTemplateApi | null) => boolean
         breadcrumbs: (template: MetricsDashboardTemplateApi | null, templateId: string | null) => Breadcrumb[]
     }
 }
@@ -182,6 +204,7 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
         setStatusFilter: (statusFilter: ReviewStatusFilter) => ({ statusFilter }),
         setTemplateId: (templateId: string | null) => ({ templateId }),
         setPreviewError: (previewError: string | null) => ({ previewError }),
+        confirmRegenerate: true,
     }),
     loaders(({ values }) => ({
         templates: [
@@ -225,6 +248,27 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
                     } catch (error) {
                         lemonToast.error(errorDetail(error, 'Could not reject the dashboard.'))
                         return values.template
+                    }
+                },
+                regenerateTemplate: async () => {
+                    try {
+                        const template = await metricsDashboardTemplatesRegenerateCreate(
+                            String(values.currentTeamId),
+                            values.templateId as string
+                        )
+                        lemonToast.info(`Regenerating "${template.name}". It is back for review in a few minutes.`)
+                        return template
+                    } catch (error) {
+                        lemonToast.error(errorDetail(error, 'Could not regenerate the dashboard.'))
+                        // A failed start can still have reset the template and deleted its preview.
+                        try {
+                            return await metricsDashboardTemplatesRetrieve(
+                                String(values.currentTeamId),
+                                values.templateId as string
+                            )
+                        } catch {
+                            return values.template
+                        }
                     }
                 },
             },
@@ -286,6 +330,8 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
             // A review deletes the preview, so the page stops showing it. A failed review keeps it.
             approveTemplateSuccess: (state, { template }) => (template?.status === 'approved' ? null : state),
             rejectTemplateSuccess: (state, { template }) => (template?.status === 'rejected' ? null : state),
+            regenerateTemplateSuccess: (state, { template }) =>
+                template && ['pending_review', 'rejected'].includes(template.status) ? state : null,
         },
         // The template of the preview request in flight. A stale request also ends the loader's own loading state.
         previewRequestTemplateId: [
@@ -316,6 +362,13 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
             (s) => [s.template],
             (template: MetricsDashboardTemplateApi | null): boolean =>
                 !!template && ['pending_review', 'rejected'].includes(template.status) && template.source !== 'curated',
+        ],
+        regenerable: [
+            (s) => [s.template],
+            (template: MetricsDashboardTemplateApi | null): boolean =>
+                !!template &&
+                template.source === 'generated' &&
+                ['pending_review', 'rejected', 'failed'].includes(template.status),
         ],
         breadcrumbs: [
             (s) => [s.template, s.templateId],
@@ -354,6 +407,21 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
             actions.setPreviewError(error)
         },
         approveTemplateSuccess: () => {
+            actions.loadTemplates()
+        },
+        confirmRegenerate: () => {
+            LemonDialog.open({
+                title: 'Regenerate this dashboard?',
+                description: 'The new panels replace the current panels and preview.',
+                primaryButton: {
+                    children: 'Regenerate',
+                    status: 'danger',
+                    onClick: () => actions.regenerateTemplate(),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        regenerateTemplateSuccess: () => {
             actions.loadTemplates()
         },
         rejectTemplateSuccess: ({ template }) => {

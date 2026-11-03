@@ -54,6 +54,18 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-aspnetcore": lambda: fetch_sdk_data_from_releases(
         "PostHog/posthog-dotnet", tag_prefixes=["PostHog.AspNetCore-v"]
     ),
+    "posthog-rs": lambda: fetch_rust_sdk_data(),
+    "posthog-rs-mcp": lambda: fetch_rust_sdk_data(),
+    "posthog-godot": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-godot", tag_prefixes=[UNPREFIXED_SEMVER_TAG]
+    ),
+    "posthog-unreal": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-unreal", tag_prefixes=[UNPREFIXED_SEMVER_TAG]
+    ),
+    "posthog-go-mcp": lambda: fetch_go_sdk_data(),
+    "posthog-ruby-mcp": lambda: fetch_ruby_sdk_data(),
+    "posthog-roblox": lambda: fetch_roblox_sdk_data(),
+    "js": lambda: fetch_js_lite_sdk_data(),
 }
 
 
@@ -245,6 +257,22 @@ def fetch_node_sdk_data() -> dict[str, Any]:
     }
 
 
+def fetch_js_lite_sdk_data() -> dict[str, Any]:
+    posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-js-lite@"])
+    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-web-v"])
+
+    if not posthog_js or not posthog_js_lite:
+        return {}
+
+    return {
+        "latestVersion": posthog_js["latestVersion"],
+        "releaseDates": {
+            **posthog_js_lite.get("releaseDates", {}),
+            **posthog_js["releaseDates"],
+        },
+    }
+
+
 def fetch_react_native_sdk_data() -> dict[str, Any]:
     """Fetch React Native SDK data from GitHub releases API"""
 
@@ -303,6 +331,10 @@ def fetch_java_server_sdk_data() -> dict[str, Any]:
     return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["server-v"])
 
 
+def fetch_rust_sdk_data() -> dict[str, Any]:
+    return fetch_sdk_data_from_releases("PostHog/posthog-rs", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
+
+
 def fetch_go_sdk_data() -> dict[str, Any]:
     """Fetch Go SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-go", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
@@ -337,6 +369,11 @@ def fetch_dotnet_sdk_data() -> dict[str, Any]:
     return fetch_sdk_data_from_releases(
         "PostHog/posthog-dotnet", tag_prefixes=prefixed_or_unprefixed_semver_tags("PostHog-v", "v")
     )
+
+
+def fetch_roblox_sdk_data() -> dict[str, Any]:
+    """Fetch Roblox SDK data from GitHub releases API"""
+    return fetch_sdk_data_from_releases("PostHog/posthog-roblox", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 # ---- Dagster defs

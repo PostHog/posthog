@@ -6,13 +6,21 @@
             "type": "string"
         },
         "key": {
-            "description": "The property key to set.",
+            "description": "The property key to set. Pair it with 'value' to set one property.",
             "type": "string"
+        },
+        "properties": {
+            "additionalProperties": {},
+            "description": "Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
         },
         "value": {
             "description": "The property value. Can be a string, number, boolean, or object."
         }
     },
-    "required": ["id", "key", "value"],
+    "required": ["id"],
     "type": "object"
 }

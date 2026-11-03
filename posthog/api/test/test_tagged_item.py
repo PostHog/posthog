@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from django.db.models.signals import post_save
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -33,15 +34,25 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.json()["tags"], ["random"])
         self.assertEqual(Tag.objects.all().count(), 1)
 
-    def test_create_with_tags(self):
+    def test_create_with_tags(self) -> None:
+        created_tag_names: list[str] = []
+
+        def record_tag_creation(instance: Tag, created: bool, **kwargs: object) -> None:
+            if created:
+                created_tag_names.append(instance.name)
+
+        post_save.connect(record_tag_creation, sender=Tag)
+        self.addCleanup(post_save.disconnect, record_tag_creation, sender=Tag)
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "Default", "pinned": "true", "tags": ["random", "hello"]},
+            {"name": "Default", "pinned": "true", "tags": [" Random ", "hello", "random"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(sorted(response.json()["tags"]), ["hello", "random"])
         self.assertEqual(Tag.objects.all().count(), 2)
+        self.assertEqual(created_tag_names, ["hello", "random"])
 
     def test_update_tags(self):
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -360,6 +371,18 @@ class TestBulkUpdateTags(APIBaseTest):
         )
 
         assert not Tag.objects.filter(name="orphan-soon", team_id=self.team.id).exists()
+
+    @parameterized.expand([("unchanged", ["kept"]), ("added", ["kept", "new"])])
+    def test_save_without_removed_tags_leaves_unrelated_orphans(self, _name, tags):
+        dashboard = self._create_dashboard_with_tags("dash", ["kept"])
+        Tag.objects.create(name="unrelated-orphan", team_id=self.team.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": tags}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert Tag.objects.filter(name="unrelated-orphan", team_id=self.team.id).exists()
 
     def test_tag_shared_by_other_objects_is_not_deleted_on_remove(self):
         d1 = self._create_dashboard_with_tags("d1", ["shared-tag"])

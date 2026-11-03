@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonCard, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard, LemonSelect, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,8 +19,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, LogEntryLevel } from '~/types'
 
-import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
-import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import { SERVING_ENGINE, suspendedScheduleMessage } from 'products/data_modeling/frontend/suspension'
+import {
+    DataModelingJobsListEngine,
+    type DataModelingJobApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { MaterializationRunError } from 'products/data_warehouse/frontend/shared/components/MaterializationRunError'
@@ -134,9 +137,9 @@ export function MaterializationStatusPanel({
         dataModelingJobsLoading,
         jobsPage,
         jobsPageResults,
-        olderJobsPageLoading,
-        olderJobsPageError,
-        dataModelingJobsError,
+        runHistoryLoading,
+        runHistoryError,
+        selectedRunHistoryEngine,
         lastSuccessfulSyncAt,
         startingMaterialization,
         savedQuery,
@@ -149,15 +152,18 @@ export function MaterializationStatusPanel({
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
+        loadRunHistoryJobs,
         setJobsPage,
         loadOlderJobsPage,
+        setSelectedRunHistoryEngine,
         setInitialSyncFrequency,
         setIncrementalDraft,
         setSyncFrequencyDraft,
     } = useActions(jobsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const managedWarehouseEnabled = !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]
 
     const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
@@ -178,8 +184,8 @@ export function MaterializationStatusPanel({
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
-    const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
-    const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
+    const supportsIncremental = kind !== 'endpoint'
+    const showIncremental = supportsIncremental && !!savedQuery.incremental?.enabled
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
     const savedIncremental = savedQuery.incremental
     // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
@@ -208,28 +214,15 @@ export function MaterializationStatusPanel({
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
-                        {!hideTitle && (
-                            <>
-                                <h3 className="mb-0">Materialization</h3>
-                                <LemonTag type="warning">BETA</LemonTag>
-                            </>
-                        )}
-                        {showStatusSummary && savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error} interactive>
-                                <LemonTag type="danger">Error</LemonTag>
-                            </Tooltip>
-                        )}
+                        {!hideTitle && <h3 className="mb-0">Materialization</h3>}
                     </div>
                     {showStatusSummary && showSuspendedBanner && suspension && (
                         <LemonBanner type="error" className="mt-2">
                             <div data-attr="materialization-suspended-banner">
-                                <div>
-                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
-                                    because materialization kept failing. Fix the query, then resume.
-                                </div>
+                                <div>{suspendedScheduleMessage(kind === 'endpoint' ? 'endpoint' : 'view')}</div>
                                 <Tooltip title={suspension.reason} interactive>
                                     <div className="mt-1 text-xs font-normal line-clamp-2">
-                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
+                                        Suspended {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
                                     </div>
                                 </Tooltip>
                             </div>
@@ -311,7 +304,7 @@ export function MaterializationStatusPanel({
                                         </div>
                                     )}
                                 </div>
-                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && incrementalCheck && (
+                                {supportsIncremental && !savedQuery.managed_viewset_kind && incrementalCheck && (
                                     <fieldset
                                         className="mt-4 max-w-160"
                                         disabled={
@@ -371,7 +364,7 @@ export function MaterializationStatusPanel({
                                     )}
                                     {showRunActions && <MaterializationRunActions viewId={viewId} kind={kind} />}
                                 </div>
-                                {incrementalFlagOn && (
+                                {supportsIncremental && (
                                     <div className="max-w-160">
                                         <IncrementalConfigOptions
                                             check={incrementalCheck}
@@ -388,18 +381,41 @@ export function MaterializationStatusPanel({
                     <div>
                         <h3 className="mb-0">Run history</h3>
                     </div>
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        size="small"
-                        type="secondary"
-                        onClick={() => (jobsPage === 1 ? loadDataModelingJobs() : loadOlderJobsPage())}
-                        loading={jobsPage === 1 ? dataModelingJobsLoading : olderJobsPageLoading}
-                        disabledReason={startingMaterialization ? 'Materialization is starting' : undefined}
-                        tooltip="Refresh runs"
-                        aria-label="Refresh runs"
-                    />
+                    <div className="flex items-center gap-2">
+                        {managedWarehouseEnabled ? (
+                            <LemonSelect
+                                value={selectedRunHistoryEngine}
+                                onChange={setSelectedRunHistoryEngine}
+                                options={[
+                                    { value: DataModelingJobsListEngine.Clickhouse, label: 'ClickHouse' },
+                                    {
+                                        value: DataModelingJobsListEngine.ManagedWarehouse,
+                                        label: 'Managed warehouse',
+                                    },
+                                ]}
+                                size="small"
+                                data-attr="materialization-run-history-engine-filter"
+                            />
+                        ) : null}
+                        <LemonButton
+                            icon={<IconRefresh />}
+                            size="small"
+                            type="secondary"
+                            onClick={() =>
+                                jobsPage > 1
+                                    ? loadOlderJobsPage()
+                                    : selectedRunHistoryEngine === DataModelingJobsListEngine.Clickhouse
+                                      ? loadDataModelingJobs()
+                                      : loadRunHistoryJobs()
+                            }
+                            loading={runHistoryLoading}
+                            disabledReason={startingMaterialization ? 'Materialization is starting' : undefined}
+                            tooltip="Refresh runs"
+                            aria-label="Refresh runs"
+                        />
+                    </div>
                 </div>
-                {(jobsPage === 1 ? dataModelingJobsError : olderJobsPageError) && (
+                {runHistoryError && (
                     <LemonBanner type="error">Couldn't load runs. Use Refresh runs to try again.</LemonBanner>
                 )}
                 <LemonTable
@@ -421,12 +437,8 @@ export function MaterializationStatusPanel({
                     // A timer reloads page 1 in the background, and LemonTable's loading overlay blocks
                     // pointer events over the rows and the pager, so page 1 shows the loader only before it
                     // has rows. Only a user action loads an older page, so that loader always shows.
-                    loading={
-                        jobsPage === 1
-                            ? dataModelingJobsLoading && !jobsPageResults?.results?.length
-                            : olderJobsPageLoading
-                    }
-                    dataSource={jobsPage > 1 && olderJobsPageError ? [] : jobsPageResults?.results || []}
+                    loading={runHistoryLoading && (jobsPage > 1 || !jobsPageResults?.results?.length)}
+                    dataSource={jobsPage > 1 && runHistoryError ? [] : jobsPageResults?.results || []}
                     columns={[
                         {
                             title: 'Status',
@@ -457,13 +469,27 @@ export function MaterializationStatusPanel({
                                     )
                                 }
 
-                                return <LemonTag type={type}>{status}</LemonTag>
+                                const tag = (
+                                    <LemonTag type={type}>{status === 'Cancelled' ? 'Canceled' : status}</LemonTag>
+                                )
+                                return job.error ? (
+                                    <Tooltip
+                                        title={<div className="whitespace-pre-wrap font-mono text-xs">{job.error}</div>}
+                                        interactive
+                                    >
+                                        <span tabIndex={0} aria-label={`${status}. ${job.error}`}>
+                                            {tag}
+                                        </span>
+                                    </Tooltip>
+                                ) : (
+                                    tag
+                                )
                             },
                         },
                         {
                             title: 'Refresh mode',
                             dataIndex: 'run_mode',
-                            isHidden: !incrementalFlagOn || !savedQuery.has_incremental_history,
+                            isHidden: !supportsIncremental || !savedQuery.has_incremental_history,
                             render: (_, { run_mode, full_refresh_reason }: DataModelingJobApi) => {
                                 if (run_mode === 'incremental') {
                                     return 'Incremental'

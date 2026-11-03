@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
+import { IntegrationAccessRequest } from './components/IntegrationAccessRequest'
 import { IntegrationDefinition, IntegrationStatus, SettingsSectionComponent } from './integrationTypes'
 
 export function IntegrationFullPage({
@@ -123,7 +124,7 @@ function ConnectView({
             <div className="text-center text-sm">{definition.description}</div>
 
             {restrictionReason ? (
-                <RequestAccessSection definition={definition} />
+                <IntegrationAccessRequest kind={definition.kind} name={definition.name} />
             ) : (
                 // onClickCapture fires before the connect button triggers its OAuth redirect
                 <div onClickCapture={onConnectClick}>
@@ -137,45 +138,6 @@ function ConnectView({
                 </Link>
             ) : null}
         </>
-    )
-}
-
-function RequestAccessSection({ definition }: { definition: IntegrationDefinition }): JSX.Element {
-    const { accessRequestReason, accessRequestLoading, requestedAccessKinds } = useValues(integrationsLogic)
-    const { setAccessRequestReason, requestIntegrationAccess } = useActions(integrationsLogic)
-
-    if (requestedAccessKinds.includes(definition.kind)) {
-        return (
-            <LemonBanner type="success" className="w-full">
-                Request sent. Your project admins have been notified and can connect {definition.name}.
-            </LemonBanner>
-        )
-    }
-
-    return (
-        <div className="flex flex-col gap-3 w-full">
-            <LemonBanner type="info" className="w-full">
-                Connecting {definition.name} requires admin access. Tell your project admins why you need it and we'll
-                email them.
-            </LemonBanner>
-            <LemonTextArea
-                value={accessRequestReason}
-                onChange={setAccessRequestReason}
-                placeholder={`Why does your team need ${definition.name}?`}
-                minRows={3}
-                maxLength={2000}
-            />
-            <LemonButton
-                type="primary"
-                fullWidth
-                center
-                loading={accessRequestLoading}
-                disabledReason={!accessRequestReason.trim() ? 'Add a short note for your admins' : undefined}
-                onClick={() => requestIntegrationAccess({ kind: definition.kind })}
-            >
-                Request {definition.name}
-            </LemonButton>
-        </div>
     )
 }
 
@@ -235,7 +197,7 @@ function ConnectedView({
                 </div>
             ) : null}
 
-            <ConnectedNextStep />
+            <ConnectedNextStep definition={definition} integrations={integrations} />
         </>
     )
 }
@@ -247,8 +209,15 @@ function ConnectedView({
  * provisioned account lands in an onboarding it never started, an unonboarded existing account gets
  * bounced there by the onboarding gate, and an onboarded one is pulled away from the run mid-flight.
  */
-function ConnectedNextStep(): JSX.Element {
+function ConnectedNextStep({
+    definition,
+    integrations,
+}: {
+    definition: IntegrationDefinition
+    integrations: IntegrationType[]
+}): JSX.Element {
     const { inFlight, resolved } = useSelfDrivingRunState()
+    const setupUrl = definition.useSetupUrl?.(integrations) ?? null
 
     // Until the detector answers, assume the run: this page is reached by clicking through a
     // provider's consent screen, which is overwhelmingly something a run sent the user off to do,
@@ -264,6 +233,14 @@ function ConnectedNextStep(): JSX.Element {
                     Go to PostHog
                 </LemonButton>
             </div>
+        )
+    }
+
+    if (setupUrl) {
+        return (
+            <LemonButton type="primary" to={setupUrl} data-attr="integration-continue-setup">
+                Continue setup
+            </LemonButton>
         )
     }
 

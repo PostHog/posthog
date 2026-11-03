@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,6 +15,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
@@ -25,6 +27,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
     RecalculationRateLimited,
     build_timeseries_cold_start_payload,
     get_active_recalculation,
@@ -33,6 +37,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    request_recalculation_without_age_limit,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -77,7 +82,7 @@ class TestRecalculationService(BaseTest):
             created_by=self.user,
             feature_flag=self._flag(flag_key),
             name="exp",
-            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            start_date=timezone.now() - timedelta(days=30),
         )
         exp.metrics = [_mean_metric("m1")]
         exp.save()
@@ -158,6 +163,31 @@ class TestRecalculationService(BaseTest):
         assert 170 <= exc_info.value.wait <= 180
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
+    @parameterized.expand(
+        [
+            ("fresh_latest_is_returned", 1, False),
+            ("stale_latest_starts_new", 13, True),
+        ]
+    )
+    def test_stale_refresh_checks_result_age_with_server_time(
+        self, name: str, query_to_hours_ago: int, expects_new_run: bool
+    ):
+        exp = self._launched_experiment(flag_key=f"stale-{name}")
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(hours=query_to_hours_ago),
+            completed_at=timezone.now() - timedelta(hours=query_to_hours_ago),
+        )
+
+        result = request_recalculation(exp, self.user, "stale_refresh")
+
+        assert result["is_existing"] is not expects_new_run
+        assert (result["id"] == str(latest.id)) is not expects_new_run
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == (2 if expects_new_run else 1)
+
     @override_settings(DEBUG=True, TEST=False)
     @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
@@ -192,6 +222,106 @@ class TestRecalculationService(BaseTest):
 
         assert result["is_existing"] is False
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+
+    @parameterized.expand(
+        [
+            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes, expected status)
+            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending"),
+            (
+                "flag_error_over_limit_starts_new",
+                request_recalculation,
+                RuntimeError("flags down"),
+                181,
+                None,
+                "pending",
+            ),
+            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending"),
+            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending"),
+            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed"),
+            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending"),
+            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed"),
+            ("admin_over_limit_starts_new", request_recalculation_without_age_limit, True, 181, None, "pending"),
+        ]
+    )
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    def test_request_recalculation_age_limit(
+        self,
+        name: str,
+        request: Callable[[Experiment, User | None, str], dict],
+        flag_outcome: bool | Exception,
+        age_days: int,
+        active_run_minutes: int | None,
+        expected_status: str,
+    ):
+        def evaluate_flag(key: str, *args, **kwargs) -> bool:
+            if key != RECALCULATION_AGE_LIMIT_FEATURE_FLAG:
+                return False
+            if isinstance(flag_outcome, Exception):
+                raise flag_outcome
+            return flag_outcome
+
+        exp = self._launched_experiment(flag_key=f"age-{name}")
+        exp.start_date = timezone.now() - timedelta(days=age_days)
+        exp.save()
+        previous = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(days=1),
+        )
+        ExperimentMetricsRecalculation.objects.filter(id=previous.id).update(
+            created_at=timezone.now() - timedelta(days=1)
+        )
+        active = None
+        if active_run_minutes is not None:
+            active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+            ExperimentMetricsRecalculation.objects.filter(id=active.id).update(
+                created_at=timezone.now() - timedelta(minutes=active_run_minutes)
+            )
+
+        with (
+            patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
+            patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
+            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = request(exp, self.user, "manual")
+
+        assert result["status"] == expected_status
+        assert result["is_existing"] is (active_run_minutes is not None and expected_status == "pending")
+        if expected_status == "pending":
+            mock_capture.assert_not_called()
+            return
+        if active is not None:
+            active.refresh_from_db()
+            assert active.status == "failed"
+            mock_cancel.assert_called_once_with([str(active.id)])
+
+        row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert row.completed_at == timezone.now()
+        assert row.query_to == previous.query_to
+        assert row.metric_errors == {
+            "m1": {
+                "step": "request",
+                "message": RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+                "error_type": "recalculation_window_too_long",
+                "retriable": False,
+                "timestamp": timezone.now().isoformat(),
+            }
+        }
+        assert get_latest_recalculation(exp) == row
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["event"] == "experiment recalculation rejected"
+        assert mock_capture.call_args.kwargs["properties"] == {
+            "experiment_id": exp.id,
+            "team_id": self.team.id,
+            "organization_id": str(self.organization.id),
+            "trigger": "manual",
+            "recalculation_id": result["id"],
+            "experiment_age_days": 181,
+            "max_age_days": 180,
+        }
 
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()

@@ -59,17 +59,6 @@ class TestRenderHogQLExample(BaseTest):
         assert "2025-12-10" in result
         assert "2025-12-03" in result
 
-    def test_pins_context_now_as_well_as_the_date_range(self) -> None:
-        # Some runners resolve sub-ranges off `context.now` rather than off query_date_range, so
-        # both surfaces have to be pinned. A stub stands in for the runner because the branch is
-        # generic: reaching it through a real query kind ties this suite to whichever product
-        # owns that kind, and the trends case above already covers the pipeline end to end.
-        runner = SimpleNamespace(context=SimpleNamespace(now=None))
-
-        hogql_example_module._pin_runner_now(runner, hogql_example_module._FROZEN_DATETIME)
-
-        assert runner.context.now == hogql_example_module._FROZEN_DATETIME
-
     @patch("django.conf.settings.DEBUG", True)
     def test_render_does_not_mock_the_global_clock(self) -> None:
         # Clock mocking is process-global, so a freeze here hands concurrent Temporal
@@ -106,6 +95,17 @@ class TestRenderHogQLExample(BaseTest):
 
 class TestRenderHogQLExampleMocked:
     """Cheap mock-based tests for control-flow branches that don't need a DB."""
+
+    def test_pins_context_now_as_well_as_the_date_range(self) -> None:
+        # Some runners resolve sub-ranges off `context.now` rather than off query_date_range, so
+        # both surfaces have to be pinned. A stub stands in for the runner because the branch is
+        # generic: reaching it through a real query kind ties this suite to whichever product
+        # owns that kind, and the trends case above already covers the pipeline end to end.
+        runner = SimpleNamespace(context=SimpleNamespace(now=None))
+
+        hogql_example_module._pin_runner_now(runner, hogql_example_module._FROZEN_DATETIME)
+
+        assert runner.context.now == hogql_example_module._FROZEN_DATETIME
 
     @patch("posthog.hogql.printer.utils.to_printed_hogql", return_value="SELECT 1")
     @patch("posthog.hogql.filters.replace_filters")

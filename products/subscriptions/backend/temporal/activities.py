@@ -16,13 +16,12 @@ from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     UNSUPPORTED_TARGET_DISABLE_REASON,
     disable_invalid_subscription,
+    get_assets_owner_disable_reason,
     get_subscription_disable_reason,
 )
 from products.subscriptions.backend.logic.email_subscriptions import send_email_subscription_report
@@ -33,6 +32,8 @@ from products.subscriptions.backend.logic.failure_notifications import (
 from products.subscriptions.backend.logic.slack_subscriptions import send_slack_message_with_integration_async
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
 from products.subscriptions.backend.logic.teams_subscriptions import build_teams_subscription_card
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.subscriptions.backend.models.subscription_context import SubscriptionContext
 from products.subscriptions.backend.temporal.ai_subscription.activities import _deliver_ai_subscription
 from products.subscriptions.backend.temporal.delivery_common import (
     auto_disable_and_return,
@@ -506,6 +507,39 @@ async def _deliver_insight_dashboard_subscription(
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
+    # The failed tiles in this delivery already tell the recipients why, so nobody else gets an email.
+    disable_reason = get_assets_owner_disable_reason(asset.exception_type for asset in assets)
+
+    try:
+        result = await _send_to_target(subscription, inputs, assets, recipient_results, send_only_to_new_recipients)
+    except Exception as error:
+        # Temporal retries every failure but a non-retryable one, so the retry delivers the reason
+        # and the row stays enabled until it does.
+        if not (isinstance(error, ApplicationError) and error.non_retryable):
+            disable_reason = None
+        raise
+    finally:
+        if disable_reason is not None:
+            await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                subscription, disable_reason, notify_owner=False
+            )
+
+    await LOGGER.ainfo(
+        "deliver_subscription.completed",
+        subscription_id=inputs.subscription_id,
+        target_type=subscription.target_type,
+    )
+    return result
+
+
+async def _send_to_target(
+    subscription: Subscription,
+    inputs: DeliverSubscriptionInputs,
+    assets: list[ExportedAsset],
+    recipient_results: list[RecipientResult],
+    send_only_to_new_recipients: bool,
+) -> DeliverSubscriptionResult:
+    """Send the assets over the subscription's channel. Split out so the caller can wrap the one send."""
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
         async def _send_email(email: str) -> None:
@@ -551,12 +585,6 @@ async def _deliver_insight_dashboard_subscription(
             f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
             non_retryable=True,
         )
-
-    await LOGGER.ainfo(
-        "deliver_subscription.completed",
-        subscription_id=inputs.subscription_id,
-        target_type=subscription.target_type,
-    )
     return result
 
 

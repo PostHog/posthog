@@ -46,6 +46,7 @@ from ee.hogai.tools.replay.empty_result_diagnosis import EventSessionLinkage
 from ee.hogai.utils.feature_flags import has_replay_negative_event_filters_feature_flag
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 
@@ -258,12 +259,16 @@ class FilterSessionRecordingsTool(MaxTool):
                 content += await self._diagnose_empty_result(recordings_query)
             elif total_count == 1:
                 content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
-                content += self._format_recording_metadata(query_results.results[0])
+                content += as_untrusted_data("recordings", [self._format_recording_metadata(query_results.results[0])])
             else:
                 content = f"✅ Filtered session recordings. Found {total_count} recordings matching these criteria:\n\n"
                 # Include metadata for up to first 5 recordings
-                for i, recording in enumerate(query_results.results[:5]):
-                    content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
+                lines = [
+                    f"{i + 1}. {self._format_recording_metadata(recording)}"
+                    for i, recording in enumerate(query_results.results[:5])
+                ]
+                # Session ids, distinct ids and URLs come from the end user's SDK, so they are fenced as data.
+                content += as_untrusted_data("recordings", lines) + "\n"
                 if total_count > 5:
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None
@@ -379,6 +384,11 @@ class FilterSessionRecordingsTool(MaxTool):
     def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
         """Format recording metadata for display."""
         parts = []
+
+        # Follow-up tools take the session id, so it must reach the model's text, not only the frontend.
+        session_id = recording.get("session_id")
+        if session_id:
+            parts.append(f"session_id={session_id}")
 
         # Person/distinct_id
         distinct_id = recording.get("distinct_id", "Unknown")

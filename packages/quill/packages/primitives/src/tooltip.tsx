@@ -1,31 +1,43 @@
+import './tooltip.css'
+
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import './tooltip.css'
 
 function TooltipProvider({ delay = 250, ...props }: TooltipPrimitive.Provider.Props): React.ReactElement {
     return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }
 
 const TooltipGlideContext = React.createContext(false)
+const TooltipTracksCursorContext = React.createContext(false)
 
 const createTooltipHandle = TooltipPrimitive.createHandle
 
-function Tooltip<Payload>({ onOpenChangeComplete, ...props }: TooltipPrimitive.Root.Props<Payload>): React.ReactElement {
+function Tooltip<Payload>({
+    onOpenChangeComplete,
+    disableHoverablePopup,
+    ...props
+}: TooltipPrimitive.Root.Props<Payload>): React.ReactElement {
     // A tooltip shared through a handle glides between its triggers. It starts once the tooltip has
     // opened in place, so the first placement does not slide in from the corner of the page.
     const [glide, setGlide] = React.useState(false)
+    // A tooltip that follows the pointer sits under it, so it must never take a hover or a click.
+    // Otherwise a press or a release lands on the tooltip instead of the page below it.
+    const tracksCursor = props.trackCursorAxis !== undefined && props.trackCursorAxis !== 'none'
     return (
         <TooltipGlideContext.Provider value={glide}>
-            <TooltipPrimitive.Root
-                data-slot="tooltip"
-                onOpenChangeComplete={(open) => {
-                    setGlide(open && props.handle !== undefined)
-                    onOpenChangeComplete?.(open)
-                }}
-                {...props}
-            />
+            <TooltipTracksCursorContext.Provider value={tracksCursor}>
+                <TooltipPrimitive.Root
+                    data-slot="tooltip"
+                    onOpenChangeComplete={(open) => {
+                        setGlide(open && props.handle !== undefined)
+                        onOpenChangeComplete?.(open)
+                    }}
+                    disableHoverablePopup={disableHoverablePopup ?? tracksCursor}
+                    {...props}
+                />
+            </TooltipTracksCursorContext.Provider>
         </TooltipGlideContext.Provider>
     )
 }
@@ -48,6 +60,7 @@ const TooltipContent = React.forwardRef<
     ref
 ) {
     const glide = React.useContext(TooltipGlideContext)
+    const tracksCursor = React.useContext(TooltipTracksCursorContext)
     return (
         <TooltipPrimitive.Portal>
             <TooltipPrimitive.Positioner
@@ -58,7 +71,7 @@ const TooltipContent = React.forwardRef<
                 side={side}
                 sideOffset={sideOffset}
                 data-glide={glide ? '' : undefined}
-                className="quill-tooltip__positioner isolate"
+                className={cn('quill-tooltip__positioner isolate', tracksCursor && 'pointer-events-none')}
             >
                 <TooltipPrimitive.Popup
                     ref={ref}

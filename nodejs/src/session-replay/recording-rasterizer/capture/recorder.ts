@@ -119,7 +119,7 @@ export async function rasterizeRecording(
         }
 
         const playerConfig = buildPlayerConfig(input, captureConfig.playbackSpeed, blockCount)
-        player = new PlayerController(capturePage, blockProxy, onProgress, log)
+        player = new PlayerController(capturePage, blockProxy, input.team_id, onProgress, log)
 
         log.info('loading player')
         await player.load(playerConfig)

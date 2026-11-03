@@ -22,14 +22,15 @@ import { accessLevelSatisfied, toAccessControlLevel } from 'lib/utils/accessCont
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings, HogQLFilters, NodeKind, VisualizationNode } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { validateMetricName } from 'products/data_catalog/frontend/common'
@@ -46,6 +47,7 @@ import {
 import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { BIConfig } from '../../../frontend/src/queries/schema/schema-business-intelligence'
+import type { DataCatalogMetricApi } from '../../data_catalog/frontend/generated/api.schemas'
 import type { DataWarehouseSavedQueryApi } from '../../data_warehouse/frontend/generated/api.schemas'
 import type { ExternalDataSourceConnectionOptionApi } from '../../warehouse_sources/frontend/generated/api.schemas'
 import { catalogMetricWorksheet } from './biCatalog'
@@ -107,6 +109,8 @@ export interface biSceneLogicValues {
     agentUpdateState: 'conflict' | 'error' | 'loading' | null
     canRedo: boolean
     canUndo: boolean
+    catalogMetric: Awaited<ReturnType<typeof dataCatalogMetricsRetrieve>> | null
+    catalogMetricLoading: boolean
     chartSettingsDefaults: ChartSettings | null
     copyDisabledReason: string | undefined
     dataNodeKey: string
@@ -151,8 +155,8 @@ export interface biSceneLogicActions {
     clearInsight: () => {
         value: true
     }
-    discardChanges: () => {
-        value: true
+    discardChanges: (syncUrl?: boolean) => {
+        syncUrl: boolean
     }
     exportView: () => any
     exportViewFailure: (
@@ -187,8 +191,20 @@ export interface biSceneLogicActions {
     navigateHierarchy: (worksheet: BIVisualizationNode) => {
         worksheet: BIVisualizationNode
     }
-    openCatalogMetric: (name: string) => {
-        name: string
+    openCatalogMetric: (name: string) => string
+    openCatalogMetricFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    openCatalogMetricSuccess: (
+        catalogMetric: DataCatalogMetricApi,
+        payload?: string
+    ) => {
+        catalogMetric: DataCatalogMetricApi
+        payload?: string
     }
     openWorksheet: () => {
         value: true
@@ -371,11 +387,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         runQuery: true,
         cancelQuery: true,
         setLastRunQuery: (query: BIVisualizationNode | null) => ({ query }),
-        discardChanges: true,
+        discardChanges: (syncUrl: boolean = true) => ({ syncUrl }),
         shareWorksheet: true,
         syncWorksheetUrl: true,
         openWorksheet: true,
-        openCatalogMetric: (name: string) => ({ name }),
         clearInsight: true,
         selectConnection: (connectionId: string | null) => ({ connectionId }),
         setExportViewName: (name: string) => ({ name }),
@@ -384,6 +399,24 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         setSqlPreviewVersion: (version: 'current' | 'last_run') => ({ version }),
     }),
     loaders(({ values, actions, cache }) => ({
+        catalogMetric: [
+            null as Awaited<ReturnType<typeof dataCatalogMetricsRetrieve>> | null,
+            {
+                openCatalogMetric: async (name: string, breakpoint) => {
+                    if (validateMetricName(name)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    const metric = await dataCatalogMetricsRetrieve(String(values.currentTeamId), name)
+                    breakpoint()
+                    if (!catalogMetricWorksheet(metric)) {
+                        throw new Error(
+                            'Explore in BI currently supports SQL metrics. Open this definition in the catalog.'
+                        )
+                    }
+                    return metric
+                },
+            },
+        ],
         insight: [
             null as InsightApi | null,
             {
@@ -405,13 +438,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         return values.insight
                     }
                     const dashboard = Number(router.values.searchParams.dashboard)
+                    const dashboardId =
+                        !asCopy && !values.insight && Number.isInteger(dashboard) && dashboard > 0 ? dashboard : null
                     const payload = {
                         name: asCopy ? `${values.name.trim()} (copy)` : values.name.trim(),
                         query: JSON.parse(JSON.stringify(values.worksheet)) as BIVisualizationNodeApi,
                         saved: true,
-                        ...(!asCopy && !values.insight && Number.isInteger(dashboard) && dashboard > 0
-                            ? { dashboards: [dashboard] }
-                            : {}),
                     }
                     const state = { editorView: BIEditorView.BI, config: values.config }
                     const operation = values.insight && !asCopy ? 'update' : 'create'
@@ -419,16 +451,19 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                         values.insight && !asCopy
                             ? await insightsPartialUpdate(String(values.currentTeamId), values.insight.id, payload)
                             : await insightsCreate(String(values.currentTeamId), payload)
+                    if (dashboardId !== null) {
+                        await insightsApi.addNewInsightToDashboards(insight.id, [dashboardId])
+                    }
                     if (asCopy) {
                         cache.agentRefreshAfterSave = false
                         actions.setAgentUpdateState(null)
                     }
-                    captureBIEditorQuerySaved(state, 'insight', operation, !!payload.dashboards?.length)
+                    captureBIEditorQuerySaved(state, 'insight', operation, dashboardId !== null)
                     captureBIWorksheetAction('saved', state.config, { insight_id: insight.id })
                     if (asCopy) {
                         captureBIWorksheetAction('copied', state.config, { insight_id: insight.id })
                     }
-                    if (payload.dashboards?.length) {
+                    if (dashboardId !== null) {
                         captureBIWorksheetAction('added_to_dashboard', state.config, { insight_id: insight.id })
                     }
                     return insight
@@ -531,7 +566,15 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         lastRunQuery: [null as BIVisualizationNode | null, { setLastRunQuery: (_, { query }) => query }],
         loadError: [
             null as string | null,
-            { loadInsight: () => null, loadInsightFailure: (_, { error }) => error, loadInsightSuccess: () => null },
+            {
+                openWorksheet: () => null,
+                loadInsight: () => null,
+                loadInsightFailure: (_, { error }) => error,
+                loadInsightSuccess: () => null,
+                openCatalogMetric: () => null,
+                openCatalogMetricFailure: (_, { error }) => error,
+                openCatalogMetricSuccess: () => null,
+            },
         ],
         exportViewName: ['', { setExportViewName: (_, { name }) => name }],
         exportViewOpen: [false, { setExportViewOpen: (_, { open }) => open }],
@@ -729,33 +772,22 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 actions.setSqlPreviewVersion(values.generatedQuery ? 'current' : 'last_run')
             }
         },
-        openCatalogMetric: async ({ name }, breakpoint) => {
-            try {
-                if (validateMetricName(name)) {
-                    throw new Error('Invalid metric name')
-                }
-                const metric = await dataCatalogMetricsRetrieve(String(values.currentTeamId), name)
-                breakpoint()
-                if (router.values.searchParams.metric !== name || router.values.hashParams.q) {
-                    return
-                }
-                const worksheet = catalogMetricWorksheet(metric)
-                if (!worksheet) {
-                    throw new Error(
-                        'Explore in BI currently supports SQL metrics. Open this definition in the catalog.'
-                    )
-                }
-                actions.clearInsight()
-                actions.restoreWorksheet(worksheet)
-                actions.setLastRunQuery(null)
-                actions.setName(metric.display_name || metric.name)
-                actions.recordWorksheet(true)
-                actions.syncWorksheetUrl()
-                captureBIWorksheetAction('catalog_metric_opened', worksheet.config)
-            } catch (error) {
-                breakpoint()
-                lemonToast.error(error instanceof Error ? error.message : 'Could not load the catalog metric')
+        openCatalogMetricSuccess: ({ catalogMetric: metric, payload: name }) => {
+            if (
+                router.values.location.pathname !== addProjectIdIfMissing(urls.businessIntelligenceNew()) ||
+                router.values.searchParams.metric !== name ||
+                router.values.hashParams.q
+            ) {
+                return
             }
+            const worksheet = catalogMetricWorksheet(metric)!
+            actions.clearInsight()
+            actions.restoreWorksheet(worksheet)
+            actions.setLastRunQuery(null)
+            actions.setName(metric.display_name || metric.name)
+            actions.recordWorksheet(true)
+            actions.syncWorksheetUrl()
+            captureBIWorksheetAction('catalog_metric_opened', worksheet.config)
         },
         recordWorksheet: ({ reset }) => {
             if (!cache.restoringHistory) {
@@ -1057,7 +1089,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             actions.syncWorksheetUrl()
             actions.recordWorksheet()
         },
-        discardChanges: () => {
+        discardChanges: ({ syncUrl }) => {
             if (isBIVisualizationNode(values.insight?.query)) {
                 actions.restoreWorksheet(values.insight.query)
                 actions.setName(values.insight.name || 'Untitled worksheet')
@@ -1065,7 +1097,12 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 actions.restoreWorksheet(emptyWorksheet())
                 actions.setName('Untitled worksheet')
             }
-            actions.syncWorksheetUrl()
+            if (syncUrl) {
+                actions.syncWorksheetUrl()
+            } else {
+                cache.lastHash = undefined
+                localStorage.removeItem(`bi-worksheet-${values.currentTeamId}-${props.tabId}`)
+            }
             actions.recordWorksheet(true)
         },
         syncWorksheetUrl: () => {
@@ -1158,10 +1195,15 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             values.hasUnsavedChanges &&
             (!newLocation || addProjectIdIfMissing(newLocation.pathname) !== router.values.location.pathname),
         message: 'Leave worksheet? Changes you made will be discarded.',
-        onConfirm: () => actions.discardChanges(),
+        // On browser Back, replacing the URL would overwrite the destination's history entry.
+        onConfirm: () => actions.discardChanges(false),
     })),
     urlToAction(({ actions }) => ({
-        '/bi': () => actions.openWorksheet(),
+        '/bi': (_, searchParams, hashParams) => {
+            if (searchParams.open_insight || searchParams.open_view || 'q' in hashParams || hashParams.bi) {
+                actions.openWorksheet()
+            }
+        },
         '/bi/new': () => actions.openWorksheet(),
         '/bi/:insightShortId': () => actions.openWorksheet(),
     })),

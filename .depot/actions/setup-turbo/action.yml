@@ -19,9 +19,7 @@ runs:
           shell: bash
           env:
               LOCKFILE: ${{ inputs.lockfile }}
-              npm_config_fetch_retries: 3
-              npm_config_fetch_retry_mintimeout: 10000
-              npm_config_fetch_retry_maxtimeout: 60000
+              pnpm_config_fetch_retries: 3
           run: |
               set -euo pipefail
 

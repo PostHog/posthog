@@ -1,5 +1,5 @@
-import { ConversationState, ConversationTurn } from '../types'
-import { makeEvent, makeTrace } from './testFixtures'
+import { ConversationState, ConversationTurn, NodeLoad } from '../types'
+import { makeNodeDetail } from './testFixtures'
 import { toThread } from './toThread'
 
 function readyTurns(thread: ConversationState): ConversationTurn[] {
@@ -10,22 +10,25 @@ function readyTurns(thread: ConversationState): ConversationTurn[] {
 }
 
 describe('toThread', () => {
-    const generation = makeEvent({
-        id: 'gen-1',
-        event: '$ai_generation',
-        createdAt: '2026-09-01T10:15:02Z',
-        properties: {
-            $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-            $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
-        },
+    const base = { traceId: 'trace-1', createdAt: '2026-09-01T10:15:00Z', teamId: 7 }
+    const answered = (error: string | null = null): NodeLoad => ({
+        status: 'ready',
+        node: makeNodeDetail({
+            id: 'gen-1',
+            error,
+            properties: {
+                $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
+                $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+            },
+            ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
+        }),
     })
 
-    it('builds one turn for the trace from its user-visible generation', () => {
-        const thread = toThread(makeTrace({ events: [generation] }), {}, 7)
+    it('builds one turn for the trace from its thread node', () => {
+        const thread = toThread({ ...base, load: answered() })
         expect(thread).toMatchObject({ status: 'ready', activeTurnId: 'trace-1' })
         const turns = readyTurns(thread)
-        expect(turns).toHaveLength(1)
-        expect(turns[0].messages.map((m) => [m.role, m.sourceNodeId])).toEqual([
+        expect(turns[0].messages.map((message) => [message.role, message.sourceNodeId])).toEqual([
             ['user', 'gen-1'],
             ['assistant', 'gen-1'],
         ])
@@ -33,40 +36,23 @@ describe('toThread', () => {
     })
 
     it('carries the error of a failed generation on its turn', () => {
-        const failed = makeEvent({
-            id: 'gen-3',
-            event: '$ai_generation',
-            properties: {
-                $ai_input: [{ role: 'user', content: 'Describe this photo.' }],
-                $ai_output_choices: [],
-                $ai_is_error: true,
-                $ai_error: 'Model does not support image input',
-            },
-        })
-        expect(readyTurns(toThread(makeTrace({ events: [failed] }), {}, 7))[0].error).toBe(
+        expect(readyTurns(toThread({ ...base, load: answered('Model does not support image input') }))[0].error).toBe(
             'Model does not support image input'
         )
     })
 
-    it.each([
-        ['is loading while its offloaded content is not cached', {}, { status: 'loading' }],
+    it.each<[string, NodeLoad, ConversationState]>([
+        ['loading', { status: 'loading' }, { status: 'loading' }],
         [
-            'uses its offloaded content once cached',
-            {
-                'gen-2': {
-                    input: [{ role: 'user', content: 'Hi' }],
-                    output: [{ role: 'assistant', content: 'Hello' }],
-                    tools: null,
-                },
-            },
-            { status: 'ready', turns: [{ messages: [{ role: 'user' }, { role: 'assistant' }] }] },
+            'failed',
+            { status: 'error', failure: 'failed' },
+            { status: 'error', message: 'The conversation could not be loaded. Reload the page to try again.' },
         ],
-    ])('an offloaded generation %s', (_name, cache, expected) => {
-        const offloaded = makeEvent({ id: 'gen-2', event: '$ai_generation', properties: {} })
-        expect(toThread(makeTrace({ events: [offloaded] }), cache, 7)).toMatchObject(expected)
+    ])('a thread whose node is %s', (_name, load, expected) => {
+        expect(toThread({ ...base, load })).toEqual(expected)
     })
 
-    it('gives an empty turn when the trace has no generation', () => {
-        expect(readyTurns(toThread(makeTrace({ events: [makeEvent({ id: 's1' })] }), {}, 7))[0].messages).toEqual([])
+    it('gives an empty turn when the trace has no thread node', () => {
+        expect(readyTurns(toThread({ ...base, load: null }))[0].messages).toEqual([])
     })
 })

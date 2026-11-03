@@ -25,19 +25,27 @@ export function PlayerSidebarOverviewPersonTab(): JSX.Element {
 
     return (
         <>
-            <div className="rounded border bg-surface-primary px-2 py-1.5 flex flex-col min-w-0">
+            <div className="rounded border bg-surface-primary px-2 py-1.5 flex flex-col justify-center min-w-0">
                 {loading ? (
                     <LemonSkeleton.Row repeat={2} className="h-4" />
                 ) : (
                     <>
-                        <span className="font-semibold truncate">{displayName}</span>
+                        <CopyToClipboardInline
+                            description="person"
+                            explicitValue={displayName}
+                            className="font-semibold max-w-full"
+                            data-attr="replay-overview-copy-person"
+                        >
+                            <span className="truncate">{displayName}</span>
+                        </CopyToClipboardInline>
                         {distinctId && (
                             <CopyToClipboardInline
                                 description="distinct ID"
-                                className="text-xs text-secondary font-mono truncate"
+                                explicitValue={distinctId}
+                                className="text-xs text-secondary font-mono max-w-full"
                                 data-attr="replay-overview-copy-distinct-id"
                             >
-                                {distinctId}
+                                <span className="truncate">{distinctId}</span>
                             </CopyToClipboardInline>
                         )}
                     </>

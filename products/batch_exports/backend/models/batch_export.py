@@ -9,8 +9,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 
-import pytz
-
 # This import prevents a circular import during Django app loading.
 # The import chain: apps.py -> tasks -> async_migrations/definition.py -> models.utils
 # triggers models/__init__.py which imports batch_exports.models. Without this import,
@@ -22,21 +20,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 from products.batch_exports.backend.facade import enums
-
-# this is what is used by the Team model
-# (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
-TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
-
-S3_FAMILY_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
-
-# Destinations that write files to object storage, as opposed to the data warehouse destinations
-# (BigQuery, Databricks, Postgres, Redshift, Snowflake) that write rows into a table. File format,
-# compression and object key layout are questions only this half has to answer.
-#
-# Also includes "FileDownload", which writes to a PostHog bucket rather than a customer one.
-# TODO: it probably makes sense to introduce a 'DestinationKind' abstraction in the future,
-# to properly categorize object storage and data warehouse destinations.
-OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset({"AwsS3", "S3Compatible", "AzureBlob", "FileDownload"})
+from products.batch_exports.backend.facade.enums import timezone_choices
 
 
 class DayOfWeek(IntEnum):
@@ -194,7 +178,7 @@ class BatchExportRun(UUIDTModel):
         db_table = "posthog_batchexportrun"
         constraints = [
             models.CheckConstraint(
-                check=(
+                condition=(
                     Q(batch_export__isnull=False, batch_export_on_demand__isnull=True)
                     | Q(batch_export__isnull=True, batch_export_on_demand__isnull=False)
                 ),
@@ -400,7 +384,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     )
     filters = models.JSONField(null=True, blank=True)
     # determines the timezone used for daily or weekly exports
-    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    timezone = models.CharField(max_length=240, choices=timezone_choices, default="UTC")
     # interval offset allows for batch exports to start at a custom time
     # (eg daily exports can be configured to run at 1am local time by setting this to 3600)
     interval_offset = models.IntegerField(

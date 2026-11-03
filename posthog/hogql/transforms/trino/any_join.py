@@ -14,6 +14,18 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         super().__init__(clear_types=False)
         self.join_index = 0
         self.physical_names = physical_names
+        # Each entry is a query and its lazily collected references, so queries without hidden ANY JOIN
+        # columns are never scanned.
+        self._query_references: list[tuple[ast.SelectQuery, dict[str, set[str]] | None]] = []
+
+    def _referenced_names(self, alias: str) -> set[str]:
+        if not self._query_references:
+            return set()
+        query, references = self._query_references[-1]
+        if references is None:
+            references = _collect_table_references(query)
+            self._query_references[-1] = (query, references)
+        return references.get(alias, set())
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         first = node.select_from
@@ -47,7 +59,11 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             second.constraint = None
             second.next_join = first
             node.select_from = second
-        lowered = super().visit_select_query(node)
+        self._query_references.append((node, None))
+        try:
+            lowered = super().visit_select_query(node)
+        finally:
+            self._query_references.pop()
         join = lowered.select_from
         while join is not None:
             if join.join_type in {"LEFT SEMI JOIN", "SEMI JOIN", "LEFT ANTI JOIN", "ANTI JOIN"}:
@@ -192,10 +208,12 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                 lowered,
             )
         else:
+            # Hidden sync columns are not in the Trino copy of the table, and `*` never exposes them.
             column_names = [
                 field.name if self.physical_names else name
                 for name, field in table_type.table.fields.items()
                 if isinstance(field, DatabaseField)
+                and (not field.hidden or name in key_names or name in self._referenced_names(lowered.alias))
             ]
         if not column_names:
             raise TrinoLoweringError("TRINO_ANY_JOIN_EMPTY_TABLE_UNSUPPORTED", f"{join_type} without columns", lowered)
@@ -335,6 +353,9 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             return field_type.name
         if isinstance(table_type, ast.SelectQueryAliasType) and table_type.alias == alias:
             return field_type.name
+        # A CTE joined without `AS` has no alias type, so its fields point at the CTE itself.
+        if isinstance(table_type, ast.CTETableType) and table_type is right_table_type:
+            return field_type.name
         if (
             isinstance(table_type, ast.TableType)
             and isinstance(right_table_type, ast.TableType)
@@ -348,6 +369,30 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         ):
             return field_type.name
         return None
+
+
+def _collect_table_references(query: ast.SelectQuery) -> dict[str, set[str]]:
+    references: dict[str, set[str]] = {}
+
+    class Collector(TraversingVisitor):
+        def visit_field(self, node: ast.Field) -> None:
+            field_type = node.type
+            while isinstance(field_type, ast.FieldAliasType):
+                field_type = field_type.type
+            if isinstance(field_type, ast.PropertyType):
+                field_type = field_type.field_type
+            if not isinstance(field_type, ast.FieldType):
+                return
+            table_type = field_type.table_type
+            while isinstance(table_type, ast.ColumnAliasedTableType):
+                table_type = table_type.table_type
+            if isinstance(table_type, (ast.TableAliasType, ast.CTETableAliasType, ast.SelectQueryAliasType)):
+                references.setdefault(table_type.alias, set()).add(field_type.name)
+            elif isinstance(table_type, (ast.TableType, ast.LazyTableType)) and table_type.table.name:
+                references.setdefault(table_type.table.name, set()).add(field_type.name)
+
+    Collector().visit(query)
+    return references
 
 
 def lower_trino_any_joins(node: ast.AST, *, physical_names: bool = True) -> ast.AST:

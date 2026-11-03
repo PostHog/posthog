@@ -1,3 +1,5 @@
+import { takeOption } from './args'
+
 export interface CliConfig {
     apiKey?: string
     host: string
@@ -26,10 +28,20 @@ function parseVersion(value: string | undefined): number {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 2
 }
 
-export function resolveCliConfig(): CliConfig {
+export function resolveCliConfig(args: string[] = []): CliConfig {
     const apiKey = firstEnv(['POSTHOG_API_KEY', 'POSTHOG_CLI_API_KEY', 'POSTHOG_CLI_TOKEN'])
-    const organizationId = firstEnv(['POSTHOG_ORGANIZATION_ID', 'POSTHOG_CLI_ORGANIZATION_ID'])
-    const projectId = firstEnv(['POSTHOG_PROJECT_ID', 'POSTHOG_CLI_PROJECT_ID', 'POSTHOG_CLI_ENV_ID'])
+    const targetOrganizationId = takeOption(args, '--organization-id')
+    const targetProjectId = takeOption(args, '--project-id')
+    const hasTarget = targetOrganizationId !== undefined || targetProjectId !== undefined
+    if (targetOrganizationId === '' || targetProjectId === '') {
+        throw new Error('Project and organization IDs must not be empty.')
+    }
+    const organizationId = hasTarget
+        ? targetOrganizationId
+        : firstEnv(['POSTHOG_ORGANIZATION_ID', 'POSTHOG_CLI_ORGANIZATION_ID'])
+    const projectId = hasTarget
+        ? targetProjectId
+        : firstEnv(['POSTHOG_PROJECT_ID', 'POSTHOG_CLI_PROJECT_ID', 'POSTHOG_CLI_ENV_ID'])
 
     return {
         host: firstEnv(['POSTHOG_HOST', 'POSTHOG_CLI_HOST']) ?? DEFAULT_HOST,

@@ -20,6 +20,7 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
+import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
@@ -62,6 +63,12 @@ const counterBatchHogFlowResolverPagesProcessed = new Counter({
     name: 'cdp_batch_hog_flow_resolver_pages_processed',
     help: 'Total pages processed by the cyclotron-based batch resolver',
     labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure | invalid_state
+})
+
+const counterBatchHogFlowResolverCohortWait = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_cohort_wait',
+    help: 'Batch resolvers parked on a realtime cohort that is still calculating, by what woke them',
+    labelNames: ['outcome'], // early_wake | timed_out
 })
 
 const counterBatchHogFlowResolverJobs = new Counter({
@@ -196,6 +203,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 return
             }
 
+            const waitUntil = state.realtimeCohort?.waitUntil
+            if (waitUntil) {
+                await this.handleCohortWait(job, state, new Date(waitUntil))
+                return
+            }
+
             if (state.totalEnqueued >= state.maxAudienceSize) {
                 await this.transitionToTruncatedTerminal(job, state)
                 return
@@ -218,6 +231,29 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 })
             })
         }
+    }
+
+    /**
+     * A resolver parked on a realtime cohort runs here only when nothing resumed it: Django clears
+     * the wait from its state when the cohort is ready. Before the deadline that is an early wake,
+     * so it parks again; at the deadline the cohort never finished, and the run fails.
+     */
+    private async handleCohortWait(
+        job: CyclotronV2DequeuedJob,
+        state: BatchResolverState,
+        waitUntil: Date
+    ): Promise<void> {
+        if (Date.now() < waitUntil.getTime()) {
+            counterBatchHogFlowResolverCohortWait.labels({ outcome: 'early_wake' }).inc()
+            await job.reschedule({ scheduledAt: waitUntil })
+            return
+        }
+        counterBatchHogFlowResolverCohortWait.labels({ outcome: 'timed_out' }).inc()
+        await this.transitionToFailedTerminal(
+            job,
+            state,
+            "the cohort didn't finish calculating in time, so nobody was sent this run. Start it again once the cohort is ready."
+        )
     }
 
     /**
@@ -690,6 +726,7 @@ export function buildAccountHogFlowInvocation(params: {
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
             flowVersion: params.hogFlow.version,
+            ...(hasSensitiveMessageStep(params.hogFlow) ? { sensitive: true } : {}),
         },
         teamId: params.team.id,
         functionId: params.hogFlow.id,
@@ -735,6 +772,7 @@ function buildHogFlowInvocation(params: {
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.
             flowVersion: params.hogFlow.version,
+            ...(hasSensitiveMessageStep(params.hogFlow) ? { sensitive: true } : {}),
         },
         teamId: params.team.id,
         functionId: params.hogFlow.id,
