@@ -4,6 +4,7 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import type { Intervals } from 'lib/components/IntervalFilter/intervals'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import {
     BreakdownColorConfig,
@@ -15,7 +16,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BREAKDOWN_NULL_NUMERIC_LABEL,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -30,6 +30,7 @@ import {
 import { ActionNames, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import {
     BreakdownFilter,
     EventsNode,
@@ -78,7 +79,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,

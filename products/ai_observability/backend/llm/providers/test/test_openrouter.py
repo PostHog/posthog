@@ -18,6 +18,7 @@ from products.ai_observability.backend.llm.providers.openrouter import (
     OPENROUTER_HEADERS,
     OpenRouterAdapter,
     decision_model_ids,
+    model_input_modalities,
     non_chat_model_ids,
 )
 
@@ -180,7 +181,10 @@ class TestOpenRouterNonChatModels:
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "data": [
-                {"id": "openai/gpt-4o", "architecture": {"output_modalities": ["text"]}},
+                {
+                    "id": "openai/gpt-4o",
+                    "architecture": {"output_modalities": ["text"], "input_modalities": ["text", "image", "file"]},
+                },
                 {"id": "google/image-model", "architecture": {"output_modalities": ["image", "text"]}},
                 {"id": "example/dual-model", "architecture": {"output_modalities": ["text", "decisions"]}},
                 {"id": "typesafe/jev-1.13", "architecture": {"output_modalities": ["decisions"]}},
@@ -227,6 +231,9 @@ class TestOpenRouterNonChatModels:
             )
             assert decision_model_ids() == expected_decisions
             assert decision_model_ids(decision_only=True) == expected_decisions - {"example/dual-model"}
+            assert model_input_modalities("openai/gpt-4o") == frozenset({"text", "image", "file"})
+            assert model_input_modalities("no-architecture/model") == frozenset({"text"})
+            assert model_input_modalities("example/unlisted") is None
 
     @pytest.mark.parametrize("cached_decisions", [None, False, True])
     def test_catalogue_failure_keeps_last_success_and_recovers(self, cached_decisions: bool | None) -> None:

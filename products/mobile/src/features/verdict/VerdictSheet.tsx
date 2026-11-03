@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, type ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
@@ -85,9 +85,13 @@ export function VerdictSheet<Reason extends string>({
                         {error}
                     </Text>
                 ) : null}
-                <Animated.View style={[styles.list, listStyle]}>
+                <View style={styles.list}>
                     <GestureDetector gesture={listGesture}>
-                        <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" style={styles.scroll}>
+                        <Animated.ScrollView
+                            ref={scroll}
+                            keyboardShouldPersistTaps="handled"
+                            style={[styles.scroll, listStyle]}
+                        >
                             <Text style={styles.fieldLabel}>Reason</Text>
                             <View accessibilityRole="radiogroup">
                                 {options.map((option) => {
@@ -127,9 +131,9 @@ export function VerdictSheet<Reason extends string>({
                                 accessibilityLabel="Note"
                                 testID={`${testID}-note`}
                             />
-                        </ScrollView>
+                        </Animated.ScrollView>
                     </GestureDetector>
-                </Animated.View>
+                </View>
                 <Pressable44
                     onPress={confirm}
                     disabled={!canConfirm}

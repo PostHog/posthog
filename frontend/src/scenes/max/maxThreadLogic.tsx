@@ -24,10 +24,10 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -36,6 +36,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AgentMode,
@@ -67,7 +69,6 @@ import {
 } from '~/types'
 
 import {
-    attachedContextLogic,
     getRandomThinkingMessage,
     getWebSearchResultsByToolUseId,
     isTerminalRunStatus,
@@ -94,7 +95,7 @@ import {
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
 import { AttachedContext, MaxUIContext } from './maxTypes'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'

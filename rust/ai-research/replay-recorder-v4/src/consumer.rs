@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use common_kafka::config::KafkaConfig;
 use futures::FutureExt;
 use lifecycle::Handle;
-use metrics::counter;
+use metrics::{counter, histogram};
 use rdkafka::consumer::{
     BaseConsumer, CommitMode, Consumer, ConsumerContext, RebalanceProtocol, StreamConsumer,
 };
@@ -17,7 +17,7 @@ use rdkafka::message::{BorrowedMessage, Headers as _, Message as _};
 use rdkafka::types::RDKafkaRespErr;
 use rdkafka::{ClientConfig, ClientContext, Offset, TopicPartitionList};
 
-use crate::batch::{Batch, Block, Inspectors, Raw, SessionKey, Tp};
+use crate::batch::{decoded_len, Batch, Block, Inspectors, Raw, SessionKey, Tp};
 use crate::config::{retry_backoff, FLUSH_DEADLINE, MAX_POLL_INTERVAL};
 use crate::flush::{write_flush, FlushWork, Writer, PRODUCER_FLUSH_ON_SHUTDOWN};
 use crate::limits::{Restrictions, SessionLimiter};
@@ -25,8 +25,11 @@ use crate::process::{admit, sampled, Admitted, Headers, Skip};
 use crate::teams::TeamCache;
 
 const KAFKA_TIMEOUT: Duration = Duration::from_secs(10);
-const COMMIT_ATTEMPTS: u32 = 3;
 const HEARTBEAT: Duration = Duration::from_secs(5);
+
+/// How long offset commits can keep failing before the process exits. A rebalance can wait for one member for the whole
+/// poll interval, so this limit outlasts a rebalance. It also limits what a restart reads again.
+const COMMIT_GIVE_UP: Duration = Duration::from_secs(2 * MAX_POLL_INTERVAL.as_secs());
 
 /// The consumer's `session.timeout.ms`, the replay lanes' value. Past it the group can give the partitions to another
 /// process, so a flush stops storing then.
@@ -46,6 +49,10 @@ struct Assignments {
     uncommitted: HashMap<Tp, Option<i64>>,
     /// After a failed start commit, the next one waits until then.
     start_retry_at: Option<Instant>,
+    /// The next offset and epoch of each partition with stored blocks that are not committed.
+    unsettled: HashMap<Tp, (u64, i64)>,
+    /// When the offset commits started to fail, and when the last one failed.
+    commit_failures: Option<(Instant, Instant)>,
 }
 
 /// The pause after a failed start commit, so a broker that does not answer does not stall every message.
@@ -74,6 +81,39 @@ impl Assignments {
         } else {
             self.start_retry_at = Some(now + START_RETRY);
         }
+    }
+
+    /// A partition that was revoked is the next owner's, even when it came back under a later epoch.
+    fn offsets_due(&mut self, flushed: &HashMap<Tp, (u64, i64)>) -> Vec<(Tp, i64)> {
+        self.unsettled.extend(flushed);
+        let epochs = &self.epochs;
+        self.unsettled.retain(
+            |tp, (epoch, _)| matches!(epochs.get(tp), Some(&(current, true)) if current == *epoch),
+        );
+        self.unsettled
+            .iter()
+            .map(|(&tp, &(_, offset))| (tp, offset))
+            .collect()
+    }
+
+    fn offsets_committed(&mut self) {
+        // A later offset committed, so a pending start offset is of no use any more.
+        for tp in self.unsettled.keys() {
+            self.uncommitted.remove(tp);
+        }
+        self.unsettled.clear();
+        self.commit_failures = None;
+    }
+
+    fn commit_failed(&mut self, now: Instant) -> Duration {
+        let (since, last) = self.commit_failures.get_or_insert((now, now));
+        *last = now;
+        now.saturating_duration_since(*since)
+    }
+
+    fn commit_retry_due(&self, now: Instant, interval: Duration) -> bool {
+        self.commit_failures
+            .is_some_and(|(_, last)| now.saturating_duration_since(last) >= interval)
     }
 }
 
@@ -328,46 +368,53 @@ impl RecorderConsumer {
             .starts_committed(&starts, committed.is_ok(), Instant::now());
     }
 
-    /// Commits the next offset of every partition this process still owns under the same assignment.
-    async fn commit(&self, offsets: &HashMap<Tp, (u64, i64)>) -> Result<(), String> {
+    /// Commits the next offset of every partition this process still owns under the same assignment, with the offsets
+    /// of earlier flushes that did not commit. A failed commit is not retried here, because the rebalance callbacks run
+    /// only when the consume loop polls, so a rebalance cannot end while this waits. The blocks are stored, so until a
+    /// later commit a failure means only that a new owner or a restart reads them again.
+    async fn commit(&self, flushed: &HashMap<Tp, (u64, i64)>) -> Result<(), String> {
+        let due = {
+            let mut state = self.state.lock().unwrap();
+            let due = state.offsets_due(flushed);
+            if due.is_empty() {
+                state.commit_failures = None;
+                return Ok(());
+            }
+            due
+        };
         let mut list = TopicPartitionList::new();
-        for (&tp, &(epoch, offset)) in offsets {
-            if self.current_epoch(tp) == Some(epoch) {
-                list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset))
-                    .map_err(|e| e.to_string())?;
+        for (tp, offset) in due {
+            list.add_partition_offset(tp.topic, tp.partition, Offset::Offset(offset))
+                .map_err(|e| e.to_string())?;
+        }
+        match self.commit_list(list).await {
+            Ok(()) => {
+                self.state.lock().unwrap().offsets_committed();
+                Ok(())
+            }
+            Err(error) => {
+                counter!("ai_research_v4_recorder_commit_failures_total").increment(1);
+                let failing = self.state.lock().unwrap().commit_failed(Instant::now());
+                if failing >= COMMIT_GIVE_UP {
+                    return Err(format!(
+                        "committing offsets failed for {failing:?}: {error}"
+                    ));
+                }
+                tracing::warn!(%error, ?failing, "committing offsets failed, trying again later");
+                Ok(())
             }
         }
-        if list.count() == 0 {
-            return Ok(());
-        }
-        let mut attempt = 0;
-        loop {
-            match self.commit_list(list.clone()).await {
-                Ok(()) => {
-                    // A later offset committed, so a pending start offset is of no use any more.
-                    let mut state = self.state.lock().unwrap();
-                    for element in list.elements() {
-                        if let Some(tp) = self
-                            .consumer
-                            .context()
-                            .tp(element.topic(), element.partition())
-                        {
-                            state.uncommitted.remove(&tp);
-                        }
-                    }
-                    return Ok(());
-                }
-                Err(error) => {
-                    counter!("ai_research_v4_recorder_commit_failures_total").increment(1);
-                    attempt += 1;
-                    if attempt >= COMMIT_ATTEMPTS {
-                        return Err(format!("committing offsets failed: {error}"));
-                    }
-                    tracing::warn!(%error, attempt, "committing offsets failed");
-                    tokio::time::sleep(Duration::from_millis(500 * u64::from(attempt))).await;
-                }
-            }
-        }
+    }
+
+    async fn retry_commit(&self) -> Result<(), String> {
+        self.commit(&HashMap::new()).await
+    }
+
+    fn commit_retry_due(&self, interval: Duration) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .commit_retry_due(Instant::now(), interval)
     }
 
     /// A synchronous commit on a blocking thread, so the caller's deadlines and heartbeats keep running. A commit
@@ -390,6 +437,29 @@ fn header<'m>(message: &'m BorrowedMessage<'_>, name: &str) -> Option<&'m str> {
         .find(|h| h.key == name)
         .and_then(|h| h.value)
         .and_then(|v| std::str::from_utf8(v).ok())
+}
+
+/// A flush holds every decompressed payload until it ends and its size is only checked between polls, so one poll of
+/// small compressed messages must not decompress to more than the `room` left in the buffer.
+fn take_ready<M, E>(
+    first: M,
+    room: usize,
+    decoded_len: impl Fn(&M) -> usize,
+    mut next: impl FnMut() -> Option<Result<M, E>>,
+) -> (Vec<M>, Option<E>) {
+    let mut room = room.saturating_sub(decoded_len(&first));
+    let mut messages = vec![first];
+    while messages.len() < POLL_BATCH && room > 0 {
+        match next() {
+            Some(Ok(message)) => {
+                room = room.saturating_sub(decoded_len(&message));
+                messages.push(message);
+            }
+            Some(Err(error)) => return (messages, Some(error)),
+            None => break,
+        }
+    }
+    (messages, None)
 }
 
 pub struct Settings {
@@ -446,18 +516,17 @@ async fn consume(
             received = consumer.consumer.recv() => match received {
                 Ok(message) => {
                     // The messages Kafka has ready go through the session limiter together, in one Redis round trip.
-                    let mut messages = vec![message];
-                    let mut failed = None;
-                    while messages.len() < POLL_BATCH {
-                        match consumer.consumer.recv().now_or_never() {
-                            Some(Ok(message)) => messages.push(message),
-                            Some(Err(error)) => {
-                                failed = Some(error);
-                                break;
-                            }
-                            None => break,
-                        }
-                    }
+                    let (messages, failed) = take_ready(
+                        message,
+                        batch.room(settings.flush_max_bytes),
+                        |message| {
+                            decoded_len(
+                                message.payload().unwrap_or_default(),
+                                header(message, "content-encoding"),
+                            )
+                        },
+                        || consumer.consumer.recv().now_or_never(),
+                    );
                     handle_messages(&messages, consumer, settings, sources, &mut batch).await;
                     drop(messages);
                     if let Some(error) = failed {
@@ -504,9 +573,21 @@ async fn consume(
                 handle.signal_failure(format!("flush failed: {error}"));
                 return;
             }
+        } else if batch.is_empty() && consumer.commit_retry_due(settings.flush_interval) {
+            // Without new messages, no flush comes to commit these offsets.
+            if let Err(error) = with_heartbeat(handle, consumer.retry_commit()).await {
+                tracing::error!(%error, "commit retry failed");
+                handle.signal_failure(error);
+                return;
+            }
         }
     }
     if batch.is_empty() {
+        if let Ok(Err(error)) =
+            tokio::time::timeout(settings.shutdown_flush, consumer.retry_commit()).await
+        {
+            tracing::warn!(%error, "the commit on shutdown failed");
+        }
         return;
     }
     flush_on_shutdown(
@@ -683,6 +764,7 @@ async fn flush_steps(
     handle: &Handle,
     retries: u32,
 ) -> Result<(), String> {
+    let flush_started = Instant::now();
     let offsets: HashMap<Tp, (u64, i64)> = batch
         .spans
         .iter()
@@ -725,6 +807,7 @@ async fn flush_steps(
                 ));
             }
             let timeout = settings.flush_timeout.min(left);
+            let attempt_started = Instant::now();
             let stored = tokio::time::timeout(
                 timeout,
                 with_heartbeat(
@@ -733,6 +816,13 @@ async fn flush_steps(
                 ),
             )
             .await;
+            let outcome = match &stored {
+                Ok(Ok(())) => "ok",
+                Ok(Err(_)) => "error",
+                Err(_) => "timeout",
+            };
+            histogram!("ai_research_v4_recorder_flush_attempt_duration_seconds", "outcome" => outcome)
+                .record(attempt_started.elapsed().as_secs_f64());
             let error = match stored {
                 Ok(Ok(())) => break,
                 Ok(Err(error)) => error.to_string(),
@@ -748,6 +838,8 @@ async fn flush_steps(
         }
     }
     with_heartbeat(handle, consumer.commit(&offsets)).await?;
+    histogram!("ai_research_v4_recorder_flush_duration_seconds")
+        .record(flush_started.elapsed().as_secs_f64());
     inspectors.evict_idle(settings.session_idle);
     Ok(())
 }
@@ -802,6 +894,22 @@ mod tests {
     }
 
     #[test]
+    fn a_poll_stops_taking_messages_once_they_fill_the_room() {
+        let mut ready = vec![10usize; 5].into_iter();
+        let (messages, failed) =
+            take_ready::<usize, ()>(10, 35, |len| *len, || ready.next().map(Ok));
+        assert_eq!(messages.len(), 4);
+        assert_eq!(failed, None);
+        assert_eq!(ready.len(), 2);
+
+        // A full buffer still takes the first message, which `recv` has already removed from the queue.
+        let mut ready = vec![10usize; 5].into_iter();
+        let (messages, _) = take_ready::<usize, ()>(10, 0, |len| *len, || ready.next().map(Ok));
+        assert_eq!(messages.len(), 1);
+        assert_eq!(ready.len(), 5);
+    }
+
+    #[test]
     fn a_failed_start_commit_stays_pending_at_the_first_offset() {
         let mut state = Assignments::default();
         state.uncommitted.insert(tp(0), None);
@@ -819,6 +927,68 @@ mod tests {
         assert_eq!(starts, [(tp(0), 10)]);
         state.starts_committed(&starts, true, now);
         assert!(state.uncommitted.is_empty());
+    }
+
+    #[test]
+    fn a_failed_commit_waits_for_the_next_flush_while_the_partition_stays_owned() {
+        let mut state = Assignments::default();
+        for partition in 0..3 {
+            state.epochs.insert(tp(partition), (1, true));
+        }
+        let due = |state: &mut Assignments, flushed: &[(Tp, (u64, i64))]| {
+            let mut due = state.offsets_due(&flushed.iter().copied().collect());
+            due.sort_by_key(|(tp, _)| tp.partition);
+            due
+        };
+
+        let first = [(tp(0), (1, 10)), (tp(1), (1, 10)), (tp(2), (1, 10))];
+        assert_eq!(
+            due(&mut state, &first),
+            [(tp(0), 10), (tp(1), 10), (tp(2), 10)]
+        );
+
+        // Partition 0 reads more, partition 1 has no new messages, and partition 2 comes back under a later epoch.
+        state.epochs.insert(tp(2), (2, true));
+        assert_eq!(
+            due(&mut state, &[(tp(0), (1, 20))]),
+            [(tp(0), 20), (tp(1), 10)]
+        );
+
+        state.epochs.insert(tp(1), (2, false));
+        assert_eq!(due(&mut state, &[]), [(tp(0), 20)]);
+
+        state.uncommitted.insert(tp(0), Some(5));
+        state.offsets_committed();
+        assert!(due(&mut state, &[]).is_empty());
+        assert!(state.uncommitted.is_empty());
+    }
+
+    #[test]
+    fn only_a_success_resets_how_long_the_commits_have_failed() {
+        let mut state = Assignments::default();
+        let start = Instant::now();
+        assert_eq!(state.commit_failed(start), Duration::ZERO);
+        assert_eq!(state.commit_failed(start + COMMIT_GIVE_UP), COMMIT_GIVE_UP);
+        state.offsets_committed();
+        assert_eq!(state.commit_failed(start + COMMIT_GIVE_UP), Duration::ZERO);
+    }
+
+    #[test]
+    fn an_idle_consumer_retries_a_failed_commit_once_per_interval() {
+        let mut state = Assignments::default();
+        let start = Instant::now();
+        let interval = Duration::from_secs(60);
+        assert!(!state.commit_retry_due(start + interval, interval));
+
+        state.commit_failed(start);
+        assert!(!state.commit_retry_due(start + interval - Duration::from_secs(1), interval));
+        assert!(state.commit_retry_due(start + interval, interval));
+
+        state.commit_failed(start + interval);
+        assert!(!state.commit_retry_due(start + interval, interval));
+
+        state.offsets_committed();
+        assert!(!state.commit_retry_due(start + 2 * interval, interval));
     }
 
     #[test]
@@ -842,6 +1012,7 @@ mod tests {
                 remote_urls: Vec::new(),
                 url_limit: None,
                 srcsets: Vec::new(),
+                css_rewrites: Vec::new(),
                 visited_urls: Vec::new(),
                 captured_at_ms: None,
             })
