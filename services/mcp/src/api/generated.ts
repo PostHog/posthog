@@ -240,6 +240,123 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface AEOPromptSetCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+    }
+
+    export interface AEOPromptSetDomain {
+      /** Host of the cited URLs, for example 'docs.example.com'. */
+      domain: string;
+      /** Answers in the window that cited at least one URL on this domain. */
+      answers: number;
+      /** Share (0-1) of all answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Whether the domain is one of the project's target domains (the project's own site). */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetEngineCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+    }
+
+    export interface AEOPromptSetTopicCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
+      topic: string;
+      /** Prompts that are on, not archived, and have this topic now. */
+      active_prompts: number;
+    }
+
+    export interface AEOPromptSetOverview {
+      /** Checks across the prompt set in the last 'days' days. */
+      current: AEOPromptSetCounts;
+      /** The same counts for the 'days' days before 'window_from'. */
+      previous: AEOPromptSetCounts;
+      /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
+      engines: AEOPromptSetEngineCounts[];
+      /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
+      topics: AEOPromptSetTopicCounts[];
+      /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
+      top_domains: AEOPromptSetDomain[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Prompts that are on and not archived: the ones the next daily run takes. */
+      prompts_tracked: number;
+      /** Domains that count as the project's own site in citations. */
+      target_domains: string[];
+      /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
+      brand_names: string[];
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
@@ -68716,6 +68833,7 @@ export namespace Schemas {
      * * `posthog-unreal` - posthog-unreal
      * * `posthog-go-mcp` - posthog-go-mcp
      * * `posthog-ruby-mcp` - posthog-ruby-mcp
+     * * `posthog-roblox` - posthog-roblox
      * * `js` - js
      */
     export type LibEnum = typeof LibEnum[keyof typeof LibEnum];
@@ -68750,6 +68868,7 @@ export namespace Schemas {
       PosthogUnreal: 'posthog-unreal',
       PosthogGoMcp: 'posthog-go-mcp',
       PosthogRubyMcp: 'posthog-ruby-mcp',
+      PosthogRoblox: 'posthog-roblox',
       Js: 'js',
     } as const;
 
@@ -85170,6 +85289,20 @@ export namespace Schemas {
       Savings: 'savings',
     } as const;
 
+    /**
+     * * `waiting` - Waiting
+     * * `background` - Background
+     * * `scanned` - Scanned
+     */
+    export type WarehouseSuggestionMainSavingEnum = typeof WarehouseSuggestionMainSavingEnum[keyof typeof WarehouseSuggestionMainSavingEnum];
+
+
+    export const WarehouseSuggestionMainSavingEnum = {
+      Waiting: 'waiting',
+      Background: 'background',
+      Scanned: 'scanned',
+    } as const;
+
     export interface WarehouseSuggestionMaterializePayload {
       /** Sources that are always current, such as PostHog tables and direct connections. */
       live_sources: WarehouseSuggestionVisibleSources;
@@ -85188,6 +85321,12 @@ export namespace Schemas {
        * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
+      /** The saving that earned the suggestion. waiting: people, agents and API callers wait less on reads. background: refreshes do less work. scanned: reads scan fewer bytes. Null on suggestions made before this was recorded.
+       *
+       * * `waiting` - Waiting
+       * * `background` - Background
+       * * `scanned` - Scanned */
+      main_saving: WarehouseSuggestionMainSavingEnum | null;
       /** Name of the view to materialize. */
       subject_name: string;
       /** Proposed refresh interval, in seconds. */
@@ -85214,6 +85353,21 @@ export namespace Schemas {
       lookback_seconds?: number;
       /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
       recomputed_by_views?: number;
+      /**
+         * Part of saves_seconds_per_month that people, agents and API callers spend waiting on reads of this view, in seconds. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      waiting_seconds_saved_per_month?: number | null;
+      /**
+         * Part of saves_seconds_per_month that background refreshes spend, in seconds. Negative when refreshing the stored copy costs more background time than it saves. Null on suggestions made before this was recorded.
+         * @nullable
+         */
+      background_seconds_saved_per_month?: number | null;
+      /**
+         * How long one read of the view takes today, in seconds. Null when no read was measured on its own.
+         * @nullable
+         */
+      read_seconds?: number | null;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -111431,6 +111585,7 @@ export namespace Schemas {
        * * `posthog-unreal` - posthog-unreal
        * * `posthog-go-mcp` - posthog-go-mcp
        * * `posthog-ruby-mcp` - posthog-ruby-mcp
+       * * `posthog-roblox` - posthog-roblox
        * * `js` - js */
       lib: LibEnum;
       /** Human-readable SDK name matching the SDK Health UI (e.g. 'Python', 'Node.js', 'Web', 'iOS'). */
@@ -125782,20 +125937,6 @@ export namespace Schemas {
       is_error: boolean;
     }
 
-    /**
-     * JSON Schema of the tool input, as the MCP server advertises it.
-     */
-    export type WebMCPExecToolInputSchema = { [key: string]: unknown };
-
-    export interface WebMCPExecTool {
-      /** Tool name to register with WebMCP. */
-      name: string;
-      /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
-      description: string;
-      /** JSON Schema of the tool input, as the MCP server advertises it. */
-      input_schema: WebMCPExecToolInputSchema;
-    }
-
     export interface WebhookExternalStatus {
       /** Whether the webhook exists on the external service. */
       exists: boolean;
@@ -132305,6 +132446,15 @@ export namespace Schemas {
      * @minimum 1
      */
     version?: number;
+    };
+
+    export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {

@@ -13,7 +13,7 @@ import { BootSplash } from '@/auth/BootSplash'
 import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGate'
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
-import { SceneFrame } from '@/ui/SceneFrame'
+import { installOfflineCache } from '@/features/offlineCache'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
@@ -26,6 +26,7 @@ import { initAnalytics } from '@/lib/posthogClient'
 import { useScreenTracking } from '@/lib/useScreenTracking'
 import { useAppearanceHydrated } from '@/ui/appearanceStore'
 import { RouteErrorBoundary } from '@/ui/RouteErrorBoundary'
+import { SceneFrame } from '@/ui/SceneFrame'
 import { createStyles, useTheme } from '@/ui/theme'
 
 export { RouteErrorBoundary as ErrorBoundary }
@@ -33,6 +34,7 @@ export { RouteErrorBoundary as ErrorBoundary }
 SplashScreen.preventAutoHideAsync().catch(() => undefined)
 SplashScreen.setOptions({ fade: true, duration: 250 })
 installAuthProvider()
+installOfflineCache()
 configureNotifications()
 initAnalytics()
 const bootStartedAt = Date.now()
