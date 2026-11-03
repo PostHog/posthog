@@ -360,10 +360,18 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             ("missing_origin", False, True, False),
             ("unknown_origin", False, False, True),
             ("nested_unknown_origin", True, False, True),
+            ("mixed_nested_public_origin", True, False, False, True),
+            ("mixed_nested_selected_origin", True, False, False, True, True),
         ]
     )
     def test_retains_original_repository_restrictions(
-        self, _name: str, nested: bool, missing: bool, unknown: bool
+        self,
+        _name: str,
+        nested: bool,
+        missing: bool,
+        unknown: bool,
+        mixed_parent: bool = False,
+        selected_parent: bool = False,
     ) -> None:
         origin = SignalReport.objects.create(team=self.team, status="closed")
         self._emit_version(
@@ -372,7 +380,7 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             source_product="error_tracking" if unknown else "github",
             source_type="issue",
             inserted_at=self.base,
-            extra={"html_url": "https://github.com/example/private/issues/1"},
+            extra={"html_url": f"https://github.com/example/{'public' if mixed_parent else 'private'}/issues/1"},
         )
         if unknown:
             SignalReportArtefact.objects.create(
@@ -392,6 +400,20 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
                 inserted_at=self.base,
                 extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
             )
+            if mixed_parent:
+                self._emit_version(
+                    document_id="intermediate-exception",
+                    report_id=str(parent.id),
+                    source_product="error_tracking",
+                    source_type="exception",
+                    inserted_at=self.base,
+                )
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=parent,
+                    type="repo_selection",
+                    content=json.dumps({"repository": "example/public" if selected_parent else None}),
+                )
             source_id = str(parent.id)
         if missing:
             source_id = str(uuid.uuid4())
@@ -414,9 +436,9 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
         sources = monitoring_repository_sources(self.team.id, [signal, public_signal])
         assert sources is not None
         assert sources.repositories == frozenset(
-            {"example/public"} if missing or unknown else {"example/public", "example/private"}
+            {"example/public"} if missing or unknown or mixed_parent else {"example/public", "example/private"}
         )
-        assert sources.require_private_destination is (missing or unknown)
+        assert sources.require_private_destination is (missing or unknown or (mixed_parent and not selected_parent))
         receiving = SignalReport.objects.create(team=self.team, status="ready")
         self._emit_version(
             document_id="receiving-monitoring",
@@ -445,7 +467,9 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             ],
             repository_cache_updated_at=timezone.now(),
         )
-        assert not monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public")
+        assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public") is (
+            mixed_parent and selected_parent
+        )
         assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/private")
 
 
