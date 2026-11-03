@@ -1,6 +1,10 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
+import type { RemoteResults } from './commandKSources'
 
 describe('commandKSearchLogic', () => {
     let logic: ReturnType<typeof commandKSearchLogic.build>
@@ -54,9 +58,24 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.highlightedRow).toBe(rows[rows.length - 1])
     })
 
+    it('corrects a search only after every source answered with nothing', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: 'test' })
+        logic.actions.inputChanged('фзш', 3, false)
+        const sources = Object.keys(logic.values.remoteQueries)
+        expect(sources.length).toBeGreaterThan(1)
+
+        logic.actions.remoteLoaded('фзш', { results: [] })
+        expect(logic.values.searchCorrection).toBeNull()
+
+        for (const source of sources) {
+            logic.actions.remoteLoaded('фзш', { [source]: [] } as RemoteResults)
+        }
+        expect(logic.values.searchCorrection).toEqual({ from: 'фзш', to: 'api' })
+    })
+
     it('searches a keyboard layout correction until the text changes', () => {
         logic.actions.inputChanged('фзш', 3, false)
-        logic.actions.correctLayout({ from: 'фзш', to: 'api' })
+        logic.actions.applyCorrection({ from: 'фзш', to: 'api' })
 
         expect(logic.values.localQuery).toEqual('api')
         expect(logic.values.requestQueries.objects).toEqual('api')

@@ -1,7 +1,7 @@
 import { SearchItem, filterNewItems } from 'lib/components/Search/searchItems'
 import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search/utils'
 
-import type { LayoutCorrection } from './commandKLayout'
+import type { SearchCorrection } from './commandKCorrection'
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { buildRankedResults } from './commandKRankedResults'
 import { FILTER_TOKEN, freeWords, strictLocalMatches } from './commandKRanking'
@@ -59,7 +59,7 @@ export type CommandKRow =
       }
     | { kind: 'ask-ai'; key: string; question: string }
     | { kind: 'scope'; key: string; type: string; label: string }
-    | { kind: 'notice'; key: string; reason: 'partial' | 'typos' | 'layout'; missing: string[]; shown: string[] }
+    | { kind: 'notice'; key: string; reason: 'partial' | 'typos' | 'corrected'; missing: string[]; shown: string[] }
     | { kind: 'loading-more'; key: string }
 
 export interface CommandKSection {
@@ -237,7 +237,7 @@ export interface SectionsInput extends SectionsQuery {
     personsFirst: boolean
     settingsInResults: boolean
     unifiedRanking: boolean
-    layoutCorrection: LayoutCorrection | null
+    searchCorrection: SearchCorrection | null
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -402,14 +402,14 @@ function lowerSections(
         : all
 }
 
-function withLayoutNotice(sections: CommandKSection[], correction: LayoutCorrection | null): CommandKSection[] {
+function withCorrectionNotice(sections: CommandKSection[], correction: SearchCorrection | null): CommandKSection[] {
     if (!correction || !sections.some((section) => section.rows.some((row) => row.kind === 'item'))) {
         return sections
     }
     const row: CommandKRow = {
         kind: 'notice',
-        key: 'notice/layout',
-        reason: 'layout',
+        key: 'notice/corrected',
+        reason: 'corrected',
         missing: [correction.from],
         shown: [correction.to],
     }
@@ -423,7 +423,7 @@ function withLayoutNotice(sections: CommandKSection[], correction: LayoutCorrect
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
-    return withLayoutNotice(buildSectionsForQuery(input), input.layoutCorrection)
+    return withCorrectionNotice(buildSectionsForQuery(input), input.searchCorrection)
 }
 
 function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {

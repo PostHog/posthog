@@ -328,6 +328,12 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
     if (name) {
         return { ...name, field: 'name' }
     }
+    for (const alias of candidate.aliases ?? []) {
+        const hit = hitInWords(token, unifiedWords(alias))
+        if (hit) {
+            return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias', alias }
+        }
+    }
     const context = hitInWords(token, (candidate.context ?? []).flatMap(unifiedWords))
     if (context) {
         return { ...context, position: MAX_POSITION_PENALTY, field: 'context' }
