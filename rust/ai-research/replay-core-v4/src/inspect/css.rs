@@ -909,8 +909,13 @@ impl CssUrl<'_> {
     pub fn edit_bytes(&self) -> usize {
         let piece = std::mem::size_of::<CssPiece>() + std::mem::size_of::<CssPart>();
         match self {
+            // The builder keeps only a remote URL, so a relative one takes nothing.
             CssUrl::Image(url) | CssUrl::Unshown(url) | CssUrl::Font { url, .. } => {
-                piece + url.len()
+                if is_remote(url.trim()) {
+                    piece + url.len()
+                } else {
+                    0
+                }
             }
             CssUrl::Rewrite { rewrite, .. } => {
                 let resolved = rewrite.resolved.as_ref().map_or(0, |url| url.url.len());

@@ -297,8 +297,11 @@ impl Urls {
         }
         let decline = checked_url(url).err()?;
         self.add_declined(url.to_owned(), kind, decline);
-        for spelling in same_url_spellings(url) {
-            self.add_declined(spelling, kind, decline);
+        // A URL past the budget drops the block, so its other spellings are not worth building.
+        if self.declined.contains_key(url) {
+            for spelling in same_url_spellings(url) {
+                self.add_declined(spelling, kind, decline);
+            }
         }
         Some(decline)
     }

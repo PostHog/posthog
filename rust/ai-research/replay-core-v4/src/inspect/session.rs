@@ -437,27 +437,34 @@ mod tests {
 
     #[test]
     fn drops_a_block_whose_edits_the_flush_cannot_hold() {
-        let sheet: String = (0..100)
-            .map(|i| format!(".a{i}{{background:url(https://cdn.example.com/{i}.png)}}"))
-            .collect();
-        let styled = message(
-            json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
-                {"type": 2, "tagName": "style", "attributes": {"_cssText": sheet}, "childNodes": [], "id": 2},
-            ]}}}]),
-        );
-        let inspect_within = |edit_budget: &Arc<AtomicUsize>| {
+        let styled = |sheet: String| {
+            message(
+                json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [
+                    {"type": 2, "tagName": "style", "attributes": {"_cssText": sheet}, "childNodes": [], "id": 2},
+                ]}}}]),
+            )
+        };
+        let inspect_within = |message: &Message, edit_budget: &Arc<AtomicUsize>| {
             let mut block = BlockInspection::with_flush_budgets(
                 Arc::new(AtomicUsize::new(usize::MAX)),
                 edit_budget.clone(),
             );
-            SessionInspector::default().observe_message(&mut block, &styled);
+            SessionInspector::default().observe_message(&mut block, message);
             block.finish()
         };
+        let remote = styled(
+            (0..100)
+                .map(|i| format!(".a{i}{{background:url(https://cdn.example.com/{i}.png)}}"))
+                .collect(),
+        );
         let unbounded = Arc::new(AtomicUsize::new(usize::MAX));
-        inspect_within(&unbounded);
+        inspect_within(&remote, &unbounded);
         let held = usize::MAX - unbounded.load(Ordering::Relaxed);
         let edit_budget = Arc::new(AtomicUsize::new(held + held / 2));
-        let blocks = [inspect_within(&edit_budget), inspect_within(&edit_budget)];
+        let blocks = [
+            inspect_within(&remote, &edit_budget),
+            inspect_within(&remote, &edit_budget),
+        ];
         assert_eq!((blocks[0].url_limit, blocks[0].edits.len()), (None, 1));
         assert_eq!(
             (blocks[1].url_limit, blocks[1].edits.len()),
@@ -465,6 +472,15 @@ mod tests {
         );
         // The dropped block stopped part way through its style sheet and gave back what it took.
         assert_eq!(edit_budget.load(Ordering::Relaxed), held / 2);
+        // The writer leaves relative URLs as they are, so a sheet of them takes nothing.
+        let relative = styled(
+            (0..100)
+                .map(|i| format!(".r{i}{{background:url(img/{i}.png)}}"))
+                .collect(),
+        );
+        let untouched = Arc::new(AtomicUsize::new(usize::MAX));
+        inspect_within(&relative, &untouched);
+        assert_eq!(untouched.load(Ordering::Relaxed), usize::MAX);
     }
 
     #[test]
