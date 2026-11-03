@@ -11,6 +11,7 @@ import { membersLogic } from '~/models/membersLogic'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { MemberOffboardingResourceSection } from './MemberOffboardingResourceSection'
+import { MemberOffboardingTransferModal } from './MemberOffboardingTransferModal'
 
 export function MemberOffboardingModal(): JSX.Element {
     const {
@@ -83,6 +84,7 @@ export function MemberOffboardingModal(): JSX.Element {
                     )}
                 </div>
             ) : null}
+            <MemberOffboardingTransferModal />
             {!scopedApiKeysLoading && !!scopedApiKeys?.keys.length && (
                 <div className="mt-4">
                     <LemonBanner type="warning" className="mb-2">

@@ -102,6 +102,10 @@ const meta: Meta<typeof MemberOffboardingModal> = {
     },
     decorators: [
         mswDecorator({
+            post: {
+                '/api/projects/:project/subscriptions/:id/take_ownership/': () => [200, {}],
+                '/api/projects/:project/alerts/:id/take_ownership/': () => [200, {}],
+            },
             patch: {
                 '/api/projects/:project/subscriptions/:id/': () => [200, {}],
                 '/api/projects/:project/alerts/:id/': () => [200, {}],
