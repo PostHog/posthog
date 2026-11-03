@@ -30,6 +30,7 @@ from products.experiments.backend.health.checks.metrics_not_matured import metri
 from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
 from products.experiments.backend.health.checks.no_metric import no_metric
+from products.experiments.backend.health.checks.shared_flag import flag_shared
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.checks.srm import srm
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures
@@ -49,6 +50,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.FLAG_STATE,
         name="Flag state that doesn't match the experiment",
         run=flag_state,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.FLAG_SHARED,
+        name="Other experiments on the same flag",
+        run=flag_shared,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_HISTORY,

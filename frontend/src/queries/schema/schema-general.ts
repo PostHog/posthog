@@ -8606,7 +8606,7 @@ export type MarketingAnalyticsRecommendationImpactType = 'measured' | 'estimated
 
 export interface MarketingAnalyticsRecommendationStep {
     text: string
-    /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+    /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
     copyValue?: string | null
     /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
     url?: string | null
