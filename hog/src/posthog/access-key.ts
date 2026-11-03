@@ -38,8 +38,9 @@ export interface AccessKey {
     readonly token: string
     // Stays the same for the whole login, unlike an OAuth token, which changes on each renewal.
     readonly loginKey: string
-    // A key that works for the rest of the command, renewed if it is about to expire.
-    fresh(runtime: Runtime, storage: AccessKeyStorage): Promise<AccessKey>
+    // A key with time left, renewed if it is about to expire, or if it is still `rejectedToken`,
+    // a token PostHog refused.
+    fresh(runtime: Runtime, storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey>
     // The key as PostHog sees it, before hog stores it. Throws when PostHog rejects it.
     verify(runtime: Runtime): Promise<AccessKey>
     status(): AccessKeyStatus
