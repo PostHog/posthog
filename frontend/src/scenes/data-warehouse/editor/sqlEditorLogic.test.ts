@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -3538,8 +3539,8 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            { name: 'passes dashboards to insightsApi.create when a dashboardId is set', dashboardId: DASHBOARD_ID },
-            { name: 'does not pass dashboards to insightsApi.create when no dashboardId is set', dashboardId: null },
+            { name: 'creates the insight on the dashboard when a dashboardId is set', dashboardId: DASHBOARD_ID },
+            { name: 'creates the insight on no dashboard when no dashboardId is set', dashboardId: null },
         ])('$name', async ({ dashboardId }) => {
             const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue(MOCK_INSIGHT)
 
@@ -3567,58 +3568,55 @@ describe('sqlEditorLogic', () => {
                 saved: true,
                 query: { source: { query: 'SELECT 42 AS unrun_edit' } },
             })
-            if (dashboardId !== null) {
-                expect(createPayload.dashboards).toEqual([dashboardId])
-            } else {
-                expect(createPayload).not.toHaveProperty('dashboards')
-            }
+            expect(createPayload).not.toHaveProperty('dashboards')
+            expect(createSpy.mock.calls[0][1]).toEqual(dashboardId !== null ? [dashboardId] : [])
         })
 
-        // The update path unions the target dashboard with the insight's existing links from
-        // dashboard_tiles, deduped.
         it.each([
-            {
-                name: 'merges the dashboard with existing dashboard_tiles links',
-                dashboardTiles: [{ id: 1, dashboard_id: 7 }],
-                expected: [7, DASHBOARD_ID],
-            },
-            {
-                name: 'does not duplicate a dashboard the insight is already linked to',
-                dashboardTiles: [{ id: 1, dashboard_id: DASHBOARD_ID }],
-                expected: [DASHBOARD_ID],
-            },
-        ])('$name', async ({ dashboardTiles, expected }) => {
-            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+            { placement: 'accepted', expectedPath: `/dashboard/${DASHBOARD_ID}` },
+            { placement: 'refused', expectedPath: `/insights/${MOCK_INSIGHT_SHORT_ID}` },
+        ])(
+            'saving an existing insight from a dashboard flow, placement $placement',
+            async ({ placement, expectedPath }) => {
+                const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_INSIGHT)
+                const addToDashboardSpy = jest.spyOn(insightsApi, 'addToDashboard')
+                if (placement === 'accepted') {
+                    addToDashboardSpy.mockResolvedValue({ id: 2, dashboard_id: DASHBOARD_ID })
+                } else {
+                    addToDashboardSpy.mockRejectedValue(new ApiError('Non-OK response', 403))
+                }
 
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
-            editorRootLogic.mount()
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+                editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+                editorRootLogic.mount()
 
-            const insightOnDashboards = {
-                ...MOCK_INSIGHT,
-                dashboard_tiles: dashboardTiles,
-            } as InsightModel
-            logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
-            await expectLogic(logic)
-                .toDispatchActions(['createTab', 'updateTab'])
-                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+                const insightOnDashboards = {
+                    ...MOCK_INSIGHT,
+                    dashboard_tiles: [{ id: 1, dashboard_id: 7 }],
+                } as InsightModel
+                logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
+                await expectLogic(logic)
+                    .toDispatchActions(['createTab', 'updateTab'])
+                    .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
 
-            logic.actions.setDashboardId(DASHBOARD_ID)
-            logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
-            logic.actions.updateInsight()
-            await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setDashboardId(DASHBOARD_ID)
+                logic.actions.setQueryInput('SELECT 42 AS unrun_edit')
+                logic.actions.updateInsight()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(updateSpy).toHaveBeenCalledTimes(1)
-            const [, updatePayload] = updateSpy.mock.calls[0]
-            expect(updatePayload.query).toMatchObject({ source: { query: 'SELECT 42 AS unrun_edit' } })
-            // Order-independent: only the set of linked dashboards matters.
-            expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
-        })
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+                const [, updatePayload] = updateSpy.mock.calls[0]
+                expect(updatePayload.query).toMatchObject({ source: { query: 'SELECT 42 AS unrun_edit' } })
+                expect(updatePayload).not.toHaveProperty('dashboards')
+                expect(addToDashboardSpy).toHaveBeenCalledWith(MOCK_INSIGHT.id, DASHBOARD_ID)
+                expect(router.values.location.pathname).toContain(expectedPath)
+            }
+        )
     })
 
     describe('materialize on save', () => {

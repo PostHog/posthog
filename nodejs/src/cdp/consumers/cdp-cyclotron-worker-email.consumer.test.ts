@@ -356,7 +356,11 @@ describe('CdpCyclotronWorkerEmail', () => {
                     queuePriority: 1,
                     queueParameters: params,
                 })
-                expect(delayed.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 2 })
+                expect(delayed.invocation.queueMetadata).toEqual({
+                    originQueue: 'hogflow',
+                    originPriority: 2,
+                    ...(cause.startsWith('team') ? { teamCapped: true } : {}),
+                })
                 expect(delayed.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(before)
                 if (consecutive) {
                     expect(delayed.metrics.filter((metric) => metric.metric_name === 'email_sent')).toEqual([

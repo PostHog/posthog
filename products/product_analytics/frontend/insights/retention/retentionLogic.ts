@@ -1,4 +1,4 @@
-import { mean, sum } from 'd3'
+import { mean, sum } from 'd3-array'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'

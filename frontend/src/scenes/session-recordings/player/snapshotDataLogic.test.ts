@@ -85,6 +85,16 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
+        it('gives up on the first 429, because retrying within seconds cannot outlast the per-user quota', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotsForSourceFailure('Too many requests', new ApiError('Throttled', 429))
+            })
+                .toDispatchActions(['snapshotSourceLoadExhausted'])
+                .toMatchValues({ snapshotLoadErrorKind: 'snapshotRateLimited' })
+            consoleError.mockRestore()
+        })
+
         it('re-arms the retry budget after retrySnapshotLoading, so a later failure is not instantly exhausted', async () => {
             const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
             // Exhaust the budget; consume the terminal action so it is out of the recording window.
