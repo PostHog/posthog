@@ -929,6 +929,10 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 } else if (step) {
                     actions.onDrop(undefined, edge)
                     captureStepAdded('drag', 'data' in step ? step.data.type : step.type)
+                    // A drop on the + that opened the add window removes that window, so its dragend never fires.
+                    if (values.isDraggingNewStep) {
+                        actions.endDraggingNewStep()
+                    }
                 }
             },
             placeAt: ({ edge }) => {

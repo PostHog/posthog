@@ -18,8 +18,16 @@ const SECTIONS: PaletteSection[] = [
     },
 ]
 
-function renderPalette(): { onSelectStep: jest.Mock; onClose: jest.Mock; trigger: HTMLButtonElement } {
+function renderPalette(): {
+    onSelectStep: jest.Mock
+    onDragStep: jest.Mock
+    onDragEnd: jest.Mock
+    onClose: jest.Mock
+    trigger: HTMLButtonElement
+} {
     const onSelectStep = jest.fn()
+    const onDragStep = jest.fn()
+    const onDragEnd = jest.fn()
     const onClose = jest.fn()
     const triggerRef = createRef<HTMLButtonElement>()
     render(
@@ -30,11 +38,13 @@ function renderPalette(): { onSelectStep: jest.Mock; onClose: jest.Mock; trigger
                 placeholder="Search steps"
                 trigger={triggerRef}
                 onSelectStep={onSelectStep}
+                onDragStep={onDragStep}
+                onDragEnd={onDragEnd}
                 onClose={onClose}
             />
         </>
     )
-    return { onSelectStep, onClose, trigger: triggerRef.current as HTMLButtonElement }
+    return { onSelectStep, onDragStep, onDragEnd, onClose, trigger: triggerRef.current as HTMLButtonElement }
 }
 
 describe('StepPalette', () => {
@@ -61,6 +71,33 @@ describe('StepPalette', () => {
 
         fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' })
         expect(onSelectStep).toHaveBeenCalledWith(SECTIONS[0].steps[0])
+    })
+
+    it.each([
+        { when: 'after the frame that draws the drag image', endsFirst: false, starts: true },
+        { when: 'never, for a drag that ends before that frame', endsFirst: true, starts: false },
+    ])('starts dragging a step $when', ({ endsFirst, starts }) => {
+        jest.useFakeTimers()
+        try {
+            const { onDragStep, onDragEnd } = renderPalette()
+            const row = screen.getByText('Delay').closest('[draggable]') as HTMLElement
+            const dataTransfer = { setData: jest.fn(), effectAllowed: 'none' }
+
+            fireEvent.dragStart(row, { dataTransfer })
+            expect(onDragStep).not.toHaveBeenCalled()
+            if (endsFirst) {
+                fireEvent.dragEnd(row, { dataTransfer })
+            }
+            jest.runOnlyPendingTimers()
+            if (!endsFirst) {
+                fireEvent.dragEnd(row, { dataTransfer })
+            }
+
+            expect(onDragStep.mock.calls).toEqual(starts ? [[SECTIONS[0].steps[0]]] : [])
+            expect(onDragEnd).toHaveBeenCalledTimes(starts ? 1 : 0)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('gives focus back to the button that opened it on Escape', () => {
