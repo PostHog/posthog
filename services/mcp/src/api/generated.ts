@@ -6666,6 +6666,8 @@ export namespace Schemas {
       resultCustomizations?: FunnelsFilterResultCustomizations;
       /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
       showAnnotations?: boolean | null;
+      /** Draws horizontal grid lines at the y-axis ticks. */
+      showGridLines?: boolean | null;
       /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
       showLegend?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
@@ -6933,6 +6935,8 @@ export namespace Schemas {
       returningEntity?: RetentionEntity | null;
       /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
       selectedInterval?: number | null;
+      /** Draws horizontal grid lines at the y-axis ticks. */
+      showGridLines?: boolean | null;
       /** Draw the mean across cohorts as one line on the retention graph. */
       showMeanLine?: boolean | null;
       showTrendLines?: boolean | null;
@@ -7348,6 +7352,8 @@ export namespace Schemas {
     export interface LifecycleFilter {
       /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
       legendPosition?: LegendPosition | null;
+      /** Draws horizontal grid lines at the y-axis ticks. */
+      showGridLines?: boolean | null;
       showLegend?: boolean | null;
       /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
       showPercentagesOnSeries?: boolean | null;

@@ -2638,6 +2638,7 @@ export namespace Schemas {
         legendPosition: LegendPosition | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         showAnnotations: boolean | null;
+        showGridLines: boolean | null;
         showLegend: boolean | null;
         showTrendLines: boolean | null;
         showValuesOnSeries: boolean | null;
@@ -2918,6 +2919,7 @@ export namespace Schemas {
         retentionType: RetentionType | null;
         returningEntity: RetentionEntity | null;
         selectedInterval: number | null;
+        showGridLines: boolean | null;
         showMeanLine: boolean | null;
         showTrendLines: boolean | null;
         targetEntity: RetentionEntity | null;
@@ -3345,6 +3347,7 @@ export namespace Schemas {
         | "dormant";
     export type LifecycleFilter = Partial<{
         legendPosition: LegendPosition | null;
+        showGridLines: boolean | null;
         showLegend: boolean | null;
         showPercentagesOnSeries: boolean | null;
         showValuesOnSeries: boolean | null;
