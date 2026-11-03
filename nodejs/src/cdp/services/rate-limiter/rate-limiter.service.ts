@@ -287,7 +287,6 @@ for i = 1, #KEYS - 1 do
     end
 end
 if #denied > 1 then
-    redis.call('SET', claimKey, cjson.encode(denied), 'NX', 'PX', replayTtlMs)
     return denied
 end
 for i = 1, #KEYS - 1 do
