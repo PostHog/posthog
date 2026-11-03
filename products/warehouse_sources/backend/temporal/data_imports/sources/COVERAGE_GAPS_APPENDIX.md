@@ -10454,12 +10454,12 @@ Today (3): `categories`, `episodes`, `podcasts`
 
 Diffed against: <https://api.rss.com/v4/openapi.json>
 
-- [ ] `locations (GET /v4/locations)` — lookup table resolving the location IDs carried on podcasts we already sync (high)
-- [ ] `podcasts/{id}/collaborators` — membership table of who works on each podcast (high)
+- [ ] `locations (GET /v4/locations)` — lookup table resolving the location IDs carried on podcasts we already sync (high); skipped: a search endpoint that requires a free-text `filter` string, not a listable collection
+- [x] `podcasts/{id}/collaborators` — membership table of who works on each podcast (high) → `collaborators` (full refresh, fan-out over `podcasts`)
 - [ ] `roles (GET /v4/roles)` — lookup resolving the role IDs on collaborators (medium)
 - [ ] `podcasts/{id}/episodes/{id}/chapters` — per-episode chapter structure, a real sub-resource of data we already sync (medium)
-- [ ] `podcasts/{id}/episodes/{id}/midrolls` — ad-insertion markers, the monetization dimension of each episode (medium)
-- [ ] `podcasts/{id}/keywords` — discovery/SEO dimensions per podcast (medium)
+- [x] `podcasts/{id}/episodes/{id}/midrolls` — ad-insertion markers, the monetization dimension of each episode (medium) → `midrolls` (full refresh, fan-out over `podcasts` then `episodes`)
+- [x] `podcasts/{id}/keywords` — discovery/SEO dimensions per podcast (medium) → `keywords` (full refresh, fan-out over `podcasts`)
 - [ ] `podcasts/{id}/episodes/{id}/soundbites` — promo clip metadata per episode (low)
 - [ ] `podcasts/{id}/episodes/{id}/transcript` — episode transcript text for content analysis (low)
 
