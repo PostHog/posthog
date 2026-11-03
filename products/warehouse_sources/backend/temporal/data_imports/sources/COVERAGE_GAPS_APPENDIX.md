@@ -5136,10 +5136,10 @@ Diffed against: <https://raw.githubusercontent.com/FusionAuth/fusionauth-openapi
 - [x] `user/consent (GET /api/user/consent, POST /api/consent/search)` — consent grants per user plus the consent definition lookup — compliance reporting (medium)
 - [x] `entity + entity/grant (POST /api/entity/search, /api/entity/grant/search)` — non-user entities and the grants linking them to users — the machine-to-machine authorization graph (medium)
 - [x] `user/action + user-action + user-action-reason` — moderation action history against users, plus the action and reason lookups that decode it (medium)
-- [ ] `jwt/refresh (GET /api/jwt/refresh)` — active refresh tokens per user — session longevity and device analysis (medium)
-- [ ] `report/daily-active-user and report/monthly-active-user` — FusionAuth's headline DAU/MAU metrics, precomputed by the vendor (medium)
-- [ ] `identity-provider/link (GET /api/identity-provider/link)` — which users are linked to which social/SSO provider — signup source breakdown (medium)
-- [ ] `user/comment (POST /api/user/comment/search)` — admin notes recorded against users during support or moderation (low)
+- [x] `jwt/refresh (GET /api/jwt/refresh)` — active refresh tokens per user — session longevity and device analysis (medium)
+- [x] `report/daily-active-user and report/monthly-active-user` — FusionAuth's headline DAU/MAU metrics, precomputed by the vendor (medium)
+- [x] `identity-provider/link (GET /api/identity-provider/link)` — which users are linked to which social/SSO provider — signup source breakdown (medium)
+- [x] `user/comment (POST /api/user/comment/search)` — admin notes recorded against users during support or moderation (low)
 
 Note: Diffed against FusionAuth's official OpenAPI 3.0.3 spec (v1.68.0, 176 paths). Many listable resources are POST /search rather than GET, so a path-only scan understates the API. Config-heavy resources (keys, lambdas, themes, email templates, connectors, IP ACLs, webhooks) are correctly left out.
 
@@ -10404,9 +10404,9 @@ Today (6): `Accounts`, `AudiencePerformance`, `CampaignDemographics`, `CampaignP
 
 Diffed against: <https://docs.rokt.com/developer-reference/apis/reporting-apis/reporting-api/>
 
-- [ ] `Campaign Metadata (GET /metadata/accounts/{accountId}/campaigns/{campaignId})` — resolve campaign IDs from performance reports to campaign type, country, and current status (high)
-- [ ] `Creative Metadata (GET /metadata/accounts/{accountId}/campaigns/{campaignId}/creatives/{creativeId})` — resolve creative IDs to advertisement text, response options, and current status (high)
-- [ ] `Audience Metadata (GET /metadata/accounts/{accountId}/campaigns/{campaignId}/audiences/{audienceId})` — interpret audience performance using age limits, gender, and device targeting (medium)
+- [x] `Campaign Metadata (GET /metadata/accounts/{accountId}/campaigns/{campaignId})` — resolve campaign IDs from performance reports to campaign type, country, and current status (high). Added as `CampaignMetadata`.
+- [x] `Creative Metadata (GET /metadata/accounts/{accountId}/campaigns/{campaignId}/creatives/{creativeId})` — resolve creative IDs to advertisement text, response options, and current status (high). Added as `CreativeMetadata`.
+- [x] `Audience Metadata (GET /metadata/accounts/{accountId}/campaigns/{campaignId}/audiences/{audienceId})` — interpret audience performance using age limits, gender, and device targeting (medium). Added as `AudienceMetadata`; it needs the `audience_id` Query API dimension to discover IDs.
 
 Note: Both official reporting references were fetched with curl and their operations and migration mappings were parsed. Existing tables cover campaign and transaction Query API reports. The legacy reference explicitly keeps these three metadata endpoints available because Query API replacements do not exist. Metadata requires requests for each parent; audience IDs need separate discovery because the current audience report stores names.
 
@@ -10454,12 +10454,12 @@ Today (3): `categories`, `episodes`, `podcasts`
 
 Diffed against: <https://api.rss.com/v4/openapi.json>
 
-- [ ] `locations (GET /v4/locations)` — lookup table resolving the location IDs carried on podcasts we already sync (high)
-- [ ] `podcasts/{id}/collaborators` — membership table of who works on each podcast (high)
+- [ ] `locations (GET /v4/locations)` — lookup table resolving the location IDs carried on podcasts we already sync (high); skipped: a search endpoint that requires a free-text `filter` string, not a listable collection
+- [x] `podcasts/{id}/collaborators` — membership table of who works on each podcast (high) → `collaborators` (full refresh, fan-out over `podcasts`)
 - [ ] `roles (GET /v4/roles)` — lookup resolving the role IDs on collaborators (medium)
 - [ ] `podcasts/{id}/episodes/{id}/chapters` — per-episode chapter structure, a real sub-resource of data we already sync (medium)
-- [ ] `podcasts/{id}/episodes/{id}/midrolls` — ad-insertion markers, the monetization dimension of each episode (medium)
-- [ ] `podcasts/{id}/keywords` — discovery/SEO dimensions per podcast (medium)
+- [x] `podcasts/{id}/episodes/{id}/midrolls` — ad-insertion markers, the monetization dimension of each episode (medium) → `midrolls` (full refresh, fan-out over `podcasts` then `episodes`)
+- [x] `podcasts/{id}/keywords` — discovery/SEO dimensions per podcast (medium) → `keywords` (full refresh, fan-out over `podcasts`)
 - [ ] `podcasts/{id}/episodes/{id}/soundbites` — promo clip metadata per episode (low)
 - [ ] `podcasts/{id}/episodes/{id}/transcript` — episode transcript text for content analysis (low)
 
@@ -13107,10 +13107,10 @@ Today (10): `Accounts`, `Conversations`, `Custom_Objects`, `Messages`, `NPS_Resp
 
 Diffed against: <https://docs.vitally.io/en/collections/10410457-rest-api>
 
-- [ ] `GET /resources/admins` — lookup resolving the CSM/admin ids that appear on accounts, tasks, notes and conversations (high)
-- [ ] `GET /resources/projectTemplates` — lookup resolving the template behind each Project we already sync (high)
-- [ ] `GET /resources/meetings (and /resources/accounts/{id}/meetings)` — customer meeting activity records, a core engagement object with no equivalent today (high)
-- [ ] `GET /resources/projectCategories` — lookup resolving the category grouping on project templates and projects (medium)
+- [x] `GET /resources/admins` — lookup resolving the CSM/admin ids that appear on accounts, tasks, notes and conversations (high)
+- [x] `GET /resources/projectTemplates` — lookup resolving the template behind each Project we already sync (high)
+- [x] `GET /resources/meetings (and /resources/accounts/{id}/meetings)` — customer meeting activity records, a core engagement object with no equivalent today (high)
+- [x] `GET /resources/projectCategories` — lookup resolving the category grouping on project templates and projects (medium)
 - [ ] `GET /resources/surveys/{surveyId}/responses` — custom survey responses — analytical feedback data distinct from the NPS responses already synced (medium)
 - [ ] `GET /resources/customFields?model={model}` — custom trait definitions that give names and types to the opaque trait keys on accounts, users and custom objects (medium)
 
