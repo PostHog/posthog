@@ -309,3 +309,11 @@ Release bundles ignore that override and use the remote release conditions.
 5. opens the Dashboards list from Browse, goes home and exits the demo.
 
 After an edit, restart Metro with `--clear` before you replay the flow: the watcher can serve stale modules.
+
+## Action attribution
+
+Screen events use stable route names with separate dashboard/insight identifiers. Opening a different
+entity on the same route records a new screen. Chart interactions include the insight identifiers and
+the dashboard/tile context when available. Per-item refreshes record the item and outcome; Copy value
+records success/failure without sending the copied value. Dashboard text links and Open on web use
+the confirmed-launch contract in [API attribution](API.md#attribution).

@@ -470,3 +470,12 @@ Demo sessions replay the run logs in `src/demo/sessionThreads.ts`:
 and "Migrate billing webhooks" failed. A send plays `DEMO_REPLY`, an answer plays `DEMO_ANSWER_REPLY`, and Stop cuts the reply short.
 The model list is the static catalogue, and the options change nothing about the reply.
 Archiving a demo chat hides it in the demo store until the demo refreshes or resets.
+
+## Action attribution
+
+Chat events include `task_id` and `run_id` when known. `mobile_chat_new_pressed` records the
+New chat action; `mobile_chat_created` records the accepted first message, after task/run IDs exist.
+`mobile_session_sent`, turn completion, permission answers and stop outcomes share an action ID with
+the relevant request. Copy-link outcomes and archive/undo outcomes are recorded only after the
+clipboard or server confirms them, including actions in the chat header. Push and direct deep-link
+entries are distinct from the chats list. See [API attribution](API.md#attribution) for common fields.

@@ -15,6 +15,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useDemoViews } from '@/demo/views'
 import { abortError } from '@/lib/abort'
+import { actionTracker } from '@/lib/analytics'
 import { OfflineError, useConnectivity, whileOnline } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { mergeRecent, pinsFromShortcuts, shortcutMatchKey } from '@/model/adapters/viewPins'
@@ -228,13 +229,14 @@ async function queuePinWrite(list: PinWriteTarget, matchKey: string, run: () => 
  */
 export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource): Promise<void> {
     const key = pinTargetKey(target)
+    const record = actionTracker()
     return queuePinWrite(list, key, async () => {
         const input = shortcutInputFor(target)
         if (list.demo) {
             const shortcuts = useDemoViews.getState().shortcuts
             if (!shortcuts.some((row) => shortcutMatchKey(row.type, row.ref) === key)) {
                 useDemoViews.getState().addShortcut(input)
-                trackViewPinned({ viewType: target.kind, from })
+                trackViewPinned({ viewType: target.kind, from, viewId: input.ref }, record)
             }
             return
         }
@@ -275,7 +277,7 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
                     created,
                 ])
             )
-            trackViewPinned({ viewType: target.kind, from })
+            trackViewPinned({ viewType: target.kind, from, viewId: input.ref }, record)
         } catch (error) {
             assertCurrentWrite(list)
             client.setQueryData<ShortcutPage>(listKey, (current) =>
@@ -294,6 +296,7 @@ export function pinView(list: PinWriteTarget, target: PinTarget, from: PinSource
 /** Deletes every row that matches the view, in every environment. Rejects with user-facing copy for a toast. */
 export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from: PinSource): Promise<void> {
     const key = 'shortcutId' in view ? shortcutMatchKey(view.type, view.ref) : pinTargetKey(view)
+    const record = actionTracker()
     return queuePinWrite(list, key, async () => {
         const viewType = view.kind
         const { client, listKey } = list
@@ -301,7 +304,15 @@ export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from:
         const ids = rows.filter((row) => shortcutMatchKey(row.type, row.ref) === key).map((row) => row.id)
         if (list.demo) {
             useDemoViews.getState().removeShortcuts(ids)
-            trackViewUnpinned({ viewType, from, rowsDeleted: ids.length })
+            trackViewUnpinned(
+                {
+                    viewType,
+                    from,
+                    rowsDeleted: ids.length,
+                    viewId: 'ref' in view ? view.ref : shortcutInputFor(view).ref,
+                },
+                record
+            )
             return
         }
         client.setQueryData<ShortcutPage>(listKey, (current) =>
@@ -313,7 +324,15 @@ export function unpinView(list: PinWriteTarget, view: PinView | PinTarget, from:
         try {
             await Promise.all(ids.map((id) => deleteShortcut(id)))
             assertCurrentWrite(list)
-            trackViewUnpinned({ viewType, from, rowsDeleted: ids.length })
+            trackViewUnpinned(
+                {
+                    viewType,
+                    from,
+                    rowsDeleted: ids.length,
+                    viewId: 'ref' in view ? view.ref : shortcutInputFor(view).ref,
+                },
+                record
+            )
         } catch (error) {
             assertCurrentWrite(list)
             reportScopeError(error)
@@ -395,7 +414,13 @@ export function usePinActions(): PinActions {
                 return 'needs_tile'
             }
             setDisplay(pin.shortcutId, { ...pin.display, mode })
-            trackPinDisplayChanged({ viewType: pin.kind, displayMode: mode, previousMode: pin.display.mode })
+            trackPinDisplayChanged({
+                viewId: pin.ref,
+                shortcutId: pin.shortcutId,
+                viewType: pin.kind,
+                displayMode: mode,
+                previousMode: pin.display.mode,
+            })
             return 'done'
         },
         chooseTile: (pin, mode, tile) => {
@@ -408,9 +433,20 @@ export function usePinActions(): PinActions {
                 insightId: tile.insightId,
                 insightShortId: tile.shortId,
             })
-            trackPinTileChosen({ tileKind: tile.kindLabel })
+            trackPinTileChosen({
+                tileKind: tile.kindLabel,
+                dashboardId: pin.ref,
+                tileId: tile.tileId,
+                insightId: tile.insightId,
+            })
             if (mode !== pin.display.mode) {
-                trackPinDisplayChanged({ viewType: pin.kind, displayMode: mode, previousMode: pin.display.mode })
+                trackPinDisplayChanged({
+                    viewId: pin.ref,
+                    shortcutId: pin.shortcutId,
+                    viewType: pin.kind,
+                    displayMode: mode,
+                    previousMode: pin.display.mode,
+                })
             }
         },
         move: (pin, direction) => {

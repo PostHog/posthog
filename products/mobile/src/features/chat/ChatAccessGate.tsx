@@ -1,7 +1,8 @@
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
-import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native'
-
+import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { track } from '@/lib/analytics'
+import { openLegalLink } from '@/lib/legalLinks'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import { useColors } from '@/ui/theme'
 import { AiConsentSheet } from './AiConsentSheet'
 import { AiOrgNotice } from './AiOrgNotice'
@@ -60,8 +61,7 @@ export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): Re
                 onOpenSettings={
                     settingsUrl
                         ? () => {
-                              track('mobile_ai_org_settings_opened')
-                              Linking.openURL(settingsUrl).catch(() => undefined)
+                              void openTrackedUrl(settingsUrl, 'mobile_ai_org_settings_opened')
                           }
                         : null
                 }
@@ -79,7 +79,7 @@ export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): Re
                 onContinue={accepted}
                 onNotNow={decline}
                 onOpenPrivacyPolicy={() => {
-                    Linking.openURL(PRIVACY_POLICY_URL).catch(() => undefined)
+                    openLegalLink('privacy', PRIVACY_POLICY_URL, 'ai_consent')
                 }}
             />
         </>

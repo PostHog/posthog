@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
 import type { ReactElement } from 'react'
 
+import { setAnalyticsClient } from '@/lib/analytics'
 import { taskWebUrl } from '@/model/adapters/chats'
 import { OverlayHost } from '@/ui/OverlayPortal'
 
@@ -17,7 +18,15 @@ jest.mock(
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
 
-afterEach(() => jest.restoreAllMocks())
+const capture = jest.fn()
+beforeEach(() => {
+    capture.mockClear()
+    setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+})
+afterEach(() => {
+    jest.restoreAllMocks()
+    setAnalyticsClient(null)
+})
 
 describe('ChatHeader', () => {
     test('copies the current chat from its menu and follows chat and project changes', async () => {
@@ -39,6 +48,10 @@ describe('ChatHeader', () => {
         await act(async () => fireEvent.press(screen.getByTestId('chat-copy-link')))
         expect(copy).toHaveBeenLastCalledWith('https://us.posthog.com/project/7/ai?task=first-task')
         expect(screen.getByText('Chat link copied')).toBeTruthy()
+        expect(capture).toHaveBeenCalledWith(
+            'mobile_chat_link_copied',
+            expect.objectContaining({ entry: 'chat_header', client_surface: 'mobile' })
+        )
         expect(screen.getByTestId('chat-more').props.accessibilityState.expanded).toBe(false)
 
         view.rerender(header(taskWebUrl({ host: 'https://eu.posthog.com', projectId: 9 }, 'next-task')))
@@ -85,6 +98,11 @@ describe('ChatHeader', () => {
                 }
             })
             expect(screen.getByText("Couldn't copy the link. Try again.")).toBeTruthy()
+            expect(capture).toHaveBeenCalledWith(
+                'mobile_chat_link_copy_failed',
+                expect.objectContaining({ entry: 'chat_header' })
+            )
+            expect(capture.mock.calls.some(([event]) => event === 'mobile_chat_link_copied')).toBe(false)
             expect(screen.getByTestId('chat-more').props.accessibilityState.expanded).toBe(true)
             expect(screen.getByTestId('chat-copy-link')).toBeEnabled()
 

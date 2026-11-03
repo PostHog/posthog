@@ -15,7 +15,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { DEMO_PEOPLE } from '@/demo/fixtures'
 import { useDemoReportQuery } from '@/demo/hooks'
-import { track } from '@/lib/analytics'
+import { actionTracker } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import { githubOnlyReviewers, reviewersFromArtefacts } from '@/model/adapters/report'
@@ -141,8 +141,10 @@ export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]>
     const scope = useProjectScope()
     const queryClient = useQueryClient()
     return useAsyncAction(async (uuids: string[]) => {
+        const record = actionTracker({ report_id: reportId, count: uuids.length })
         if (demo) {
             demoSetReviewers(reportId, uuids)
+            record('mobile_reviewers_changed')
             return
         }
         if (!scope) {
@@ -156,8 +158,13 @@ export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]>
             ...[...new Set(uuids)].map((uuid) => ({ user_uuid: uuid })),
             ...githubOnly.map((login) => ({ github_login: login })),
         ]
-        await putReportReviewers(reportId, content)
-        track('mobile_reviewers_changed', { report_id: reportId, count: uuids.length })
+        try {
+            await putReportReviewers(reportId, content, record.actionId)
+            record('mobile_reviewers_changed')
+        } catch (error) {
+            record('mobile_report_action_failed', { action: 'reviewers' })
+            throw error
+        }
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         // The sheet closes when this resolves, so wait for the work log that names the new reviewers.
         await queryClient.invalidateQueries({ queryKey: reportKeys.artefacts(scope, reportId) })

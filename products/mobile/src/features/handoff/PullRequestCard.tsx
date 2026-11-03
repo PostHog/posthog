@@ -1,8 +1,8 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { Linking, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { useDataMode } from '@/demo/demoMode'
-import { track } from '@/lib/analytics'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
 import type { PullRequestView } from '@/model/types'
@@ -74,13 +74,12 @@ export function PullRequestCard({
     const url = safeHttpsUrl(pullRequest.url)
     const openPullRequest = (): void => {
         if (url) {
-            track('mobile_pull_request_opened', {
+            void openTrackedUrl(url, 'mobile_pull_request_opened', {
                 from: reportId ? 'report' : 'chat',
                 report_id: reportId,
                 state: pullRequest.state,
                 pr_count: pullRequests.length,
             })
-            Linking.openURL(url).catch(() => undefined)
         }
     }
     return (

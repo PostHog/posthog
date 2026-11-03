@@ -172,6 +172,7 @@ export function insightItem(context: ItemContext, target: InsightTarget): Refres
     const key = freshnessKey(queryKey)
     return {
         key,
+        analytics: { insight_short_id: target.shortId, insight_id: target.id, dashboard_id: target.dashboardRef },
         family: 'insights',
         windowMode: 'force_cache',
         snapshot: () => getSnapshot<InsightSnapshot>(context.client, queryKey),
@@ -225,6 +226,7 @@ export function compareItem(context: ItemContext, base: InsightSnapshot, query: 
     const key = freshnessKey(queryKey)
     return {
         key,
+        analytics: { insight_short_id: base.shortId, insight_id: base.insightId },
         family: 'query',
         windowMode: 'blocking',
         snapshot: () => getSnapshot<InsightSnapshot>(context.client, queryKey),
@@ -284,6 +286,7 @@ export function webOverviewItem(context: ItemContext, query: Record<string, unkn
     const key = freshnessKey(queryKey)
     return {
         key,
+        analytics: { view_type: 'web_analytics' },
         family: 'query',
         windowMode: 'blocking',
         snapshot: () => getSnapshot<WebOverviewSnapshot>(context.client, queryKey),

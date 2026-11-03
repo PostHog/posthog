@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
-import { track } from '@/lib/analytics'
+import { actionTracker, track } from '@/lib/analytics'
 import { withAppReloadBlocked } from '@/lib/appReload'
 
 import { isViewedNotificationTask, setViewedNotificationReport } from './foregroundNotifications'
@@ -41,7 +41,16 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
     inFlight.add(id)
     try {
         const data = tap.data
-        track('mobile_push_opened', { kind: notificationKind(data) })
+        const target = notificationTarget(data)
+        const properties = {
+            notification_id: id,
+            kind: notificationKind(data),
+            target_project_id: target?.projectId,
+            task_id: target?.type === 'task' ? target.id : undefined,
+            report_id: target?.type === 'report' ? target.id : undefined,
+        }
+        const record = actionTracker(properties)
+        record('mobile_push_opened')
         const route = await resolveNotificationRoute(data, {
             currentProjectId: auth.projectId,
             projectIds: auth.projects.map((project) => project.id),
@@ -58,6 +67,7 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
             return
         }
         if (!route) {
+            record('mobile_push_destination_opened', { outcome: 'unavailable' })
             finishNotificationTap(id)
             return
         }
@@ -69,10 +79,17 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
         if (route.switchToProjectId !== null) {
             useAuthStore.getState().selectProject(route.switchToProjectId, 'push')
         }
-        const target = notificationTarget(data)
         const chatOpen = isChatOpen()
         const isChatRoute = route.pathname.startsWith('/chat?')
         const projectId = route.switchToProjectId ?? auth.projectId
+        const recordDestination = (outcome: 'routed' | 'already_open'): void =>
+            track('mobile_push_destination_opened', {
+                ...properties,
+                client_action_id: record.actionId,
+                project_id: projectId,
+                destination: isChatRoute ? 'chat' : route.pathname === '/inbox' ? 'inbox' : 'report',
+                outcome,
+            })
         // Creating a task or tapping New chat changes the live session without changing the route's taskId.
         if (
             chatOpen &&
@@ -87,6 +104,7 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
                 taskId: target.id,
             })
         ) {
+            recordDestination('already_open')
             finishNotificationTap(id)
             return
         }
@@ -100,6 +118,7 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
                 router.push(href)
             }
         }
+        recordDestination('routed')
         finishNotificationTap(id)
     } finally {
         inFlight.delete(id)

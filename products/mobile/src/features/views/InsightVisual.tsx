@@ -179,7 +179,11 @@ export function InsightVisual({
                         funnel={snapshot.funnel}
                         label={snapshot.name}
                         selectionId={selectionId}
-                        trackingContext="view"
+                        trackingContext={{
+                            context: 'view',
+                            insight_id: snapshot.insightId,
+                            insight_short_id: snapshot.shortId,
+                        }}
                         accessibilityActions={actions}
                         testID={testID}
                     />
@@ -190,7 +194,11 @@ export function InsightVisual({
                         retention={snapshot.retention}
                         label={snapshot.name}
                         selectionId={selectionId}
-                        trackingContext="view"
+                        trackingContext={{
+                            context: 'view',
+                            insight_id: snapshot.insightId,
+                            insight_short_id: snapshot.shortId,
+                        }}
                         accessibilityActions={actions}
                         testID={testID}
                     />
@@ -217,7 +225,11 @@ export function InsightVisual({
                         maxRows={place === 'tile' ? TILE_ROWS : undefined}
                         onPressMore={() => open('rows_more')}
                         selectionId={selectionId}
-                        trackingContext="view"
+                        trackingContext={{
+                            context: 'view',
+                            insight_id: snapshot.insightId,
+                            insight_short_id: snapshot.shortId,
+                        }}
                         accessibilityActions={actions}
                         testID={testID}
                     />

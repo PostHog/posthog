@@ -23,7 +23,7 @@ jest.mock(
 )
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }), useIsFocused: () => true }))
-jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
+jest.mock('@/lib/analytics', () => ({ ...jest.requireActual('@/lib/analytics'), track: jest.fn() }))
 jest.mock('../report/hooks', () => ({ useReport: jest.fn(), useReportActions: jest.fn() }))
 jest.mock('../reviewers/hooks', () => ({ useReportReviewers: () => undefined, useGithubOnlyReviewerCount: () => 0 }))
 jest.mock('../reviewers/AssigneeSheet', () => ({ AssigneeSheet: () => null }))

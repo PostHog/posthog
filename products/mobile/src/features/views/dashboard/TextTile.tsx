@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
-import { Linking, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display'
-
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import { safeHttpsUrl } from '@/lib/urls'
 import { createStyles } from '@/ui/theme'
 import { fonts, radii, type } from '@/ui/tokens'
@@ -14,10 +14,10 @@ const rules: RenderRules = {
     image: () => null,
 }
 
-function openLink(url: string): boolean {
+function openLink(url: string, tileId: number): boolean {
     const safe = safeHttpsUrl(url)
     if (safe) {
-        Linking.openURL(safe).catch(() => undefined)
+        void openTrackedUrl(safe, 'mobile_dashboard_link_opened', { tile_id: tileId })
     }
     // false stops the library from opening a link that is not https.
     return false
@@ -46,7 +46,12 @@ export function TextTile({ text, tileId }: { text: string | null; tileId: number
     }
     return (
         <View style={styles.card} testID={`view-tile-${tileId}`}>
-            <Markdown markdownit={markdownIt} rules={rules} style={markdownStyles} onLinkPress={openLink}>
+            <Markdown
+                markdownit={markdownIt}
+                rules={rules}
+                style={markdownStyles}
+                onLinkPress={(url) => openLink(url, tileId)}
+            >
                 {body}
             </Markdown>
         </View>

@@ -1,6 +1,7 @@
 import type { BudgetFamily } from '@/api/budget'
 import type { ScopedFeature } from '@/api/scopeErrors'
-import { track } from '@/lib/analytics'
+import { type AnalyticsProperties, track } from '@/lib/analytics'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import type { PinDisplayMode, ViewEntry, ViewKind } from '@/model/views'
 
 import type { ItemErrorKind } from './viewsCache'
@@ -32,19 +33,38 @@ export function trackViewOpened(props: {
     })
 }
 
-export function trackViewOpenedInWeb(props: {
-    viewType: ViewKind | 'recordings' | 'person'
-    reason: 'web_only' | 'action'
-}): void {
-    track('mobile_view_opened_in_web', { view_type: props.viewType, reason: props.reason })
+export function openViewInWeb(
+    url: string,
+    props: {
+        viewType: ViewKind | 'recordings' | 'person'
+        reason: 'web_only' | 'action'
+        viewId?: string | null
+    }
+): void {
+    void openTrackedUrl(url, 'mobile_view_opened_in_web', {
+        view_type: props.viewType,
+        reason: props.reason,
+        view_id: props.viewId,
+    })
 }
 
-export function trackViewPinned(props: { viewType: ViewKind; from: PinSource }): void {
-    track('mobile_view_pinned', { view_type: props.viewType, from: props.from })
+export function trackViewPinned(
+    props: { viewType: ViewKind; from: PinSource; viewId?: string | null },
+    record: typeof track = track
+): void {
+    record('mobile_view_pinned', { view_id: props.viewId, view_type: props.viewType, from: props.from })
 }
 
-export function trackViewUnpinned(props: { viewType: ViewKind; from: PinSource; rowsDeleted: number }): void {
-    track('mobile_view_unpinned', { view_type: props.viewType, from: props.from, rows_deleted: props.rowsDeleted })
+export function trackViewUnpinned(
+    props: { viewType: ViewKind; from: PinSource; rowsDeleted: number; viewId?: string | null },
+    record: typeof track = track
+): void {
+    record('mobile_view_unpinned', {
+        view_id: props.viewId,
+        view_type: props.viewType,
+        from: props.from,
+        rows_deleted: props.rowsDeleted,
+    })
 }
 
 export function trackPinsReordered(props: { pinCount: number; method: 'drag' | 'menu' }): void {
@@ -55,16 +75,30 @@ export function trackPinDisplayChanged(props: {
     viewType: ViewKind
     displayMode: PinDisplayMode
     previousMode: PinDisplayMode
+    viewId?: string | null
+    shortcutId?: string
 }): void {
     track('mobile_pin_display_changed', {
         view_type: props.viewType,
         display_mode: props.displayMode,
         previous_mode: props.previousMode,
+        view_id: props.viewId,
+        shortcut_id: props.shortcutId,
     })
 }
 
-export function trackPinTileChosen(props: { tileKind: string }): void {
-    track('mobile_pin_tile_chosen', { tile_kind: props.tileKind })
+export function trackPinTileChosen(props: {
+    tileKind: string
+    dashboardId?: string | null
+    tileId?: number
+    insightId?: number
+}): void {
+    track('mobile_pin_tile_chosen', {
+        tile_kind: props.tileKind,
+        dashboard_id: props.dashboardId,
+        tile_id: props.tileId,
+        insight_id: props.insightId,
+    })
 }
 
 export type PinHintDismissReason = 'close' | 'long_press'
@@ -152,26 +186,35 @@ export function trackDateRangeCompared(props: { viewType: ViewKind; enabled: boo
     track('mobile_date_range_compared', { view_type: props.viewType, enabled: props.enabled })
 }
 
-export function trackChartPointSheetOpened(props: { entry: 'tooltip' | 'more' | 'accessibility' }): void {
-    track('mobile_chart_point_sheet_opened', { entry: props.entry })
+export function trackChartPointSheetOpened(
+    props: { entry: 'tooltip' | 'more' | 'accessibility' },
+    identity: AnalyticsProperties = {}
+): void {
+    track('mobile_chart_point_sheet_opened', { ...identity, entry: props.entry })
 }
 
-export function trackChartAboutOpened(props: { entry: 'icon' | 'point_sheet' | 'accessibility' }): void {
-    track('mobile_chart_about_opened', { entry: props.entry })
+export function trackChartAboutOpened(
+    props: { entry: 'icon' | 'point_sheet' | 'accessibility' },
+    identity: AnalyticsProperties = {}
+): void {
+    track('mobile_chart_about_opened', { ...identity, entry: props.entry })
 }
 
-export function trackChartRecordingsOpened(props: { resultCount: number }): void {
-    track('mobile_chart_recordings_opened', { result_count: props.resultCount })
+export function trackChartRecordingsOpened(props: { resultCount: number }, identity: AnalyticsProperties = {}): void {
+    track('mobile_chart_recordings_opened', { ...identity, result_count: props.resultCount })
 }
 
-export function trackChartPeopleOpened(props: { resultCount: number }): void {
-    track('mobile_chart_people_opened', { result_count: props.resultCount })
+export function trackChartPeopleOpened(props: { resultCount: number }, identity: AnalyticsProperties = {}): void {
+    track('mobile_chart_people_opened', { ...identity, result_count: props.resultCount })
 }
 
 export type FullScreenEntry = 'button' | 'legend_more' | 'rows_more' | 'accessibility'
 
-export function trackChartFullScreenOpened(props: { entry: FullScreenEntry; display: string }): void {
-    track('mobile_chart_fullscreen_opened', { entry: props.entry, display: props.display })
+export function trackChartFullScreenOpened(
+    props: { entry: FullScreenEntry; display: string },
+    identity: AnalyticsProperties = {}
+): void {
+    track('mobile_chart_fullscreen_opened', { ...identity, entry: props.entry, display: props.display })
 }
 
 export function trackViewsReauthShown(props: {

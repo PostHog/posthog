@@ -34,13 +34,19 @@ function SessionChartSheets({ children }: { children: ReactNode }): ReactElement
     const [about, setAbout] = useState<ChartSheetSource | null>(null)
 
     const openAbout = useCallback((source: ChartSheetSource, entry: AboutSheetEntry = 'icon') => {
-        trackChartAboutOpened({ entry })
+        trackChartAboutOpened(
+            { entry },
+            { insight_id: source.snapshot.insightId, insight_short_id: source.snapshot.shortId }
+        )
         setPoint(null)
         setAbout(source)
     }, [])
     const openPoint = useCallback(
         (source: ChartSheetSource, chartPoint: ChartTooltipPoint, entry: PointSheetEntry = 'tooltip') => {
-            trackChartPointSheetOpened({ entry })
+            trackChartPointSheetOpened(
+                { entry },
+                { insight_id: source.snapshot.insightId, insight_short_id: source.snapshot.shortId }
+            )
             setAbout(null)
             setPoint({ source, point: chartPoint })
         },

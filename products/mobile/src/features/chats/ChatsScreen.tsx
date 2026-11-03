@@ -100,19 +100,15 @@ export function ChatsScreen(): ReactElement {
         setRowMenu({ item, anchor })
     }, [])
     const restore = (item: ChatListItem): void => {
-        track('mobile_chat_archive_undone', { origin: item.origin, status: item.status })
-        archiveActions.restore(item).catch((error: unknown) => {
-            track('mobile_chat_archive_failed', { action: 'restore', code: toChatError(error).kind })
+        archiveActions.restore(item).catch(() => {
             toasts.show("Couldn't restore this chat. Try again.")
         })
     }
     // The row leaves at once and the toast offers Undo. A failed request brings the row back with a message.
     const archive = (item: ChatListItem): void => {
         setRowMenu(null)
-        track('mobile_chat_archived', { origin: item.origin, status: item.status })
         toasts.show('Chat archived', () => restore(item))
-        archiveActions.archive(item).catch((error: unknown) => {
-            track('mobile_chat_archive_failed', { action: 'archive', code: toChatError(error).kind })
+        archiveActions.archive(item).catch(() => {
             toasts.show("Couldn't archive this chat. Try again.")
         })
     }

@@ -1,6 +1,4 @@
-import { Linking } from 'react-native'
-
-import { track } from '@/lib/analytics'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import { safeHttpsUrl } from '@/lib/urls'
 
 export type InsightSource = 'observation' | 'chart' | 'tile'
@@ -11,8 +9,7 @@ export function openInsight(url: string, reportId: string, source: InsightSource
     if (!safe) {
         return
     }
-    track('mobile_report_insight_opened', { report_id: reportId, source })
-    Linking.openURL(safe).catch(() => undefined)
+    void openTrackedUrl(safe, 'mobile_report_insight_opened', { report_id: reportId, source })
 }
 
 /** The link when the app may open it, else undefined, so a screen hides the control instead of showing a dead one. */

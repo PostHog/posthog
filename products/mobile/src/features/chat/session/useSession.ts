@@ -51,7 +51,7 @@ import {
 import type { PermissionRecord, RunStreamState } from '@/features/handoff/types'
 import { IDLE_TIMEOUT_MS, isAbort, isFatal, useAppActive } from '@/features/handoff/useTaskRun'
 import { abortError } from '@/lib/abort'
-import { track } from '@/lib/analytics'
+import { actionTracker, track } from '@/lib/analytics'
 import { useConnectivity } from '@/lib/connectivity'
 import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
@@ -819,7 +819,11 @@ export function useSession(options: SessionOptions): Session {
             }
             setLive(state)
             setHistory(IDLE)
-            track('mobile_session_resumed', { status: log.status })
+            track('mobile_session_resumed', {
+                task_id: taskIdRef.current,
+                run_id: liveRef.current?.runId,
+                status: log.status,
+            })
             return
         }
         if (useConnectivity.getState().status === 'offline') {
@@ -846,7 +850,11 @@ export function useSession(options: SessionOptions): Session {
             }
             if (!run) {
                 setHistory(IDLE)
-                track('mobile_session_resumed', { status: 'none' })
+                track('mobile_session_resumed', {
+                    task_id: taskIdRef.current,
+                    run_id: liveRef.current?.runId,
+                    status: 'none',
+                })
                 return
             }
             runDetail.current = run
@@ -872,7 +880,11 @@ export function useSession(options: SessionOptions): Session {
                 setLive(state)
                 setFollow({ runId: run.id, key: 0 })
             }
-            track('mobile_session_resumed', { status: run.status })
+            track('mobile_session_resumed', {
+                task_id: taskIdRef.current,
+                run_id: liveRef.current?.runId,
+                status: run.status,
+            })
         } catch (error) {
             if (epoch.current !== mine || !scopeIsCurrent() || isAbort(error, signal)) {
                 return
@@ -1077,7 +1089,8 @@ export function useSession(options: SessionOptions): Session {
             options: ChatRunOptions,
             signal: AbortSignal,
             mine: number,
-            artifactIds: readonly string[]
+            artifactIds: readonly string[],
+            actionId: string
         ): Promise<PermissionModeApi> => {
             const id = taskIdRef.current
             if (!id) {
@@ -1098,7 +1111,10 @@ export function useSession(options: SessionOptions): Session {
                     if (!scopeIsCurrent()) {
                         throw abortError()
                     }
-                    return startTaskRun(id, body, { headers, signal })
+                    return startTaskRun(id, body, {
+                        headers: { ...headers, 'X-PostHog-Client-Action-Id': actionId },
+                        signal,
+                    })
                 },
                 { signal }
             )
@@ -1181,6 +1197,7 @@ export function useSession(options: SessionOptions): Session {
             if (!scopeIsCurrent() || !taskId || !trimmed || sendingRef.current) {
                 return false
             }
+            const record = actionTracker({ task_id: taskId })
             const steer = sendOptions.steer === true && canSteerRef.current
             const attachments = sendOptions.attachments ?? []
             const content = chatPrompt(trimmed, context)
@@ -1207,7 +1224,9 @@ export function useSession(options: SessionOptions): Session {
                     })
                     applyFrame(echo, { source: 'live', sourceRunId: runId }, runId, controller.signal)
                 }
-                track('mobile_session_sent', {
+                record('mobile_session_sent', {
+                    task_id: taskId,
+                    run_id: liveRef.current?.runId,
                     new_task: false,
                     resumed_run: false,
                     report_count: reportCount,
@@ -1216,9 +1235,9 @@ export function useSession(options: SessionOptions): Session {
                     ...deliveryProperties(steer, sendOptions),
                 })
                 if (steer) {
-                    turnTracker.join(liveRef.current)
+                    turnTracker.join(liveRef.current, record)
                 } else {
-                    turnTracker.begin(liveRef.current)
+                    turnTracker.begin(liveRef.current, record)
                 }
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), controller.signal)
                 return true
@@ -1258,7 +1277,7 @@ export function useSession(options: SessionOptions): Session {
                             return false
                         }
                         const outcome = await sendUserMessage(run, content, {
-                            id: randomUUID(),
+                            id: record.actionId,
                             signal: controller.signal,
                             steer,
                             artifactIds,
@@ -1288,11 +1307,14 @@ export function useSession(options: SessionOptions): Session {
                         options,
                         controller.signal,
                         mine,
-                        stagedIds
+                        stagedIds,
+                        record.actionId
                     )
                 }
                 if (epoch.current === mine) {
-                    track('mobile_session_sent', {
+                    record('mobile_session_sent', {
+                        task_id: taskId,
+                        run_id: liveRef.current?.runId,
                         new_task: false,
                         resumed_run: resumed,
                         report_count: reportCount,
@@ -1301,9 +1323,9 @@ export function useSession(options: SessionOptions): Session {
                         ...deliveryProperties(steered, sendOptions),
                     })
                     if (steered) {
-                        turnTracker.join(liveRef.current)
+                        turnTracker.join(liveRef.current, record)
                     } else {
-                        turnTracker.begin(liveRef.current)
+                        turnTracker.begin(liveRef.current, record)
                     }
                 }
             } catch (error) {
@@ -1313,7 +1335,7 @@ export function useSession(options: SessionOptions): Session {
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
                 setUnsentText(trimmed)
-                track('mobile_session_send_failed', { code: sendErrorCode(error), new_task: false })
+                record('mobile_session_send_failed', { code: sendErrorCode(error), new_task: false })
                 return false
             } finally {
                 if (epoch.current === mine) {
@@ -1348,6 +1370,7 @@ export function useSession(options: SessionOptions): Session {
                 return false
             }
             const attachments = sendOptions.attachments ?? []
+            const record = actionTracker()
             const requests = chatStartRequests(trimmed, context, options)
             const sentProperties = {
                 new_task: true,
@@ -1382,8 +1405,17 @@ export function useSession(options: SessionOptions): Session {
                     content: { type: 'text', text: requests.run.pending_user_message },
                 })
                 applyFrame(echo, { source: 'live', sourceRunId: runId }, runId, signal)
-                track('mobile_session_sent', sentProperties)
-                turnTracker.begin(liveRef.current)
+                record('mobile_session_sent', {
+                    ...sentProperties,
+                    task_id: taskIdRef.current,
+                    run_id: liveRef.current?.runId,
+                })
+                record('mobile_chat_created', {
+                    task_id: taskIdRef.current,
+                    run_id: liveRef.current?.runId,
+                    report_count: sentProperties.report_count,
+                })
+                turnTracker.begin(liveRef.current, record)
                 await playDemoFrames(demoReplyFrames(DEMO_REPLY), signal)
                 return true
             }
@@ -1395,7 +1427,9 @@ export function useSession(options: SessionOptions): Session {
                     if (!scopeIsCurrent()) {
                         throw abortError()
                     }
-                    return createTask(requests.task, { headers })
+                    return createTask(requests.task, {
+                        headers: { ...headers, 'X-PostHog-Client-Action-Id': record.actionId },
+                    })
                 })
                 if (epoch.current !== mine || !scopeIsCurrent()) {
                     // An empty task cannot start a run after its composer has gone.
@@ -1436,7 +1470,9 @@ export function useSession(options: SessionOptions): Session {
                             if (!scopeIsCurrent()) {
                                 throw abortError()
                             }
-                            return startTaskRun(task.id, withPendingArtifacts(requests.run, artifactIds), { headers })
+                            return startTaskRun(task.id, withPendingArtifacts(requests.run, artifactIds), {
+                                headers: { ...headers, 'X-PostHog-Client-Action-Id': record.actionId },
+                            })
                         })
                         run = response.run ?? response.latest_run ?? null
                     } catch (error) {
@@ -1463,8 +1499,17 @@ export function useSession(options: SessionOptions): Session {
                 runConfigs.current.set(run.id, runConfigAfterStart(run, requests.fields))
                 setLive(applyRunSnapshot(initialRunState(task.id, run.id, run.status), run))
                 setFollow({ runId: run.id, key: 0, fresh: true })
-                track('mobile_session_sent', sentProperties)
-                turnTracker.begin(liveRef.current)
+                record('mobile_session_sent', {
+                    ...sentProperties,
+                    task_id: taskIdRef.current,
+                    run_id: liveRef.current?.runId,
+                })
+                record('mobile_chat_created', {
+                    task_id: taskIdRef.current,
+                    run_id: liveRef.current?.runId,
+                    report_count: sentProperties.report_count,
+                })
+                turnTracker.begin(liveRef.current, record)
             } catch (error) {
                 if (epoch.current !== mine || !scopeIsCurrent() || signal.aborted) {
                     return false
@@ -1472,7 +1517,7 @@ export function useSession(options: SessionOptions): Session {
                 dispatchThread({ type: 'withdraw', id: localId })
                 setNotice(sendErrorMessage(error))
                 setUnsentText(trimmed)
-                track('mobile_session_send_failed', { code: sendErrorCode(error), new_task: true })
+                record('mobile_session_send_failed', { code: sendErrorCode(error), new_task: true })
                 return false
             } finally {
                 if (epoch.current === mine) {
@@ -1533,9 +1578,12 @@ export function useSession(options: SessionOptions): Session {
                 return
             }
             const echo = [...answered, picked].join('\n')
+            const record = actionTracker({ task_id: taskId, run_id: current.runId, request_id: requestId })
             const trackAnswer = (): void =>
-                track('mobile_decision_answered', {
+                record('mobile_decision_answered', {
                     task_id: taskId,
+                    run_id: current.runId,
+                    request_id: requestId,
                     kind: pending.kind,
                     picked_option: Boolean(input.optionId),
                     surface: 'chat',
@@ -1561,6 +1609,7 @@ export function useSession(options: SessionOptions): Session {
                 }
                 const outcome = await deliverPermissionResponse({ taskId, runId: current.runId }, plan.params, {
                     signal: controller.signal,
+                    id: record.actionId,
                 })
                 if (epoch.current !== mine || !scopeIsCurrent()) {
                     return
@@ -1571,8 +1620,10 @@ export function useSession(options: SessionOptions): Session {
                     dispatchThread({ type: 'local_user', id: `answer-${requestId}`, text: echo, echo: false })
                     trackAnswer()
                 } else if (outcome === 'gone') {
+                    record('mobile_decision_failed', { reason: 'answered_elsewhere' })
                     setNotice(ANSWERED_ELSEWHERE)
                 } else {
+                    record('mobile_decision_failed', { reason: 'run_ended' })
                     setNotice(ANSWER_RUN_ENDED)
                     void refreshRun(current.runId)
                 }
@@ -1581,6 +1632,7 @@ export function useSession(options: SessionOptions): Session {
                     return
                 }
                 setNotice(answerErrorMessage(error))
+                record('mobile_decision_failed', { reason: 'delivery_failed' })
             } finally {
                 if (epoch.current === mine) {
                     sendingRef.current = false
@@ -1621,17 +1673,19 @@ export function useSession(options: SessionOptions): Session {
         }
         stoppingRef.current = true
         setStopping(true)
-        track('mobile_session_stopped')
+        const record = actionTracker({ task_id: taskId, run_id: current.runId })
+        record('mobile_session_stopped')
         turnTracker.markStopped(true)
         stopTimer.current = setTimeout(endStopping, STOP_TIMEOUT_MS)
         const mine = epoch.current
-        sendTaskRunCommand(taskId, current.runId, { method: 'cancel' }, { id: `cancel-${randomUUID()}` })
+        sendTaskRunCommand(taskId, current.runId, { method: 'cancel' }, { id: record.actionId })
             .then((response) => {
                 if (response.error) {
                     throw new CommandFailedError(response.error.message ?? 'The agent did not stop.')
                 }
             })
             .catch(() => {
+                record('mobile_session_stop_failed')
                 if (epoch.current === mine) {
                     endStopping()
                     setNotice(STOP_FAILED)

@@ -59,7 +59,7 @@ export function ChatHeader({
         }
     })
     const copy = async (): Promise<void> => {
-        if (await copyLink(webUrl)) {
+        if (await copyLink(webUrl, { entry: 'chat_header' })) {
             setMenuOpen(false)
         }
     }

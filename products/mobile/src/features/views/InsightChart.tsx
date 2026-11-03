@@ -93,7 +93,11 @@ export function InsightChart({
                 dataUntil={model.dataUntil}
                 onPressTooltip={(point) => sheets.openPoint(source, point, 'tooltip')}
                 selectionId={selectionId}
-                trackingContext="view"
+                trackingContext={{
+                    context: 'view',
+                    insight_id: snapshot.insightId,
+                    insight_short_id: snapshot.shortId,
+                }}
                 canvasSlot={canvasSlot}
                 accessibilitySummary={model.summary}
                 accessibilityActions={actions}

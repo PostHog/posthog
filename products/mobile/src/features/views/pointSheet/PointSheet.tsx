@@ -1,9 +1,10 @@
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
 import { ACTORS_LIMIT } from '@/api/actors'
+import { actionTracker } from '@/lib/analytics'
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ActorRow, InsightSnapshot } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -23,7 +24,7 @@ import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
-import { trackViewOpenedInWeb } from '../analytics'
+import { openViewInWeb } from '../analytics'
 import { SheetTitle } from '../screen/SheetTitle'
 import { snapshotFormatter } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
@@ -51,8 +52,7 @@ function openLink(url: string | undefined, viewType: 'insight' | 'recordings' | 
     if (!safe) {
         return
     }
-    trackViewOpenedInWeb({ viewType, reason: 'action' })
-    Linking.openURL(safe).catch(() => undefined)
+    openViewInWeb(safe, { viewType, reason: 'action' })
 }
 
 /**
@@ -188,7 +188,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                                     onPress={() => onOpenAbout(source)}
                                     testID="point-about"
                                 />
-                                <CopyValueChip point={point} formatValue={formatValue} />
+                                <CopyValueChip point={point} formatValue={formatValue} shortId={snapshot.shortId} />
                             </View>
                         </>
                     ) : (
@@ -374,9 +374,11 @@ const COPIED_MS = 2000
 function CopyValueChip({
     point,
     formatValue,
+    shortId,
 }: {
     point: ChartTooltipPoint
     formatValue: (value: number) => string
+    shortId: string
 }): ReactElement | null {
     const [copied, setCopied] = useState(false)
     useEffect(() => {
@@ -395,7 +397,13 @@ function CopyValueChip({
             icon={copied ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
             label={copied ? 'Copied' : 'Copy value'}
             onPress={() => {
-                void Clipboard.setStringAsync(formatValue(top.value)).then(() => setCopied(true))
+                const record = actionTracker({ insight_short_id: shortId })
+                void Clipboard.setStringAsync(formatValue(top.value))
+                    .then((copied) => {
+                        setCopied(true)
+                        record(copied ? 'mobile_chart_value_copied' : 'mobile_chart_value_copy_failed')
+                    })
+                    .catch(() => record('mobile_chart_value_copy_failed'))
             }}
             testID="point-copy"
         />

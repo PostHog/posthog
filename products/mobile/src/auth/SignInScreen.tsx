@@ -1,13 +1,14 @@
 import { getCalendars, getLocales } from 'expo-localization'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
-import { ActivityIndicator, Linking, ScrollView, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 
 import { useDemoMode } from '@/demo/demoMode'
 import { currentDefaultPageHref, defaultPageHref, settleDefaultPage } from '@/features/settings/defaultPageStore'
 import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { openLegalLink, PRIVACY_POLICY_URL, TERMS_URL } from '@/lib/legalLinks'
+import { openTrackedUrl } from '@/lib/openTrackedUrl'
 import { useAsyncAction } from '@/lib/useAsyncAction'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { PostHogLogo } from '@/ui/icons/PostHogLogo'
@@ -110,8 +111,7 @@ export function SignInScreen(): ReactElement {
         if (!selected?.host) {
             return
         }
-        track('mobile_create_account_opened', { region })
-        Linking.openURL(signupUrl(selected.host)).catch(() => undefined)
+        void openTrackedUrl(signupUrl(selected.host), 'mobile_create_account_opened', { region })
     }
 
     return (

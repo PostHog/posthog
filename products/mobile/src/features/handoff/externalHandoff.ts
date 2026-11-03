@@ -1,6 +1,6 @@
 import { Linking, Platform } from 'react-native'
 
-import { track } from '@/lib/analytics'
+import { actionTracker } from '@/lib/analytics'
 import type { ReportView } from '@/model/types'
 
 export type ExternalHandoffTarget = 'claude' | 'codex'
@@ -57,10 +57,11 @@ export async function launchExternalHandoff(
     report: HandoffReport & Pick<ReportView, 'id'>,
     from: ExternalHandoffEntry
 ): Promise<void> {
+    const record = actionTracker({ report_id: report.id, from })
     try {
         await openExternalHandoff(target, report)
     } catch (error) {
-        track('mobile_handoff_failed', {
+        record('mobile_handoff_failed', {
             report_id: report.id,
             agent: target,
             from,
@@ -68,10 +69,11 @@ export async function launchExternalHandoff(
         })
         throw error
     }
-    track('mobile_external_handoff_opened', {
+    record('mobile_external_handoff_opened', {
         report_id: report.id,
         target,
         from,
         has_repository: handoffRepository(report.repository) !== undefined,
+        launch_result: 'accepted',
     })
 }

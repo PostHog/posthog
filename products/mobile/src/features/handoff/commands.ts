@@ -71,7 +71,7 @@ function isResolved(response: TaskRunCommandResponseApi): boolean {
 export async function deliverPermissionResponse(
     run: RunRef,
     params: PermissionResponseParams,
-    options: { signal?: AbortSignal; clock?: Clock } = {}
+    options: { signal?: AbortSignal; clock?: Clock; id?: string } = {}
 ): Promise<DeliveryOutcome> {
     const clock = options.clock ?? realClock
     let response: TaskRunCommandResponseApi
@@ -82,7 +82,7 @@ export async function deliverPermissionResponse(
                     run.taskId,
                     run.runId,
                     { method: 'permission_response', params },
-                    { id: `perm-${params.requestId}`, signal: options.signal }
+                    { id: options.id ?? `perm-${params.requestId}`, signal: options.signal }
                 ),
             options.signal,
             clock

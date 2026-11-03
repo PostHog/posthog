@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect } from 'react'
-import { Linking, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ViewKind } from '@/model/views'
@@ -9,7 +9,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 
-import { trackViewMoreOpened, trackViewOpenedInWeb } from '../analytics'
+import { openViewInWeb, trackViewMoreOpened } from '../analytics'
 
 interface ViewMoreSheetProps {
     visible: boolean
@@ -43,8 +43,7 @@ export function ViewMoreSheet({ visible, onClose, webUrl, viewType }: ViewMoreSh
                         if (!safe) {
                             return
                         }
-                        trackViewOpenedInWeb({ viewType, reason: 'action' })
-                        Linking.openURL(safe).catch(() => undefined)
+                        openViewInWeb(safe, { viewType, reason: 'action' })
                         onClose()
                     }}
                     disabled={!safe}

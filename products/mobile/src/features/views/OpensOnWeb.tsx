@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { Linking, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import { safeHttpsUrl } from '@/lib/urls'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
@@ -7,7 +7,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
 
-import { trackViewOpenedInWeb } from './analytics'
+import { openViewInWeb } from './analytics'
 import { useViewsContext } from './useViewsContext'
 import { viewWebUrl } from './webLinks'
 
@@ -26,8 +26,7 @@ export function OpensOnWeb({ shortId }: { shortId: string | null }): ReactElemen
                     if (!safe) {
                         return
                     }
-                    trackViewOpenedInWeb({ viewType: 'insight', reason: 'web_only' })
-                    Linking.openURL(safe).catch(() => undefined)
+                    openViewInWeb(safe, { viewType: 'insight', reason: 'web_only' })
                 }}
                 disabled={!safe}
                 style={styles.webButton}

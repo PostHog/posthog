@@ -227,3 +227,12 @@ Limits:
 - Time snoozes do not sync. Another device or the web app still shows the report as open.
 - Reinstalling the app or clearing its storage forgets every snooze. Scheduled reminders survive only as long as the OS keeps them.
 - Signing out, or a session that expires, clears every snooze on the device and cancels the reminders.
+
+## Mobile action attribution
+
+A focused, successfully loaded live report sends `POST .../{id}/viewed/` once per mounted report.
+The backend counts authenticated browser users and consented first-party mobile users as human
+consumption; a mobile header alone, personal API key or agent token cannot create that evidence.
+Report read-state writes and persisted artefacts keep the initiating client context. Verdict, priority,
+reviewer and handoff events include the report ID and an action ID shared with the write request.
+Notes, prompts and report contents are excluded from telemetry.
