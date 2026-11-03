@@ -12,12 +12,13 @@ from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationRecord
 from posthog.models import OrganizationMembership, User
 from posthog.models.integration import SlackIntegration
-from posthog.slack.channels import is_shared_channel, join_channel
+from posthog.slack.channels import join_channel
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.models import ChannelWelcomeMode
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
+from products.slack_app.backend.services.public_channel_catalog import mark_channels_joined, public_channel_options
 from products.slack_app.backend.services.slack_scopes import has_scopes
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
@@ -87,13 +88,6 @@ class WorkspaceSetup:
     steps: tuple[SlackSetupStepKey, ...]
     project_options: tuple[ProjectOption, ...]
     can_post_channel_welcome: bool
-
-
-@frozen
-class ChannelOption:
-    id: str
-    name: str
-    is_member: bool
 
 
 @frozen
@@ -200,16 +194,6 @@ def set_default_project(integration: WorkspaceIntegration, user: User, target_in
     )
 
 
-def list_channel_options(integration: IntegrationRecord) -> tuple[ChannelOption, ...]:
-    """Leaves out shared channels, because people outside the workspace would see the bot there."""
-    channels = SlackIntegration(integration).list_public_channels()
-    return tuple(
-        ChannelOption(id=channel["id"], name=channel["name"], is_member=bool(channel.get("is_member")))
-        for channel in channels
-        if not is_shared_channel(channel)
-    )
-
-
 def join_channels(
     integration: WorkspaceIntegration, user: User, channel_ids: list[str], *, post_welcome: bool
 ) -> tuple[ChannelJoinResult, ...]:
@@ -226,7 +210,7 @@ def join_channels(
         raise WorkspaceSettingsError("This Slack install can't join channels. Invite PostHog with /invite @PostHog.")
 
     # The ids come from the browser, so only channels from the same list the page showed are joined.
-    allowed = {option.id for option in list_channel_options(integration)}
+    allowed = {option.id for option in public_channel_options(integration)}
     slack = SlackIntegration(integration)
     slack_workspace_id = integration.integration_id or ""
     post_welcome = post_welcome and _can_post_channel_welcome(slack_workspace_id)
@@ -240,6 +224,7 @@ def join_channels(
         if error is not None and holds_welcome_slot:
             release_channel_welcome_skip(slack_workspace_id, channel_id)
         results.append(ChannelJoinResult(channel_id=channel_id, error=error))
+    mark_channels_joined(slack_workspace_id, (result.channel_id for result in results if result.error is None))
     failed_count = sum(1 for result in results if result.error is not None)
     # pinned: analytics event and property names, renaming breaks dashboards
     capture_slack_event(
