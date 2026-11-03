@@ -59,14 +59,19 @@ def _fail_on_start(error: str) -> None:
 
 def install() -> None:
     if all(binary.is_file() for binary in _sdk_binaries()):
+        sys.stderr.write(f"TEMPORAL_WARMUP pid={os.getpid()} hit\n")
         return
     started = time.monotonic()
     for attempt in range(1, ATTEMPTS + 1):
         try:
             subprocess.run([sys.executable, __file__], check=True, timeout=ATTEMPT_TIMEOUT_SECONDS)
             logger.info("Prepared Temporal test servers in %.1fs", time.monotonic() - started)
+            sys.stderr.write(
+                f"TEMPORAL_WARMUP pid={os.getpid()} attempt={attempt} seconds={time.monotonic() - started:.1f}\n"
+            )
             return
         except subprocess.SubprocessError as error:
+            sys.stderr.write(f"TEMPORAL_WARMUP pid={os.getpid()} attempt={attempt} failed={error}\n")
             logger.warning("Temporal test server download attempt %d failed: %s", attempt, error)
     _fail_on_start(f"Could not download the Temporal test servers in {ATTEMPTS} attempts")
 
