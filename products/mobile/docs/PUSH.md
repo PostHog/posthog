@@ -96,14 +96,19 @@ Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread
 
 `useNotificationRouting()` handles taps that start the app (`getLastNotificationResponse`) and taps while it runs (`addNotificationResponseReceivedListener`).
 It waits until the navigator is mounted and the session has loaded, and handles each notification id once.
-A signed-out tap waits for sign-in within the running process. Pending responses are not durably stored:
-if the process dies before sign-in finishes, reopen the target from the inbox or chats.
+A signed-out tap waits for sign-in. Android FCM taps also survive process death before routing.
+iOS and local reminder responses remain in memory; if the process dies before sign-in finishes,
+reopen their target from the inbox or chats.
 The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
 
 On Android, `withAndroidNotificationIntents` queues FCM tap intents before Expo SDK 57's
 startup delegate can drop them while the app loads. It remembers the original launch
 notification's message ID on the device, so restoring the task after process death cannot
-replay that notification ahead of a new tap. It stores no notification content.
+replay that notification ahead of a new tap. Separately, the native `NotificationIntents` module
+persists the latest pending tap's message ID and routing fields until JavaScript accepts the route.
+Restoring the task recovers that pending tap even if startup or sign-in was interrupted.
+Acknowledging an earlier tap cannot clear a newer pending tap.
+The store keeps report/task/project IDs and notification kind, without titles or message text.
 Local snooze reminders keep Expo's normal notification response path.
 This native workaround requires a new Android build; an OTA update cannot install it.
 Recheck the workaround when upgrading Expo ([upstream issue](https://github.com/expo/expo/issues/49254)).

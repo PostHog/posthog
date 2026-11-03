@@ -8,82 +8,95 @@ import { track } from '@/lib/analytics'
 import { withAppReloadBlocked } from '@/lib/appReload'
 
 import { isViewedNotificationTask, setViewedNotificationReport } from './foregroundNotifications'
+import { acknowledgeNotificationTap, getPendingNotificationTap, type NotificationTap } from './notificationIntents'
 import { notificationKind, notificationTarget, resolveNotificationRoute } from './notificationRouting'
 import { notificationsSupported } from './pushSupport'
 import { findTask } from './taskLookup'
 
 /** A cold-start tap can arrive both as the last response and through the listener. */
 const handled = new Set<string>()
+const inFlight = new Set<string>()
 
-async function openFromNotification(
-    response: Notifications.NotificationResponse,
-    isChatOpen: () => boolean
-): Promise<void> {
+function finishNotificationTap(identifier: string): void {
+    acknowledgeNotificationTap(identifier)
+    handled.add(identifier)
+    if (Notifications.getLastNotificationResponse()?.notification.request.identifier === identifier) {
+        Notifications.clearLastNotificationResponse()
+    }
+}
+
+async function openFromNotification(tap: NotificationTap, isChatOpen: () => boolean): Promise<void> {
     const auth = useAuthStore.getState()
     if (auth.status !== 'signed_in') {
         return
     }
-    const id = response.notification.request.identifier
-    if (handled.has(id)) {
+    const id = tap.identifier
+    if (handled.has(id) || inFlight.has(id)) {
         return
     }
-    handled.add(id)
-    Notifications.clearLastNotificationResponse()
-    const data: unknown = response.notification.request.content.data
-    track('mobile_push_opened', { kind: notificationKind(data) })
-    const route = await resolveNotificationRoute(data, {
-        currentProjectId: auth.projectId,
-        projectIds: auth.projects.map((project) => project.id),
-        findTask,
-    })
-    const currentAuth = useAuthStore.getState()
-    if (
-        currentAuth.status !== 'signed_in' ||
-        currentAuth.host !== auth.host ||
-        currentAuth.user?.uuid !== auth.user?.uuid
-    ) {
-        return
-    }
-    if (!route) {
-        return
-    }
-    // A push is about live data, which demo mode would hide behind fixtures.
-    if (useDemoMode.getState().enabled) {
-        track('mobile_demo_ended', { from: 'push' })
-        useDemoMode.getState().setEnabled(false)
-    }
-    if (route.switchToProjectId !== null) {
-        useAuthStore.getState().selectProject(route.switchToProjectId, 'push')
-    }
-    const target = notificationTarget(data)
-    const chatOpen = isChatOpen()
-    const isChatRoute = route.pathname.startsWith('/chat?')
-    const projectId = route.switchToProjectId ?? auth.projectId
-    // Creating a task or tapping New chat changes the live session without changing the route's taskId.
-    if (
-        chatOpen &&
-        isChatRoute &&
-        target?.type === 'task' &&
-        auth.host &&
-        auth.user &&
-        projectId !== null &&
-        isViewedNotificationTask({
-            accountKey: `${auth.host.replace(/\/$/, '')}|${auth.user.uuid}`,
-            projectId,
-            taskId: target.id,
+    inFlight.add(id)
+    try {
+        const data = tap.data
+        track('mobile_push_opened', { kind: notificationKind(data) })
+        const route = await resolveNotificationRoute(data, {
+            currentProjectId: auth.projectId,
+            projectIds: auth.projects.map((project) => project.id),
+            findTask,
         })
-    ) {
-        return
-    }
-    if (route.pathname === '/inbox') {
-        router.navigate('/inbox')
-    } else {
-        const href = `${route.pathname}${route.pathname.includes('?') ? '&' : '?'}from=push`
-        if (chatOpen && isChatRoute) {
-            router.replace(href)
-        } else {
-            router.push(href)
+        const currentAuth = useAuthStore.getState()
+        if (
+            currentAuth.status !== 'signed_in' ||
+            currentAuth.host !== auth.host ||
+            currentAuth.user?.uuid !== auth.user?.uuid
+        ) {
+            return
         }
+        if (!route) {
+            finishNotificationTap(id)
+            return
+        }
+        // A push is about live data, which demo mode would hide behind fixtures.
+        if (useDemoMode.getState().enabled) {
+            track('mobile_demo_ended', { from: 'push' })
+            useDemoMode.getState().setEnabled(false)
+        }
+        if (route.switchToProjectId !== null) {
+            useAuthStore.getState().selectProject(route.switchToProjectId, 'push')
+        }
+        const target = notificationTarget(data)
+        const chatOpen = isChatOpen()
+        const isChatRoute = route.pathname.startsWith('/chat?')
+        const projectId = route.switchToProjectId ?? auth.projectId
+        // Creating a task or tapping New chat changes the live session without changing the route's taskId.
+        if (
+            chatOpen &&
+            isChatRoute &&
+            target?.type === 'task' &&
+            auth.host &&
+            auth.user &&
+            projectId !== null &&
+            isViewedNotificationTask({
+                accountKey: `${auth.host.replace(/\/$/, '')}|${auth.user.uuid}`,
+                projectId,
+                taskId: target.id,
+            })
+        ) {
+            finishNotificationTap(id)
+            return
+        }
+        if (route.pathname === '/inbox') {
+            router.navigate('/inbox')
+        } else {
+            const href = `${route.pathname}${route.pathname.includes('?') ? '&' : '?'}from=push`
+            if (chatOpen && isChatRoute) {
+                router.replace(href)
+            } else {
+                router.push(href)
+            }
+        }
+        finishNotificationTap(id)
+    } finally {
+        inFlight.delete(id)
     }
 }
 
@@ -111,16 +124,24 @@ export function useNotificationRouting(): void {
         if (!navigationReady || !signedIn || !notificationsSupported()) {
             return
         }
-        const open = (response: Notifications.NotificationResponse): void => {
+        const open = (tap: NotificationTap): void => {
             void withAppReloadBlocked(() =>
-                openFromNotification(response, () => navigation.getCurrentRoute()?.name === 'chat')
+                openFromNotification(tap, () => navigation.getCurrentRoute()?.name === 'chat')
             ).catch(() => undefined)
         }
+        const fromResponse = (response: Notifications.NotificationResponse): void =>
+            open({
+                identifier: response.notification.request.identifier,
+                data: response.notification.request.content.data,
+            })
+        const pending = getPendingNotificationTap()
         const last = Notifications.getLastNotificationResponse()
-        if (last) {
-            open(last)
+        if (pending) {
+            open(pending)
+        } else if (last) {
+            fromResponse(last)
         }
-        const subscription = Notifications.addNotificationResponseReceivedListener(open)
+        const subscription = Notifications.addNotificationResponseReceivedListener(fromResponse)
         return () => subscription.remove()
     }, [navigationReady, signedIn, navigation])
 }

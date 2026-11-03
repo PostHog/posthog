@@ -179,7 +179,10 @@ Verify these sequences against both base and proposed builds:
    and kill the process, then tap a notification for B. B must open without reopening A.
 4. Repeat the notification-launched task sequence but reopen from Recents with no new tap.
    The original notification must not replay.
-5. Background the app and tap a local snooze reminder, then open a report deep link.
+5. Tap a notification to start a fresh task, then kill its process before JavaScript routes it.
+   Reopen from Recents without another tap. The pending target must open once.
+   Repeat while signed out, kill and reopen, then sign in. The pending target must still open.
+6. Background the app and tap a local snooze reminder, then open a report deep link.
    Both must still reach their targets. Repeat signed out, then sign in.
 
 Also perform real push delivery checks on physical Android and iOS devices before marking the PR ready.

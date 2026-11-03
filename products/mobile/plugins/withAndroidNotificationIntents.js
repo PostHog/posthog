@@ -6,9 +6,7 @@ const INTENT_HANDLER = `
   override fun onNewIntent(intent: android.content.Intent) {
     val extras = intent.extras
     if (extras?.containsKey("google.message_id") == true) {
-      val initialId = getSharedPreferences("posthog_notification_intents", MODE_PRIVATE)
-        .getString("initial_message_id", null)
-      if (extras.getString("google.message_id") != initialId) {
+      if (com.posthog.mobile.notifications.NotificationIntentStore.capture(this, extras, false)) {
         expo.modules.notifications.notifications.NotificationManager.onNotificationResponseFromExtras(Bundle(extras))
       }
       intent.removeExtra("google.message_id")
@@ -18,16 +16,11 @@ const INTENT_HANDLER = `
   }
 `
 
-// Android keeps its own copy of the task's original launch intent across process death.
-// Remember that one ID so a restored tap cannot occupy Expo's first-only pending-response slot.
+// Replay suppression and the pending tap have separate lifetimes: routing acknowledges only the pending tap.
 const INITIAL_INTENT = `
-    val initialMessageId = intent.getStringExtra("google.message_id")
-    if (initialMessageId != null) {
-      val preferences = getSharedPreferences("posthog_notification_intents", MODE_PRIVATE)
-      if (preferences.getString("initial_message_id", null) == initialMessageId) {
+    intent.extras?.let { extras ->
+      if (!com.posthog.mobile.notifications.NotificationIntentStore.capture(this, extras, true)) {
         intent.removeExtra("google.message_id")
-      } else {
-        preferences.edit().putString("initial_message_id", initialMessageId).apply()
       }
     }
 `
