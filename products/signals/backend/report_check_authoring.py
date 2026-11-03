@@ -348,7 +348,10 @@ def create_checks_from_specs(
     replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
     leaves the old checks running.
     """
-    specs = _without_unrunnable_agent_specs(report, specs)
+    runnable_specs = _without_unrunnable_agent_specs(report, specs)
+    if specs and not runnable_specs:
+        return CheckReconciliation(applied=False, created=[])
+    specs = runnable_specs
     try:
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)

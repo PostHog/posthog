@@ -236,54 +236,19 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             status = val[cols["status"]]
             data = [float(counts_by_date.get(date, 0)) for date in all_dates]
 
-            # legacy response compatibility object
-            action_object = {}
             label = "{} - {}".format("", status)
             if isinstance(series, ActionsNode):
                 action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, status)
-                action_object = {
-                    "id": str(action.pk),
-                    "name": action.name,
-                    "type": "actions",
-                    "order": 0,
-                    "math": "total",
-                }
-                custom_name = getattr(series, "custom_name", None)
-                if custom_name is not None:
-                    action_object["custom_name"] = custom_name
             elif isinstance(series, EventsNode):
                 event = series.event
                 label = "{} - {}".format("All events" if event is None else event, status)
-                action_object = {
-                    "id": event,
-                    "name": "All events" if event is None else event,
-                    "type": "events",
-                    "order": 0,
-                    "math": "total",
-                }
-                custom_name = getattr(series, "custom_name", None)
-                if custom_name is not None:
-                    action_object["custom_name"] = custom_name
             elif isinstance(series, LifecycleDataWarehouseNode):
-                data_warehouse_node = series
-                label = "{} - {}".format(data_warehouse_node.table_name, status)
-                action_object = {
-                    "id": data_warehouse_node.id,
-                    "name": data_warehouse_node.table_name,
-                    "type": "data_warehouse",
-                    "order": 0,
-                    "math": "total",
-                    "table_name": data_warehouse_node.table_name,
-                    "timestamp_field": data_warehouse_node.timestamp_field,
-                    "aggregation_target_field": data_warehouse_node.aggregation_target_field,
-                    "created_at_field": data_warehouse_node.created_at_field,
-                }
+                label = "{} - {}".format(series.table_name, status)
 
             additional_values = {"label": label, "status": status}
             results.append(
                 {
-                    "action": action_object,
                     "data": data,
                     "count": float(sum(data)),
                     "labels": labels,

@@ -10,7 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
@@ -21,9 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 @frozen
 class AttioResumeConfig:
-    # Row offset of the next page to fetch. The Redis key is per job, so one job never reads
-    # another endpoint's offset.
-    offset: int
+    # Position of the next page to fetch: a row offset, or an Attio cursor for cursor-paginated
+    # endpoints. The Redis key is per job, so one job never reads another endpoint's position.
+    offset: int | None = None
+    cursor: str | None = None
 
 
 class AttioOffsetPaginator(BasePaginator):
@@ -131,6 +135,11 @@ def get_resource(name: str) -> EndpointResource:
         endpoint_config["paginator"] = AttioOffsetPaginator(
             limit=config.page_size, use_json_body=True, initial_json=json_body
         )
+    elif config.pagination == "cursor":
+        endpoint_config["params"] = {"limit": config.page_size}
+        endpoint_config["paginator"] = JSONResponseCursorPaginator(
+            cursor_path="pagination.next_cursor", cursor_param="cursor"
+        )
     else:
         endpoint_config["paginator"] = AttioOffsetPaginator(limit=config.page_size)
 
@@ -220,12 +229,16 @@ def attio_source(
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"offset": resume.offset}
+            initial_paginator_state = {"offset": resume.offset, "cursor": resume.cursor}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # The offset points at the page after the one that carries this state, so a resume never
         # skips a page that the pipeline has not written.
-        if state and state.get("offset") is not None:
+        if not state:
+            return
+        if state.get("cursor") is not None:
+            resumable_source_manager.save_state(AttioResumeConfig(cursor=str(state["cursor"])))
+        elif state.get("offset") is not None:
             resumable_source_manager.save_state(AttioResumeConfig(offset=int(state["offset"])))
 
     resource = rest_api_resource(

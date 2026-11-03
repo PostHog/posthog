@@ -61,7 +61,13 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         # clears rather than surfacing it as tracked exception noise. `raise_for_status` derives
         # these prefixes from the status code alone, not the vendor's reason text, so they're
         # stable to match on.
-        return {"Server Error", "429 Client Error"}
+        #
+        # `DEFAULT_RETRY`'s connect-retry budget covers a dropped or reset connection the same way —
+        # a refused connection, a read timeout, or a TLS handshake reset (`SSLError`, which `requests`
+        # models as a `ConnectionError`) all count against it. urllib3 wraps the exhausted failure as
+        # "... Max retries exceeded with url: ..." regardless of the underlying cause, the same stable
+        # prefix Close, Google Sheets, Langfuse, Notion and SigNoz match for their own bespoke sessions.
+        return {"Server Error", "429 Client Error", "Max retries exceeded with url"}
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.canonical_descriptions import (

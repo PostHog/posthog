@@ -168,6 +168,19 @@ class TestPerProjectCursorFanout:
         assert result.paths[3] == "/api/v1/projects/p2/queriedTables"
         assert result.requests[3].param("after") is None
 
+    def test_422_with_no_structured_error_code_is_still_classified_non_retryable(self) -> None:
+        # Unlike GetProjectRuns, GetQueriedTables's 422 body carries no `code` field at all (just
+        # `details`/`traceId`/`reason`), so the structured-code key never matches. The raised
+        # error must still match a `get_non_retryable_errors()` key via the generic 422 fallback,
+        # or this project would retry forever against an identical, permanently-rejected request.
+        result = _driver().run(
+            "queried_tables",
+            [_projects_page(["p1"]), ScriptedResponse(status=422, json={"details": [], "traceId": "t", "reason": "x"})],
+        )
+
+        assert result.raised is not None
+        assert error_message_matches(str(result.raised), HexSource().get_non_retryable_errors())
+
 
 class TestRuntimeHostCheck:
     def test_blocks_unsafe_workspace_host_before_any_request(self) -> None:

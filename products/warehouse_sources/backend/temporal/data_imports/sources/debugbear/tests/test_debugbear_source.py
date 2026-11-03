@@ -45,6 +45,11 @@ class TestDebugbearSource:
             "502 Server Error: Bad Gateway for url: https://www.debugbear.com/api/v1/projects",
             "503 Server Error: Service Unavailable for url: https://www.debugbear.com/api/v1/projects",
             "429 Client Error: Too Many Requests for url: https://www.debugbear.com/api/v1/projects",
+            # A TLS handshake reset or a refused/dropped connection exhausts the same connect-retry
+            # budget and reaches us wrapped in urllib3's stable "Max retries exceeded" prefix.
+            "HTTPSConnectionPool(host='www.debugbear.com', port=443): Max retries exceeded with url: "
+            "/api/v1/projects (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] "
+            "EOF occurred in violation of protocol (_ssl.c:1082)')))",
         ],
     )
     def test_retryable_errors_match(self, message: str) -> None:

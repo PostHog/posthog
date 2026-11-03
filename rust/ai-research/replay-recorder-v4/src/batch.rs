@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use metrics::counter;
 use replay_core_v4::compression::{GZIP_MAGIC, MAX_DECOMPRESSED_BYTES};
+use replay_core_v4::inspect::css::CssRewrite;
 use replay_core_v4::inspect::dom::{Srcset, UrlLimit};
 use replay_core_v4::inspect::session::{BlockInspection, Moment, SessionInspector};
 use replay_core_v4::inspect::stats::BlockStats;
@@ -37,22 +38,26 @@ pub struct Raw {
     pub content_encoding: Option<String>,
 }
 
+/// The bytes a payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer states,
+/// or fails, so the flush size counts that instead of the compressed bytes.
+pub fn decoded_len(payload: &[u8], content_encoding: Option<&str>) -> usize {
+    let stated = if content_encoding == Some("lz4") {
+        payload.get(..4)
+    } else if payload.starts_with(&GZIP_MAGIC) {
+        payload.get(payload.len().saturating_sub(4)..)
+    } else {
+        None
+    };
+    let stated = stated
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(|b| u32::from_le_bytes(b) as usize)
+        .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
+    payload.len().max(stated.unwrap_or(0))
+}
+
 impl Raw {
-    /// The bytes the payload decompresses to. Decompression allocates the size that the lz4 prefix or the gzip footer
-    /// states, or fails, so the flush size counts that instead of the compressed bytes.
     pub fn decoded_len(&self) -> usize {
-        let stated = if self.content_encoding.as_deref() == Some("lz4") {
-            self.payload.get(..4)
-        } else if self.payload.starts_with(&GZIP_MAGIC) {
-            self.payload.get(self.payload.len().saturating_sub(4)..)
-        } else {
-            None
-        };
-        let stated = stated
-            .and_then(|b| <[u8; 4]>::try_from(b).ok())
-            .map(|b| u32::from_le_bytes(b) as usize)
-            .filter(|&n| n <= MAX_DECOMPRESSED_BYTES);
-        self.payload.len().max(stated.unwrap_or(0))
+        decoded_len(&self.payload, self.content_encoding.as_deref())
     }
 }
 
@@ -98,6 +103,7 @@ pub struct Block {
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
     pub srcsets: Vec<Srcset>,
+    pub css_rewrites: Vec<CssRewrite>,
     /// The distinct pages of the block's surfacing features, which the writer stores as fingerprints.
     pub visited_urls: Vec<String>,
     /// The earliest Kafka timestamp of the block's messages, for the capture watermark of the index topic.
@@ -119,10 +125,14 @@ const SESSION_EXPAND_BUDGET: usize = 256 * 1024 * 1024;
 /// memory parsed than in its payload, so a message that does not fit is skipped.
 const FLUSH_EVENTS_BUDGET: usize = 1024 * 1024 * 1024;
 
+/// The bytes of resolved CSS URLs one flush keeps. Each carries its page's origin, which many short URLs can outgrow.
+const FLUSH_RESOLVED_BUDGET: usize = 64 * 1024 * 1024;
+
 struct DecodeBudget {
     kept: AtomicUsize,
     expanded: AtomicUsize,
     events: AtomicUsize,
+    resolved: Arc<AtomicUsize>,
 }
 
 impl DecodeBudget {
@@ -131,6 +141,7 @@ impl DecodeBudget {
             kept: AtomicUsize::new(kept),
             expanded: AtomicUsize::new(expanded),
             events: AtomicUsize::new(FLUSH_EVENTS_BUDGET),
+            resolved: Arc::new(AtomicUsize::new(FLUSH_RESOLVED_BUDGET)),
         }
     }
 }
@@ -194,6 +205,10 @@ impl Batch {
             })
             .messages
             .push(raw);
+    }
+
+    pub fn room(&self, max_bytes: usize) -> usize {
+        max_bytes.saturating_sub(self.bytes)
     }
 
     pub fn should_flush(&self, interval: Duration, max_bytes: usize) -> bool {
@@ -484,8 +499,10 @@ fn inspect_session(
     }
     // A session can have messages on the main and the overflow topic in one flush. The inspector takes them in replay
     // order, so that a mutation never comes before the nodes it changes. Each still counts toward its partition's block.
-    let mut inspections: Vec<BlockInspection> =
-        decoded.iter().map(|_| BlockInspection::default()).collect();
+    let mut inspections: Vec<BlockInspection> = decoded
+        .iter()
+        .map(|_| BlockInspection::with_resolve_budget(budget.resolved.clone()))
+        .collect();
     let times: Vec<Vec<f64>> = decoded
         .iter()
         .map(|(_, messages, _)| messages.iter().map(replay_time).collect())
@@ -513,6 +530,7 @@ fn inspect_session(
                 remote_urls: inspected.remote_urls,
                 url_limit: inspected.url_limit,
                 srcsets: inspected.srcsets,
+                css_rewrites: inspected.css_rewrites,
                 visited_urls: inspected.features.visited_urls,
                 captured_at_ms,
             }

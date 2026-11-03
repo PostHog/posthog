@@ -1,26 +1,17 @@
 import uuid
 import typing
-from collections.abc import Callable
 
 import pydantic
 import posthoganalytics
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, PermissionDenied
-from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.request import Request
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.models import Team
 
 from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
-
-# The bounds of the integer columns, which a model serializer reads off the model.
-# TODO: Nothing here is specific to batch exports, and other products hard-code the same numbers.
-# Move these to core, for example derived from django.db.connection.ops.integer_field_range.
-INTEGER_MIN, INTEGER_MAX = -(2**31), 2**31 - 1
-BIG_INTEGER_MIN, BIG_INTEGER_MAX = -(2**63), 2**63 - 1
 
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example "
@@ -98,22 +89,3 @@ class HogQLModifiersField(serializers.JSONField):
         if isinstance(value, dict):
             value = drop_unknown_hogql_modifiers(value)
         return super().to_representation(value)
-
-
-def fetch_facade_page[T](
-    paginator: LimitOffsetPagination, request: Request, fetch_page: Callable[[int, int], tuple[list[T], int]]
-) -> list[T]:
-    """Fetch one page of a list through the facade with ``fetch_page(offset, limit)``, and set up the paginator for it.
-
-    The facade slices the page, so the paginator gets its state set directly instead of a queryset.
-    """
-    limit = paginator.get_limit(request)
-    offset = paginator.get_offset(request)
-    # PAGE_SIZE gives every request a limit.
-    assert limit is not None
-    items, count = fetch_page(offset, limit)
-    paginator.request = request
-    paginator.limit = limit
-    paginator.offset = offset
-    paginator.count = count
-    return items

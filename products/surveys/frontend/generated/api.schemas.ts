@@ -2359,7 +2359,20 @@ export interface SurveyResponseRowApi {
     extra: SurveyResponseExtraApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SurveyResponsesListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Survey response rows for the requested page. */
     results: SurveyResponseRowApi[]
     /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */

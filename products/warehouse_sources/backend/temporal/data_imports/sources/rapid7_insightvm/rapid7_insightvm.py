@@ -2,6 +2,7 @@ import dataclasses
 from typing import Any, Optional
 from urllib.parse import urlencode
 
+import structlog
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -13,23 +14,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     find_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     JSONResponseCursorPaginator,
+    PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.settings import (
     API_BASE_PATH,
-    MAX_PAGE_SIZE,
+    PAGE_NUMBER_MAX_PAGE,
     RAPID7_INSIGHTVM_ENDPOINTS,
     REGION_HOSTS,
+    Rapid7InsightvmEndpointConfig,
 )
 
+logger = structlog.get_logger(__name__)
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class Rapid7InsightvmResumeConfig:
     # Opaque cursor token returned in the previous page's `metadata.cursor`. `None` starts the
     # endpoint from its first page.
     cursor: str | None = None
+    # Next zero-based page for the page-number endpoints (scans, scan engines).
+    page: int | None = None
 
 
 class Rapid7InsightvmCursorPaginator(JSONResponseCursorPaginator):
@@ -58,6 +67,25 @@ class Rapid7InsightvmCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = True
 
 
+class Rapid7InsightvmPageNumberPaginator(PageNumberPaginator):
+    """Page-number pagination that warns when the collection outgrows the API's 10,000-result window."""
+
+    def __init__(self) -> None:
+        super().__init__(base_page=0, total_path="metadata.totalPages", maximum_page=PAGE_NUMBER_MAX_PAGE)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page or self.page <= PAGE_NUMBER_MAX_PAGE:
+            return
+        total_pages = (response.json().get("metadata") or {}).get("totalPages")
+        if isinstance(total_pages, int) and total_pages > PAGE_NUMBER_MAX_PAGE + 1:
+            logger.warning(
+                "Rapid7 InsightVM collection exceeds the 10,000-result page window, truncating",
+                path=response.request.path_url if response.request else None,
+                total_pages=total_pages,
+            )
+
+
 def _host(region: str) -> str:
     return REGION_HOSTS.get(region, REGION_HOSTS["us"])
 
@@ -72,6 +100,25 @@ def _headers(api_key: str) -> dict[str, str]:
 
 def _endpoint_url(region: str, path: str) -> str:
     return f"{_host(region)}{API_BASE_PATH}/{path}"
+
+
+def _paginator(config: Rapid7InsightvmEndpointConfig) -> BasePaginator:
+    if config.pagination == "page_number":
+        return Rapid7InsightvmPageNumberPaginator()
+    return Rapid7InsightvmCursorPaginator()
+
+
+def _endpoint(config: Rapid7InsightvmEndpointConfig) -> Endpoint:
+    endpoint: Endpoint = {
+        "method": config.method,
+        "path": f"{API_BASE_PATH}/{config.path}",
+        "params": {"size": config.page_size, **config.params},
+        "data_selector": "data",
+    }
+    if config.method == "POST":
+        # v4 search endpoints are POST operations; an empty JSON body returns all resources.
+        endpoint["json"] = {}
+    return endpoint
 
 
 def rapid7_insightvm_source(
@@ -92,7 +139,7 @@ def rapid7_insightvm_source(
             # logs and raised error messages; only the non-secret accept/content headers are set here.
             "headers": {"Accept": "application/json", "Content-Type": "application/json"},
             "auth": {"type": "api_key", "api_key": api_key, "name": "X-Api-Key", "location": "header"},
-            "paginator": Rapid7InsightvmCursorPaginator(),
+            "paginator": _paginator(config),
             # A 3xx from the credentialed endpoint would otherwise replay `X-Api-Key` to the redirect
             # target — reject redirects so the key stays pinned to the expected host.
             "allow_redirects": False,
@@ -101,14 +148,7 @@ def rapid7_insightvm_source(
         "resources": [
             {
                 "name": endpoint,
-                "endpoint": {
-                    # v4 search endpoints are POST operations; an empty JSON body returns all resources.
-                    "method": "POST",
-                    "path": f"{API_BASE_PATH}/{config.path}",
-                    "params": {"size": MAX_PAGE_SIZE},
-                    "json": {},
-                    "data_selector": "data",
-                },
+                "endpoint": _endpoint(config),
             }
         ],
     }
@@ -118,12 +158,16 @@ def rapid7_insightvm_source(
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.cursor is not None:
             initial_paginator_state = {"cursor": resume.cursor}
+        elif resume is not None and resume.page is not None:
+            initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next cursor remains; save AFTER a page is yielded so a crash re-yields
         # the last page (merge dedupes on the primary key) rather than skipping it.
         if state and state.get("cursor") is not None:
             resumable_source_manager.save_state(Rapid7InsightvmResumeConfig(cursor=str(state["cursor"])))
+        elif state and state.get("page") is not None:
+            resumable_source_manager.save_state(Rapid7InsightvmResumeConfig(page=int(state["page"])))
 
     resource = rest_api_resource(
         rest_config,

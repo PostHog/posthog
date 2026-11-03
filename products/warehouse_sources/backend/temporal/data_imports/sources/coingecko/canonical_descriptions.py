@@ -177,6 +177,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "volume": "Total trading volume over the 24 hours to that point, in USD.",
         },
     },
+    "global_fear_and_greed_chart": {
+        "description": "Daily history of the crypto Fear & Greed index, from 14 August 2024 onwards. The current value is on global_market_data. Requires a Pro API key on the Analyst plan or above.",
+        "docs_url": "https://docs.coingecko.com/reference/global-fear-and-greed-chart",
+        "columns": {
+            "timestamp": "Day of the data point, at 00:00 UTC.",
+            "value": "Fear & Greed index value from 0 (extreme fear) to 100 (extreme greed).",
+            "sentiment": "Sentiment band for the value: `extreme_fear` (0-30), `fear` (31-45), `neutral` (46-55), `greed` (56-70), or `extreme_greed` (71-100).",
+        },
+    },
     "exchange_rates": {
         "description": "Exchange rate of 1 BTC against every currency CoinGecko tracks, covering fiat, commodities and other crypto. Use it to convert the BTC-denominated columns on the derivatives and exchange tables into another currency.",
         "docs_url": "https://docs.coingecko.com/reference/exchange-rates",

@@ -1,5 +1,7 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -95,6 +97,132 @@ class TestFanOutPagination:
         # app-1 is skipped entirely; the first child fetch targets app-2 at the saved offset.
         assert all("/applications/app-2/" in r.path for r in child_requests)
         assert child_requests[0].param("offset") == "6"
+
+
+class TestNestedFanOut:
+    @patch(f"{MODULE}.PAGE_SIZE", 2)
+    def test_incremental_skips_quiet_groups_and_stops_paging_at_the_watermark(self) -> None:
+        groups = [
+            {"identifier": "eg-old", "lastOccurredAt": "2026-01-01T00:00:00Z"},
+            {"identifier": "eg-new", "lastOccurredAt": "2026-03-01T00:00:00Z"},
+        ]
+        instances = {
+            "0": [
+                {"identifier": "i-3", "occurredOn": "2026-03-01T00:00:00Z"},
+                {"identifier": "i-2", "occurredOn": "2026-02-20T00:00:00Z"},
+            ],
+            "2": [
+                {"identifier": "i-1", "occurredOn": "2026-02-10T00:00:00Z"},
+                {"identifier": "i-0", "occurredOn": "2026-01-10T00:00:00Z"},
+            ],
+        }
+
+        def script(request: Any) -> ScriptedResponse:
+            offset = request.param("offset") or "0"
+            if request.path.endswith("/applications"):
+                return ScriptedResponse(json=[{"identifier": "app-1"}] if offset == "0" else [])
+            if request.path.endswith("/error-groups"):
+                return ScriptedResponse(json=groups if offset == "0" else [])
+            assert "/error-groups/eg-new/instances" in request.path
+            return ScriptedResponse(json=instances.get(offset, []))
+
+        result = _run(
+            "error_instances",
+            script,
+            incremental_field="occurredOn",
+            db_incremental_field_last_value=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+
+        instance_requests = [r for r in result.requests if r.path.endswith("/instances")]
+        # The group last seen before the watermark is never read, and paging stops on the page that
+        # reaches below the watermark instead of reading the group's whole history.
+        assert [r.param("offset") for r in instance_requests] == ["0", "2"]
+        assert all(r.param("orderby") == "occurredOn desc" for r in instance_requests)
+        assert [row["identifier"] for row in result.rows] == ["i-3", "i-2", "i-1", "i-0"]
+        assert {(row["applicationIdentifier"], row["errorGroupIdentifier"]) for row in result.rows} == {
+            ("app-1", "eg-new")
+        }
+        # Skipping the quiet group still advances the cursor, so a resume does not re-check it.
+        assert result.saved_states[0] == RaygunResumeConfig(
+            nested_application_identifier="app-1", nested_parent_index=1
+        )
+
+    @patch(f"{MODULE}.PAGE_SIZE", 2)
+    def test_resume_continues_at_the_saved_state_filter_and_child_offset(self) -> None:
+        def script(request: Any) -> ScriptedResponse:
+            offset = request.param("offset") or "0"
+            if request.path.endswith("/applications"):
+                return ScriptedResponse(
+                    json=[{"identifier": "app-1"}, {"identifier": "app-2"}] if offset == "0" else []
+                )
+            if request.path.endswith("/deployments"):
+                return ScriptedResponse(json=[{"identifier": "d-1"}] if offset == "0" else [])
+            return ScriptedResponse(json=[{"identifier": f"eg-{offset}", "applicationIdentifier": "app-2"}])
+
+        result = _run(
+            "deployment_error_groups",
+            script,
+            resume_state=RaygunResumeConfig(
+                nested_application_identifier="app-2", nested_state_index=1, nested_child_offset=4
+            ),
+        )
+
+        child_requests = [r for r in result.requests if r.path.endswith("/error-groups")]
+        # app-1 and the `new` filter of app-2 were done before the interruption.
+        assert [(r.path, r.param("filter"), r.param("offset")) for r in child_requests] == [
+            ("/v3/applications/app-2/deployments/d-1/error-groups", "state eq regressed", "4")
+        ]
+        assert result.rows == [
+            {
+                "identifier": "eg-4",
+                "applicationIdentifier": "app-2",
+                "deploymentIdentifier": "d-1",
+                "deploymentState": "regressed",
+            }
+        ]
+        assert result.final_state == RaygunResumeConfig(nested_application_identifier="app-2", nested_parent_index=1)
+
+
+class TestMetrics:
+    @pytest.mark.parametrize("incremental", [True, False])
+    def test_request_window_and_row_shape(self, incremental: bool) -> None:
+        def script(request: Any) -> ScriptedResponse:
+            if request.path.endswith("/applications"):
+                return ScriptedResponse(json=[{"identifier": "app-1"}] if request.param("offset") == "0" else [])
+            return ScriptedResponse(
+                json=[
+                    {
+                        "aggregation": "count",
+                        "metric": "errorInstances",
+                        "series": [{"time": "2026-10-31T10:00:00Z", "value": 3}],
+                    }
+                ]
+            )
+
+        watermark = datetime.now(UTC) - timedelta(days=2, minutes=17)
+        inputs: dict[str, Any] = (
+            {"incremental_field": "time", "db_incremental_field_last_value": watermark} if incremental else {}
+        )
+        result = _run("error_metrics", script, **inputs)
+
+        bodies = [r.json() for r in result.requests if r.method == "POST"]
+        assert len(bodies) == 1
+        start = datetime.fromisoformat(bodies[0]["start"])
+        end = datetime.fromisoformat(bodies[0]["end"])
+        expected_start = watermark if incremental else end - timedelta(days=30)
+        assert start == expected_start.replace(minute=0, second=0, microsecond=0)
+        assert (end.minute, end.second) == (0, 0)
+        assert bodies[0]["granularity"] == "1h"
+        assert bodies[0]["metrics"] == ["errorInstances"]
+        assert result.rows == [
+            {
+                "applicationIdentifier": "app-1",
+                "metric": "errorInstances",
+                "aggregation": "count",
+                "time": "2026-10-31T10:00:00Z",
+                "value": 3,
+            }
+        ]
 
 
 class TestRaygunSource:

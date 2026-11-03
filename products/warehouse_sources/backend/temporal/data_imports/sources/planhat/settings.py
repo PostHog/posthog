@@ -29,6 +29,10 @@ PLANHAT_ENDPOINTS: dict[str, PlanhatEndpointConfig] = {
     "churn": PlanhatEndpointConfig(name="churn", path="/churn"),
     "opportunities": PlanhatEndpointConfig(name="opportunities", path="/opportunities"),
     "line_items": PlanhatEndpointConfig(name="line_items", path="/lineitems"),
+    "products": PlanhatEndpointConfig(name="products", path="/products"),
+    # Planhat archives a task once it is completed, and the list endpoint returns only unarchived tasks by default.
+    "tasks": PlanhatEndpointConfig(name="tasks", path="/tasks"),
+    "custom_fields": PlanhatEndpointConfig(name="custom_fields", path="/customfields"),
     # Planhat calls metrics "dimension data". The `from`/`to` day filters apply to the metric's `time`,
     # not to when it was written, and backfilled values land on past days, so it stays full refresh too.
     "metrics": PlanhatEndpointConfig(name="metrics", path="/dimensiondata"),

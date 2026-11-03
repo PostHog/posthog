@@ -1,3 +1,4 @@
+import datetime as dt
 import dataclasses
 
 from django.db import transaction
@@ -52,6 +53,8 @@ class RecordSkippedDataModelingJobsInputs:
     dag_id: str
     engine: str
     skipped_nodes: list[SkippedDataModelingNode]
+    # Trino shadows reuse one parent workflow id across runs, so jobs from earlier runs must not count as already recorded.
+    run_started_at: str | None = None
 
 
 @database_sync_to_async_pool
@@ -149,14 +152,15 @@ def _record_skipped_data_modeling_jobs(
     }
     skipped_nodes = [nodes[skipped.node_id] for skipped in inputs.skipped_nodes if skipped.node_id in nodes]
     saved_query_ids = {node.saved_query_id for node in skipped_nodes if node.saved_query_id is not None}
-    existing_saved_query_ids = set(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            engine=inputs.engine,
-            parent_workflow_id=workflow_id,
-            saved_query_id__in=saved_query_ids,
-        ).values_list("saved_query_id", flat=True)
+    existing_jobs = DataModelingJob.objects.filter(
+        team_id=inputs.team_id,
+        engine=inputs.engine,
+        parent_workflow_id=workflow_id,
+        saved_query_id__in=saved_query_ids,
     )
+    if inputs.run_started_at:
+        existing_jobs = existing_jobs.filter(created_at__gte=dt.datetime.fromisoformat(inputs.run_started_at))
+    existing_saved_query_ids = set(existing_jobs.values_list("saved_query_id", flat=True))
 
     jobs = []
     for skipped in inputs.skipped_nodes:

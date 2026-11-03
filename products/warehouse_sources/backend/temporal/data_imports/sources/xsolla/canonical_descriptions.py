@@ -117,6 +117,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "read_only": "Whether the promotion is read-only.",
         },
     },
+    "promotion_rewards": {
+        "description": "Rewards of each promotion: purchase discounts, package bonuses, item rewards, and subscription trials.",
+        "docs_url": "https://developers.xsolla.com/api/subscriptions/operation/get-rewards/",
+        "columns": {
+            "promotion_id": "ID of the promotion that the rewards belong to.",
+            "purchase": "Reward for the whole purchase: the discount percentage.",
+            "package": "Reward for a virtual currency package: a bonus percentage or a bonus amount of the currency.",
+            "item": "Rewards for specific virtual items: item discounts and extra items given as a bonus.",
+            "subscription": "Reward for a subscription: the trial period in days.",
+        },
+    },
+    "payouts_breakdown": {
+        "description": "Payment, commission, tax, and payout totals for each currency, one row for each calendar month.",
+        "docs_url": "https://developers.xsolla.com/api/pay-station/operation/get-payouts-breakdown/",
+        "columns": {
+            "period_start": "First day of the calendar month that the totals cover.",
+            "period_end": "Last day of the calendar month that the totals cover. The current month ends on the sync date.",
+            "IsoCurrency": "ISO 4217 currency code of the totals.",
+        },
+    },
     "projects": {
         "description": "Projects in the merchant's Publisher Account.",
         "docs_url": PAY_STATION_DOCS,

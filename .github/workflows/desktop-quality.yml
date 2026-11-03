@@ -4,6 +4,12 @@ on:
     # Dispatched by desktop-ci.yml, the single PR/merge_group run for the whole
     # desktop suite; merge_group gating and PR concurrency live there.
     workflow_call:
+        inputs:
+            run-suite:
+                description: Whether this suite needs to run; an empty value uses local change detection.
+                type: string
+                required: false
+                default: ''
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
@@ -22,8 +28,9 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: github.event_name != 'merge_group'
+        if: github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
+            contents: read
             pull-requests: read
         outputs:
             # On master pushes the filter step is skipped and everything runs.
@@ -31,6 +38,13 @@ jobs:
             code: ${{ steps.filter.outputs.agent == 'true' && 'true' || steps.filter.outputs.code || 'true' }}
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: github.event_name == 'pull_request'
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+
             # Own rate-limit bucket; the shared GITHUB_TOKEN goes hot at merge peaks.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -43,10 +57,9 @@ jobs:
             - name: Detect relevant changes
               id: filter
               if: github.event_name == 'pull_request'
-              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              uses: ./.github/actions/paths-filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: every
                   filters: |
                       # Biome lints tracked JSON in .vscode/.claude, so only workflow YAML and
                       # documentation markdown are ignored: the app loads markdown under src/ at runtime.
@@ -69,7 +82,7 @@ jobs:
     quality:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 15
         permissions:
