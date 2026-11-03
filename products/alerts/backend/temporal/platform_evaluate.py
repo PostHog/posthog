@@ -38,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts.backend.platform_investigation_detail import (
         InvestigationClaims,
         InvestigationStart,
+        MetricsInvestigationRun,
         requested_investigation,
     )
     from products.alerts_platform.backend.facade.contracts import (
@@ -95,6 +96,12 @@ STOP_QUERIES_START_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 CLAIM_START_TO_CLOSE = dt.timedelta(seconds=10)
 CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
+# A metrics alert's investigation is a few bounded metric queries. One attempt, because the run
+# leases its row, so a retry would find it taken.
+METRICS_INVESTIGATION_START_TO_CLOSE = dt.timedelta(seconds=45)
+# Time a run's queries can take, so the last run starts while the activity can still finish it.
+METRICS_INVESTIGATION_MARGIN = dt.timedelta(seconds=15)
+METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE = METRICS_INVESTIGATION_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
 # checks per tick. Rounds refill the slots that finished checks free, the way production's
@@ -104,7 +111,8 @@ ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # What the source needs from its binding's `evaluation_timeout`. The checks run side by side, so
 # the batch costs the admission rounds plus one check's budget, not one per check. The last check
 # can end while an earlier record still runs, so the tail holds two records and their failures,
-# or one record and the stop of a failed check's queries.
+# or one record and the stop of a failed check's queries. A firing's claim follows its record, and a
+# failed check claims nothing.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
@@ -112,7 +120,8 @@ EVALUATION_BUDGET = (
     + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
     + CLAIM_SCHEDULE_TO_CLOSE
-    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE + CLAIM_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
+    + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
+    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
 # Runs started before it recorded every outcome in one activity, and replay must schedule the same.
@@ -130,6 +139,8 @@ _PATCH_RECORD_AS_FINISHED = "platform-insight-record-as-finished-2026-10"
 _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
 # Runs started before it claimed investigations after a record, and replay must not schedule a claim.
 _PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
+# Runs started before it ran metrics investigations after a claim, and replay must not schedule one.
+_PATCH_METRICS_INVESTIGATIONS = "platform-insight-metrics-investigations-2026-11"
 
 
 @frozen
@@ -178,6 +189,11 @@ class FailedInsightCheckInputs:
 class ClaimInsightInvestigationsInputs:
     team_id: int
     outcomes: tuple[PlatformAlertOutcome, ...]
+
+
+@frozen
+class MetricsInvestigationsInputs:
+    runs: tuple[MetricsInvestigationRun, ...]
 
 
 @frozen
@@ -363,6 +379,35 @@ def claim_platform_insight_investigations_activity(inputs: ClaimInsightInvestiga
     from products.alerts.backend.platform_investigation import claim_requested_investigations  # noqa: PLC0415
 
     return claim_requested_investigations(inputs.team_id, inputs.outcomes)
+
+
+@activity.defn
+@close_db_connections
+def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsInputs) -> list[AlertDeliveryRequest]:
+    """Runs the metrics investigations a claim granted, apart from the claim, so their queries never
+    hold back an agent's start. Releases each run's held firing, and returns the deliveries to start."""
+    from products.alerts.backend.platform_investigation import (
+        fail_unstarted_metrics_investigation,  # noqa: PLC0415
+        release_metrics_firing,  # noqa: PLC0415
+        run_metrics_investigation,  # noqa: PLC0415
+    )
+    from products.alerts.backend.platform_source_cycle import ClickHouseQuerySlot  # noqa: PLC0415
+
+    # Stops starting runs before the activity's own timeout, because Temporal does not stop a sync
+    # loop that outlives it. A run already started finishes its own queries.
+    deadline = time.monotonic() + (METRICS_INVESTIGATION_START_TO_CLOSE - METRICS_INVESTIGATION_MARGIN).total_seconds()
+    released: list[AlertDeliveryRequest] = []
+    for run in inputs.runs:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail_unstarted_metrics_investigation(run)
+        else:
+            # The slot wait counts against the same deadline, so a full ClickHouse budget cannot use up the activity.
+            slot = ClickHouseQuerySlot(f"metrics-investigation:{run.investigation_id}", wait_seconds=remaining)
+            run_metrics_investigation(run, query_slot=slot)
+        if request := release_metrics_firing(run):
+            released.append(request)
+    return released
 
 
 @activity.defn
@@ -794,6 +839,20 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         claims = await self._claim_investigations(inputs, outcomes)
         await asyncio.gather(*(self._start_investigation(start) for start in claims.starts))
         await start_deliveries(list(claims.deliveries))
+        if workflow.patched(_PATCH_METRICS_INVESTIGATIONS) and claims.metrics:
+            try:
+                released = await workflow.execute_activity(
+                    run_platform_metrics_investigations_activity,
+                    MetricsInvestigationsInputs(runs=claims.metrics),
+                    start_to_close_timeout=METRICS_INVESTIGATION_START_TO_CLOSE,
+                    schedule_to_close_timeout=METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError:
+                # The held firings go out at their hold's deadline, and the rows stay in flight until the horizon passes.
+                workflow.logger.warning("Could not run the metrics investigations of platform insight firings")
+            else:
+                await start_deliveries(released)
 
     async def _claim_investigations(
         self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]
@@ -843,6 +902,7 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     evaluate_platform_insight_check_activity,
     render_platform_insight_chart_activity,
     claim_platform_insight_investigations_activity,
+    run_platform_metrics_investigations_activity,
     fail_platform_insight_check_activity,
     stop_platform_insight_queries_activity,
 ]

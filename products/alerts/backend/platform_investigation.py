@@ -8,6 +8,8 @@ The decision is a read, so it can run inside an evaluation that a retry repeats.
 write, and runs once the evaluation is recorded.
 """
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -15,7 +17,12 @@ from uuid import UUID
 
 from django.db import connection, transaction
 
+import structlog
+
+from posthog.schema import AlertState as InsightAlertState
+
 from posthog.dataclasses import frozen
+from posthog.tasks.alerts.metrics_investigation import investigate_metrics_alert, should_investigate_metrics_alert
 from posthog.temporal.alerts.investigation import (
     InvestigationDecision,
     carried_verdict_suppresses,
@@ -36,11 +43,14 @@ from products.alerts.backend.models.alert import AlertConfiguration, Investigati
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_investigation_detail import (
     INVESTIGATION_REQUESTED_KEY,
+    METRICS_INVESTIGATION_REQUESTED_KEY,
     InvestigationClaims,
     InvestigationStart,
+    MetricsInvestigationRun,
     requested_investigation,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     AlertEventKind,
     HeldDelivery,
     HeldDeliveryAddress,
@@ -51,8 +61,13 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import HoldReleasedBy
 from products.alerts_platform.backend.facade.lifecycle import AlertState, NotificationAction
 
+logger = structlog.get_logger(__name__)
+
 _CLAIM_LOCK_SQL: Final = "SELECT pg_advisory_xact_lock(hashtext(%s))"
 HOLD_REASON: Final = "investigation"
+METRICS_HOLD_REASON: Final = "metrics_investigation"
+# A metrics investigation is a few bounded queries, so its firing waits minutes at most, not the agent's grace.
+METRICS_HOLD_SECONDS: Final = 5 * 60
 _EVALUATED_KEYS: Final = ("anomaly_scores", "triggered_points", "triggered_dates", "interval", "triggered_metadata")
 # A verdict-change follow-up is recorded under the key of the firing it follows up plus this suffix,
 # so it gets a delivery of its own.
@@ -144,7 +159,8 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
 
     A firing the agent investigates asks for its claim in `source_detail`, and a gated alert holds the
     firing's delivery until the verdict. A firing past the budget is muted when the firing's last
-    verdict suppresses it. Only an owned check, because a parallel run must never pay for an agent run.
+    verdict suppresses it. A metrics alert's firing asks for its metrics investigation, which holds
+    nothing. Only an owned check, because a parallel run must never pay for an agent run.
     """
     if not check.owned_by_platform or check.legacy_configuration_id is None or len(evaluation.outcomes) != 1:
         return evaluation
@@ -152,10 +168,36 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     # A skipped check keeps a firing alert's state without evaluating it, so it has nothing to investigate.
     if outcome.skipped or len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
         return evaluation
-    alert = AlertConfiguration.objects.filter(team_id=check.team_id, id=check.legacy_configuration_id).first()
+    alert = (
+        AlertConfiguration.objects.select_related("insight")
+        .filter(team_id=check.team_id, id=check.legacy_configuration_id)
+        .first()
+    )
     if alert is None:
         return evaluation
     group = outcome.groups[0]
+    was_firing = check.instance().state == AlertState.FIRING.value
+    if should_investigate_metrics_alert(
+        alert,
+        previous_state=InsightAlertState.FIRING if was_firing else None,
+        new_state=InsightAlertState.FIRING,
+    ):
+        group = replace(
+            group, source_detail={**group.source_detail, METRICS_INVESTIGATION_REQUESTED_KEY: str(alert.id)}
+        )
+        # Held, as the insight stack sends a metrics firing with its explanation. The hold also lets
+        # delivery drop the incident trigger of a firing that resolved while it waited.
+        metrics_held = None
+        if evaluation.deliveries:
+            (request,) = evaluation.deliveries
+            metrics_held = HeldDelivery(
+                request=request, reason=METRICS_HOLD_REASON, release_after_seconds=METRICS_HOLD_SECONDS
+            )
+        return replace(
+            evaluation,
+            outcomes=(replace(outcome, groups=(group,), held_delivery=metrics_held),),
+            deliveries=() if metrics_held else evaluation.deliveries,
+        )
     decision = decide_investigation(
         alert,
         firing=True,
@@ -184,13 +226,14 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
 
 
 def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOutcome, ...]) -> InvestigationClaims:
-    """Claims the investigation each recorded firing asked for, and returns the agent runs to start.
+    """Claims the investigation each recorded firing asked for, and returns the runs to start.
 
     A refused claim releases the firing's held delivery by the firing's last verdict, as the insight
     stack mutes a check that runs no investigation of its own.
     """
     starts: list[InvestigationStart] = []
     deliveries = []
+    metrics: list[MetricsInvestigationRun] = []
     for outcome in outcomes:
         requested = requested_investigation(outcome)
         if requested is None:
@@ -200,6 +243,27 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
             # The safety net sends the held firing at its deadline.
             continue
         group = outcome.groups[0]
+        if requested.metrics:
+            claim = claim_investigation(
+                alert,
+                configuration_id=outcome.configuration_id,
+                evaluation_key=outcome.evaluation_key,
+                episode_started_at=requested.episode_started_at,
+                kind=InsightAlertInvestigation.Kind.METRICS,
+                evaluated={"value": group.value},
+            )
+            if claim.claimed:
+                metrics.append(
+                    MetricsInvestigationRun(
+                        team_id=team_id,
+                        investigation_id=str(claim.investigation_id),
+                        configuration_id=str(outcome.configuration_id),
+                        evaluation_key=outcome.evaluation_key,
+                    )
+                )
+            elif outcome.held_delivery is not None and (request := _release_metrics_hold(team_id, outcome)):
+                deliveries.append(request)
+            continue
         claim = claim_investigation(
             alert,
             configuration_id=outcome.configuration_id,
@@ -237,4 +301,67 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
         )
         if request is not None:
             deliveries.append(request)
-    return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries))
+    return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries), metrics=tuple(metrics))
+
+
+def _release_metrics_hold(team_id: int, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
+    return release_held(
+        HeldDeliveryAddress(
+            team_id=team_id, configuration_id=str(outcome.configuration_id), evaluation_key=outcome.evaluation_key
+        ),
+        suppress=False,
+        released_by=HoldReleasedBy.CLAIM_REFUSED,
+    )
+
+
+def release_metrics_firing(run: MetricsInvestigationRun) -> AlertDeliveryRequest | None:
+    """Sends the firing a metrics investigation held, once the run ended or could not start. Returns
+    the request the caller starts. A retry gets the same request back."""
+    return release_held(
+        HeldDeliveryAddress(
+            team_id=run.team_id, configuration_id=run.configuration_id, evaluation_key=run.evaluation_key
+        ),
+        suppress=False,
+        released_by=HoldReleasedBy.VERDICT,
+    )
+
+
+def fail_unstarted_metrics_investigation(run: MetricsInvestigationRun) -> None:
+    """Records that a granted metrics investigation never started, because its activity ran out of time."""
+    InsightAlertInvestigation.objects.for_team(run.team_id).filter(
+        id=run.investigation_id, status=InvestigationStatus.PENDING
+    ).update(
+        status=InvestigationStatus.FAILED, error={"message": "The investigation ran out of time before it started."}
+    )
+
+
+def run_metrics_investigation(
+    run: MetricsInvestigationRun, *, query_slot: Callable[[], AbstractContextManager[None]] = nullcontext
+) -> None:
+    """Runs a metrics alert's investigation once, and records its summary or its failure.
+
+    The move from PENDING to RUNNING is the run's lease, so a retry of a timed-out attempt finds the
+    row taken and runs nothing. A run that dies holds RUNNING until the in-flight horizon passes,
+    as an agent run that dies does. Its failure never fails the activity, because the firing it
+    explains has already gone out. `query_slot` holds a ClickHouse slot around the queries, so they
+    share the evaluation's concurrency cap.
+    """
+    rows = InsightAlertInvestigation.objects.for_team(run.team_id).filter(id=run.investigation_id)
+    if not rows.filter(status=InvestigationStatus.PENDING).update(status=InvestigationStatus.RUNNING):
+        return
+    investigation = rows.select_related("alert_configuration__insight", "alert_configuration__team").get()
+    alert = investigation.alert_configuration
+    running = rows.filter(status=InvestigationStatus.RUNNING)
+    try:
+        # The firing's start, because a metrics alert investigates only the check that started firing.
+        with query_slot():
+            summary = investigate_metrics_alert(
+                alert, fired_at=investigation.episode_started_at or investigation.created_at
+            )
+    except Exception as error:
+        logger.exception("platform_metrics_alert_investigation_failed", alert_id=str(alert.id))
+        running.update(
+            status=InvestigationStatus.FAILED, error={"message": (str(error) or type(error).__name__)[:1000]}
+        )
+        return
+    running.update(status=InvestigationStatus.DONE, summary=summary)

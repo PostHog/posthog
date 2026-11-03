@@ -68,7 +68,9 @@ from products.alerts.backend.platform_source_cycle import (
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
     InsightBatchPlanInputs,
+    MetricsInvestigationsInputs,
     plan_platform_insight_checks_activity,
+    run_platform_metrics_investigations_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -1004,6 +1006,39 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome.held_delivery is None
         assert len(self.deliveries) == 1
 
+    @parameterized.expand([("found", None, InvestigationStatus.DONE), ("failed", RuntimeError("no data"), "failed")])
+    def test_a_metrics_firing_is_held_until_its_investigation_ends(
+        self, _name: str, error: Exception | None, status: str
+    ) -> None:
+        alert = self._alert(investigation_agent_enabled=True, investigation_gates_notifications=True)
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+        with patch(
+            "products.alerts.backend.platform_investigation.investigate_metrics_alert",
+            side_effect=error,
+            return_value="queue.depth moved up.",
+        ) as investigate:
+            released = [
+                run_platform_metrics_investigations_activity(MetricsInvestigationsInputs(runs=claims.metrics))
+                for _ in range(2)
+            ]
+
+        assert outcome.held_delivery is not None
+        assert self.deliveries == ()
+        assert (claims.starts, len(claims.metrics)) == ((), 1)
+        # Released once the run ends, whatever it found, and a retry gets the same request back.
+        assert released == [[outcome.held_delivery.request]] * 2
+        investigate.assert_called_once()
+        assert investigate.call_args.kwargs["fired_at"] == CUTOFF
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
+        assert (investigation.kind, investigation.status) == (InsightAlertInvestigation.Kind.METRICS, status)
+        assert investigation.summary == ("queue.depth moved up." if error is None else None)
+
     def test_a_skipped_check_of_a_firing_alert_asks_for_no_investigation(self) -> None:
         _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
         record_outcomes(self.team.id, (self._fire(configuration),), CUTOFF)
@@ -1017,3 +1052,22 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome is not None
         assert outcome.skipped
         assert requested_investigation(outcome) is None
+
+    def test_a_metrics_run_past_its_activity_deadline_is_recorded_as_failed(self) -> None:
+        alert = self._alert(investigation_agent_enabled=True)
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        with (
+            patch("products.alerts.backend.temporal.platform_evaluate.time.monotonic", side_effect=[0.0, 10_000.0]),
+            patch("products.alerts.backend.platform_investigation.investigate_metrics_alert") as investigate,
+        ):
+            run_platform_metrics_investigations_activity(MetricsInvestigationsInputs(runs=claims.metrics))
+
+        investigate.assert_not_called()
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
+        assert investigation.status == InvestigationStatus.FAILED

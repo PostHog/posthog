@@ -330,22 +330,24 @@ def readmit_retried_check(
     return token if admitted else None
 
 
-class _ClickHouseSlot:
+class ClickHouseQuerySlot:
     """Holds a ClickHouse slot around one attempt's query, and counts how long it waited for one.
 
     Raises `ClickHouseBudgetFull` when no slot comes free in time. `holder` names one attempt of one
     check, so a retry never takes over the slot of the attempt before it.
     """
 
-    def __init__(self, holder: str) -> None:
+    def __init__(self, holder: str, *, wait_seconds: float | None = None) -> None:
         self.holder = holder
         self.waited_ms = 0
+        # A caller with a budget of its own waits no longer than it, on the same shared cap.
+        self._limit = _QUERY_LIMIT if wait_seconds is None else replace(_QUERY_LIMIT, retry_timeout=wait_seconds)
 
     @contextmanager
     def __call__(self) -> Iterator[None]:
         waiting_since = time.monotonic()
         try:
-            slot = _QUERY_LIMIT.use(self.holder, limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS)
+            slot = self._limit.use(self.holder, limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS)
         except ConcurrencyLimitExceeded as error:
             raise ClickHouseBudgetFull() from error
         except Exception as error:
@@ -359,13 +361,13 @@ class _ClickHouseSlot:
         finally:
             if slot is not None:
                 try:
-                    _QUERY_LIMIT.release(slot)
+                    self._limit.release(slot)
                 except Exception:
                     # Best effort, so a Redis failure never replaces the query's result. The lease frees the slot.
                     logger.exception("Could not release a ClickHouse slot", holder=self.holder)
 
 
-def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: _ClickHouseSlot) -> T:
+def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: ClickHouseQuerySlot) -> T:
     """Runs a check's query, and runs it again after a ClickHouse refusal for load, on the retry
     policy production evaluates the alert's cadence with.
 
@@ -744,7 +746,7 @@ def _decide(
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
-    query_slot = _ClickHouseSlot(f"{evaluation_id}:{attempt}")
+    query_slot = ClickHouseQuerySlot(f"{evaluation_id}:{attempt}")
     if check.grouping.mode != GroupingMode.SINGLE:
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
@@ -907,7 +909,7 @@ def _decide_grouped(
     alert: AlertConfiguration,
     *,
     now: datetime,
-    query_slot: _ClickHouseSlot,
+    query_slot: ClickHouseQuerySlot,
 ) -> PlatformAlertOutcome | None:
     """One check of a breakdown alert, judged per breakdown value through the platform's decision.
 
