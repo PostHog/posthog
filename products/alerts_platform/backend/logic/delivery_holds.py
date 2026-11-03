@@ -16,11 +16,13 @@ from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AnnouncedTransition,
     HeldDeliveryAddress,
+    IncidentAction,
     PlatformAlertOutcome,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
-from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertState
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
 # As long as the history rows a hold annotates live, so a reader never finds one without the other.
@@ -175,6 +177,38 @@ def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) ->
         # An unreleased hold has no action, and the exclusion keeps it.
         .exclude(release_action=HoldRelease.SEND)
         .exists()
+    )
+
+
+def stale_held_triggers(request: AlertDeliveryRequest, transitions: Sequence[AnnouncedTransition]) -> frozenset[str]:
+    """The groups of a held evaluation whose incident trigger must not go out.
+
+    A hold can release after a later evaluation resolved the firing it held, and nothing orders the
+    two sends. A trigger sent then would open an incident that no resolve follows. So a trigger goes
+    out only while its group is still in the firing the held evaluation saw. The message still goes,
+    as a late firing does.
+    """
+    triggering = {key for key, action in request.incident_actions.items() if action == IncidentAction.TRIGGER}
+    if not triggering:
+        return frozenset()
+    held = (
+        PlatformAlertDeliveryHold.objects.for_team(request.team_id)
+        .filter(configuration_id=request.configuration_id, evaluation_key=request.evaluation_key)
+        .exists()
+    )
+    if not held:
+        return frozenset()
+    current = {
+        grouping_key: (state, firing_started_at)
+        for grouping_key, state, firing_started_at in PlatformAlert.objects.for_team(request.team_id)
+        .filter(configuration_id=request.configuration_id, grouping_key__in=triggering)
+        .values_list("grouping_key", "state", "firing_started_at")
+    }
+    return frozenset(
+        transition.grouping_key
+        for transition in transitions
+        if transition.grouping_key in triggering
+        and current.get(transition.grouping_key) != (PlatformAlertState.FIRING, transition.episode_started_at)
     )
 
 
