@@ -9,7 +9,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { CountCell } from './CountCell'
 import { DotGlyph } from './DotGlyph'
-import { getDotMatrixCellCount, normalizeDotMatrixData } from './dotMatrixData'
+import {
+    getDotMatrixCellCount,
+    normalizeDotMatrixCountScale,
+    normalizeDotMatrixData,
+    normalizeDotMatrixSizeThresholds,
+} from './dotMatrixData'
 import { DotMatrixLegend } from './DotMatrixLegend'
 import { DotMatrixTooltip } from './DotMatrixTooltip'
 import type { DotMatrixAxisItem, DotMatrixProps } from './types'
@@ -44,6 +49,8 @@ export function DotMatrix<D extends Record<string, unknown>>({
         () => normalizeDotMatrixData({ data, fields, rows, columns, series }),
         [data, fields, rows, columns, series]
     )
+    const resolvedSizeThresholds = useMemo(() => normalizeDotMatrixSizeThresholds(sizeThresholds), [sizeThresholds])
+    const resolvedCountScale = useMemo(() => countScale && normalizeDotMatrixCountScale(countScale), [countScale])
     const coloredSeries = useMemo(
         () =>
             matrix.series.map((item, index) => ({
@@ -78,11 +85,21 @@ export function DotMatrix<D extends Record<string, unknown>>({
                 series={coloredSeries}
                 groups={groups}
                 values={cell.values}
-                sizeThresholds={sizeThresholds}
+                sizeThresholds={resolvedSizeThresholds}
                 label={label}
             />
         ) : (
-            <CountCell value={count} scale={countScale} label={label} />
+            <CountCell value={count} scale={resolvedCountScale} label={label} />
+        )
+        const tooltipContent = renderTooltip ? (
+            renderTooltip(cell)
+        ) : (
+            <DotMatrixTooltip
+                cell={cell}
+                rowLabel={row.label ?? row.key}
+                columnLabel={column?.label ?? columnKey}
+                series={coloredSeries}
+            />
         )
         const cellContent = onCellClick ? (
             <button
@@ -95,28 +112,12 @@ export function DotMatrix<D extends Record<string, unknown>>({
                 {content}
             </button>
         ) : (
-            <div className="DotMatrix__cell" tabIndex={renderCell ? undefined : 0}>
+            <div className="DotMatrix__cell" tabIndex={tooltipContent ? 0 : undefined}>
                 {content}
             </div>
         )
         return (
-            <Tooltip
-                title={
-                    renderTooltip ? (
-                        renderTooltip(cell)
-                    ) : (
-                        <DotMatrixTooltip
-                            cell={cell}
-                            rowLabel={row.label ?? row.key}
-                            columnLabel={column?.label ?? columnKey}
-                            series={coloredSeries}
-                        />
-                    )
-                }
-                delayMs={100}
-                placement="bottom"
-                className="DotMatrix__tooltip"
-            >
+            <Tooltip title={tooltipContent} delayMs={100} placement="bottom" className="DotMatrix__tooltip">
                 {cellContent}
             </Tooltip>
         )
@@ -173,8 +174,8 @@ export function DotMatrix<D extends Record<string, unknown>>({
                     series={coloredSeries}
                     groups={groups}
                     mode={mode}
-                    sizeThresholds={sizeThresholds}
-                    countScale={countScale}
+                    sizeThresholds={resolvedSizeThresholds}
+                    countScale={resolvedCountScale}
                     selectedSeries={selectedSeries}
                     onSelectedSeriesChange={onSelectedSeriesChange}
                     labels={legend}

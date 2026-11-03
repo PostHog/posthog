@@ -11,9 +11,10 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { CountCell } from './CountCell'
 import { DotMatrix } from './DotMatrix'
-import { DotMatrixAccountTooltip } from './DotMatrixAccountTooltip'
+import { DotMatrixDemoAccountTooltip } from './DotMatrixDemoAccountTooltip'
 import { dotMatrixDemoLogic, type DotMatrixDemoLogicProps } from './dotMatrixDemoLogic'
 import { DotMatrixDemoTooltip } from './DotMatrixDemoTooltip'
+import { DotMatrixDemoUserTooltip } from './DotMatrixDemoUserTooltip'
 import { DotMatrixUserCell } from './DotMatrixUserCell'
 import {
     DOT_MATRIX_MOCK_ACCOUNTS,
@@ -21,9 +22,6 @@ import {
     DOT_MATRIX_MOCK_PRODUCTS,
     DOT_MATRIX_PRODUCT_COUNT_SCALE,
     DOT_MATRIX_USER_COUNT_SCALE,
-    getDotMatrixAccountMeta,
-    getDotMatrixDetailDataset,
-    getDotMatrixMockDataset,
     type DotMatrixMockDatum,
 } from './mocks'
 import type { DotMatrixAxisItem, DotMatrixCell } from './types'
@@ -37,26 +35,12 @@ export interface DotMatrixDemoProps extends DotMatrixDemoLogicProps {
 export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }: DotMatrixDemoProps): JSX.Element {
     const generatedId = useId()
     const logic = dotMatrixDemoLogic({ ...props, instanceId: `${props.instanceId}:${generatedId}` })
-    const { datasetName, mode, selectedSeries, colorMode, activeAccount } = useValues(logic)
+    const { datasetName, mode, selectedSeries, colorMode, dataset, presentation, display } = useValues(logic)
     const { setDatasetName, setMode, setSelectedSeries, setColorMode, openAccount } = useActions(logic)
-    const dataset = getDotMatrixMockDataset(datasetName)
-    const data = dataset.data
-    const isProducts = datasetName === 'product_activity'
-    const isDetail = isProducts && (mode === 'users' || mode === 'account')
-    const displayed = isDetail
-        ? getDotMatrixDetailDataset(data, selectedSeries, mode === 'account', activeAccount)
-        : dataset
-    const series = dataset.series?.map((item, index) => ({
-        ...item,
-        color: colorMode === 'product' && isProducts ? DOT_MATRIX_MOCK_PRODUCTS[index]?.[2] : undefined,
-    }))
-    const countLabel = !selectedSeries.length
-        ? 'Products used'
-        : selectedSeries.length === 1
-          ? `Users of ${DOT_MATRIX_MOCK_PRODUCTS.find(([key]) => key === selectedSeries[0])?.[1] ?? selectedSeries[0]}`
-          : `Users of any of these ${selectedSeries.length} products`
-    const itemLabel = typeof dataset.legend === 'object' ? (dataset.legend.itemLabel ?? 'series') : 'series'
-    const countScale = isProducts && selectedSeries.length ? DOT_MATRIX_USER_COUNT_SCALE : dataset.countScale
+    const { isProducts, isDetail, displayed, series, rowPeople, trends, trendMax, accountMeta, activePeopleCount } =
+        display
+    const { countScale, legend, trendColor } = presentation
+    const itemLabel = legend.itemLabel
 
     const renderRowHeader = (row: DotMatrixAxisItem): JSX.Element => {
         const account = DOT_MATRIX_MOCK_ACCOUNTS.find((item) => item.id === row.key)
@@ -87,7 +71,7 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
                         >
                             {account.name}
                         </LemonButton>
-                        <span>{getDotMatrixAccountMeta(account, data, selectedSeries)}</span>
+                        <span>{accountMeta.get(account.id)}</span>
                     </div>
                 </div>
             )
@@ -98,11 +82,7 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
         const productKey = row.key.split('/')[1]
         const index = DOT_MATRIX_MOCK_PRODUCTS.findIndex(([key]) => key === productKey)
         if (index >= 0) {
-            const persons = new Set(
-                displayed.data
-                    .filter((datum) => datum.rowKey === row.key)
-                    .flatMap((datum) => datum.persons.map((person) => person.id))
-            )
+            const persons = rowPeople.get(row.key) ?? []
             return (
                 <div className="DotMatrixDemo__product-label">
                     <span>
@@ -120,7 +100,7 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
                         </svg>
                         <span>{row.label}</span>
                     </span>
-                    <small>{`${persons.size} users`}</small>
+                    <small>{`${persons.length} users`}</small>
                 </div>
             )
         }
@@ -134,17 +114,22 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
         }
         if (mode === 'users' && row?.group !== 'account') {
             const product = DOT_MATRIX_MOCK_PRODUCTS.find(([key]) => key === cell.rowKey.split('/')[1])?.[1] ?? ''
-            return <DotMatrixUserCell persons={cell.data[0]?.persons ?? []} product={product} week={cell.columnKey} />
+            return (
+                <DotMatrixUserCell
+                    persons={cell.data[0]?.persons ?? []}
+                    renderTooltip={(person) => (
+                        <DotMatrixDemoUserTooltip person={person} product={product} week={cell.columnKey} />
+                    )}
+                />
+            )
         }
         return (
             <CountCell
                 size={mode === 'account' ? 'small' : 'xsmall'}
                 value={cell.data[0]?.value ?? 0}
                 scale={
-                    row?.group === 'account' || row?.group === 'summary'
-                        ? selectedSeries.length
-                            ? DOT_MATRIX_USER_COUNT_SCALE
-                            : DOT_MATRIX_PRODUCT_COUNT_SCALE
+                    row?.group === 'summary' || (row?.group === 'account' && !selectedSeries.length)
+                        ? DOT_MATRIX_PRODUCT_COUNT_SCALE
                         : DOT_MATRIX_USER_COUNT_SCALE
                 }
             />
@@ -234,12 +219,18 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
                 }}
                 renderCell={isDetail ? renderDetailCell : undefined}
                 renderTooltip={
-                    isProducts && !isDetail
-                        ? (cell) => <DotMatrixDemoTooltip cell={cell} selectedSeries={selectedSeries} />
+                    datasetName !== 'ci' && !isDetail
+                        ? (cell) => (
+                              <DotMatrixDemoTooltip
+                                  cell={cell}
+                                  selectedSeries={selectedSeries}
+                                  datasetName={datasetName}
+                              />
+                          )
                         : mode === 'account' && isProducts
                           ? (cell) =>
                                 cell.rowKey === 'summary' || cell.rowKey.startsWith('group:') ? null : (
-                                    <DotMatrixAccountTooltip cell={cell} />
+                                    <DotMatrixDemoAccountTooltip cell={cell} />
                                 )
                           : mode === 'users' && isProducts
                             ? () => null
@@ -262,12 +253,7 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
                     mode === 'account' && isProducts
                         ? false
                         : {
-                              ...(typeof dataset.legend === 'object' ? dataset.legend : {}),
-                              countLabel: isProducts
-                                  ? countLabel
-                                  : typeof dataset.legend === 'object'
-                                    ? dataset.legend.countLabel
-                                    : 'Count',
+                              ...legend,
                               selectionLabel: (count) =>
                                   `Showing ${count} ${count === 1 ? itemLabel : `${itemLabel}s`}`,
                               footer:
@@ -284,31 +270,13 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
                                   title: 'Trend',
                                   width: 132,
                                   render: (rowKey) => {
-                                      const values = columns.map((column) => {
-                                          const cellData = data.filter(
-                                              (datum) => datum.rowKey === rowKey && datum.columnKey === column.key
-                                          )
-                                          return selectedSeries.length
-                                              ? (dataset.aggregateSelection?.(
-                                                    {
-                                                        rowKey,
-                                                        columnKey: column.key,
-                                                        data: cellData,
-                                                        values: Object.fromEntries(
-                                                            cellData.map((datum) => [datum.seriesKey, datum.value])
-                                                        ),
-                                                    },
-                                                    selectedSeries
-                                                ) ?? 0)
-                                              : cellData.filter((datum) => datum.value > 0).length
-                                      })
                                       return (
                                           <Sparkline
-                                              data={values}
+                                              data={trends.get(rowKey) ?? []}
                                               labels={columns.map((column) => column.label ?? column.key)}
                                               type="line"
-                                              color={selectedSeries.length ? '#3b76d4' : '#36a352'}
-                                              valueDomain={{ min: 0, max: 12 }}
+                                              color={trendColor}
+                                              valueDomain={{ min: 0, max: trendMax }}
                                               className="DotMatrixDemo__sparkline"
                                           />
                                       )
@@ -327,17 +295,10 @@ export function DotMatrixDemo({ width = 'reference', loading, empty, ...props }:
                                         }
                                         if (rowKey === 'summary') {
                                             return (
-                                                <span className="DotMatrixDemo__top-users">{`${new Set(data.filter((datum) => datum.rowKey === activeAccount).flatMap((datum) => datum.persons.map((person) => person.id))).size} active users`}</span>
+                                                <span className="DotMatrixDemo__top-users">{`${activePeopleCount} active users`}</span>
                                             )
                                         }
-                                        const persons = [
-                                            ...new Map(
-                                                displayed.data
-                                                    .filter((datum) => datum.rowKey === rowKey)
-                                                    .flatMap((datum) => datum.persons)
-                                                    .map((person) => [person.id, person])
-                                            ).values(),
-                                        ]
+                                        const persons = rowPeople.get(rowKey) ?? []
                                         return (
                                             <span className="DotMatrixDemo__top-users">
                                                 {persons

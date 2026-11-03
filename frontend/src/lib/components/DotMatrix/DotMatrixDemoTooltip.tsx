@@ -1,28 +1,39 @@
+import './DotMatrixDemoTooltip.scss'
+
+import { getDotMatrixSelectionSummary } from './dotMatrixDemoData'
 import {
-    aggregateDotMatrixMockPeople,
     DOT_MATRIX_MOCK_ACCOUNTS,
     getDotMatrixMockWeekLabel,
     DOT_MATRIX_MOCK_GROUPS,
     DOT_MATRIX_MOCK_PRODUCTS,
     type DotMatrixMockDatum,
+    type DotMatrixMockDatasetName,
 } from './mocks'
 import type { DotMatrixCell } from './types'
 
 interface DotMatrixDemoTooltipProps {
     cell: DotMatrixCell<DotMatrixMockDatum>
     selectedSeries: string[]
+    datasetName?: DotMatrixMockDatasetName
+    rowLabel?: string
 }
 
-export function DotMatrixDemoTooltip({ cell, selectedSeries }: DotMatrixDemoTooltipProps): JSX.Element {
+export function DotMatrixDemoTooltip({
+    cell,
+    selectedSeries,
+    datasetName = 'product_activity',
+    rowLabel,
+}: DotMatrixDemoTooltipProps): JSX.Element {
     const account = DOT_MATRIX_MOCK_ACCOUNTS.find((item) => item.id === cell.rowKey)
     const series = selectedSeries.length
         ? selectedSeries
         : Object.keys(cell.values).filter((key) => cell.values[key] > 0)
-    const distinct = aggregateDotMatrixMockPeople(cell, series)
-    const overlap = series.reduce((sum, key) => sum + (cell.values[key] ?? 0), 0) - distinct
+    const { distinct, overlap } = getDotMatrixSelectionSummary(cell, series)
+    const unit = datasetName === 'people' ? 'event' : 'user'
+    const label = rowLabel ?? account?.name ?? cell.data[0]?.persons[0]?.email ?? cell.rowKey
     return (
         <div className="DotMatrixDemo__tooltip">
-            <strong>{account?.name ?? cell.rowKey}</strong>
+            <strong>{label}</strong>
             <span className="text-muted">{getDotMatrixMockWeekLabel(cell.columnKey)}</span>
             {series.map((key) => {
                 const index = DOT_MATRIX_MOCK_PRODUCTS.findIndex(([product]) => product === key)
@@ -39,7 +50,7 @@ export function DotMatrixDemoTooltip({ cell, selectedSeries }: DotMatrixDemoTool
                             </svg>
                             <span>{DOT_MATRIX_MOCK_PRODUCTS[index]?.[1] ?? key}</span>
                         </span>
-                        <span>{`${cell.values[key] ?? 0} ${(cell.values[key] ?? 0) === 1 ? 'user' : 'users'}`}</span>
+                        <span>{`${cell.values[key] ?? 0} ${unit}${(cell.values[key] ?? 0) === 1 ? '' : 's'}`}</span>
                     </div>
                 )
             })}
@@ -50,7 +61,7 @@ export function DotMatrixDemoTooltip({ cell, selectedSeries }: DotMatrixDemoTool
                         <strong>{distinct}</strong>
                     </div>
                     {overlap > 0 && (
-                        <span className="text-muted">{`${overlap} ${overlap === 1 ? 'person used' : 'people used'} both. ${overlap === 1 ? 'They count' : 'Each counts'} once.`}</span>
+                        <span className="text-muted">{`${overlap} ${overlap === 1 ? 'person used' : 'people used'} ${series.length === 2 ? 'both' : 'more than one selected product'}. ${overlap === 1 ? 'They count' : 'Each counts'} once.`}</span>
                     )}
                 </>
             )}

@@ -1,6 +1,12 @@
-import { actions, kea, key, path, props, reducers, type LogicWrapper, type MakeLogicType } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors, type LogicWrapper, type MakeLogicType } from 'kea'
 
-import type { DotMatrixMockDatasetName } from './mocks'
+import {
+    getDotMatrixDemoDisplay,
+    getDotMatrixDemoPresentation,
+    type DotMatrixDemoDisplay,
+    type DotMatrixDemoPresentation,
+} from './dotMatrixDemoData'
+import { getDotMatrixMockDataset, type DotMatrixMockDataset, type DotMatrixMockDatasetName } from './mocks'
 
 export type DotMatrixDemoMode = 'products' | 'count' | 'users' | 'account'
 export interface DotMatrixDemoLogicProps {
@@ -16,6 +22,9 @@ export interface dotMatrixDemoLogicValues {
     selectedSeries: string[]
     colorMode: 'family' | 'product'
     activeAccount: string
+    dataset: DotMatrixMockDataset
+    presentation: DotMatrixDemoPresentation
+    display: DotMatrixDemoDisplay
 }
 export interface dotMatrixDemoLogicActions {
     openAccount: (activeAccount: string) => { activeAccount: string }
@@ -61,4 +70,17 @@ export const dotMatrixDemoLogic: LogicWrapper<dotMatrixDemoLogicType> = kea<dotM
         activeAccount: ['acme', { openAccount: (_, { activeAccount }) => activeAccount }],
         colorMode: [props.initialColorMode ?? 'family', { setColorMode: (_, { colorMode }) => colorMode }],
     })),
+    selectors({
+        dataset: [(s) => [s.datasetName], (datasetName): DotMatrixMockDataset => getDotMatrixMockDataset(datasetName)],
+        presentation: [
+            (s) => [s.datasetName, s.selectedSeries],
+            (datasetName, selectedSeries): DotMatrixDemoPresentation =>
+                getDotMatrixDemoPresentation(datasetName, selectedSeries),
+        ],
+        display: [
+            (s) => [s.dataset, s.datasetName, s.mode, s.selectedSeries, s.colorMode, s.activeAccount],
+            (dataset, datasetName, mode, selectedSeries, colorMode, activeAccount): DotMatrixDemoDisplay =>
+                getDotMatrixDemoDisplay(dataset, datasetName, mode, selectedSeries, colorMode, activeAccount),
+        ],
+    }),
 ])

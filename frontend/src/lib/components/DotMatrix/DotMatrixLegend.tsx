@@ -87,7 +87,7 @@ export function DotMatrixLegend({
                         {onSelectedSeriesChange && (
                             <LemonButton
                                 type="secondary"
-                                size="xsmall"
+                                size="small"
                                 onClick={() => onSelectedSeriesChange([])}
                                 data-attr="dot-matrix-show-all"
                             >

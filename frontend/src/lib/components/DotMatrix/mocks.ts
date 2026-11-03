@@ -241,13 +241,25 @@ export function getDotMatrixMockWeekLabel(columnKey: string): string {
 export const DOT_MATRIX_PRODUCT_COUNT_SCALE: DotMatrixCountBin[] = [1, 3, 5, 7, 9, 11].map((min, index) => ({
     min,
     color: `var(--dot-matrix-demo-green-${index + 1})`,
-    ink: index >= 4 ? 'var(--dot-matrix-demo-green-ink)' : 'var(--dot-matrix-demo-count-ink)',
+    ink:
+        index === 3
+            ? 'var(--dot-matrix-demo-green-4-ink)'
+            : index === 4
+              ? 'var(--dot-matrix-demo-green-5-ink)'
+              : index === 5
+                ? 'var(--dot-matrix-demo-green-ink)'
+                : 'var(--dot-matrix-demo-count-ink)',
     label: ['1-2', '3-4', '5-6', '7-8', '9-10', '11+'][index],
 }))
 export const DOT_MATRIX_USER_COUNT_SCALE: DotMatrixCountBin[] = [1, 2, 5, 10, 20, 50].map((min, index) => ({
     min,
     color: `var(--dot-matrix-demo-blue-${index + 1})`,
-    ink: index >= 4 ? 'var(--dot-matrix-demo-blue-ink)' : 'var(--dot-matrix-demo-count-ink)',
+    ink:
+        index === 4
+            ? 'var(--dot-matrix-demo-blue-5-ink)'
+            : index === 5
+              ? 'var(--dot-matrix-demo-blue-ink)'
+              : 'var(--dot-matrix-demo-count-ink)',
     label: ['1', '2-4', '5-9', '10-19', '20-49', '50+'][index],
 }))
 
@@ -267,13 +279,19 @@ function peopleFor(account: DotMatrixMockAccount, productIndex: number, count: n
     })
 }
 
-export function aggregateDotMatrixMockPeople(cell: DotMatrixCell<DotMatrixMockDatum>, selected: string[]): number {
+export function getDotMatrixMockPeople(data: DotMatrixMockDatum[], selected: string[] = []): DotMatrixMockPerson[] {
     const keys = new Set(selected)
-    return new Set(
-        cell.data
-            .filter((datum) => datum.value > 0 && (keys.size === 0 || keys.has(datum.seriesKey)))
-            .flatMap((datum) => datum.persons.map((person) => person.id))
-    ).size
+    return [
+        ...new Map(
+            data
+                .filter((datum) => datum.value > 0 && (keys.size === 0 || keys.has(datum.seriesKey)))
+                .flatMap((datum) => datum.persons.map((person) => [person.id, person] as const))
+        ).values(),
+    ]
+}
+
+export function aggregateDotMatrixMockPeople(cell: DotMatrixCell<DotMatrixMockDatum>, selected: string[]): number {
+    return getDotMatrixMockPeople(cell.data, selected).length
 }
 
 export function getDotMatrixMockDataset(name: DotMatrixMockDatasetName): DotMatrixMockDataset {
@@ -398,19 +416,19 @@ export function getDotMatrixAccountMeta(
     selected: string[]
 ): string {
     if (selected.length > 0) {
-        const people = new Set(
-            data
-                .filter((datum) => datum.rowKey === account.id && selected.includes(datum.seriesKey))
-                .flatMap((datum) => datum.persons.map((person) => person.id))
+        const people = getDotMatrixMockPeople(
+            data.filter((datum) => datum.rowKey === account.id),
+            selected
         )
         const productLabel =
             selected.length === 1
                 ? DOT_MATRIX_MOCK_PRODUCTS.find(([key]) => key === selected[0])?.[1]
                 : `these ${selected.length} products`
-        return people.size ? `${people.size} users of ${productLabel}` : 'No use in range'
+        return people.length ? `${people.length} users of ${productLabel}` : 'No use in range'
     }
-    const products = Object.values(account.u).filter((values) => values.some((value) => value > 0)).length
-    const people = Math.max(0, ...Object.values(account.u).flat()) + products
+    const accountData = data.filter((datum) => datum.rowKey === account.id && datum.value > 0)
+    const products = new Set(accountData.map((datum) => datum.seriesKey)).size
+    const people = getDotMatrixMockPeople(accountData).length
     return `${products} products · ${people} users`
 }
 

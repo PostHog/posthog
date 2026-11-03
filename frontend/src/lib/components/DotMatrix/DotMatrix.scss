@@ -6,7 +6,7 @@
     color: var(--color-text-primary);
     background: var(--color-bg-surface-primary);
     border: 1px solid var(--color-border-primary);
-    border-radius: var(--radius, 8px);
+    border-radius: 8px;
     container-type: inline-size;
 
     &__legend {
@@ -139,7 +139,7 @@
 
     &__table.LemonTable {
         --row-base-height: 64px;
-        --lemon-table-background-color: var(--color-bg-surface-secondary);
+        --lemon-table-background-color: var(--color-bg-table);
 
         border: none;
         border-radius: 0;
@@ -159,7 +159,7 @@
                 font-weight: 600;
                 line-height: 20px;
                 letter-spacing: 0.03em;
-                background: var(--color-bg-surface-secondary);
+                background: var(--color-bg-table);
 
                 .LemonTable__header-content {
                     color: var(--color-text-primary);

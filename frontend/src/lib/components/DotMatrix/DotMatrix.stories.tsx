@@ -27,7 +27,26 @@ export const CI: Story = { args: { initialDataset: 'ci' } }
 export const Narrow: Story = { args: { width: 'narrow' } }
 export const Wide: Story = { args: { width: 'wide' } }
 export const Empty: Story = { args: { empty: true } }
-export const Loading: Story = { args: { loading: true, empty: true } }
+export const Loading: Story = {
+    args: { loading: true, empty: true },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.DotMatrix .LemonSkeleton' },
+    },
+}
+export const CustomFields: Story = {
+    render: () => (
+        <DotMatrix
+            data={[
+                { station: 'North station', inspection: 'Morning', faults: 2 },
+                { station: 'North station', inspection: 'Evening', faults: 0 },
+                { station: 'South station', inspection: 'Morning', faults: 4 },
+                { station: 'South station', inspection: 'Evening', faults: 1 },
+            ]}
+            fields={{ row: 'station', column: 'inspection', value: 'faults' }}
+            rowHeader={{ title: 'Station' }}
+        />
+    ),
+}
 export const Thresholds: Story = {
     render: () => (
         <div className="flex flex-col gap-4">

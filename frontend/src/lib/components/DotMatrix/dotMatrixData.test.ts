@@ -1,7 +1,9 @@
 import {
     getDotMatrixCellCount,
     getDotMatrixCountBin,
+    normalizeDotMatrixCountScale,
     normalizeDotMatrixData,
+    normalizeDotMatrixSizeThresholds,
     toggleDotMatrixSeries,
 } from './dotMatrixData'
 import type { DotMatrixCell, DotMatrixCountBin } from './types'
@@ -179,6 +181,24 @@ describe('dotMatrixData', () => {
         const original = [...selected]
         expect(toggleDotMatrixSeries(selected, key, shift)).toEqual(expected)
         expect(selected).toEqual(original)
+    })
+
+    it.each([
+        { thresholds: undefined, expected: [1, 5, 10] },
+        { thresholds: [], expected: [] },
+        { thresholds: [1], expected: [1] },
+        { thresholds: [10, 1, 5, 5, 20, Number.NaN, Infinity, 0, -1], expected: [1, 5, 10] },
+    ])('normalizes configured size thresholds $thresholds without adding levels', ({ thresholds, expected }) => {
+        const original = thresholds && [...thresholds]
+        expect(normalizeDotMatrixSizeThresholds(thresholds)).toEqual(expected)
+        expect(thresholds).toEqual(original)
+    })
+
+    it('orders valid count bins and keeps the first duplicate without mutating caller data', () => {
+        const bins = [...scale, { min: Number.NaN, color: 'invalid' }, { min: 5, color: 'duplicate' }]
+        const original = [...bins]
+        expect(normalizeDotMatrixCountScale(bins)).toEqual([scale[1], scale[2], scale[0]])
+        expect(bins).toEqual(original)
     })
 
     it.each([

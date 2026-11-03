@@ -69,6 +69,7 @@ export interface DotMatrixProps<D extends Record<string, unknown>>
     extends DotMatrixDataOptions<D>, DotMatrixCountOptions<D> {
     groups?: DotMatrixGroup[]
     mode?: 'dots' | 'count'
+    // Up to three distinct positive thresholds, displayed in ascending order.
     sizeThresholds?: number[]
     countScale?: DotMatrixCountBin[]
     onSelectedSeriesChange?: (keys: string[]) => void

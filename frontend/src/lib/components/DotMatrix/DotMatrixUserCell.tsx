@@ -1,17 +1,25 @@
 import './DotMatrixUserCell.scss'
 
+import type { ReactNode } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { getDotMatrixMockWeekLabel, type DotMatrixMockPerson } from './mocks'
-
-interface DotMatrixUserCellProps {
-    persons: DotMatrixMockPerson[]
-    product: string
-    week: string
+interface DotMatrixUserCellItem {
+    id: string
+    name: string
+    email?: string
 }
 
-export function DotMatrixUserCell({ persons, product, week }: DotMatrixUserCellProps): JSX.Element {
+interface DotMatrixUserCellProps<D extends DotMatrixUserCellItem> {
+    persons: D[]
+    renderTooltip?: (person: D) => ReactNode
+}
+
+export function DotMatrixUserCell<D extends DotMatrixUserCellItem>({
+    persons,
+    renderTooltip,
+}: DotMatrixUserCellProps<D>): JSX.Element {
     if (!persons.length) {
         return (
             <span className="DotMatrixUserCell__empty" aria-label="No users">
@@ -27,41 +35,7 @@ export function DotMatrixUserCell({ persons, product, week }: DotMatrixUserCellP
                     className="DotMatrix__tooltip"
                     delayMs={100}
                     placement="bottom-start"
-                    title={
-                        <div className="DotMatrixUserCell__tooltip">
-                            <div className="DotMatrixUserCell__title">
-                                <strong>{person.email}</strong>
-                                <span className="text-muted">{`${product} · ${getDotMatrixMockWeekLabel(week)}`}</span>
-                            </div>
-                            <div className="DotMatrixUserCell__detail">
-                                <span>{`Time on ${product} pages`}</span>
-                                <b>{`${Math.floor(person.seconds / 60)}m ${String(person.seconds % 60).padStart(2, '0')}s`}</b>
-                            </div>
-                            <div className="DotMatrixUserCell__pages">
-                                <span className="DotMatrixUserCell__section">Top pages by time</span>
-                                <div className="DotMatrixUserCell__detail font-mono text-xs">
-                                    <span>/insights/new</span>
-                                    <b>6m 10s</b>
-                                </div>
-                                <div className="DotMatrixUserCell__detail font-mono text-xs">
-                                    <span>/dashboard/42</span>
-                                    <b>4m 05s</b>
-                                </div>
-                                <div className="DotMatrixUserCell__detail font-mono text-xs">
-                                    <span>/insights/aB3xQ9</span>
-                                    <b>2m 51s</b>
-                                </div>
-                            </div>
-                            <div className="DotMatrixUserCell__detail DotMatrixUserCell__action">
-                                <span>insight created</span>
-                                <b>×3</b>
-                            </div>
-                            <div className="DotMatrixUserCell__detail DotMatrixUserCell__action">
-                                <span>dashboard updated</span>
-                                <b>×1</b>
-                            </div>
-                        </div>
-                    }
+                    title={renderTooltip ? renderTooltip(person) : (person.email ?? person.name)}
                 >
                     <span className="DotMatrixUserCell__name" tabIndex={0}>
                         {person.name}
@@ -74,11 +48,12 @@ export function DotMatrixUserCell({ persons, product, week }: DotMatrixUserCellP
                     title={
                         <div className="DotMatrixUserCell__all">
                             {persons.map((person) => (
-                                <span key={person.id}>{person.email}</span>
+                                <span key={person.id}>{person.email ?? person.name}</span>
                             ))}
                         </div>
                     }
                     delayMs={100}
+                    openOnClick
                 >
                     <LemonButton
                         type="tertiary"

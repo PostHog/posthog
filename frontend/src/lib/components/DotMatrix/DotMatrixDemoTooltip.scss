@@ -1,0 +1,34 @@
+.DotMatrixDemo {
+    &__tooltip {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+        min-width: 0;
+        font-size: 12px;
+    }
+
+    &__tooltip > strong {
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    &__tooltip-line,
+    &__tooltip-total {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    &__tooltip-line > span:first-child {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+    }
+
+    &__tooltip-total {
+        padding-top: 6px;
+        border-top: 1px solid var(--color-border-secondary);
+    }
+}

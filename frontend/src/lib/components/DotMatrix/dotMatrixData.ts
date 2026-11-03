@@ -132,6 +132,22 @@ export function toggleDotMatrixSeries(selected: string[], key: string, shift: bo
     return selected.includes(key) ? selected.filter((item) => item !== key) : [...new Set([...selected, key])]
 }
 
+export function normalizeDotMatrixSizeThresholds(thresholds: number[] = [1, 5, 10]): number[] {
+    return [...new Set(thresholds.filter((threshold) => Number.isFinite(threshold) && threshold > 0))]
+        .sort((first, second) => first - second)
+        .slice(0, 3)
+}
+
+export function normalizeDotMatrixCountScale(scale: DotMatrixCountBin[]): DotMatrixCountBin[] {
+    const bins = new Map<number, DotMatrixCountBin>()
+    for (const bin of scale) {
+        if (Number.isFinite(bin.min) && !bins.has(bin.min)) {
+            bins.set(bin.min, bin)
+        }
+    }
+    return [...bins.values()].sort((first, second) => first.min - second.min)
+}
+
 export function getDotMatrixCountBin(value: number, scale: DotMatrixCountBin[]): DotMatrixCountBin | undefined {
     if (!Number.isFinite(value) || value <= 0) {
         return undefined

@@ -1,11 +1,13 @@
+import './DotMatrixDemoTooltip.scss'
+
 import { getDotMatrixMockWeekLabel, DOT_MATRIX_MOCK_PRODUCTS, type DotMatrixMockDatum } from './mocks'
 import type { DotMatrixCell } from './types'
 
-interface DotMatrixAccountTooltipProps {
+interface DotMatrixDemoAccountTooltipProps {
     cell: DotMatrixCell<DotMatrixMockDatum>
 }
 
-export function DotMatrixAccountTooltip({ cell }: DotMatrixAccountTooltipProps): JSX.Element {
+export function DotMatrixDemoAccountTooltip({ cell }: DotMatrixDemoAccountTooltipProps): JSX.Element {
     const datum = cell.data[0]
     const product = DOT_MATRIX_MOCK_PRODUCTS.find(([key]) => key === cell.rowKey.split('/')[1])?.[1] ?? 'Products used'
     const durations = ['14m 32s', '11m 05s', '9m 40s', '6m 12s', '4m 58s']

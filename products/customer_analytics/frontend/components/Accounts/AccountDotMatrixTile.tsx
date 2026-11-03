@@ -5,7 +5,8 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
-import { getDotMatrixMockDataset, type DotMatrixMockDatasetName } from 'lib/components/DotMatrix/mocks'
+import { DotMatrixDemoTooltip } from 'lib/components/DotMatrix/DotMatrixDemoTooltip'
+import type { DotMatrixMockDatasetName } from 'lib/components/DotMatrix/mocks'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
@@ -22,10 +23,9 @@ export function AccountDotMatrixTile({
         initialConfig,
         onConfigChange,
     })
-    const { config } = useValues(logic)
+    const { config, dataset, presentation } = useValues(logic)
     const { setDataset, setMode, setSelectedSeries } = useActions(logic)
     const [settingsOpen, setSettingsOpen] = useState(false)
-    const dataset = getDotMatrixMockDataset(config.dataset)
 
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="account-dot-matrix-tile">
@@ -80,9 +80,21 @@ export function AccountDotMatrixTile({
             </div>
             <DotMatrix
                 {...dataset}
+                {...presentation}
                 mode={config.mode}
                 selectedSeries={config.selectedSeries}
                 onSelectedSeriesChange={setSelectedSeries}
+                renderTooltip={
+                    config.dataset === 'ci'
+                        ? undefined
+                        : (cell) => (
+                              <DotMatrixDemoTooltip
+                                  cell={cell}
+                                  selectedSeries={config.selectedSeries}
+                                  datasetName={config.dataset}
+                              />
+                          )
+                }
             />
         </div>
     )

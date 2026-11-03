@@ -2,6 +2,7 @@ import './DotGlyph.scss'
 
 import { Fragment } from 'react'
 
+import { normalizeDotMatrixSizeThresholds } from './dotMatrixData'
 import type { DotMatrixGroup, DotMatrixSeries } from './types'
 
 interface DotGlyphProps {
@@ -21,6 +22,7 @@ export function DotGlyph({
     label,
     columnsPerGroup = 6,
 }: DotGlyphProps): JSX.Element {
+    const thresholds = normalizeDotMatrixSizeThresholds(sizeThresholds)
     const perRow = Number.isFinite(columnsPerGroup) ? Math.max(1, Math.floor(columnsPerGroup)) : 6
     const groupKeys = Array.from(new Set([...groups.map(({ key }) => key), ...series.map(({ group }) => group)]))
     const rows = groupKeys.map((key) => series.filter(({ group }) => group === key))
@@ -55,13 +57,13 @@ export function DotGlyph({
 
                     return (
                         <Fragment key={item.key}>
-                            {Number.isFinite(value) && value >= (sizeThresholds[0] ?? 1) && value > 0 && (
+                            {Number.isFinite(value) && thresholds[0] !== undefined && value >= thresholds[0] && (
                                 <circle cx={cx} cy={cy} r={2.6} fill={color} />
                             )}
-                            {Number.isFinite(value) && value >= (sizeThresholds[1] ?? 5) && value > 0 && (
+                            {Number.isFinite(value) && thresholds[1] !== undefined && value >= thresholds[1] && (
                                 <circle cx={cx} cy={cy} r={4.4} fill="none" stroke={color} strokeWidth={1.2} />
                             )}
-                            {Number.isFinite(value) && value >= (sizeThresholds[2] ?? 10) && value > 0 && (
+                            {Number.isFinite(value) && thresholds[2] !== undefined && value >= thresholds[2] && (
                                 <circle cx={cx} cy={cy} r={6.7} fill="none" stroke={color} strokeWidth={1.2} />
                             )}
                         </Fragment>
