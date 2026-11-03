@@ -99,6 +99,13 @@ describe('getDefaultMetricTitle', () => {
         }
         expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
     })
+
+    it.each([
+        [0.9, 'p90 of load_ms'],
+        [0.975, 'p97.5 of load_ms'],
+    ])('keeps the percentile level %s as entered', (quantile, expected) => {
+        expect(getDefaultMetricTitle({ ...quantileMetric, quantile } as ExperimentMetric)).toBe(expected)
+    })
 })
 
 describe('isWinning', () => {

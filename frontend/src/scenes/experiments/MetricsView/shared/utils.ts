@@ -65,7 +65,10 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
 export const formatMetricTypeName = (metricType: string): string =>
     metricType === ExperimentMetricType.QUANTILE ? 'percentile' : metricType
 
-export const formatQuantileLevel = (quantile: number): string => `p${Math.round(quantile * 100)}`
+// Rounds away float noise (0.975 * 100 is 97.49999…) but keeps fractional levels such as p97.5
+export const quantileToPercentile = (quantile: number): number => Number((quantile * 100).toFixed(2))
+
+export const formatQuantileLevel = (quantile: number): string => `p${quantileToPercentile(quantile)}`
 
 /** True when the results UI can open a daily timeseries for the metric. Percentile metrics have no daily timeseries. */
 export const metricSupportsTimeseries = (metric: ExperimentMetric): boolean => !isExperimentQuantileMetric(metric)

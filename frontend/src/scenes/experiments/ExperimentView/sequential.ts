@@ -1,3 +1,5 @@
+import { ExperimentStatsMethod } from '~/types'
+
 export type SequentialSelection = 'default' | 'enabled' | 'disabled'
 
 type SequentialConfig =
@@ -37,4 +39,18 @@ export function resolveSequentialTuningParameter(
         return teamDefaultTuningParameter
     }
     return fallback
+}
+
+export const PERCENTILE_SEQUENTIAL_DISABLED_REASON = "Percentile metrics don't support sequential testing yet"
+export const PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON = `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn off sequential testing in this experiment's statistics settings first.`
+
+/** Sequential testing applies only to frequentist experiments, and an unset choice follows the team default. */
+export function experimentUsesSequentialTesting(
+    statsConfig: { method?: string; frequentist?: SequentialConfig } | null | undefined,
+    teamDefaultEnabled: boolean
+): boolean {
+    return (
+        statsConfig?.method === ExperimentStatsMethod.Frequentist &&
+        resolveSequentialEnabled(statsConfig.frequentist, teamDefaultEnabled)
+    )
 }

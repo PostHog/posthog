@@ -2359,6 +2359,11 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
+                        // Ratio, retention and percentile metrics have no insight equivalent, and the API
+                        // rejects an insight without a query
+                        if (!insightQuery) {
+                            continue
+                        }
 
                         await insightsApi.create({ name: query.name || undefined, query: insightQuery }, [dashboard.id])
                     }

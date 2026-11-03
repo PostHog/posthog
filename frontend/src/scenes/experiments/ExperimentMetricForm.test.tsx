@@ -149,6 +149,49 @@ describe('ExperimentMetricForm', () => {
         })
     })
 
+    it.each([
+        [
+            'an event property',
+            { math_property: 'load_ms', math_property_type: 'numerical_event_properties' },
+            'load_ms',
+        ],
+        ['the session duration', { math_property: '$session_duration' }, undefined],
+        [
+            'a session property',
+            { math_property: '$session_pageview_count', math_property_type: 'session_properties' },
+            undefined,
+        ],
+    ])('keeps only an event property when a mean metric of %s becomes a percentile', async (_, property, expected) => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'page_loaded',
+                math: ExperimentMetricMathType.Avg,
+                ...property,
+            },
+        }
+        const handleSetMetric = jest.fn()
+
+        const { container } = render(
+            <ExperimentMetricForm metric={metric} handleSetMetric={handleSetMetric} filterTestAccounts={false} />
+        )
+        await userEvent.click(container.querySelector(`input[value="${ExperimentMetricType.QUANTILE}"]`)!)
+
+        expect(handleSetMetric).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metric_type: ExperimentMetricType.QUANTILE,
+                source: expect.objectContaining({
+                    event: 'page_loaded',
+                    math: undefined,
+                    math_property: expected,
+                    math_property_type: undefined,
+                }),
+            })
+        )
+    })
+
     it('edits a warehouse-native metric and keeps every source warehouse-native when its type changes', async () => {
         const exposure: ExperimentWarehouseNativeExposureConfig = {
             kind: NodeKind.ExperimentWarehouseNativeExposureConfig,

@@ -33,7 +33,7 @@ export interface ExperimentMetricRun {
 
 export interface ExperimentMetricResultRow {
     index: number
-    metric?: { uuid?: string | null; name?: string | null } | null
+    metric?: { uuid?: string | null; name?: string | null; goal?: string | null } | null
     // null when the metric query failed
     data?: ExperimentMetricResult | null
 }
@@ -113,14 +113,19 @@ function ChanceToWinBar({ value }: { value: number }): ReactElement {
     )
 }
 
-function significanceCell(row: VariantRow): ReactElement | string {
+// Matches the web app: a decrease goal means the variant wins when its value is lower
+function chanceToWinForGoal(chanceToWin: number, goal: string | null): number {
+    return goal === 'decrease' ? 1 - chanceToWin : chanceToWin
+}
+
+function significanceCell(row: VariantRow, goal: string | null): ReactElement | string {
     if (row.isBaseline || !row.stats) {
         return '—'
     }
     const stats = row.stats
     const parts: ReactElement[] = []
     if (stats.method === 'bayesian' && stats.chance_to_win != null) {
-        parts.push(<ChanceToWinBar key="ctw" value={stats.chance_to_win} />)
+        parts.push(<ChanceToWinBar key="ctw" value={chanceToWinForGoal(stats.chance_to_win, goal)} />)
         if (stats.significant) {
             parts.push(
                 <Badge key="sig" variant="success">
@@ -196,6 +201,8 @@ interface MetricEntry {
     result: ExperimentMetricResult | null
     failed: boolean
     errorMessage: string | null
+    // Unknown for the recalculation tool, which returns no metric definitions
+    goal: string | null
 }
 
 interface MetricSection {
@@ -210,6 +217,7 @@ function entriesFromResultRows(rows: ExperimentMetricResultRow[]): MetricEntry[]
         result: row.data ?? null,
         failed: row.data == null,
         errorMessage: null,
+        goal: row.metric?.goal ?? null,
     }))
 }
 
@@ -227,6 +235,7 @@ function metricSections(data: ExperimentResultsData): MetricSection[] {
         result: run.result ?? null,
         failed: Boolean(run.error_message),
         errorMessage: run.error_message ?? null,
+        goal: null,
     }))
     return entries.length > 0 ? [{ label: null, entries }] : []
 }
@@ -266,7 +275,7 @@ function MetricCard({ entry }: { entry: MetricEntry }): ReactElement {
             key: 'stats',
             header: 'Significance',
             align: 'right',
-            render: significanceCell,
+            render: (row) => significanceCell(row, entry.goal),
         },
     ]
 
