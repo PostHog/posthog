@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconCopy, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
+import { IconCode2, IconCopy, IconEye, IconNotebook, IconPalette, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
@@ -12,6 +12,7 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { slugify } from 'lib/utils/strings'
@@ -49,8 +50,11 @@ export function DashboardScenePanel(): JSX.Element | null {
         currentDashboardVariables,
         apiUrl,
         tiles,
+        hasTileDescriptions,
+        hideTileDescriptions,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboardTags, setTerraformModalOpen, toggleHideTileDescriptions } =
+        useActions(dashboardLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -108,6 +112,17 @@ export function DashboardScenePanel(): JSX.Element | null {
                             }}
                             isFullscreen={dashboardMode === DashboardMode.Fullscreen}
                         />
+                        {hasTileDescriptions && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={toggleHideTileDescriptions}
+                                data-attr={`${RESOURCE_TYPE}-toggle-tile-descriptions`}
+                                tooltip="Only changes your view of this dashboard"
+                            >
+                                {hideTileDescriptions ? <IconEye /> : <IconEyeHidden />}
+                                {hideTileDescriptions ? 'Show descriptions' : 'Hide descriptions'}
+                            </ButtonPrimitive>
+                        )}
                     </>
                 )}
 

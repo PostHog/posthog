@@ -127,6 +127,8 @@ export interface InsightCardProps extends Resizeable {
     ribbonColor?: InsightColor | null
     updateColor?: (newColor: DashboardTile['color']) => void
     toggleShowDescription?: () => void
+    /** Hide the description on the card face for this viewer. It stays readable in the info popover. */
+    hideDescription?: boolean
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
@@ -197,6 +199,7 @@ function InsightCardInternal(
         showDetailsControls,
         updateColor,
         toggleShowDescription,
+        hideDescription,
         removeFromDashboard,
         deleteWithUndo,
         refresh,
@@ -504,6 +507,7 @@ function InsightCardInternal(
                         refreshAfterDisplayOptionsChange={handleRefreshAfterDisplayOptionsChange}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
+                        hideDescription={hideDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
                         refresh={refresh ? refreshAfterCooldown : undefined}

@@ -78,13 +78,16 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         isSavingTags,
         isPinned,
         asDashboardTemplate,
+        hasTileDescriptions,
+        hideTileDescriptions,
         canSaveProjectDashboardTemplate,
         effectiveEditBarFilters,
         currentDashboardVariables,
         tiles,
         apiUrl,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen, toggleHideTileDescriptions } =
+        useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -355,6 +358,15 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                     >
                         Fullscreen
                     </SceneMenuBarCheckboxItem>
+                    {hasTileDescriptions && (
+                        <SceneMenuBarCheckboxItem
+                            checked={!hideTileDescriptions}
+                            onCheckedChange={() => toggleHideTileDescriptions()}
+                            data-attr={`${RESOURCE_TYPE}-menubar-tile-descriptions`}
+                        >
+                            Show descriptions
+                        </SceneMenuBarCheckboxItem>
+                    )}
                 </SceneMenuBarMenu>
             )}
             {showMetadataMenu && (
