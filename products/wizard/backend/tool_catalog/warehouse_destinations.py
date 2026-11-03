@@ -16,7 +16,7 @@ WAREHOUSE_DESTINATION_BY_KIND: dict[str, str] = {
 
 # The catalog advertises every destination except PostHog's own.
 CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = [
-    (value, label) for value, label in DestinationType.choices if value != DestinationType.POSTHOG_WAREHOUSE.value
+    (value, str(label)) for value, label in DestinationType.choices if value != DestinationType.POSTHOG_WAREHOUSE.value
 ]
 
 

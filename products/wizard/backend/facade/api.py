@@ -50,6 +50,7 @@ from products.wizard.backend.logic.installs import service as installs
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
+from products.wizard.backend.tool_catalog.warehouse_destinations import CATALOG_DESTINATION_CHOICES
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -68,6 +69,10 @@ def organization_has_detected_tool(*, organization_id: str, kinds: Collection[st
 
 def get_tool_catalog_json() -> bytes:
     return tool_catalog_json()
+
+
+def get_tool_catalog_destination_choices() -> list[tuple[str, str]]:
+    return list(CATALOG_DESTINATION_CHOICES)
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
