@@ -8577,6 +8577,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
+    /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+    queryPageTable?: string
     /** Google Search Console sites table, used to infer the brand name. */
     sitesTable?: string
 }
