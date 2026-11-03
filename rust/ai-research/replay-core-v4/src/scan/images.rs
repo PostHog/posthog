@@ -8,7 +8,7 @@
 //! copied as it is. An SVG data URI stays inline, because SVG is text that the text scrub reads in place.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use base64::alphabet;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
@@ -30,6 +30,12 @@ const FORGIVING_BASE64: GeneralPurpose = GeneralPurpose::new(
 
 /// A header character takes at most 12 bytes as a CSS escape in JSON: a doubled backslash, six hex digits and an escaped CRLF.
 const MAX_HEADER_CHAR_BYTES: usize = 12;
+
+/// The escape spells one of the five characters of `data:`, so the scheme starts at it or at a `d` up to four characters before it.
+const ESCAPED_SCHEME_LOOKBEHIND: usize = 4 * MAX_HEADER_CHAR_BYTES;
+
+/// The payload bytes that tell a raster image under another label: each signature and an AVIF `ftyp` box fit.
+const SNIFFED_PAYLOAD_BYTES: usize = 64;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageLimits {
@@ -220,6 +226,39 @@ fn continues_past(bytes: &[u8], end: usize) -> bool {
             None => return false,
         }
     }
+}
+
+/// A browser shows raster bytes as an image whatever the label says, so an SVG label keeps a data URI inline only when this is false.
+fn payload_is_raster(bytes: &[u8], payload_start: usize, base64: bool) -> bool {
+    let payload = &bytes[payload_start..];
+    let prefix = if base64 {
+        let mut chars = Vec::new();
+        let mut rest = payload;
+        while chars.len() < SNIFFED_PAYLOAD_BYTES.div_ceil(3) * 4 {
+            rest = match rest {
+                [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', tail @ ..]
+                | [b'\\', b'/', tail @ ..] => {
+                    chars.push(b'/');
+                    tail
+                }
+                [byte, tail @ ..] if is_base64(*byte) => {
+                    chars.push(*byte);
+                    tail
+                }
+                _ => break,
+            };
+        }
+        chars.truncate(chars.len() / 4 * 4);
+        FORGIVING_BASE64.decode(&chars).unwrap_or_default()
+    } else {
+        let window = &payload[..payload.len().min(SNIFFED_PAYLOAD_BYTES * 3)];
+        let end = window
+            .iter()
+            .position(|&b| matches!(b, b'"' | b'\\'))
+            .unwrap_or(window.len());
+        percent_encoding::percent_decode(&window[..end]).collect()
+    };
+    raster_type(&prefix).is_some() || is_avif_header(&prefix)
 }
 
 enum DataUri {
@@ -426,10 +465,11 @@ fn read_data_uri(
 ) -> DataUri {
     let media_type = meta.split(';').next().unwrap_or_default();
     let subtype = &media_type["image/".len()..];
-    if subtype.starts_with("svg") {
+    let base64 = meta.contains("base64");
+    if subtype.starts_with("svg") && !payload_is_raster(bytes, payload_start, base64) {
         return DataUri::Svg;
     }
-    if !meta.contains("base64") {
+    if !base64 {
         let end = uri_end(bytes, start, payload_start);
         let replacement = match &bytes[payload_start..end] {
             [] => return DataUri::NotImage,
@@ -472,38 +512,64 @@ fn starts_inside_a_word(bytes: &[u8], start: usize) -> bool {
         .is_some_and(|before| bytes[before].is_ascii_alphanumeric())
 }
 
-/// Where each `data:` that a CSS escape spells in part starts, and where its media type starts, in order.
-fn escaped_schemes(bytes: &[u8]) -> Vec<(usize, usize)> {
-    let mut found = Vec::new();
-    let mut at = 0;
-    while let Some(escape) = bytes
-        .get(at..)
-        .and_then(|rest| memchr::memchr(b'\\', rest))
-        .map(|offset| at + offset)
-    {
-        let escaped = bytes.get(escape + 1);
-        at = escape + if escaped == Some(&b'u') { 6 } else { 2 };
-        if escaped != Some(&b'\\') {
-            continue;
+/// Each `data:` that a CSS escape spells in part, as where it starts and where its media type starts, in order, from a buffer that stays small on any input.
+struct EscapedSchemes<'b> {
+    bytes: &'b [u8],
+    next_escape: Option<usize>,
+    pending: BTreeSet<(usize, usize)>,
+}
+
+impl<'b> EscapedSchemes<'b> {
+    fn new(bytes: &'b [u8]) -> Self {
+        Self {
+            bytes,
+            next_escape: memchr::memchr(b'\\', bytes),
+            pending: BTreeSet::new(),
         }
-        // The escape spells one of the five characters of `data:`, so the scheme starts at it or at a `d` up to four characters before it.
-        let first_candidates = (escape.saturating_sub(4 * MAX_HEADER_CHAR_BYTES)..escape)
-            .filter(|&start| matches!(bytes[start], b'd' | b'D'))
+    }
+
+    fn add_schemes_spelled_with(&mut self, escape: usize) {
+        let first_candidates = (escape.saturating_sub(ESCAPED_SCHEME_LOOKBEHIND)..escape)
+            .filter(|&start| matches!(self.bytes[start], b'd' | b'D'))
             .chain([escape]);
         for start in first_candidates {
-            if starts_inside_a_word(bytes, start) {
+            if starts_inside_a_word(self.bytes, start) {
                 continue;
             }
             if let Some(meta_start) =
-                after_data_scheme(bytes, start).filter(|&meta_start| meta_start > escape)
+                after_data_scheme(self.bytes, start).filter(|&meta_start| meta_start > escape)
             {
-                found.push((start, meta_start));
+                self.pending.insert((start, meta_start));
             }
         }
     }
-    found.sort_unstable();
-    found.dedup();
-    found
+}
+
+impl Iterator for EscapedSchemes<'_> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<(usize, usize)> {
+        while let Some(escape) = self.next_escape {
+            if self
+                .pending
+                .first()
+                .is_some_and(|&(start, _)| start + ESCAPED_SCHEME_LOOKBEHIND < escape)
+            {
+                break;
+            }
+            let escaped = self.bytes.get(escape + 1);
+            let search_from = escape + if escaped == Some(&b'u') { 6 } else { 2 };
+            self.next_escape = self
+                .bytes
+                .get(search_from..)
+                .and_then(|rest| memchr::memchr(b'\\', rest))
+                .map(|offset| search_from + offset);
+            if escaped == Some(&b'\\') {
+                self.add_schemes_spelled_with(escape);
+            }
+        }
+        self.pending.pop_first()
+    }
 }
 
 fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
@@ -515,7 +581,7 @@ fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
             .then_some((start, colon + 1))
         })
         .peekable();
-    let mut escaped = escaped_schemes(bytes).into_iter().peekable();
+    let mut escaped = EscapedSchemes::new(bytes).peekable();
     std::iter::from_fn(move || match (plain.peek(), escaped.peek()) {
         (Some(plain_scheme), Some(escaped_scheme)) if escaped_scheme < plain_scheme => {
             escaped.next()
@@ -715,6 +781,18 @@ mod tests {
                 r#"{"src":""#,
                 format!("data:image/png;name={};base64,{base64}", "a".repeat(80)),
                 r#""}"#,
+            ),
+            // Raster bytes under an SVG label, which a browser shows as an image.
+            (r#"{"src":""#, format!("data:image/svg+xml,{percent}"), r#""}"#),
+            (
+                r#"{"src":""#,
+                format!(r"data:image/sv\\67+xml;base64,{base64}"),
+                r#""}"#,
+            ),
+            (
+                r#"{"textContent":".a{background:url("#,
+                format!("data:image/svg+xml)}}.b{{background:url(data:image/png;base64,{base64}"),
+                r#")}"}"#,
             ),
         ];
         for (before, uri, after) in cases {
