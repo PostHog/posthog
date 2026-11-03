@@ -2654,6 +2654,7 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
 
             await _insertHogFlow(hub.postgres, unseen)
+            api['hogFlowManager']['onHogFlowsReloaded'](team.id, [unseen.id])
 
             expect((await post()).status).toEqual(202)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)

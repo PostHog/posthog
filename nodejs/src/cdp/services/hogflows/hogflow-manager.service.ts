@@ -49,10 +49,14 @@ const HOG_FLOW_FIELDS = [
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 
+const CONFIRMED_MISSING_TTL_MS = 60 * 1000
+const CONFIRMED_MISSING_MAX_SIZE = 10_000
+
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
     private primaryReads = new Map<HogFlow['id'], Promise<HogFlow | null>>()
+    private confirmedMissingUntil = new Map<HogFlow['id'], number>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -145,29 +149,73 @@ export class HogFlowManagerService {
 
     public async getHogFlowCheckingPrimaryOnMiss(id: HogFlow['id']): Promise<HogFlow | null> {
         const cached = await this.getHogFlow(id)
-        if (cached) {
+        if (cached || this.isConfirmedMissing(id)) {
             return cached
         }
-        return await this.readPrimary(id)
+        return (await this.readPrimary([id]))[id]
     }
 
-    private readPrimary(id: HogFlow['id']): Promise<HogFlow | null> {
-        const readInFlight = this.primaryReads.get(id)
-        if (readInFlight) {
-            return readInFlight
+    public async getHogFlowsCheckingPrimaryOnMiss(
+        ids: HogFlow['id'][]
+    ): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const cached = await this.lazyLoader.getMany(ids)
+        const misses = [...new Set(ids.filter((id) => !cached[id] && !this.isConfirmedMissing(id)))]
+        const fromPrimary = await this.readPrimary(misses)
+        return Object.fromEntries(ids.map((id) => [id, cached[id] ?? fromPrimary[id] ?? null]))
+    }
+
+    private async readPrimary(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const unread = ids.filter((id) => !this.primaryReads.has(id))
+        if (unread.length > 0) {
+            const read = this.fetchHogFlows(unread, PostgresUse.COMMON_WRITE).finally(() =>
+                unread.forEach((id) => this.primaryReads.delete(id))
+            )
+            for (const id of unread) {
+                this.primaryReads.set(
+                    id,
+                    read.then((flows) => this.settlePrimaryRead(id, flows[id] ?? null))
+                )
+            }
         }
-        const read = this.fetchHogFlows([id], PostgresUse.COMMON_WRITE)
-            .then((flows) => this.refreshOnPrimaryHit(flows[id] ?? null))
-            .finally(() => this.primaryReads.delete(id))
-        this.primaryReads.set(id, read)
-        return read
+        const reads = ids.map((id) => this.primaryReads.get(id) ?? Promise.resolve(null))
+        const flows = await Promise.all(reads)
+        return Object.fromEntries(ids.map((id, index) => [id, flows[index]]))
     }
 
-    private refreshOnPrimaryHit(flow: HogFlow | null): HogFlow | null {
+    private settlePrimaryRead(id: HogFlow['id'], flow: HogFlow | null): HogFlow | null {
         if (flow) {
-            this.lazyLoader.markForRefresh(flow.id)
+            this.refreshOnPrimaryHit(flow)
+        } else {
+            this.rememberConfirmedMissing(id)
         }
         return flow
+    }
+
+    private refreshOnPrimaryHit(flow: HogFlow): void {
+        this.lazyLoader.markForRefresh(flow.id)
+    }
+
+    private isConfirmedMissing(id: HogFlow['id']): boolean {
+        const until = this.confirmedMissingUntil.get(id)
+        if (until === undefined) {
+            return false
+        }
+        if (until > Date.now()) {
+            return true
+        }
+        this.confirmedMissingUntil.delete(id)
+        return false
+    }
+
+    private rememberConfirmedMissing(id: HogFlow['id']): void {
+        this.confirmedMissingUntil.delete(id)
+        if (this.confirmedMissingUntil.size >= CONFIRMED_MISSING_MAX_SIZE) {
+            const oldest = this.confirmedMissingUntil.keys().next().value
+            if (oldest !== undefined) {
+                this.confirmedMissingUntil.delete(oldest)
+            }
+        }
+        this.confirmedMissingUntil.set(id, Date.now() + CONFIRMED_MISSING_TTL_MS)
     }
 
     public async getHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {
@@ -177,6 +225,7 @@ export class HogFlowManagerService {
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFlowIds)
+        hogFlowIds.forEach((id) => this.confirmedMissingUntil.delete(id))
     }
 
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {

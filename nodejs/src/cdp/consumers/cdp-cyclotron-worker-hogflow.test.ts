@@ -605,6 +605,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([invocationBeforeInsert])
 
             await insertHogFlow(hub.postgres, lateFlow)
+            processor['hogFlowManager']['onHogFlowsReloaded'](team.id, [lateFlow.id])
             const invocationAfterInsert = createSerializedHogFlowInvocation(lateFlow, {
                 event: { distinct_id: 'distinct_A_1', properties: {} } as any,
             })

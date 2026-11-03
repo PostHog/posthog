@@ -148,18 +148,47 @@ describe('HogFlowManager', () => {
         }, 10000)
     })
 
-    it('reads the primary once for concurrent jobs of a workflow the database no longer has', async () => {
-        const deletedId = new FixtureHogFlowBuilder().withTeamId(teamId1).build().id
-        const querySpy = jest.spyOn(hub.postgres, 'query')
-
-        const flows = await Promise.all(
-            Array.from({ length: 5 }, () => manager.getHogFlowCheckingPrimaryOnMiss(deletedId))
+    it('reads the primary once per batch of workflows the database no longer has, and again once the miss expires', async () => {
+        const [deletedId, secondDeletedId, thirdDeletedId] = Array.from(
+            { length: 3 },
+            () => new FixtureHogFlowBuilder().withTeamId(teamId1).build().id
         )
-
-        expect(flows).toEqual(Array(5).fill(null))
-        expect(
+        const querySpy = jest.spyOn(hub.postgres, 'query')
+        const primaryReads = (): number =>
             querySpy.mock.calls.filter(([use, , , tag]) => use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows')
-        ).toHaveLength(1)
+                .length
+        const baseNow = Date.now()
+
+        try {
+            const flows = await Promise.all(
+                Array.from({ length: 5 }, () => manager.getHogFlowCheckingPrimaryOnMiss(deletedId))
+            )
+            expect(flows).toEqual(Array(5).fill(null))
+            expect(primaryReads()).toBe(1)
+
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow + 59_000)
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(deletedId)).toBeNull()
+            expect(primaryReads()).toBe(1)
+
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow + 61_000)
+            expect(await manager.getHogFlowCheckingPrimaryOnMiss(deletedId)).toBeNull()
+            expect(primaryReads()).toBe(2)
+
+            const batch = await manager.getHogFlowsCheckingPrimaryOnMiss([
+                secondDeletedId,
+                thirdDeletedId,
+                secondDeletedId,
+                hogFlows[0].id,
+            ])
+            expect(batch).toEqual({
+                [secondDeletedId]: null,
+                [thirdDeletedId]: null,
+                [hogFlows[0].id]: expect.objectContaining({ id: hogFlows[0].id }),
+            })
+            expect(primaryReads()).toBe(3)
+        } finally {
+            jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+        }
     })
 
     describe('email sending pause', () => {
