@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     table_definition_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    FakeObjectStorageConfig,
     FakeObjectStorageSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -999,6 +1000,6 @@ class TestSourceForPipeline:
         )
         source.open_store = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
 
-        response = source.source_for_pipeline(S3_CONNECTION_INPUTS, inputs)
+        response = source.source_for_pipeline(FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), inputs)
 
         assert response.preserve_column_names is preserve

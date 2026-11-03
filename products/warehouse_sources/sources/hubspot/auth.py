@@ -114,6 +114,7 @@ def _update_source_job_inputs(source_id: str, access_token: str) -> None:
     from products.warehouse_sources.sources.sdk import ExternalDataSource
 
     try:
+        # nosemgrep: idor-lookup-without-team -- pre-existing, file moved out of temporal/; source_id comes from the sync job, not a request
         source = ExternalDataSource.objects.get(id=source_id)
         job_inputs = SourceInputsStore.load(source)
 

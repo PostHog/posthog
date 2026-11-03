@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
     STORE_BUILDERS,
+    FakeObjectStorageConfig,
     FakeObjectStorageSource,
 )
 
@@ -119,7 +120,9 @@ def test_provider_settings_that_could_retarget_the_request_are_rejected(
 ) -> None:
     source = FakeObjectStorageSource(STORE_BUILDERS[provider])
 
-    valid, message = source.validate_credentials({**PROVIDER_VALUES[provider], **overrides}, team_id=1)
+    valid, message = source.validate_credentials(
+        FakeObjectStorageConfig(values={**PROVIDER_VALUES[provider], **overrides}), team_id=1
+    )
 
     assert not valid
     assert message is not None and message.startswith(INVALID_CONFIG_ERROR)
@@ -158,7 +161,9 @@ def test_a_blocked_location_is_never_opened(provider: str) -> None:
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base.open_store"
         ) as opened,
     ):
-        valid, message = source.validate_credentials(PROVIDER_VALUES[provider], team_id=1)
+        valid, message = source.validate_credentials(
+            FakeObjectStorageConfig(values=PROVIDER_VALUES[provider]), team_id=1
+        )
 
     assert not valid
     assert message is not None and message.startswith(BLOCKED_LOCATION_ERROR)
