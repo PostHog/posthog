@@ -14,23 +14,16 @@ import { retentionPeriodLabel } from './retentionPeriodLabel'
 type RetentionChoice = 'default' | 'custom'
 
 export interface EventsRetentionWindowFormProps {
-    /** The custom window saved here, or null while the default applies. */
     retentionMonths: number | null
-    /** The window that applies while no custom window is saved here. */
     defaultMonths: number
-    /** Whether the default here is the plan's default or the organization's events retention. */
     defaultSource: 'plan' | 'organization'
-    /** True when the default is the organization's custom window, which deletes at every monthly cleanup. */
     defaultDeletesMonthly: boolean
     minMonths: number
     maxMonths: number
     planMonths: number
-    /** Whose events the window deletes, as the start of a sentence, e.g. "Events in this project". */
     scope: string
-    /** How a custom window here relates to the other settings level. */
     overrideNote: string
     nextMonthlyCleanupOn: string
-    /** The project's pass dates, or null when the default here covers many projects and so always deletes. */
     passSchedule: EventsPassSchedule | null
     saving: boolean
     restrictionReason: string | null

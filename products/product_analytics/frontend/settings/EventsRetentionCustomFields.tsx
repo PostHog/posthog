@@ -8,12 +8,10 @@ import { LONGEST_PLAN_RETENTION_MONTHS } from 'products/product_analytics/fronte
 
 export interface EventsRetentionCustomFieldsProps {
     months: number | null
-    /** Why the months can't be saved, or null when they can. */
     problem: string | null
     minMonths: number
     maxMonths: number
     planMonths: number
-    /** How a custom window here relates to the other settings level. */
     overrideNote: string
     disabled: boolean
     onChange: (months: number | null) => void
