@@ -67,7 +67,7 @@ describe('traceViewModelLogic', () => {
     function mountAt({ requestedStepId, openingMode, seedQuery }: HostState = {}): void {
         host = traceViewHostLogic({ hostId: HOST_ID })
         host.mount()
-        host.actions.requestStep(requestedStepId ?? null)
+        host.actions.requestStep(requestedStepId ?? null, null)
         host.actions.setOpeningMode(openingMode ?? null)
         host.actions.setSeedQuery(seedQuery ?? '')
         logic = traceViewModelLogic({ hostId: HOST_ID, traceId: 'trace-1', timestampHint: null })
@@ -176,6 +176,7 @@ describe('traceViewModelLogic', () => {
         ['a node in the tree', { requestedStepId: 'span-1' }, 'span-1'],
         ['an SDK id through its alias', { requestedStepId: 'sdk-gen-1' }, 'gen-1'],
         ['a stale id as the root', { requestedStepId: 'missing' }, 'trace-1'],
+        ['the trace itself as the root, not the default node', { requestedStepId: 'trace-1' }, 'trace-1'],
         ['no id as the default node', {}, 'gen-1'],
         ['a trace-level link as the root', { openingMode: 'summary' }, 'trace-1'],
     ] as const)('selects %s', async (_name, state: HostState, expected) => {
@@ -184,6 +185,33 @@ describe('traceViewModelLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ selectedNodeId: expected })
         expect(logic.values.detailData?.content.kind).not.toBe('error')
+    })
+
+    it('reads no root node for a step requested for the next trace', async () => {
+        mountAt({ requestedStepId: 'span-1' })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', selectedNodeId: 'span-1' })
+        nodeRequests.length = 0
+
+        host.actions.requestStep('next-trace-step', 'trace-2')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedNodeId).toBe('trace-1')
+        expect(nodeRequests).toEqual([])
+    })
+
+    it('does not read the next trace step under this trace while this trace loads', async () => {
+        let releaseTrace = (): void => {}
+        traceGate = new Promise<void>((resolve) => {
+            releaseTrace = resolve
+        })
+        mountAt()
+        await waitFor(() => expect(nodeRequests).toEqual(['trace-1']))
+
+        host.actions.requestStep('next-trace-step', 'trace-2')
+        releaseTrace()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(nodeRequests).not.toContain('next-trace-step')
     })
 
     it('asks for the clusters with the trace start once the trace arrives', async () => {
