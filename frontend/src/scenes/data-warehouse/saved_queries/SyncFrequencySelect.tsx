@@ -1,11 +1,12 @@
-import { IconInfo, IconRabbit, IconTortoise } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
+import { IconInfo, IconPinFilled, IconRabbit, IconTortoise } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataModelingSyncInterval } from '~/types'
 
-import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import { NodePinDelayApi } from 'products/data_modeling/frontend/generated/api.schemas'
+import { SyncFrequencyBlockerApi, SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 export type SyncFrequencyValue = DataModelingSyncInterval | 'never'
 
@@ -62,6 +63,15 @@ export function modeDisabledReason(bounds?: SyncFrequencyBoundsApi | null): stri
     return (bounds && MODE_DISABLED_REASONS[bounds.frequency_mode]) || null
 }
 
+export interface CadencePin {
+    /** True when the pin is saved or the next save writes it. */
+    pinned: boolean
+    /** True when the next save changes the pin. */
+    pending: boolean
+    /** Downstream views that refresh more often than the pinned cadence. */
+    delayed: NodePinDelayApi[]
+}
+
 export interface SyncFrequencySelectProps {
     /** Bounds from the saved query. Undefined while loading, or on surfaces that don't fetch them. */
     bounds?: SyncFrequencyBoundsApi | null
@@ -73,6 +83,12 @@ export interface SyncFrequencySelectProps {
     /** Takes precedence over the mode's own reason, so access checks win over scheduling ones. */
     disabledReason?: string
     'data-attr'?: string
+    /** Set when the view has a DAG node, so a cadence slower than a downstream view can pin instead of being refused. */
+    pin?: CadencePin | null
+    onUnpin?: () => void
+    /** Pins an upstream view this cadence would speed up. Omit to hide the action. */
+    onKeepUpstream?: (view: SyncFrequencyBlockerApi) => void
+    keepingUpstreamId?: string | null
 }
 
 /**
@@ -88,12 +104,19 @@ export function SyncFrequencySelect({
     loading,
     disabledReason,
     'data-attr': dataAttr,
+    pin,
+    onUnpin,
+    onKeepUpstream,
+    keepingUpstreamId,
 }: SyncFrequencySelectProps): JSX.Element {
-    const inherited = inheritedCadence(bounds, value)
+    const inherited = pin?.pinned ? null : inheritedCadence(bounds, value)
+    const selected = inherited?.cadence ?? (value && value !== 'never' ? value : undefined)
     const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
-    const options = buildOptions(bounds)
+    const upstreamToKeep = onKeepUpstream && value && value !== 'never' ? speedUpViews(bounds, value) : []
+    const options = buildOptions(bounds, { canPin: !!pin })
     // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
-    const explanation = buildExplanation(bounds, { omitCeiling: !!inherited })
+    // With a pin on offer, a downstream view no longer caps how slow this view can go.
+    const explanation = buildExplanation(bounds, { omitCeiling: !!inherited || !!pin })
     const modeReason = modeDisabledReason(bounds)
     const reason =
         disabledReason ??
@@ -124,9 +147,11 @@ export function SyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
-                    value={inherited?.cadence ?? (value && value !== 'never' ? value : undefined)}
+                    value={selected}
                     onChange={(next) => {
-                        if (next !== value) {
+                        // Compare against what the bar shows: a saved cadence the scheduler overrides shows
+                        // the inherited one, and clicking the saved one again is how the view gets pinned to it.
+                        if (next !== selected) {
                             onChange(next)
                         }
                     }}
@@ -135,6 +160,29 @@ export function SyncFrequencySelect({
                 />
                 <IconTortoise className={PACE_ICON_CLASS} aria-hidden />
             </div>
+            {pin?.pinned && selected && (
+                <span className="flex items-start gap-1 text-xs text-secondary max-w-prose">
+                    <IconPinFilled className="shrink-0 mt-0.5" aria-hidden />
+                    <span>
+                        {pinNote(selected, pin.delayed, { pending: pin.pending })}
+                        {!pin.pending && onUnpin && (
+                            <>
+                                {' '}
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    className="inline-flex"
+                                    onClick={onUnpin}
+                                    disabledReason={reason}
+                                    data-attr="sync-frequency-unpin"
+                                >
+                                    Unpin
+                                </LemonButton>
+                            </>
+                        )}
+                    </span>
+                </span>
+            )}
             {inherited && (
                 <span className="text-xs text-secondary max-w-prose">
                     <WithUpstreamRule text={inherited.note} />
@@ -144,6 +192,29 @@ export function SyncFrequencySelect({
                 <span className="text-xs text-secondary max-w-prose">
                     <WithUpstreamRule text={selectedSpeedUp} />
                 </span>
+            )}
+            {upstreamToKeep.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                    {upstreamToKeep.map((view) => (
+                        <LemonButton
+                            key={view.id}
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconPinFilled />}
+                            onClick={() => onKeepUpstream?.(view)}
+                            loading={keepingUpstreamId === view.id}
+                            disabledReason={
+                                keepingUpstreamId && keepingUpstreamId !== view.id
+                                    ? 'Pinning another upstream view.'
+                                    : undefined
+                            }
+                            tooltip={`Pins upstream view ${view.name} to its own setting, so it stops refreshing every ${CADENCE_LABELS[value as DataModelingSyncInterval]} for this view.`}
+                            data-attr="sync-frequency-keep-upstream"
+                        >
+                            Keep upstream view {view.name} at its own setting
+                        </LemonButton>
+                    ))}
+                </div>
             )}
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
@@ -171,6 +242,38 @@ export function speedUpWarning(
         ? 'Some upstream views'
         : `${plural ? 'Upstream views' : 'Upstream view'} ${named.join(', ')}${option.speeds_up_withheld ? ' and others' : ''}`
     return `${subject} also ${plural ? 'refresh' : 'refreshes'} every ${CADENCE_LABELS[cadence]} to keep up with this view.`
+}
+
+/** The upstream views a cadence speeds up that the caller can name, and so can pin. */
+export function speedUpViews(
+    bounds: SyncFrequencyBoundsApi | null | undefined,
+    cadence: DataModelingSyncInterval
+): SyncFrequencyBlockerApi[] {
+    return bounds?.options.find((option) => option.cadence === cadence)?.speeds_up ?? []
+}
+
+/** True when a cadence is refused only because a downstream view needs fresher data, which a pin allows. */
+export function needsPin(bounds: SyncFrequencyBoundsApi | null | undefined, cadence: SyncFrequencyValue): boolean {
+    const option = bounds?.options.find((candidate) => candidate.cadence === cadence)
+    return !!option && !option.allowed && option.blocked_by === 'consumer'
+}
+
+/** What a pin means for the downstream views, so nobody pins without seeing who reads older data. */
+export function pinNote(
+    cadence: DataModelingSyncInterval,
+    delayed: NodePinDelayApi[],
+    { pending }: { pending: boolean }
+): string {
+    const every = CADENCE_LABELS[cadence]
+    const lead = pending ? `Saving pins this view to refresh every ${every}` : `Pinned to refresh every ${every}`
+    if (!delayed.length) {
+        return `${lead}, even when downstream views need fresher data.`
+    }
+    const plural = delayed.length > 1
+    return (
+        `${lead}. ${plural ? 'Downstream views' : 'Downstream view'} ${delayed.map((view) => view.name).join(', ')} ` +
+        `${plural ? 'refresh' : 'refreshes'} more often, so ${plural ? 'they read' : 'it reads'} data up to ${every} old.`
+    )
 }
 
 const UPSTREAM_RULE =
@@ -218,7 +321,8 @@ export function inheritedCadence(
 }
 
 export function buildOptions(
-    bounds?: SyncFrequencyBoundsApi | null
+    bounds?: SyncFrequencyBoundsApi | null,
+    { canPin = false }: { canPin?: boolean } = {}
 ): LemonSegmentedButtonOption<DataModelingSyncInterval>[] {
     if (!bounds?.options.length) {
         return ORDERED_CADENCES.map((cadence) => segment(cadence))
@@ -226,6 +330,13 @@ export function buildOptions(
 
     return bounds.options.map((option) => {
         const cadence = option.cadence as DataModelingSyncInterval
+        if (canPin && needsPin(bounds, cadence)) {
+            const consumer = option.blocker?.name
+            return {
+                ...segment(cadence),
+                tooltip: `Pin to every ${CADENCE_LABELS[cadence]}. ${consumer ? `Downstream view ${consumer} needs` : 'A downstream view needs'} fresher data.`,
+            }
+        }
         return {
             ...segment(cadence),
             disabledReason: option.allowed ? undefined : blockedReason(option, bounds),

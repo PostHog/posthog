@@ -6,7 +6,9 @@ import {
     defaultCadenceWithin,
     inheritedCadence,
     modeDisabledReason,
+    pinNote,
     SyncFrequencyValue,
+    speedUpViews,
     speedUpWarning,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
@@ -36,14 +38,48 @@ describe('SyncFrequencySelect', () => {
         expect(options.every((option) => !option.disabledReason)).toBe(true)
     })
 
-    it('disables a blocked cadence and names what blocks it', () => {
-        const options = buildOptions(bounds())
+    it.each([
+        ['without pinning', false, 'Too slow for downstream view daily_revenue', 'Every 1 day'],
+        [
+            'with pinning, a too-slow cadence pins instead',
+            true,
+            undefined,
+            'Pin to every 1 day. Downstream view daily_revenue needs fresher data.',
+        ],
+    ])('disables a blocked cadence and names what blocks it %s', (_case, canPin, consumerReason, consumerTooltip) => {
+        const options = buildOptions(bounds(), { canPin })
 
         const bySource = options.find((option) => option.value === '15min')
         const byConsumer = options.find((option) => option.value === '24hour')
         expect(bySource?.disabledReason).toBe('More often than upstream source stripe_invoices syncs')
-        expect(byConsumer?.disabledReason).toBe('Too slow for downstream view daily_revenue')
+        expect(byConsumer?.disabledReason).toBe(consumerReason)
+        expect(byConsumer?.tooltip).toBe(consumerTooltip)
         expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
+    })
+
+    describe('pinNote', () => {
+        it.each([
+            [
+                'a saved pin nothing reads faster than',
+                false,
+                [],
+                'Pinned to refresh every 1 day, even when downstream views need fresher data.',
+            ],
+            [
+                'a saved pin that delays one downstream view',
+                false,
+                ['daily_revenue'],
+                'Pinned to refresh every 1 day. Downstream view daily_revenue refreshes more often, so it reads data up to 1 day old.',
+            ],
+            [
+                'an unsaved pin that delays two downstream views',
+                true,
+                ['daily_revenue', 'mrr'],
+                'Saving pins this view to refresh every 1 day. Downstream views daily_revenue, mrr refresh more often, so they read data up to 1 day old.',
+            ],
+        ])('describes %s', (_case, pending, names, expected) => {
+            expect(pinNote('24hour', names.map(blocker), { pending })).toBe(expected)
+        })
     })
 
     it('explains the range only where a per-view cadence is writable', () => {
@@ -237,6 +273,18 @@ describe('SyncFrequencySelect', () => {
             ],
         ])('when %s', (_case, names, withheld, expected) => {
             expect(speedUpWarning(withSpeedsUp(names, withheld), '6hour')).toBe(expected)
+        })
+
+        it.each([
+            [
+                'names each slower upstream view it can pin',
+                ['org_universe', 'accounts'],
+                true,
+                ['id-org_universe', 'id-accounts'],
+            ],
+            ['offers nothing to pin when every view is withheld', [], true, []],
+        ])('%s', (_case, names, withheld, expectedIds) => {
+            expect(speedUpViews(withSpeedsUp(names, withheld), '6hour').map((view) => view.id)).toEqual(expectedIds)
         })
     })
 
