@@ -54,6 +54,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, get_or
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.ip_restrictions import get_ip_restriction_denial, get_restriction_client_ip, is_ip_restriction_exempt
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
@@ -235,7 +236,12 @@ def pop_mcp_client_ip(request: HttpRequest) -> str | None:
 
     outcome = verify_signed_client_ip(ip, timestamp, signature, settings.MCP_CLIENT_IP_SIGNING_KEYS)
     MCP_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
-    return ip if outcome is SignedClientIPOutcome.VALID else None
+    if outcome is SignedClientIPOutcome.VALID:
+        # Keep the verified end-user IP on the request for the IP restriction checks, which run
+        # after this middleware but still need to judge the MCP caller rather than the pod address.
+        setattr(request, "verified_mcp_client_ip", ip)  # noqa: B010 — dynamic attr the stubs don't know
+        return ip
+    return None
 
 
 class ManagedProxyClientIPMiddleware:
@@ -1657,6 +1663,55 @@ def organization_block_page(organization: Organization) -> Optional[str]:
     if organization.is_active is False:
         return "/organization-deactivated"
     return None
+
+
+class IPRestrictionsMiddleware(MiddlewareMixin):
+    """Block requests from an IP that the caller's organization does not allow.
+
+    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
+    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
+    same check after their principal is resolved. Both use the cached organization restrictions and
+    `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
+    verified IP is available.
+    """
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[object, ...],
+        view_kwargs: dict[str, object],
+    ) -> HttpResponse | None:
+        # URL resolution must finish before checking sessions so public runtime handlers can opt out.
+        if is_ip_restriction_exempt(request):
+            return None
+        # A member who leaves the allowed network must still be able to sign out and switch
+        # accounts. The logout view keeps its POST-only and CSRF protections.
+        if request.path.startswith("/logout"):
+            return None
+
+        if is_impersonated_session(request):
+            return None
+
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            # Bearer-authenticated requests are checked after DRF resolves their principal.
+            return None
+
+        client_ip = get_restriction_client_ip(request)
+        denial = get_ip_restriction_denial(user, client_ip)
+        if denial is None:
+            return None
+
+        return JsonResponse(
+            {
+                "type": "authentication_error",
+                "code": "ip_not_allowed",
+                "detail": denial,
+                "ip": client_ip,
+            },
+            status=403,
+        )
 
 
 class ActiveOrganizationMiddleware:

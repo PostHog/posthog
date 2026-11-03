@@ -24,7 +24,7 @@ from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
@@ -409,6 +409,12 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 api_key_label=personal_api_key_object.label,
             )
 
+            # Views that override `permission_classes` can omit `IPRestrictionsPermission`, so the
+            # bearer path enforces the check here too.
+            from posthog.ip_restrictions import enforce_ip_restrictions
+
+            enforce_ip_restrictions(request, personal_api_key_object.user, self)
+
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
             # DRF auth), so signal-driven activity logging would otherwise record bearer-token
             # requests as system actions.
@@ -785,6 +791,10 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                 access_method=AccessMethod.ID_JAG,
             )
 
+            from posthog.ip_restrictions import enforce_ip_restrictions
+
+            enforce_ip_restrictions(request, verified.user, self)
+
             self.record_activity_actor(verified.user, verified.client_id)
             record_agent_intent(request)
 
@@ -1023,6 +1033,11 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     activity_credential_type = "oauth"
     access_token: OAuthAccessToken
 
+    @property
+    def is_user_delegated(self) -> bool:
+        # Task-bound tokens represent PostHog-hosted workers, whose egress IP is not the user's.
+        return self.access_token.sandbox_task_id is not None
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.oauth"):
             authorization_token = self._extract_token(request)
@@ -1039,6 +1054,9 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                 return self._authenticate_access_token(request, access_token)
 
             except AuthenticationFailed:
+                raise
+            except PermissionDenied:
+                # An IP restriction refusal is a 403, not a bad token. Let it keep its code.
                 raise
             except Exception as e:
                 # _validate_token converts its own failures, so anything reaching here is a
@@ -1063,6 +1081,12 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         refuse_blocked_account(
             request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
         )
+
+        # Views that override `permission_classes` can omit `IPRestrictionsPermission`, so the bearer
+        # path enforces the check here too. A delegated token without a signed end-user IP is exempt.
+        from posthog.ip_restrictions import enforce_ip_restrictions
+
+        enforce_ip_restrictions(request, user, self)
 
         tag_authentication(
             user_id=user.pk,
@@ -1189,6 +1213,9 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
 
 class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
     activity_credential_type = "personal_api_key"
+    # A delegated credential comes from an internal service acting for the user. Only the MCP server
+    # forwards a signed end-user IP, so an IP restriction judges this request only when that is set.
+    is_user_delegated = True
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
@@ -1217,6 +1244,10 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             api_key_mask=personal_api_key.mask_value,
             api_key_label=personal_api_key.label,
         )
+        from posthog.ip_restrictions import enforce_ip_restrictions
+
+        enforce_ip_restrictions(request, personal_api_key.user, self)
+
         self.record_activity_actor(personal_api_key.user, personal_api_key.id)
         record_agent_intent(request)
         return personal_api_key.user, None
@@ -1224,6 +1255,10 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
 
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
     activity_credential_type = "oauth"
+
+    @property
+    def is_user_delegated(self) -> bool:
+        return True
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)

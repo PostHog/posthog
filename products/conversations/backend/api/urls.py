@@ -2,6 +2,8 @@
 
 from django.urls import path, re_path
 
+from posthog.ip_restrictions import ip_restrictions_exempt
+
 from .email_events import (
     email_capture_handler,
     email_inbound_handler,
@@ -39,21 +41,37 @@ from .teams_oauth import TeamsAuthorizeView, TeamsDisconnectView, teams_oauth_ca
 from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView
 
 urlpatterns = [
-    path("v1/widget/message", WidgetMessageView.as_view(), name="widget-message-v1"),
-    path("v1/widget/messages/<uuid:ticket_id>", WidgetMessagesView.as_view(), name="widget-messages-v1"),
-    path("v1/widget/messages/<uuid:ticket_id>/read", WidgetMarkReadView.as_view(), name="widget-mark-read-v1"),
-    path("v1/widget/tickets", WidgetTicketsView.as_view(), name="widget-tickets-v1"),
-    path("v1/widget/restore/request", WidgetRestoreRequestView.as_view(), name="widget-restore-request-v1"),
-    path("v1/widget/restore", WidgetRestoreRedeemView.as_view(), name="widget-restore-v1"),
+    path("v1/widget/message", ip_restrictions_exempt(WidgetMessageView.as_view()), name="widget-message-v1"),
+    path(
+        "v1/widget/messages/<uuid:ticket_id>",
+        ip_restrictions_exempt(WidgetMessagesView.as_view()),
+        name="widget-messages-v1",
+    ),
+    path(
+        "v1/widget/messages/<uuid:ticket_id>/read",
+        ip_restrictions_exempt(WidgetMarkReadView.as_view()),
+        name="widget-mark-read-v1",
+    ),
+    path("v1/widget/tickets", ip_restrictions_exempt(WidgetTicketsView.as_view()), name="widget-tickets-v1"),
+    path(
+        "v1/widget/restore/request",
+        ip_restrictions_exempt(WidgetRestoreRequestView.as_view()),
+        name="widget-restore-request-v1",
+    ),
+    path("v1/widget/restore", ip_restrictions_exempt(WidgetRestoreRedeemView.as_view()), name="widget-restore-v1"),
     # SupportHog Slack app
-    re_path(r"^v1/slack/events/?$", supporthog_event_handler, name="supporthog-slack-events"),
-    re_path(r"^v1/slack/interactivity/?$", supporthog_interactivity_handler, name="supporthog-slack-interactivity"),
+    re_path(r"^v1/slack/events/?$", ip_restrictions_exempt(supporthog_event_handler), name="supporthog-slack-events"),
+    re_path(
+        r"^v1/slack/interactivity/?$",
+        ip_restrictions_exempt(supporthog_interactivity_handler),
+        name="supporthog-slack-interactivity",
+    ),
     re_path(r"^v1/slack/authorize/?$", SupportSlackAuthorizeView.as_view(), name="supporthog-slack-authorize"),
     re_path(r"^v1/slack/callback/?$", support_slack_oauth_callback, name="supporthog-slack-callback"),
     re_path(r"^v1/slack/disconnect/?$", SupportSlackDisconnectView.as_view(), name="supporthog-slack-disconnect"),
     re_path(r"^v1/slack/channels/?$", SlackChannelsView.as_view(), name="slack-channels"),
     # SupportHog Teams app
-    re_path(r"^v1/teams/events/?$", teams_event_handler, name="supporthog-teams-events"),
+    re_path(r"^v1/teams/events/?$", ip_restrictions_exempt(teams_event_handler), name="supporthog-teams-events"),
     re_path(r"^v1/teams/authorize/?$", TeamsAuthorizeView.as_view(), name="supporthog-teams-authorize"),
     re_path(r"^v1/teams/callback/?$", teams_oauth_callback, name="supporthog-teams-callback"),
     re_path(r"^v1/teams/disconnect/?$", TeamsDisconnectView.as_view(), name="supporthog-teams-disconnect"),
@@ -62,9 +80,9 @@ urlpatterns = [
     re_path(r"^v1/teams/install/?$", TeamsInstallAppView.as_view(), name="teams-install"),
     re_path(r"^v1/teams/select-channel/?$", TeamsSelectChannelView.as_view(), name="teams-select-channel"),
     # Email channel
-    re_path(r"^v1/email/capture/?$", email_capture_handler, name="email-capture"),
-    re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
-    re_path(r"^v1/email/outbound/?$", email_outbound_handler, name="email-outbound"),
+    re_path(r"^v1/email/capture/?$", ip_restrictions_exempt(email_capture_handler), name="email-capture"),
+    re_path(r"^v1/email/inbound/?$", ip_restrictions_exempt(email_inbound_handler), name="email-inbound"),
+    re_path(r"^v1/email/outbound/?$", ip_restrictions_exempt(email_outbound_handler), name="email-outbound"),
     re_path(r"^v1/email/sender-status/?$", email_sender_status_handler, name="email-sender-status"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
@@ -90,5 +108,7 @@ urlpatterns = [
     re_path(r"^v1/github/repos/?$", GithubReposView.as_view(), name="github-repos"),
     re_path(r"^v1/github/select-repos/?$", GithubSelectReposView.as_view(), name="github-select-repos"),
     re_path(r"^v1/github/create-issue/?$", GithubCreateIssueView.as_view(), name="github-create-issue"),
-    path("external/ticket/<uuid:ticket_id>", ExternalTicketView.as_view(), name="external-ticket"),
+    path(
+        "external/ticket/<uuid:ticket_id>", ip_restrictions_exempt(ExternalTicketView.as_view()), name="external-ticket"
+    ),
 ]

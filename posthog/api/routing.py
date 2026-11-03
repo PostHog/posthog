@@ -29,6 +29,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.dataclasses import frozen
+from posthog.ip_restrictions import IPRestrictionsPermission
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -393,6 +394,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
+                IPRestrictionsPermission(),
             ]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
@@ -423,6 +425,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes.append(VerifiedDomainEnforcementPermission)
         permission_classes.append(MCPAccessPermission)
         permission_classes.append(ActiveOrganizationPermission)
+        permission_classes.append(IPRestrictionsPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]

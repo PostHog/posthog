@@ -44,6 +44,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import mute_selected_signals
@@ -2540,6 +2541,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     def test_remote_config_encrypted_payload_auth_dependent(self, _name: str, should_decrypt: bool):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
         plaintext = '{"secret": "value"}'
         token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
         self._create_encrypted_flag(stored_payload=token)
@@ -2557,7 +2560,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             assert secret_token is not None
             auth_token = secret_token
 
-        self.client.logout()
+        self.client.force_login(self.user)
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
             headers={"authorization": f"Bearer {auth_token}"},

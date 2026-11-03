@@ -379,6 +379,16 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     __repr__ = sane_repr("name")
 
+    @property
+    def ip_restrictions(self) -> list[str]:
+        config = getattr(self, "ip_restrictions_config", None)
+        return config.ip_restrictions if config is not None else []
+
+    @property
+    def ip_restrictions_enabled(self) -> bool:
+        config = getattr(self, "ip_restrictions_config", None)
+        return bool(config.enabled) if config is not None else False
+
     @classmethod
     def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
         instance = super().from_db(db, field_names, values, **kwargs)

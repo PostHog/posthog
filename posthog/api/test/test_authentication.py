@@ -2919,6 +2919,9 @@ class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
             tags_context(is_scout_experiment=False),
             patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
             patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+            # The authenticator enforces IP restrictions after resolving the principal. This case
+            # tests query tagging on a synthetic user, so the database-backed check is stubbed out.
+            patch("posthog.ip_restrictions.enforce_ip_restrictions"),
         ):
             self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
             self.assertEqual(get_query_tags().is_scout_experiment, private)
