@@ -338,25 +338,25 @@ class TestSendCommentToSlack(APIBaseTest):
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
         mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("reply", "source_comment", status.HTTP_400_BAD_REQUEST),
-            ("unknown_integration", "integration", status.HTTP_400_BAD_REQUEST),
-            ("someone_elses_ticket_discussion", "author", status.HTTP_403_FORBIDDEN),
-        ]
-    )
+    @parameterized.expand([("reply", "source_comment"), ("unknown_integration", "integration")])
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
-    def test_rejects_invalid_target(self, _name, bad, expected_status, _flag):
+    def test_rejects_invalid_target(self, _name, bad, _flag):
         if bad == "source_comment":
             parent = self._comment()
             res = self._send(self._comment(source_comment=parent).id)
-        elif bad == "author":
-            teammate = self._create_user("teammate@posthog.com")
-            res = self._send(self._comment(scope="Ticket", created_by=teammate).id)
         else:
             res = self._send(self._comment().id, integration_id=999999)
 
-        assert res.status_code == expected_status
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_only_the_author_can_send_a_ticket_discussion(self, _flag):
+        teammate = self._create_user("teammate@posthog.com")
+
+        res = self._send(self._comment(scope="Ticket", created_by=teammate).id)
+
+        assert res.status_code == status.HTTP_403_FORBIDDEN
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
 

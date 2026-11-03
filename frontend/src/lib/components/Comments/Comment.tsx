@@ -20,7 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 
-import { ActivityScope, CommentType } from '~/types'
+import { CommentType } from '~/types'
 
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
@@ -187,7 +187,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { disabledReasonFor, isMyComment } = useValues(commentsLogic)
+    const { disabledReasonFor, sendToSlackDisabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(sendCommentToSlackLogic)
@@ -261,10 +261,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                                       icon: <IconSlack />,
                                       label: 'Send to Slack',
                                       onClick: () => openModal(comment),
-                                      disabledReason:
-                                          comment.scope === ActivityScope.TICKET && !isMyComment(comment)
-                                              ? 'Only the person who started this discussion can send it to Slack'
-                                              : null,
+                                      disabledReason: sendToSlackDisabledReasonFor(comment),
                                   },
                               ]
                             : []),
