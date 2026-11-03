@@ -675,6 +675,7 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
     )
 
     async def fake_select_repo(*args, **kwargs):
+        kwargs["on_research_session"]("example-task", "example-run")
         return RepoSelectionResult(repository="posthog/posthog", reason="Single repository connected: posthog/posthog")
 
     monkeypatch.setattr(
@@ -682,13 +683,22 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
-    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture") as capture,
+    ):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
         )
 
     assert result.repository == "posthog/posthog"
     assert "Single repository" in result.reason
+
+    completed = next(
+        call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "signals_repo_research_completed"
+    )
+    assert completed["properties"]["task_id"] == "example-task"
+    assert completed["properties"]["task_run_id"] == "example-run"
 
 
 @pytest.mark.asyncio

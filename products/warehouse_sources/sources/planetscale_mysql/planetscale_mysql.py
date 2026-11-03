@@ -6,11 +6,11 @@ from django.conf import settings
 
 import pymysql
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
+from products.warehouse_sources.sources.sdk.internals import (
     _MYSQL_SAFE_CONVERSIONS,
     METADATA_READ_TIMEOUT_SECONDS,
     MySQLImplementation,
+    MySQLSourceConfig,
     _connect_with_transient_retry,
     connection_timeouts,
 )

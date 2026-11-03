@@ -2,21 +2,18 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.sdk import (
+    NOT_DETECTABLE,
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldSSHTunnelConfig,
+    SourceRegistry,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
-    PostgresSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk.internals import PostgresSource, PostgresSourceConfig
 
 # planetscale.com is the dashboard, never a database endpoint — Postgres hosts live on
 # psdb.cloud. Pasting the dashboard address otherwise fails as an opaque connection timeout.
