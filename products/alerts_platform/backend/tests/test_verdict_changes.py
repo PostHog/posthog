@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NewAlertDestination,
     SourceKind,
     VerdictChange,
+    VerdictChangeNotRecorded,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_lifecycle import event_row, record_history
@@ -157,3 +159,20 @@ class TestRecordVerdictChange(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert follow_up is None
+
+    def test_a_follow_up_clickhouse_refused_raises_so_the_caller_can_retry(self) -> None:
+        with (
+            team_scope(self.team.id),
+            patch("products.alerts_platform.backend.logic.platform_lifecycle.insert_events", return_value=0),
+            pytest.raises(VerdictChangeNotRecorded),
+        ):
+            record_verdict_change(
+                VerdictChange(
+                    team_id=self.team.id,
+                    configuration_id=self.configuration.id,
+                    firing_evaluation_key=FIRING_KEY,
+                    episode_started_at=FIRING_AT,
+                    firing_event_id=FIRING_EVENT,
+                ),
+                now=FIRING_AT + timedelta(minutes=20),
+            )

@@ -91,7 +91,8 @@ def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliv
     with `start_deliveries`, or None when there is nothing to send.
 
     Writes only the follow-up's history row, so it leaves state, schedule and holds alone. A second
-    call for the same firing starts the same delivery, whose id and threads send it once.
+    call for the same firing starts the same delivery, whose id and threads send it once. Raises
+    `VerdictChangeNotRecorded` when the row could not be written, which a retry can recover.
     """
     return verdict_changes.record_verdict_change(change, now=now)
 

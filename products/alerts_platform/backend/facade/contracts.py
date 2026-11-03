@@ -575,8 +575,14 @@ class VerdictChange:
     @property
     def evaluation_key(self) -> str:
         # A key of its own gives the follow-up its own delivery, and gets it past the thread store,
-        # which skips a key a thread already carried.
-        return f"{self.firing_evaluation_key}#verdict"
+        # which skips a key a thread already carried. Per group, because two groups' follow-ups
+        # under one key share a delivery, which would miss a row written after it read the history.
+        key = f"{self.firing_evaluation_key}#verdict"
+        return f"{key}:{self.grouping_key}" if self.grouping_key else key
+
+
+class VerdictChangeNotRecorded(Exception):
+    """ClickHouse refused a follow-up's history row, so no delivery could read it back. Retryable."""
 
 
 @frozen

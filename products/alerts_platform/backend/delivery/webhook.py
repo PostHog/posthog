@@ -29,13 +29,14 @@ WEBHOOK_VERSION: Final = "2"
 _NOT_ENDED: Final = "0001-01-01T00:00:00Z"
 
 _BREACH_KINDS: Final = (AlertEventKind.FIRING, AlertEventKind.RESOLVED)
+_ENDED_KINDS: Final = (AlertEventKind.RESOLVED, AlertEventKind.VERDICT_CHANGED)
 
 
 def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
     # A failed or a turned-off check is a separate alert to a receiver. With the breach's
     # fingerprint, the breach's resolve would close it, and a later breach would read as an
     # alert that is already open.
-    series = "breach" if transition.kind.delivered_as in _BREACH_KINDS else transition.kind.value
+    series = "breach" if transition.kind in _BREACH_KINDS else transition.kind.value
     return hashlib.sha256(f"{configuration_id}|{transition.grouping_key}|{series}".encode()).hexdigest()[:16]
 
 
@@ -54,8 +55,9 @@ def alertmanager_body(message: AlertMessage) -> dict[str, Any]:
     transition = message.transition
     configuration_id = message.configuration_id
     # Alertmanager has only these two statuses. A failed or a turned-off check goes out as
-    # firing, and `posthog_event_kind` is what tells it apart from a breach.
-    status = "resolved" if transition.kind == AlertEventKind.RESOLVED else "firing"
+    # firing, and `posthog_event_kind` is what tells it apart from a breach. A follow-up goes out
+    # already ended under its own fingerprint, so it can neither open nor reopen anything.
+    status = "resolved" if transition.kind in _ENDED_KINDS else "firing"
     group_labels = {
         "alertname": message.alert_name,
         "posthog_configuration_id": configuration_id,

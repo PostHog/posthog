@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     SourceKind,
     VerdictChange,
+    VerdictChangeNotRecorded,
 )
 from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.platform_lifecycle import RULE_METADATA_FIELDS, event_row, record_history
@@ -25,8 +26,8 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
     """Records the follow-up's row and returns the delivery to start, or None when there is nothing to send.
 
-    None when the configuration or its group is gone, when the firing is still held or was suppressed,
-    or when ClickHouse refused the row, which a delivery could not read back.
+    None when the configuration or its group is gone, or when the firing is still held or was
+    suppressed. Raises `VerdictChangeNotRecorded` when ClickHouse refused the row.
     """
     alert = (
         PlatformAlert.objects.for_team(change.team_id)
@@ -55,7 +56,7 @@ def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliv
         source_detail=change.source_detail,
     )
     if not record_history(change.team_id, [row]):
-        return None
+        raise VerdictChangeNotRecorded(f"no history row for {change.evaluation_key}")
     return AlertDeliveryRequest(
         source=SourceKind(configuration.source_kind),
         team_id=change.team_id,
