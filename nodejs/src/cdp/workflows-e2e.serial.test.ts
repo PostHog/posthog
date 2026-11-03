@@ -45,6 +45,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
@@ -2885,6 +2886,8 @@ describe('Workflows E2E (email queue)', () => {
     let team: Team
     let cyclotronPool: Pool
     let deps: ReturnType<typeof createCdpConsumerDeps>
+    let ses: LocalSes | undefined
+    let sesEnvironment: LocalSesAwsEnvironment | undefined
 
     beforeAll(() => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
@@ -3001,6 +3004,13 @@ describe('Workflows E2E (email queue)', () => {
             emailWorker?.stop() ?? Promise.resolve(),
             matcher?.stop().catch(() => {}) ?? Promise.resolve(),
         ])
+        emailWorker?.emailService.sesV2Client?.destroy()
+        await ses?.stop()
+        ses = undefined
+        if (sesEnvironment) {
+            sesEnvironment.restore()
+            sesEnvironment = undefined
+        }
         await kafkaProducer.disconnect()
         await closeHub(hub)
         mockProducerObserver.resetKafkaProducer()
@@ -3185,6 +3195,100 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+    })
+
+    it('returns the workflow to its origin queue and priority after SES throttles the email', async () => {
+        const sesThrottledSends = 2
+        sesEnvironment = new LocalSesAwsEnvironment()
+        sesEnvironment.configure()
+        ses = new LocalSes()
+        await ses.start()
+        ses.throttleNextRequests(sesThrottledSends)
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_integration SET config = jsonb_set(config, '{provider}', '"ses"')
+             WHERE id = 1 AND team_id = $1`,
+            [team.id],
+            'test-use-local-ses'
+        )
+        await emailWorker.stop()
+        emailWorker.emailService.sesV2Client?.destroy()
+        emailWorker = new CdpCyclotronWorkerEmail(
+            { ...hub, SES_REGION: 'us-east-1', SES_ENDPOINT: ses.endpoint },
+            deps,
+            new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        )
+        await emailWorker.start()
+        // The fetch after the email leaves the email queue, so the job row shows which queue the run returned to.
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-email-then-fetch',
+            name: 'Fetch after email',
+            code: `fetch(inputs.url, {'method': 'POST'})`,
+            inputs_schema: [{ key: 'url', type: 'string', required: true }],
+        })
+        mockFetch.mockResolvedValue({
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve('{}'),
+            dump: () => Promise.resolve(),
+        })
+        const transactional = (action: ReturnType<typeof emailAction>): ReturnType<typeof emailAction> => {
+            const config = action.config as Extract<HogFlowAction, { type: 'function_email' }>['config']
+            return { ...action, config: { ...config, message_category_type: 'transactional' } }
+        }
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    // Transactional sends ride the email queue at priority 0, below the run's origin priority 1,
+                    // so the completed row shows whether the run got its own priority back.
+                    email_1: transactional(emailAction('Test Email', { text: 'Test text', html: '<p>Test html</p>' })),
+                    fetch: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-email-then-fetch',
+                            inputs: { url: { value: 'https://example.com/after-email' } },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'fetch', type: 'continue' },
+                    { from: 'fetch', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
+        }, 15000)
+        expect(ses.requests).toHaveLength(sesThrottledSends + 1)
+        expect(await ses.getEmails()).toEqual([
+            expect.objectContaining({ subject: 'Test Email', body: { text: 'Test text', html: '<p>Test html</p>' } }),
+        ])
+        await waitForExpect(async () => {
+            expect(await queryCyclotronJobs()).toEqual([
+                expect.objectContaining({
+                    function_id: hogFlow.id,
+                    queue_name: 'hogflow',
+                    priority: 1,
+                    status: 'completed',
+                }),
+            ])
+        }, 10000)
+        expect(mockFetch).toHaveBeenCalledTimes(1)
     })
 
     it('skips a predicted hard bounce before the email queue and completes the workflow', async () => {

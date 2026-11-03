@@ -542,6 +542,7 @@ export class EmailService {
                 // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                 // queue-routing paths, which re-attach the same way.
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: workflowDelay.retryDelayMs })
                 addLog('info', workflowDelay.logMessage)
                 return result
@@ -632,6 +633,7 @@ export class EmailService {
                 throttled = true
                 result.finished = false
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {

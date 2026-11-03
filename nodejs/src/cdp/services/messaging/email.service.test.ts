@@ -429,12 +429,13 @@ describe('EmailService', () => {
                 expect(result.metrics ?? []).toEqual([])
             })
 
-            it('keeps the send priority class across a throttle reschedule', async () => {
+            it('keeps the send priority class and origin route across a throttle reschedule', async () => {
                 // A bulk send enters the email queue at priority 1. On an SES throttle the job is
                 // rescheduled on the email queue, so its priority must stay 1 — resetting it to the
                 // fast-lane value 0 would let throttled bulk bursts jump ahead of transactional sends,
                 // which is exactly the traffic the fast lane exists to protect.
                 invocation.queuePriority = 1
+                invocation.queueMetadata = { originQueue: 'hogflow', originPriority: 2 }
                 sendEmailSpy.mockRejectedValueOnce(
                     new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
                 )
@@ -444,6 +445,7 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(false)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
                 expect(result.invocation.queuePriority).toBe(1)
+                expect(result.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 2 })
             })
 
             it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
@@ -586,6 +588,7 @@ describe('EmailService', () => {
                 ['on the clamped token interval when the limiter could not reserve', null, false, 1000, 2000],
             ])('reschedules a denied send %s', async (_name, retryAfterMs, reserved, minDelayMs, maxDelayMs) => {
                 claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs, reserved })
+                invocation.queueMetadata = { originQueue: 'hogflow', originPriority: 2 }
 
                 const before = Date.now()
                 const result = await limitedService.executeSendEmail(invocation)
@@ -605,6 +608,8 @@ describe('EmailService', () => {
                 expect(scheduledMs).toBeLessThanOrEqual(after + maxDelayMs)
                 // No business metric on a pacing delay — the eventual send produces email_sent.
                 expect(result.metrics ?? []).toEqual([])
+                // Without the origin, the workflow continues on the email queue after the send.
+                expect(result.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 2 })
             })
 
             it('parks consecutive denials on their exact reserved slots', async () => {

@@ -76,6 +76,19 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
+// teamCapped marks the one send that the team sending cap delayed, and the queue wait metric reads it at send time.
+// The next action is a different send, so it starts without the flag. The email service sets the flag again when
+// the cap also delays that send.
+function withoutPerSendQueueMetadata(
+    queueMetadata: CyclotronJobInvocationHogFlow['queueMetadata']
+): CyclotronJobInvocationHogFlow['queueMetadata'] {
+    if (!queueMetadata) {
+        return queueMetadata
+    }
+    const { teamCapped: _teamCapped, ...carried } = queueMetadata
+    return carried
+}
+
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
     hogFlow: HogFlow,
@@ -686,6 +699,8 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
+            queueMetadata:
+                invocation.queue === 'email' ? withoutPerSendQueueMetadata(invocation.queueMetadata) : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
