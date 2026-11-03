@@ -18149,7 +18149,7 @@
         "feature": "workflows",
         "summary": "Send transactional email (execute)",
         "title": "Send transactional email (execute)",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["transactional_email:write"],
         "api_operations": ["POST /api/projects/{project_id}/messaging/send/email/"],
         "annotations": {
             "destructiveHint": true,
@@ -18165,7 +18165,7 @@
         "feature": "workflows",
         "summary": "Send transactional email (prepare)",
         "title": "Send transactional email (prepare)",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["transactional_email:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
