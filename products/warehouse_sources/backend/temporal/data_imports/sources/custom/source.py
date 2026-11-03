@@ -496,16 +496,25 @@ def _check_paginator_config(paginator: Any, location: str) -> None:
     # "auto" (and any type mapped to None) applies no paginator, so extra keys are ignored.
     if paginator_class is None:
         return
-    supported = {
-        name
+    params = {
+        name: param
         for name, param in inspect.signature(paginator_class).parameters.items()
         if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
     }
-    unsupported = sorted(set(paginator) - {"type"} - supported)
+    unsupported = sorted(set(paginator) - {"type"} - set(params))
     if unsupported:
         raise ManifestValidationError(
             f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
-            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
+            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(params))}"
+        )
+    # A missing required key fails the constructor with a retryable TypeError, and a null one
+    # (e.g. offset `limit`) only fails once pagination does arithmetic on it.
+    missing = sorted(
+        name for name, param in params.items() if param.default is param.empty and paginator.get(name) is None
+    )
+    if missing:
+        raise ManifestValidationError(
+            f"{location} requires a non-null value for {', '.join(missing)} when type is {paginator.get('type')!r}"
         )
 
 
