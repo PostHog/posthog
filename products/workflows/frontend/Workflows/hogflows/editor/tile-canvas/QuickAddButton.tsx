@@ -24,13 +24,17 @@ export function QuickAddButton({
     revealed?: boolean
     /** A dragged step is nearest to this button, so a drop lands here. */
     isDropTarget?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
     const buttonRef = useRef<HTMLButtonElement>(null)
-    const { quickAddEdgeKey, isPlacing, paletteSections, nodeToBeAdded } = useValues(tileCanvasLogic)
+    const { quickAddEdgeKey, isPlacing, paletteSections, placementLabel, placeableEdgeKeys } =
+        useValues(tileCanvasLogic)
     const { openQuickAdd, closeQuickAdd, addStepAt, placeAt } = useActions(tileCanvasLogic)
     const key = getEdgeId(edge)
     const isOpen = quickAddEdgeKey === key
-    const stepName = nodeToBeAdded && 'data' in nodeToBeAdded ? nodeToBeAdded.data.name : nodeToBeAdded?.name
+
+    if (placeableEdgeKeys && !placeableEdgeKeys.has(key)) {
+        return null
+    }
 
     return (
         <div
@@ -72,7 +76,7 @@ export function QuickAddButton({
                     <IconPlus className="text-xs" />
                 </button>
             </Popover>
-            {isPlacing && stepName && (
+            {isPlacing && placementLabel && (
                 <div
                     aria-hidden="true"
                     className={cn(
@@ -82,7 +86,7 @@ export function QuickAddButton({
                             : '-translate-x-1 -translate-y-1/2 scale-90 opacity-0'
                     )}
                 >
-                    Add {stepName} here
+                    {placementLabel}
                 </div>
             )}
         </div>
