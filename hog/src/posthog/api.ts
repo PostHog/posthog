@@ -3,6 +3,7 @@ import { parseLossless } from '@/core/raw-json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { VERSION } from '@/version'
 
+import { hostUrl } from './host'
 import type { KeySession } from './key-session'
 
 export const USER_AGENT = `hog/${VERSION}`
@@ -93,10 +94,11 @@ export class PostHogApi {
     // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
     // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
     private url(path: string): URL {
-        const base = path.startsWith('/')
-            ? this.session.current.host
-            : new URL(`api/environments/${this.session.current.projectId}/`, this.session.current.host)
-        return new URL(path, base)
+        const { host, projectId } = this.session.current
+        // hostUrl keeps the path a self-hosted PostHog can sit under, which `new URL` would drop.
+        return path.startsWith('/')
+            ? hostUrl(host, path.slice(1))
+            : new URL(path, hostUrl(host, `api/environments/${projectId}/`))
     }
 
     get<T>(path: string): Promise<T> {

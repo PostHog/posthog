@@ -160,25 +160,24 @@ export class SymbolSetClient {
     async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
         await this.throttle.wait()
         const url = this.projectUrl(path)
-        let response: Response
-        try {
-            response = await this.session.send(
-                (token) =>
-                    this.runtime.fetch(url, {
-                        method,
-                        headers: {
-                            Authorization: `Bearer ${token}`,
-                            'Content-Type': 'application/json',
-                            'User-Agent': USER_AGENT,
-                        },
-                        body: body === undefined ? undefined : JSON.stringify(body),
-                        timeoutMs: REQUEST_TIMEOUT_MS,
-                    }),
-                (answer) => answer.status === 401
-            )
-        } catch (error) {
-            throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
+        // Only a failed request becomes an ApiFailure. A renewal that fails keeps its own error and hint.
+        const send = async (token: string): Promise<Response> => {
+            try {
+                return await this.runtime.fetch(url, {
+                    method,
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'User-Agent': USER_AGENT,
+                    },
+                    body: body === undefined ? undefined : JSON.stringify(body),
+                    timeoutMs: REQUEST_TIMEOUT_MS,
+                })
+            } catch (error) {
+                throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
+            }
         }
+        const response = await this.session.send(send, (answer) => answer.status === 401)
         const text = await response.text()
         if (!response.ok) {
             throw new ApiFailure(response.status, text, url.toString())

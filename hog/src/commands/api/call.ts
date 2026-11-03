@@ -74,7 +74,7 @@ export default defineCommand({
             )
         }
 
-        const result = await withApiConnection(ctx, options, (connection) =>
+        const result = await withApiConnection(ctx, options, tool.readOnly || tool.idempotent, (connection) =>
             library.call(tool.name, validation.input, connection, options.confirm === true)
         )
         await library.flush()

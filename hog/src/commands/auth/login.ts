@@ -35,7 +35,7 @@ type LoginResult =
           projectId: string
           store: StoreChoice
           credentialsPath: string | null
-          keychainProblem: string | null
+          keychainError: string | null
           // What the login may do, as PostHog reports it.
           scopes: string[] | null
           // ISO 8601, for an OAuth login. hog renews the token before then.
@@ -43,17 +43,13 @@ type LoginResult =
           next: string
       }
 
-function isTruthy(value: string | undefined): boolean {
-    return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
-}
-
 function nextCommand(scopes: readonly string[] | null): string {
     const canQuery = scopes?.some((scope) => scope === '*' || scope.startsWith('query:')) ?? false
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, store, credentialsPath, keychainProblem, status } = loggedIn
+    const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
     const { scopes, expiresAt } = status
     return {
         status: 'logged_in',
@@ -61,7 +57,7 @@ function loggedInResult(loggedIn: LoggedIn): LoginResult {
         projectId,
         store,
         credentialsPath,
-        keychainProblem,
+        keychainError,
         scopes,
         expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
         next: nextCommand(scopes),
@@ -81,7 +77,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
 }
 
 export default defineCommand({
-    description: 'Log in to PostHog in the browser, and keep a token for one project in the system keychain',
+    description: 'Log in to PostHog in the browser',
     writes: true,
     options: {
         region: {
@@ -100,7 +96,7 @@ export default defineCommand({
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
         'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
-        'hog stores the token in the system keychain. Where it cannot use one, such as over SSH, it stores the token in a file only you can read.',
+        'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
         'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
@@ -113,7 +109,7 @@ export default defineCommand({
             return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
 
-        if (!prompts && ctx.mode.agent === undefined && isTruthy(env.CI)) {
+        if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
             throw new HogError(
                 'login_needs_a_person',
                 'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
@@ -170,8 +166,8 @@ export default defineCommand({
                 out.line(out.style('Credentials saved to the system keychain', 'dim'))
                 break
             case 'file':
-                if (result.keychainProblem) {
-                    out.line(out.style(`${escapeControls(result.keychainProblem).replace(/\.$/, '')}.`, 'yellow'))
+                if (result.keychainError) {
+                    out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
                 }
                 out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
                 break

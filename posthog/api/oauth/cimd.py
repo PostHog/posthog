@@ -821,6 +821,8 @@ def _update_cimd_application(
 
     try:
         app.full_clean()
+        # One transaction, so a failed cleanup can't leave the new grant type saved while the sessions
+        # issued under the old one stay alive.
         with transaction.atomic():
             app.save(update_fields=update_fields)
             if app.authorization_grant_type != previous_grant_type:

@@ -196,8 +196,10 @@ def device_token_response(create_token_response: Any, request: HttpRequest, devi
     first) either waits for this mint and sweeps its token, or deletes the grant before it.
     """
     # The token endpoint needs no login, so this caps the row locks and writes one device code can
-    # cause at one per second, however fast its holder polls.
-    poll_key = f"oauth_device_poll:{hashlib.sha256(device_code.encode()).hexdigest()}"
+    # cause at one per second, however fast its holder polls. The client is part of the key, so
+    # another client polling the same code can't use up the real client's second.
+    poller = f"{_presented_client_id(request) or ''}\n{device_code}"
+    poll_key = f"oauth_device_poll:{hashlib.sha256(poller.encode()).hexdigest()}"
     if not cache.add(poll_key, True, timeout=1):
         return _error_response(rfc8628_errors.SlowDownError())
     with transaction.atomic():

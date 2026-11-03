@@ -47,10 +47,10 @@ export async function writeLogin(
     runtime: Runtime,
     store: KeychainStore | FileStore,
     key: AccessKey,
-    options: { lastLogin?: boolean } = {}
+    options: { lastLogin?: boolean; removeIfLate?: boolean } = {}
 ): Promise<void> {
     await withFileLock(runtime, LOGINS_LOCK, async () => {
-        await store.write(key.host, key.secret())
+        await store.write(key.host, key.secret(), { removeIfLate: options.removeIfLate })
         const settings = withLogin(await readSettings(runtime), key.host, key.record(store.kind))
         await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
     })

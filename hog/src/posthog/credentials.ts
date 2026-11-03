@@ -6,6 +6,7 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
 import { PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
+import { hostKey, trimHost } from './host'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
@@ -144,8 +145,8 @@ function validate(raw: RawCredentials, host: string): PersonalAPIKey {
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
-// then what `hog auth login` stored. The global host overrides whichever host the source carried,
-// and picks which stored login to use. posthog.json comes from the repository, so its host never
+// then what `hog auth login` stored. The global host overrides the host a key in the environment
+// or --dotenv-file carried, and picks which stored login to use. posthog.json comes from the repository, so its host never
 // redirects a key: it can pick a stored login for that host, and otherwise only stops the command
 // when the key belongs to another host.
 export async function resolveCredentials(
@@ -203,6 +204,15 @@ export async function resolveCredentials(
             }
             // Before a renewal, so hog never renews a key it then refuses to send.
             checkConfigHost(login.key.host)
+            // Logins are kept per origin, so another path on it is another PostHog the login isn't for.
+            if (options.host !== undefined && trimHost(options.host) !== login.key.host) {
+                throw new HogError(
+                    'host_mismatch',
+                    `Your login for ${hostKey(options.host)} is for ${login.key.host}, not ${options.host}.`,
+                    `Run \`hog auth login --host ${options.host}\` to log in there instead.`,
+                    EXIT_USAGE
+                )
+            }
             const storage = loginStorage(runtime, login)
             const key = await login.key.fresh(runtime, storage)
             const { store } = login
