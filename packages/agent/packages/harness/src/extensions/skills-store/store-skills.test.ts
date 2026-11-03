@@ -488,7 +488,6 @@ describe("store skills", () => {
       false,
     );
     await expect(exists(join(roots[0], "phs", "SKILL.md"))).resolves.toBe(true);
-    // The flag turned off: neither key says the store is on, so the bridge goes too.
     await expect(syncStoreSkills({}, context, logger, roots)).resolves.toEqual({
       installedCount: 0,
       bridge: false,

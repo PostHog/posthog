@@ -24,15 +24,9 @@ const METADATA_KEY_RE = /^metadata:\s*(#.*)?$/;
 const SOURCE_VALUE_RE = new RegExp(
   `^source:\\s*['"]?${STORE_SKILL_SOURCE}['"]?\\s*(#.*)?$`,
 );
-// The bridge carries the store marker too, so pruning removes it when the
-// store is turned off and a team skill of the same name can replace it. This
-// second key keeps it out of the count of the user's own skills.
+// The bridge also carries the store marker, so pruning and replacement treat it as a stub.
 const BRIDGE_ROLE_VALUE_RE = /^role:\s*['"]?bridge['"]?\s*(#.*)?$/;
 
-/**
- * The skill that runs any store skill the user can read, by name. A team
- * skill of the same name in the run's list wins over it.
- */
 export const STORE_BRIDGE_SKILL_NAME = "phs";
 
 // The shape half of the store's skill-name contract (skill_name_is_well_formed
@@ -62,11 +56,9 @@ export interface StoreSkillsInstallError {
   message: string;
 }
 
-/** What the harness lists from the store after a sync. */
 export interface StoreSkillsListing {
   /** Stubs for the user's own store skills. The bridge is not one of them. */
   installedCount: number;
-  /** True when the bridge skill is on disk. */
   bridge: boolean;
 }
 
@@ -128,11 +120,7 @@ export function renderStoreSkillStub(stub: StoreSkillStub): string {
   ].join("\n");
 }
 
-/**
- * The bridge SKILL.md. It reaches skills that have no stub here, such as a
- * teammate's skill. It only reads and runs skills, because a `read_only` run
- * cannot write to the store.
- */
+/** Reads and runs skills only, because a `read_only` run cannot write to the store. */
 export function renderStoreBridgeSkill(): string {
   const name = STORE_BRIDGE_SKILL_NAME;
   const description =
@@ -242,7 +230,6 @@ export async function syncStoreSkills(
 }
 
 export interface InstallStoreSkillStubsOptions {
-  /** Also write the bridge skill, unless the list has a team skill of its name. */
   bridge?: boolean;
 }
 
@@ -322,8 +309,7 @@ export async function installStoreSkillStubs(
 
 /**
  * Remove every stub the store wrote earlier, the bridge included. Used when
- * the run lists no store skills and no bridge, so stale discovery does not
- * outlive access.
+ * the run lists no store skills, so stale discovery does not outlive access.
  */
 export async function removeStoreSkillStubs(
   skillRoots: string[],
@@ -340,7 +326,7 @@ export async function removeStoreSkillStubs(
   return { removed: [...removed].sort(), errors };
 }
 
-/** Names of the store stubs on disk across the roots, without the bridge, for a session that keeps the previous install. */
+/** Names of the store stubs on disk across the roots, the bridge excluded, for a session that keeps the previous install. */
 export async function listStoreSkillStubs(
   skillRoots: string[],
 ): Promise<string[]> {
