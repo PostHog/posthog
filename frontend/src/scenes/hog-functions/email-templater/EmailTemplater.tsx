@@ -45,6 +45,7 @@ import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { linkDialogFocusCustomJs } from './custom-tools/linkDialogFocus'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { withInertLinks } from './emailPreviewHtml'
 import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
@@ -830,7 +831,7 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
     const { emailTemplate } = useValues(emailTemplaterLogic)
 
     return (
-        <LemonField name="html" className="flex relative flex-col flex-1 group/email-preview">
+        <LemonField name="html" className="group/email-preview flex relative flex-col flex-1">
             {({ value }: ChildFunctionProps) => (
                 <>
                     <div
@@ -839,17 +840,15 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                             buttonsAt === 'bottom' ? 'items-end' : 'items-center',
                             // Persistent start buttons while empty; hover-reveal once there is content
                             value || emailTemplate.text
-                                ? 'opacity-0 group-hover/email-preview:opacity-100'
+                                ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
                                 : 'opacity-100'
                         )}
                     >
                         <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                        <div className="z-10 pointer-events-auto">
-                            {/* A plain-text-only email has no html, so content is judged on every shape */}
-                            <EmailPreviewOverlayButtons
-                                hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                            />
-                        </div>
+                        {/* A plain-text-only email has no html, so content is judged on every shape */}
+                        <EmailPreviewOverlayButtons
+                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                        />
                     </div>
 
                     <EmailBodyPreview html={value} text={emailTemplate.text} />
@@ -868,7 +867,9 @@ function EmailBodyPreview({ html, text }: { html: string | undefined; text: stri
             </pre>
         )
     }
-    return <iframe srcDoc={html} sandbox="" title="Email template preview" className="flex-1 min-h-80" />
+    return (
+        <iframe srcDoc={withInertLinks(html)} sandbox="" title="Email template preview" className="flex-1 min-h-80" />
+    )
 }
 
 function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JSX.Element {
@@ -877,14 +878,19 @@ function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JS
 
     if (hasContent) {
         return (
-            <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+            <LemonButton
+                type="primary"
+                size="small"
+                className="pointer-events-auto"
+                onClick={() => setIsModalOpen(true)}
+            >
                 Click to modify content
             </LemonButton>
         )
     }
 
     return (
-        <div className="flex gap-2 z-10">
+        <div className="flex gap-2 z-10 pointer-events-auto">
             <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                 Start blank
             </LemonButton>

@@ -306,6 +306,7 @@
         "tailwind-merge": "^2.2.2",
         "torph": "^0.0.9",
         "ts-pattern": "catalog:",
+        "url-pattern": "^1.0.3",
         "use-debounce": "catalog:",
         "use-resize-observer": "^8.0.0",
         "v86": "0.5.458",
