@@ -47,7 +47,8 @@ const summary = (sections: CommandKSection[]): string[] =>
     sections.map((section) => {
         const rows = section.rows.map((row) => {
             if (row.kind === 'item') {
-                return `${row.item.name}${row.duplicates ? ` +${row.duplicates}` : ''}`
+                const note = row.item.searchKeywordNote ? ` [Matches "${row.item.searchKeywordNote}"]` : ''
+                return `${row.item.name}${row.duplicates ? ` +${row.duplicates}` : ''}${note}`
             }
             if (row.kind === 'notice') {
                 return `(${row.reason}: ${row.missing.join(' ')} -> ${row.shown.join(' ')})`
@@ -66,7 +67,7 @@ describe('buildRankedResults', () => {
             query: 'recordings',
             results: [result('1', 'Recordings funnel', 'insight', exactWordRank(2))],
             products: [product('Session replay', ['recordings']), product('Surveys')],
-            expected: ['Results: Session replay, Recordings funnel'],
+            expected: ['Results: Session replay [Matches "recordings"], Recordings funnel'],
         },
         {
             name: 'a product leads a tab of another product with the same name, and they do not collapse',
@@ -350,7 +351,37 @@ describe('buildRankedResults', () => {
             results: [],
             products: [product('Data catalog', ['metrics']), product('Metrics')],
             unifiedRanking: true,
-            expected: ['Results: Metrics, Data catalog'],
+            expected: ['Results: Metrics, Data catalog [Matches "metrics"]'],
+        },
+        {
+            name: 'with unified ranking, a product matched only by its keyword explains the match',
+            query: 'data warehouse',
+            results: [],
+            products: [product('Sources', ['data warehouse', 'connectors']), product('Surveys')],
+            unifiedRanking: true,
+            expected: ['Results: Sources [Matches "data warehouse"]'],
+        },
+        {
+            name: 'with unified ranking, a keyword match shows no note when the name has a search word',
+            query: 'replay recordings',
+            results: [],
+            products: [product('Session replay', ['recordings'])],
+            unifiedRanking: true,
+            expected: ['Results: Session replay'],
+        },
+        {
+            name: 'with unified ranking, a keyword match shows no note when the context has a search word',
+            query: 'warehouse',
+            results: [],
+            products: [
+                {
+                    ...product('Data warehouse Views', ['warehouse views']),
+                    displayName: 'Views',
+                    parentName: 'Data warehouse',
+                },
+            ],
+            unifiedRanking: true,
+            expected: ['Results: Data warehouse Views'],
         },
     ])('$name', ({ query, results, products, persons = [], accounts = [], unifiedRanking = false, expected }) => {
         expect(

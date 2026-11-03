@@ -1,3 +1,4 @@
+import { searchKeywordNote } from 'lib/components/CommandKSearch/commandKRanking'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { FuseResultMatch, createFuse } from 'lib/utils/fuseSearch'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
@@ -13,6 +14,8 @@ interface FuseSearchable {
     searchKeywords?: string[]
     hiddenSearchText?: string
     matchedSearchKeyword?: string | null
+    searchKeywordNote?: string | null
+    parentName?: string
 }
 
 export const SEARCH_TAB_CATEGORY = 'tabs'
@@ -62,10 +65,14 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
         fuse = createFuse<FuseSearchable>(items, FUSE_OPTIONS)
         fuseByItems.set(items, fuse)
     }
-    return fuse.search(trimmed).map((result) => ({
-        ...(result.item as T),
-        matchedSearchKeyword: keywordOnlyMatch(result.matches),
-    }))
+    return fuse.search(trimmed).map((result) => {
+        const matchedSearchKeyword = keywordOnlyMatch(result.matches)
+        return {
+            ...(result.item as T),
+            matchedSearchKeyword,
+            searchKeywordNote: searchKeywordNote(trimmed, matchedSearchKeyword, result.item),
+        }
+    })
 }
 
 /** Structural so this module avoids importing searchLogic, which imports this one. */

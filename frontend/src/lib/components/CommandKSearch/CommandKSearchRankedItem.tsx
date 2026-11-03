@@ -20,7 +20,7 @@ function rankedContext(
     if (item.category !== 'results') {
         return {
             detail: item.parentName ? `in ${item.parentName}` : null,
-            tail: item.matchedSearchKeyword ? `Matches "${item.matchedSearchKeyword}"` : null,
+            tail: item.searchKeywordNote ? `Matches "${item.searchKeywordNote}"` : null,
         }
     }
     const age = item.lastViewedAt ? (

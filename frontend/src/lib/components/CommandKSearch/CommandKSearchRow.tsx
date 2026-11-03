@@ -89,16 +89,16 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
                         <span className="shrink-0 text-xs text-muted-foreground">{item.productCategory}</span>
                     )}
                     {item.keybinding && <span className="ml-auto shrink-0">{item.keybinding}</span>}
-                    {item.matchedSearchKeyword && (
+                    {item.searchKeywordNote && (
                         <span className="ml-auto truncate text-xxs text-muted-foreground">
-                            Matches "{item.matchedSearchKeyword}"
+                            Matches "{item.searchKeywordNote}"
                         </span>
                     )}
                     {item.lastViewedAt && (
                         <span
                             className={cn(
                                 'shrink-0 text-xs text-muted-foreground',
-                                item.matchedSearchKeyword ? 'ml-2' : 'ml-auto'
+                                item.searchKeywordNote ? 'ml-2' : 'ml-auto'
                             )}
                         >
                             <CommandKSearchTime time={item.lastViewedAt} tooltipLabel="Last used" />

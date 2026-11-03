@@ -933,16 +933,16 @@ function SearchResults({
                                                                                     {item.keybinding}
                                                                                 </span>
                                                                             )}
-                                                                            {item.matchedSearchKeyword && (
+                                                                            {item.searchKeywordNote && (
                                                                                 <span className="ml-auto text-xxs text-tertiary truncate mt-[2px]">
-                                                                                    {`Matches "${item.matchedSearchKeyword}"`}
+                                                                                    {`Matches "${item.searchKeywordNote}"`}
                                                                                 </span>
                                                                             )}
                                                                             {item.lastViewedAt && (
                                                                                 <span
                                                                                     className={cn(
                                                                                         'text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]',
-                                                                                        item.matchedSearchKeyword
+                                                                                        item.searchKeywordNote
                                                                                             ? 'ml-2'
                                                                                             : 'ml-auto'
                                                                                     )}

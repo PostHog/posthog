@@ -12,6 +12,7 @@ import {
     isIdentityQuery,
     rankCandidate,
     rankLocalItem,
+    searchKeywordNote,
     searchWords,
     tokenTypos,
 } from './commandKRanking'
@@ -63,6 +64,15 @@ function rankLocalItems(items: SearchItem[], query: string, groupKey: string): R
     return ranked
 }
 
+const withKeywordMatch = (item: SearchItem, query: string, matchedAlias: string | null): SearchItem =>
+    matchedAlias || item.searchKeywordNote
+        ? {
+              ...item,
+              matchedSearchKeyword: matchedAlias ?? item.matchedSearchKeyword,
+              searchKeywordNote: searchKeywordNote(query, matchedAlias, item),
+          }
+        : item
+
 function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
     return items.flatMap((item) => {
         const ranked = rankLocalItem(
@@ -74,7 +84,7 @@ function rankItems(items: SearchItem[], query: string, groupKey: string): Ranked
         return ranked
             ? [
                   {
-                      item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                      item: withKeywordMatch(item, query, ranked.matchedAlias),
                       rank: ranked.rank,
                       groupKey,
                   },
@@ -150,7 +160,7 @@ function rankUnified(items: SearchItem[], query: string, groupKey: (item: Search
         }
         return [
             {
-                item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                item: withKeywordMatch(item, query, ranked.matchedAlias),
                 rank: ranked.rank,
                 groupKey: key,
             },
