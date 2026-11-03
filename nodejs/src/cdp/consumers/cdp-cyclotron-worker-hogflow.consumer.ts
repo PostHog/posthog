@@ -52,8 +52,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return results
     }
 
-    // A send can end before the email service runs, for example when it is canceled or the recipient is
-    // suppressed. So every final outcome deletes the files here. A rescheduled send keeps them for its retry.
     private async deleteAttachmentsOfFinishedSends(results: CyclotronJobInvocationResult[]): Promise<void> {
         await Promise.all(
             results

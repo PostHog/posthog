@@ -76,8 +76,6 @@ const conversionWatchersSweptCounter = new Counter({
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
-// No queue bounds how long an email job lives, so this bounds how long its files wait. A job still
-// waiting after this fails with `attachments_missing` and never sends without them.
 export const EMAIL_ATTACHMENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 const emailAttachmentsTableBytesGauge = new Gauge({

@@ -768,8 +768,6 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
 
-            // Loaded last, after every gate that can skip or delay the send, and kept out of `params`,
-            // which a reschedule writes back into the job state.
             const files = await this.loadAttachments(invocation.id, params.attachments)
 
             switch (integration.config.provider ?? 'ses') {
@@ -1347,9 +1345,7 @@ export class EmailService {
                     FileName: file.filename,
                     ContentType: file.contentType,
                     ContentId: file.contentId,
-                    // A file with a content id is an image the html shows through `cid:`.
                     ContentDisposition: file.contentId ? 'INLINE' : 'ATTACHMENT',
-                    // Binary files such as a PDF survive delivery only with Base64 transfer encoding.
                     ContentTransferEncoding: 'BASE64',
                 }))
             }

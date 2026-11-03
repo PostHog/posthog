@@ -2220,7 +2220,6 @@ describe('CDP API', () => {
             tracking: { captureEngagement: true },
         }
 
-        // base64 of "secret-file". Every assertion that a file stayed out of a payload searches for it.
         const FILE_CONTENT = 'c2VjcmV0LWZpbGU='
         const attachment = (overrides: Record<string, unknown> = {}) => ({
             filename: 'report.pdf',

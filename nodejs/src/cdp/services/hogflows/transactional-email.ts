@@ -10,9 +10,6 @@ const CopyRecipientsSchema = z.array(z.string().email()).max(MAX_COPY_RECIPIENTS
 
 export const MAX_EMAIL_ATTACHMENTS_BYTES = 512 * 1024
 
-// File types that mailbox providers refuse or quarantine. These are the executable and script types
-// that both Gmail's blocked file types and Amazon SES's unsupported attachment types name, so a send
-// with one of them fails at the provider or never reaches the inbox.
 const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     'ade',
     'adp',
@@ -51,15 +48,12 @@ const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
 ])
 
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
-// A bare type/subtype, the token characters of RFC 6838. Parameters such as a charset are refused.
 const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
 const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
 
 const base64DecodedBytes = (content: string): number =>
     (content.length / 4) * 3 - (content.endsWith('==') ? 2 : content.endsWith('=') ? 1 : 0)
 
-// The messages name the rule only. Zod puts them in the 400 body and the logs, so they must never
-// repeat a value from the request.
 const AttachmentSchema = z
     .object({
         filename: z
@@ -156,8 +150,6 @@ export const decodeAttachments = (send: AcceptedSend | undefined): DecodedAttach
 export const attachmentMetadata = (files: DecodedAttachment[]): EmailAttachmentMetadata[] =>
     files.map(({ content: _content, ...metadata }) => metadata)
 
-// The send without its file bytes. The idempotency fingerprint and the queued run both use it, so the
-// same key with other files is a reuse, and no snapshot of the run holds a file.
 export const queuedSend = (send: AcceptedSend, files: DecodedAttachment[]): QueuedSend => {
     const { attachments, ...rest } = send
     return attachments === undefined ? rest : { ...rest, attachments: attachmentMetadata(files) }

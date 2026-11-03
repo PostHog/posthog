@@ -1330,7 +1330,6 @@ export class CdpApi {
                     } catch (error) {
                         this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
                         if (files.length) {
-                            // No job will read these rows. The janitor's sweep removes them if this fails too.
                             await this.emailAttachmentsService.delete(invocation.id)
                         }
                         throw error

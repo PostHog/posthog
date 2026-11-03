@@ -52,14 +52,11 @@ export class EmailAttachmentsService {
         private readonly maxConnections?: number
     ) {}
 
-    // Built on first use, because every CDP service set constructs this service and only the API and
-    // the email worker ever read or write a row.
     private getPool(): Pool | null {
         if (this.pool || this.stopped || !this.databaseUrl) {
             return this.pool
         }
         this.pool = new Pool({ connectionString: this.databaseUrl, max: this.maxConnections })
-        // pg throws an uncaught exception when an idle client errors without a listener.
         this.pool.on('error', (err) => {
             logger.error('⚠️', 'Email attachments pool error', { error: err.message })
         })
@@ -129,7 +126,6 @@ export class EmailAttachmentsService {
         return rows.map((row, i) => ({ ...expected[i], content: row.content }))
     }
 
-    // Best-effort: a row that survives a failed delete is removed by the janitor's sweep.
     public async delete(jobId: string): Promise<void> {
         try {
             const pool = this.getPool()
@@ -147,7 +143,6 @@ export class EmailAttachmentsService {
         }
     }
 
-    // Idempotent, because both the base consumer and the API stop the services they share.
     public async stop(): Promise<void> {
         this.stopped = true
         const pool = this.pool

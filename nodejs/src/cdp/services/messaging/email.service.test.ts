@@ -1245,7 +1245,6 @@ describe('EmailService', () => {
         describe('attachments', () => {
             let attachments: EmailAttachmentsService
             let assertPool: Pool
-            // Bytes outside ASCII, as in any real PDF or image.
             const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x9f, 0xff])
             const files = decodeAttachments({
                 tracking: { captureEngagement: false },
