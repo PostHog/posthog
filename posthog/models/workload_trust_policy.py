@@ -6,7 +6,6 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.cache import cache
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -14,6 +13,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.utils import safe_cache_delete
 
 # A policy can grant any unprivileged scope except the ones that let a workload token outlive itself or
 # widen its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
@@ -124,7 +124,7 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # Workload token authentication caches whether a policy is active. Dropping the entry after the commit
         # makes a disable or delete take effect on the next request rather than when the entry expires.
         key = workload_trust_policy_active_cache_key(policy_id or str(self.pk))
-        transaction.on_commit(lambda: cache.delete(key))
+        transaction.on_commit(lambda: safe_cache_delete(key))
 
     def __str__(self) -> str:
         return f"WorkloadTrustPolicy(team={self.team_id}, name={self.name!r})"

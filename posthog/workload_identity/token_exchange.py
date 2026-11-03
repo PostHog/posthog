@@ -20,6 +20,7 @@ from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 
 import jwt
@@ -278,12 +279,14 @@ def find_matching_policy(team_id: int, issuer: str, workload_claims: WorkloadCla
     never changes which policy an existing job runs under.
     """
     candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(
+        Q(ref="") | Q(ref=workload_claims.ref),
+        Q(environment="") | Q(environment=workload_claims.environment),
         issuer=issuer,
         repository_id=workload_claims.repository_id,
         repository=workload_claims.repository,
         enabled=True,
     )
-    matching = [policy for policy in candidates if _conditions_match(policy, workload_claims)]
+    matching = list(candidates)
     matching.sort(key=lambda policy: (-(bool(policy.ref) + bool(policy.environment)), policy.created_at))
     return matching[0] if matching else None
 

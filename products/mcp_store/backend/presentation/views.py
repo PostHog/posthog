@@ -25,18 +25,18 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_
 from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import SessionAuthentication, WorkloadAccessTokenAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -724,16 +724,6 @@ class AvailableServerSerializer(serializers.Serializer):
 
 class AvailableToolsResponseSerializer(serializers.Serializer):
     servers = AvailableServerSerializer(many=True, help_text="Connected servers the caller can reach.")
-
-
-class DenyWorkloadAccessToken(BasePermission):
-    """Installations hold a person's own connections to outside accounts. A workload token acts as the
-    organization owner, so it must not reach the owner's connections."""
-
-    message = "Workload tokens can't use MCP server installations."
-
-    def has_permission(self, request: Request, view: Any) -> bool:
-        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
 
 
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
