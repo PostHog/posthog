@@ -62,6 +62,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.enums import HogFlowOriginProduct
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
@@ -8410,9 +8411,25 @@ class TestReplayVisionActionValidation(APIBaseTest):
         assert "session recordings" in response.json()["detail"], response.json()
         rerun.assert_not_called()
 
-    @parameterized.expand([("flag_off", False, status.HTTP_404_NOT_FOUND), ("flag_on", True, status.HTTP_200_OK)])
-    def test_a_rerun_of_a_code_send_needs_the_code_send_flag(self, _name, flag_on, expected_status) -> None:
-        flow_id = create_code_email_workflow(team_id=self.team.id, key="welcome")
+    @parameterized.expand(
+        [
+            (f"{origin}_{'flag_on' if flag_on else 'flag_off'}", origin, flag_on)
+            for origin in ("code_key", "template")
+            for flag_on in (False, True)
+        ]
+    )
+    def test_a_rerun_replays_code_sends_only_while_the_code_send_flag_is_on(self, _name, origin, flag_on) -> None:
+        if origin == "code_key":
+            flow_id = create_code_email_workflow(team_id=self.team.id, key="welcome")
+        else:
+            flow_id = HogFlow.objects.create(
+                team=self.team,
+                name="Welcome template",
+                status="active",
+                trigger={"type": "event", "filters": {}},
+                actions=[_TRIGGER],
+                origin_product=HogFlowOriginProduct.TRANSACTIONAL_EMAILS,
+            ).id
 
         with (
             patch(
@@ -8428,8 +8445,8 @@ class TestReplayVisionActionValidation(APIBaseTest):
                 format="json",
             )
 
-        assert response.status_code == expected_status
-        assert rerun.called == flag_on
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert rerun.call_args.kwargs["payload"]["replay_code_sends"] is flag_on
 
     def test_a_variables_only_edit_is_checked_against_the_staged_draft_too(self) -> None:
         self._enable_access_control()

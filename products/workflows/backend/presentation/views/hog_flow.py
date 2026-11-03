@@ -5459,11 +5459,6 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
-        if hog_flow.origin_product == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS and not _code_sends_rolled_out(
-            self.team
-        ):
-            raise exceptions.NotFound()
-
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self._require_replay_vision_caller_access(request, self._edit_state().actions)
@@ -5477,7 +5472,8 @@ class HogFlowViewSet(
             team_id=self.team_id,
             function_kind="hog_flow",
             function_id=str(hog_flow.id),
-            payload=serializer.data,
+            # The CDP worker skips a stored run that carries an email sent from code unless this is true.
+            payload={**serializer.data, "replay_code_sends": _code_sends_rolled_out(self.team)},
         )
 
         if res.status_code != 200:

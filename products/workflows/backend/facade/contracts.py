@@ -679,7 +679,6 @@ class WorkflowRef:
     variables: list[dict[str, Any]] | None
     # Read from the published steps, not the draft.
     has_email_step: bool
-    origin_product: str | None
 
 
 EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
