@@ -1623,6 +1623,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const ownerByKey = new Map(answers.map((answer) => [`${answer.teamId}:${answer.distinctId}`, answer.person]))
         for (const [laneKey, entry] of due) {
+            // A resolve the flush deadline abandoned answers after a later flush may have resolved, written or
+            // replaced the lane, so its answer must not drop or repoint what that flush left behind.
+            if (this.entries.get(laneKey) !== entry || entry.unresolved !== true) {
+                continue
+            }
             entry.lastResolvedAt = now
             const distinctKey = `${entry.teamId}:${entry.distinctId}`
             const owner = ownerByKey.get(distinctKey)

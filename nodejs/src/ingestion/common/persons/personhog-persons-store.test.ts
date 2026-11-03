@@ -2770,13 +2770,24 @@ describe('PersonhogPersonsStore', () => {
             }
         })
 
-        it('the deadline covers a held-lane resolve that does not answer', async () => {
+        it('the deadline covers a held-lane resolve that does not answer, and a late answer cannot drop the lane', async () => {
             jest.useFakeTimers()
             try {
                 const deadlineStore = new PersonhogPersonsStore(repository, { flushDeadlineMs: 20 })
                 const bound = deadlineStore.forBatch(0)
                 deadlineStore.holdEventOps(1, 'd-held', ops({ $set: { a: '1' } }), 0)
-                repository.resolvePersonsByDistinctIds.mockImplementationOnce(() => new Promise(() => {}))
+                let answerLate!: (answers: never[]) => void
+                repository.resolvePersonsByDistinctIds
+                    .mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                answerLate = resolve as never
+                            })
+                    )
+                    .mockResolvedValueOnce([
+                        { teamId: 1, distinctId: 'd-held', person: { ...person, id: '9' } },
+                    ] as never)
+                repository.updatePersonProperties.mockRejectedValueOnce(new Error('leader unavailable'))
 
                 const settled = bound.flush().then(
                     () => 'acked' as const,
@@ -2784,6 +2795,21 @@ describe('PersonhogPersonsStore', () => {
                 )
                 await jest.advanceTimersByTimeAsync(20)
                 expect(await settled).toMatch(/exceeded its 20ms deadline/)
+
+                // The next flush resolves the lane itself. Its write fails, so the ops wait for the flush after it.
+                await expect(bound.flush()).rejects.toThrow('leader unavailable')
+                expect(deadlineStore.hasHeldOps(1, 'd-held')).toBe(true)
+
+                answerLate([])
+                await jest.advanceTimersByTimeAsync(0)
+                expect(deadlineStore.hasHeldOps(1, 'd-held')).toBe(true)
+
+                await bound.flush()
+                expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ personId: '9', setProperties: { a: '1' } }),
+                    expect.any(String)
+                )
+                expect(deadlineStore.hasHeldOps(1, 'd-held')).toBe(false)
             } finally {
                 jest.useRealTimers()
             }
