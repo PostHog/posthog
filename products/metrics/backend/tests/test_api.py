@@ -512,6 +512,11 @@ class TestMetricQueryBodyValidation(SimpleTestCase):
         serializer = _MetricQueryBodySerializer(data={"promql": "sum(rate(http_requests_total[5m]))"})
         assert serializer.is_valid(), serializer.errors
 
+    def test_builder_query_aggregation_defaults_to_sum(self) -> None:
+        serializer = _MetricQueryBodySerializer(data={"metricName": "http_requests_total"})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["aggregation"] == "sum"
+
 
 @override_settings(SNUFFLE_APM_URL="http://snuffle.test:9091")
 class TestMetricsPromqlQueryApi(APIBaseTest):
@@ -527,7 +532,7 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
                 "result": [
                     {
                         "metric": {"__name__": "http_requests_total", "job": "api"},
-                        "values": [[1793181600, "1.5"]],
+                        "values": [[1793181600, "1.5"], [1793185200, "9"]],
                     }
                 ],
             },
@@ -543,7 +548,9 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         assert request.call_args.kwargs["data"]["query"] == expr
         [series] = response.json()["results"]
         assert (series["labels"], series["metric_name"]) == ({"job": "api"}, "http_requests_total")
-        assert 1.5 in [point["value"] for point in series["points"]]
+        values = [point["value"] for point in series["points"]]
+        assert 1.5 in values
+        assert 9.0 not in values
 
     def test_promql_query_needs_the_snuffle_flag(self) -> None:
         def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
@@ -558,14 +565,31 @@ class TestMetricsPromqlQueryApi(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         request.assert_not_called()
 
-    def test_a_rejected_promql_expression_is_a_bad_request(self) -> None:
-        upstream = MagicMock(spec=requests.Response, status_code=400, headers={})
+    @parameterized.expand(
+        [
+            ("rejected_expression", 400, status.HTTP_400_BAD_REQUEST, "parse error at char 5"),
+            ("upstream_rate_limit", 429, status.HTTP_503_SERVICE_UNAVAILABLE, "parse error at char 5"),
+            ("upstream_failure", 502, status.HTTP_503_SERVICE_UNAVAILABLE, "Try again later"),
+        ]
+    )
+    def test_promql_errors_keep_their_retry_class(
+        self, _name: str, upstream_status: int, expected_status: int, detail: str
+    ) -> None:
+        upstream = MagicMock(spec=requests.Response, status_code=upstream_status, headers={})
         upstream.json.return_value = {"status": "error", "error": "parse error at char 5"}
         with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=upstream):
             response = self._post({"promql": "sum(("})
 
+        assert response.status_code == expected_status
+        assert detail in response.json()["detail"]
+
+    def test_promql_query_rejects_a_span_over_the_builder_limit(self) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            response = self._post({"promql": "up", "dateFrom": "-40d"})
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "parse error at char 5" in response.json()["detail"]
+        assert "maximum span is 31 days" in response.json()["detail"]
+        request.assert_not_called()
 
     def test_promql_query_respects_the_query_byte_budget(self) -> None:
         token = generate_random_token_personal()

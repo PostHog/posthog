@@ -7,7 +7,7 @@ recognizable.
 import re
 import datetime as dt
 from dataclasses import asdict
-from typing import Any, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from django.db import models
@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError, PermissionDenied, Throttled
+from rest_framework.exceptions import APIException, ParseError, PermissionDenied, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -61,6 +61,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryRequest,
     MetricSeries,
+    PromQLQueryError,
 )
 from products.metrics.backend.facade.enums import (
     AttributeScope,
@@ -196,6 +197,14 @@ class MetricQueryInterval(models.TextChoices):
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
 _RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[hdwmy]$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+
+
+class _PromQLBackendUnavailable(APIException):
+    status_code = 503
+    default_code = "promql_backend_unavailable"
+    default_detail = "The PromQL query backend failed. Try again later."
+
+
 _PROMQL_EXCLUDED_FIELDS = ("metricType", "aggregation", "rangeFunction", "quantile", "filters", "groupBy", "formula")
 
 
@@ -232,8 +241,8 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     )
     aggregation = serializers.ChoiceField(
         choices=MetricQueryAggregation.choices,
-        default="sum",
-        help_text="Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.",
+        required=False,
+        help_text="Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.",
     )
     rangeFunction = serializers.ChoiceField(
         choices=MetricRangeFunction.choices,
@@ -294,16 +303,6 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
     )
 
-    def to_internal_value(self, data: Any) -> dict:
-        attrs = super().to_internal_value(data)
-        if (attrs.get("promql") or "").strip():
-            if set_fields := [field for field in _PROMQL_EXCLUDED_FIELDS if data.get(field)]:
-                raise serializers.ValidationError(
-                    f"'promql' cannot be combined with {', '.join(repr(f) for f in set_fields)}. "
-                    "Put selectors, grouping and functions in the PromQL expression."
-                )
-        return attrs
-
     def validate(self, attrs: dict) -> dict:
         now = timezone.now()
         date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
@@ -321,7 +320,13 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         if [has_single, has_clauses, has_promql].count(True) != 1:
             raise serializers.ValidationError("Provide exactly one of 'metricName', 'clauses' or 'promql'.")
         if has_promql:
+            if set_fields := [field for field in _PROMQL_EXCLUDED_FIELDS if attrs.get(field)]:
+                raise serializers.ValidationError(
+                    f"'promql' cannot be combined with {', '.join(repr(f) for f in set_fields)}. "
+                    "Put selectors, grouping and functions in the PromQL expression."
+                )
             return attrs
+        attrs.setdefault("aggregation", "sum")
         if attrs.get("formula") and not has_clauses:
             raise serializers.ValidationError("'formula' requires 'clauses'.")
         if has_clauses and attrs.get("metricType"):
@@ -1300,6 +1305,10 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except ConcurrencyLimitExceeded as exc:
             raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
+        except PromQLQueryError as exc:
+            if exc.transient:
+                raise _PromQLBackendUnavailable(str(exc)) from exc
+            raise ParseError(str(exc))
         except ValueError as exc:
             raise ParseError(str(exc))
 

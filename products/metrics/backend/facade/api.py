@@ -69,7 +69,12 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    MAX_QUERY_SPAN,
+    MAX_RAW_SERIES,
+    MetricQueryRunner,
+    _pick_interval,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.promql import run_promql_range
@@ -443,9 +448,14 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
 def run_promql_query(
     *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
 ) -> list[MetricSeries]:
-    """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag."""
+    """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag. `date_to` is exclusive."""
+    if date_to - date_from > MAX_QUERY_SPAN:
+        raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
     with query_concurrency_slots(team):
-        return run_promql_range(team, expr, date_from, date_to, interval)
+        series = run_promql_range(team, expr, date_from, date_to, interval)
+    return [
+        replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
+    ]
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
