@@ -117,7 +117,7 @@ def samples_points_query(
     `metric_names=None` reads every metric name.
     `dedupe_points` drops exact copies of a point. A replayed Kafka batch writes
     its points again, and they stay in the arrays after merges. A copy has the same
-    series, both timestamps and the same value in every selected column. Other points stay.
+    series, timestamp and value in every selected column. Other points stay.
     """
     unknown = [column for column in columns if column not in _POINT_ARRAYS and column not in _ROW_COLUMNS]
     if unknown:
@@ -125,8 +125,6 @@ def samples_points_query(
 
     # The time filter always needs the timestamp array.
     point_columns = ["timestamp", *(column for column in columns if column in _POINT_ARRAYS and column != "timestamp")]
-    if dedupe_points and "observed_timestamp" not in point_columns:
-        point_columns.append("observed_timestamp")
     row_columns = [column for column in columns if column in _ROW_COLUMNS]
     if dedupe_points and "series_fingerprint" not in row_columns:
         row_columns.append("series_fingerprint")

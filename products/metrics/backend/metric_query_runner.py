@@ -519,8 +519,7 @@ def points_query(
     if row_filters or point_filters:
         query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
     if dedupe_points:
-        point_fields = [column for column in columns if column not in ("series_fingerprint", "observed_timestamp")]
-        query.limit_by = dedupe_points_limit_by([*point_fields, "observed_timestamp"])
+        query.limit_by = dedupe_points_limit_by([column for column in columns if column != "series_fingerprint"])
     return query
 
 
