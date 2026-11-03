@@ -74,6 +74,23 @@ export function createPlaygroundQuestion(type: PlaygroundQuestionType = 'noul'):
     }
 }
 
+function optionsDisabledReason(question: PlaygroundQuestion): string | null {
+    const names = question.options.map((option) => option.name.trim())
+    if (names.some((name) => !name)) {
+        return question.type === 'choice' ? 'Name every option' : 'Name every level of the scale'
+    }
+    if (new Set(names).size !== names.length) {
+        return 'Give each option of a question a different name'
+    }
+    if (question.type === 'choice' && names.length < 1) {
+        return 'A multiple choice question needs at least one option'
+    }
+    if (question.type === 'score' && (names.length < 2 || names.length > MAX_SCORE_LEVELS)) {
+        return `A rating question needs 2 to ${MAX_SCORE_LEVELS} levels`
+    }
+    return null
+}
+
 export function decisionQuestionsDisabledReason(questions: PlaygroundQuestion[]): string | null {
     if (questions.length === 0) {
         return 'Add a question to ask the model'
@@ -85,21 +102,10 @@ export function decisionQuestionsDisabledReason(questions: PlaygroundQuestion[])
         if (!question.instructions.trim()) {
             return 'Write every question before running'
         }
-        if (question.type === 'noul') {
-            continue
-        }
-        const names = question.options.map((option) => option.name.trim())
-        if (names.some((name) => !name)) {
-            return question.type === 'choice' ? 'Name every option' : 'Name every level of the scale'
-        }
-        if (new Set(names).size !== names.length) {
-            return 'Give each option of a question a different name'
-        }
-        if (question.type === 'choice' && names.length < 1) {
-            return 'A multiple choice question needs at least one option'
-        }
-        if (question.type === 'score' && (names.length < 2 || names.length > MAX_SCORE_LEVELS)) {
-            return `A rating question needs 2 to ${MAX_SCORE_LEVELS} levels`
+        // A yes/no question sends no options, so options left over from another type do not matter.
+        const reason = question.type === 'noul' ? null : optionsDisabledReason(question)
+        if (reason) {
+            return reason
         }
     }
     return null
