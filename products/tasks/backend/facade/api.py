@@ -1436,8 +1436,12 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     already enforces it, so a future write path can't silently widen the exemption.
     """
     linked_report_id = Case(
-        When(source_kind=SourceKind.SIGNAL_REPORT.value, then=Cast("source_id", UUIDField())),
-        When(source_kind__isnull=True, then=F("signal_report_id")),
+        When(
+            source_kind=SourceKind.SIGNAL_REPORT.value,
+            source_id__isnull=False,
+            then=Cast("source_id", UUIDField()),
+        ),
+        When(Q(source_kind__isnull=True) | Q(source_id__isnull=True), then=F("signal_report_id")),
         output_field=UUIDField(),
     )
     report_in_team = Exists(signal_report_queryset().filter(id=OuterRef("_linked_report_id"), team_id=team_id))

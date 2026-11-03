@@ -104,6 +104,8 @@ class TestSourceQueries(TestCase):
                 "origin_key": "scout-trial:stale",
                 "idempotency_key": "other:fresh",
             },
+            "flow_kind_without_id": {"source_kind": "hog_flow", "hog_flow_id": FLOW_ID},
+            "flow_kind_without_id_over_old_report": {"source_kind": "hog_flow", "signal_report_id": REPORT_ID},
         }
         self.tasks = {
             name: Task.objects.create(
@@ -125,9 +127,14 @@ class TestSourceQueries(TestCase):
                 "report",
                 SourceKind.SIGNAL_REPORT,
                 REPORT_ID,
-                {"report_old", "report_new", "report_both"},
+                {"report_old", "report_new", "report_both", "flow_kind_without_id_over_old_report"},
             ),
-            ("flow", SourceKind.HOG_FLOW, FLOW_ID, {"flow_old", "flow_new", "flow_over_old_report"}),
+            (
+                "flow",
+                SourceKind.HOG_FLOW,
+                FLOW_ID,
+                {"flow_old", "flow_new", "flow_over_old_report", "flow_kind_without_id"},
+            ),
             ("flow_id_under_the_report_kind", SourceKind.SIGNAL_REPORT, FLOW_ID, set()),
             ("loop_has_no_old_column", SourceKind.LOOP, REPORT_ID, set()),
         ]
@@ -143,7 +150,10 @@ class TestSourceQueries(TestCase):
 
         runs = TaskRun.objects.filter(source_q(SourceKind.SIGNAL_REPORT, [REPORT_ID], via="task__"))
 
-        self.assertEqual({run.task.title for run in runs}, {"report_old", "report_new", "report_both"})
+        self.assertEqual(
+            {run.task.title for run in runs},
+            {"report_old", "report_new", "report_both", "flow_kind_without_id_over_old_report"},
+        )
 
     @parameterized.expand(
         [

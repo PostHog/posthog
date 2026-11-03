@@ -62,9 +62,10 @@ def source_q(kind: SourceKind, source_ids: Iterable[str | UUID], *, via: str = "
         legacy_field = "hog_flow_id__in"
     else:
         return on_new_columns
-    return on_new_columns | (
-        Q(**{_field_path(via, "source_kind__isnull"): True}) & Q(**{_field_path(via, legacy_field): ids})
+    new_columns_incomplete = Q(**{_field_path(via, "source_kind__isnull"): True}) | Q(
+        **{_field_path(via, "source_id__isnull"): True}
     )
+    return on_new_columns | (new_columns_incomplete & Q(**{_field_path(via, legacy_field): ids}))
 
 
 def idempotency_key_q(key: str, *, via: str = "") -> Q:

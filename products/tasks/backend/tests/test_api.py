@@ -17640,6 +17640,25 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("report_kind_without_id", {"source_kind": "signal_report"}, True),
+            ("flow_kind_without_id", {"source_kind": "hog_flow"}, True),
+            (
+                "complete_flow_source",
+                {"source_kind": "hog_flow", "source_id": "33333333-3333-4333-8333-333333333333"},
+                False,
+            ),
+        ]
+    )
+    def test_exemption_reads_the_old_report_when_the_new_columns_are_incomplete(self, _name, new_columns, exempt):
+        task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT)
+        for field, value in new_columns.items():
+            setattr(task, field, value)
+        task.save()
+
+        self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), exempt)
+
+    @parameterized.expand(
+        [
             ("legacy_repository", "repository", "posthog/posthog"),
             ("repositories_list", "repositories", ["posthog/posthog"]),
         ]
