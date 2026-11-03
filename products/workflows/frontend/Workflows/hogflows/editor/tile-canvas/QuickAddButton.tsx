@@ -46,7 +46,9 @@ export function QuickAddButton({
                 visible={isOpen}
                 className={isDraggingNewStep ? 'invisible' : undefined}
                 placement="right-start"
-                fallbackPlacements={['left-start', 'left', 'left-end', 'bottom-start', 'top-start']}
+                // Side placements only. The popover puts its gap on the side that faces the +, so a top or bottom
+                // placement changes the window's size, and near an edge flip then swaps placements on every frame.
+                fallbackPlacements={['left-start', 'left', 'left-end']}
                 overlay={
                     <StepPalette
                         sections={paletteSections}
