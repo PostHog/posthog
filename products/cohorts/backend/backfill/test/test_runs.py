@@ -9,6 +9,8 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.hogql_queries.hogql_cohort_query import FlagCallReads
+
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
     BackfillRefusalReason,
@@ -341,11 +343,19 @@ _PAGEVIEW_LEAF = {
     "time_interval": "day",
     "bytecode": _BYTECODE,
 }
+_UNPARSEABLE_FILTER = {"key": "properties.x = (", "type": "hogql"}
 _TEN_DAYS_AGO = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
 _120_DAYS_AGO = (datetime.now(UTC) - timedelta(days=120)).strftime("%Y-%m-%d")
 _FLAG_CALL_TABLE_CASES = [
     ("swapped", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "flag_evaluations"),
     ("events_mode", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.EVENTS, "events"),
+    # The run can only read events here, so a batch query that fails to compile does not refuse it.
+    (
+        "events_mode_batch_query_does_not_compile",
+        ({**_FLAG_CALL_LEAF, "event_filters": [_FLAG_KEY_FILTER, _UNPARSEABLE_FILTER]},),
+        FlagEvaluationsMode.EVENTS,
+        "events",
+    ),
     ("no_flag_key", (_ANY_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, "events"),
     (
         "window_past_coverage",
@@ -457,6 +467,11 @@ class TestBackfillRunFlagCallsTable(BaseTest):
                     "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
                 },
             ),
+            # A placeholder fails in the HogQL VM, outside the compile errors the guard names.
+            (
+                "batch_query_raises_outside_the_compile_errors",
+                {**_FLAG_CALL_LEAF, "event_filters": [_FLAG_KEY_FILTER, {"key": "{x}", "type": "hogql"}]},
+            ),
             # The seeder fails a run that scans a day older than the flag_evaluations TTL.
             ("sliding_window_past_the_ttl", {**_FLAG_CALL_LEAF, "time_value": 120}),
             ("fixed_range_past_the_ttl", {**_FLAG_CALL_LEAF, "explicit_datetime": _120_DAYS_AGO}),
@@ -473,6 +488,20 @@ class TestBackfillRunFlagCallsTable(BaseTest):
 
         self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_a_flag_call_cohort_that_still_reads_events_when_events_has_no_new_flag_calls_gets_no_run(self) -> None:
+        # A scan the rewrite cannot swap reads a table that holds no new flag calls, so pinning events there would
+        # give the cohort an empty flag-call history that still counts as backfilled.
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        cohort = self._cohort(_FLAG_CALL_LEAF)
+
+        with mock.patch(
+            "posthog.hogql_queries.hogql_cohort_query.batch_flag_call_reads",
+            return_value=FlagCallReads(only_in_flag_evaluations=True, reads_from_events=1),
+        ):
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
 
 
 @override_settings(

@@ -6,12 +6,15 @@ from typing import Any
 
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TABLE
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.parity.eligibility import resolve_behavioral_window
 from products.cohorts.backend.parity.tzdates import day_of_instant
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 
 # The seeder scans team-local days and includes the oldest day of the window. A team east of UTC starts its day on
 # the UTC date before. A scan that starts at most this many days back reads only days that flag_evaluations holds,
@@ -45,6 +48,8 @@ def _scan_window(condition: dict[str, Any], team: Team) -> tuple[bool, float]:
 
 
 def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, Any]], team: Team) -> bool:
+    if get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.EVENTS:
+        return False
     # hogql_cohort_query imports posthog.tasks.calculate_cohort, which imports this module through runs.
     from posthog.hogql_queries.hogql_cohort_query import (  # noqa: PLC0415
         FLAG_CALL_READS_COMPILE_ERRORS,
@@ -53,23 +58,29 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
 
     try:
         reads = batch_flag_call_reads(cohort, team)
-    except FLAG_CALL_READS_COMPILE_ERRORS as error:
+    except Exception as error:
+        # A malformed filter value can fail outside the compile errors, such as an assert in the HogQL printer. The
+        # run is refused, so the trigger task does not retry it.
+        if not isinstance(error, FLAG_CALL_READS_COMPILE_ERRORS):
+            capture_exception(error, additional_properties={"team_id": team.id, "cohort_id": cohort.id})
         raise FlagCallsTableUnresolved(
             f"The batch query of cohort {cohort.id} does not compile, so the run can't pick the table to read "
             f"its flag calls from: {error}"
         ) from error
-    if reads.reads_from_events != 0:
-        return False
     scans = [_scan_window(condition, team) for condition in conditions]
     within_ttl = all(days_back <= _MAX_FLAG_EVALUATIONS_DAYS_BACK for _, days_back in scans)
     if reads.only_in_flag_evaluations:
+        if reads.reads_from_events != 0:
+            raise FlagCallsTableUnresolved(
+                f"The batch query of cohort {cohort.id} reads flag calls from events, which holds no new flag calls"
+            )
         if not within_ttl:
             raise FlagCallsTableUnresolved(
                 f"A flag-call window of cohort {cohort.id} starts before the oldest day flag_evaluations keeps, and "
                 "events holds no new flag calls"
             )
         return True
-    return within_ttl and all(slides for slides, _ in scans)
+    return reads.reads_from_events == 0 and within_ttl and all(slides for slides, _ in scans)
 
 
 def pinned_flag_calls_table(
@@ -90,9 +101,12 @@ def pinned_flag_calls_table(
       events still holds it. When events holds no new flag calls, flag_evaluations is the only table that has any
       of them.
 
+    A run for an organization that reads flag calls from events pins events without compiling any cohort.
+
     Raises FlagCallsTableUnresolved when a cohort's batch query does not compile, or when the organization's flag
-    calls are only in flag_evaluations and a flag-call window starts too far back. Pinning events there would give
-    the cohort an empty flag-call history that still counts as backfilled.
+    calls are only in flag_evaluations and the batch query still reads flag calls from events or a flag-call window
+    starts too far back. Pinning events there would give the cohort an empty flag-call history that still counts as
+    backfilled.
     """
     flag_call_conditions: dict[int, list[dict[str, Any]]] = {}
     for condition in conditions:
