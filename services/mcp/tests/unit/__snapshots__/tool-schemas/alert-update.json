@@ -182,7 +182,7 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "description": "Values for the `$name` variables in the insight's query, keyed by variable name. The alert runs the query with these values. When an alert is created without them, it copies the values the insight holds."
+                                    "description": "Values for the `$name` variables in the insight's query."
                                 }
                             },
                             "type": "object"
