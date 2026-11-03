@@ -62,6 +62,9 @@ import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 import { LogsTransformerService } from './transformations/logs-transformer.service'
 
+const LibrdKafkaError = require('node-rdkafka/lib/error')
+const { err2str } = require('node-rdkafka/librdkafka') as { err2str: (code: number) => string }
+
 // What capture-logs forwards for a producer that signed just before the request arrived. Both times come
 // from `Date.now()`, which these tests pin, because a bare `new Date()` still reads the real clock.
 function internalLogsHeaders(signature: string): Record<string, Buffer> {
@@ -603,9 +606,7 @@ describe('LogsIngestionConsumer', () => {
     })
 
     describe('error handling', () => {
-        // node-rdkafka delivery reports carry only a code and an origin, never `isRetriable`.
-        const kafkaDeliveryError = (code: number): Error =>
-            Object.assign(new Error(`Broker: ${code}`), { code, errno: code, origin: code < 0 ? 'local' : 'kafka' })
+        const kafkaDeliveryError = (code: number): Error => LibrdKafkaError.create(new Error(err2str(code)))
 
         it.each([
             ['a processing error', () => new Error('Producer error')],
@@ -697,7 +698,7 @@ describe('LogsIngestionConsumer', () => {
                 () => new DependencyUnavailableError('broker down', 'Kafka', new Error('broker down')),
             ],
             ['a delivery times out', () => kafkaDeliveryError(CODES.ERRORS.ERR__MSG_TIMED_OUT)],
-            ['the producer queue is full', () => kafkaDeliveryError(CODES.ERRORS.ERR__QUEUE_FULL)],
+            ['the producer queue is full', () => LibrdKafkaError.create(CODES.ERRORS.ERR__QUEUE_FULL)],
             ['the topic rejects authorization', () => kafkaDeliveryError(CODES.ERRORS.ERR_TOPIC_AUTHORIZATION_FAILED)],
         ])('should fail the batch instead of DLQing when %s', async (_, makeError) => {
             const logData = createLogMessage()

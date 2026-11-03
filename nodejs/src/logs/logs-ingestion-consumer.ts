@@ -48,7 +48,7 @@ import {
     processLogMessageBuffer,
     sniffJsonLogAttributes,
 } from './log-record-avro'
-import { produceLogsOrDependencyError } from './logs-produce-errors'
+import { rethrowKafkaOutageAsDependency } from './logs-produce-errors'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -1250,8 +1250,8 @@ export class LogsIngestionConsumer {
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
                         await this.retryOnDependencyUnavailable(() =>
-                            produceLogsOrDependencyError(() =>
-                                this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                            this.deps.outputs
+                                .queueMessages(LOGS_OUTPUT, [
                                     {
                                         value: processedValue,
                                         key: null,
@@ -1280,7 +1280,7 @@ export class LogsIngestionConsumer {
                                         },
                                     },
                                 ])
-                            )
+                                .catch(rethrowKafkaOutageAsDependency)
                         )
                     } catch (error) {
                         // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
