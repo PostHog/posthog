@@ -196,7 +196,7 @@ def apply_saved_query_frequency_target(
         # must not validate against each other's stale state: each could pass and the pair strand a
         # consumer. Taking the DAG row first, in id order, makes them take turns.
         dag_ids = Node.objects.filter(team=saved_query.team, saved_query=saved_query).values_list("dag_id", flat=True)
-        locked_dags = DAG.objects.select_for_update().filter(team_id=saved_query.team_id, pk__in=dag_ids)
+        locked_dags = DAG.objects.select_for_update(no_key=True).filter(team_id=saved_query.team_id, pk__in=dag_ids)
         list(locked_dags.order_by("pk").values_list("pk", flat=True))
         # target and anchor share one JSON field and each setter rewrites the whole blob, so an
         # unlocked read-modify-write racing the anchor path would silently drop the other's key

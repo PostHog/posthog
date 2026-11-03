@@ -401,6 +401,14 @@ class TestPinBreaksDescendants(TestCase):
                 {"maps": M15},
                 [],
             ),
+            # middle already breaks its consumer ceiling (fast wants 15m) but still meets its own 1h
+            # target at runtime; the pin's floor is what would take that away
+            (
+                "existing_ceiling_violation_does_not_hide_a_new_floor_violation",
+                [("src", "up"), ("up", "middle"), ("middle", "fast"), ("src", "fast")],
+                {"middle": H1, "fast": M15},
+                ["middle"],
+            ),
         ]
     )
     def test_descendants_broken_by_pin(self, _name, edges, child_targets, expected):

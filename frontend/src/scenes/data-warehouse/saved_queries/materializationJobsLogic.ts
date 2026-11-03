@@ -463,13 +463,13 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             null as NodeFrequency | null,
             {
                 loadNodeFrequency: async (_: void, breakpoint) => {
-                    const projectId = String(ApiConfig.getCurrentProjectId())
+                    const teamId = String(ApiConfig.getCurrentTeamId())
                     let frequency: NodeFrequency
                     try {
-                        const node = await dataModelingNodesRetrieve(projectId, props.viewId, {
+                        const node = await dataModelingNodesRetrieve(teamId, props.viewId, {
                             lookup: DataModelingNodesRetrieveLookup.SavedQuery,
                         })
-                        const bounds = await dataModelingNodesFrequencyBoundsRetrieve(projectId, node.id)
+                        const bounds = await dataModelingNodesFrequencyBoundsRetrieve(teamId, node.id)
                         frequency = { nodeId: node.id, bounds }
                     } catch (e) {
                         // A view with no node has nothing to pin, and the picker then refuses slow cadences as before.
@@ -755,6 +755,9 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     delaysBy: Object.fromEntries(
                         nodeFrequency.bounds.options.map((option) => [option.cadence, option.delays_if_pinned])
                     ),
+                    unpinnedBy: Object.fromEntries(
+                        nodeFrequency.bounds.options.map((option) => [option.cadence, option.unpinned_cadence])
+                    ),
                 }
             },
         ],
@@ -981,7 +984,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 // needs is refused unless it is pinned in the same request.
                 try {
                     await dataModelingNodesPartialUpdate(
-                        String(ApiConfig.getCurrentProjectId()),
+                        String(ApiConfig.getCurrentTeamId()),
                         values.nodeFrequency.nodeId,
                         {
                             ...(values.syncFrequencyDraft !== null
@@ -999,21 +1002,18 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 if (!values.refreshModeChanged) {
                     // Keep the draft on screen until both reloads land, so the picker never shows the old
                     // pin state between the write and the fresh bounds.
+                    // Through the loader, so its breakpoint drops any poll that started before the write.
+                    const savedQueryReload = actions.loadSavedQuery()
                     try {
-                        const [bounds, savedQuery] = await Promise.all([
-                            dataModelingNodesFrequencyBoundsRetrieve(
-                                String(ApiConfig.getCurrentProjectId()),
-                                values.nodeFrequency.nodeId
-                            ),
-                            // nosemgrep: prefer-codegen-api-namespaced-data_warehouse -- the same call loadSavedQuery makes, so the result keeps its type
-                            api.dataWarehouseSavedQueries.get(props.viewId),
-                        ])
+                        const bounds = await dataModelingNodesFrequencyBoundsRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            values.nodeFrequency.nodeId
+                        )
                         actions.loadNodeFrequencySuccess({ nodeId: values.nodeFrequency.nodeId, bounds })
-                        actions.loadSavedQuerySuccess(savedQuery)
                     } catch {
                         actions.loadNodeFrequency()
-                        actions.loadSavedQuery()
                     }
+                    await savedQueryReload
                     actions.discardMaterializationChanges()
                     actions.finishSavingMaterialization()
                     return

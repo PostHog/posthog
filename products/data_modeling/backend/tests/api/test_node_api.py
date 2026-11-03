@@ -787,6 +787,8 @@ class TestNodeViewSet(APIBaseTest):
         self.assertFalse(bounds["pinned"])
         self.assertEqual([view["name"] for view in options["24hour"]["delays_if_pinned"]], ["consumer_view"])
         self.assertEqual(options["6hour"]["delays_if_pinned"], [])
+        # Unpinned, the consumer's 6h demand wins, so the preview of unpinning a daily view is 6h
+        self.assertEqual((options["24hour"]["unpinned_cadence"], options["6hour"]["unpinned_cadence"]), ("6hour",) * 2)
 
         # Without the pin the consumer's 6h demand refuses a daily cadence, so both have to land together.
         self.assertEqual(self._patch_cadence(self.view_node, {"sync_frequency": "24hour"}).status_code, 400)
@@ -812,6 +814,19 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(
             (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), False)
         )
+
+    def test_a_cadence_write_clears_the_legacy_saved_query_interval(self):
+        DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(
+            sync_frequency_interval=timedelta(hours=12)
+        )
+        set_declared_target(self.view_node, timedelta(hours=6))
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "never"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertIsNone(response.json()["sync_interval"])
+        self.saved_query.refresh_from_db()
+        self.assertIsNone(self.saved_query.sync_frequency_interval)
 
     @parameterized.expand(
         [

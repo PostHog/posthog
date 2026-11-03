@@ -137,6 +137,11 @@ class NodeFrequencyOptionSerializer(serializers.Serializer):
         "this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null "
         "when this cadence can be pinned.",
     )
+    unpinned_cadence = serializers.ChoiceField(
+        choices=CADENCE_CHOICES[1:],
+        help_text="The cadence the view would run at if it held this cadence without a pin. Finer than this "
+        "cadence when a downstream view needs fresher data than the pin allows.",
+    )
 
 
 class NodeFrequencyBoundsSerializer(serializers.Serializer):
@@ -376,6 +381,11 @@ def _write_cadence(
             raise
         # The cadence was cleared between the read above and the write, so there is nothing to pin.
         raise serializers.ValidationError(PIN_NEEDS_A_CADENCE)
+    if frequency is not None and saved_query.sync_frequency_interval is not None:
+        # The node target is the only store of frequency intent, so a stale legacy interval must not
+        # answer for a cadence the user just set or cleared. Same as the saved-query editor.
+        type(saved_query).objects.filter(pk=saved_query.pk).update(sync_frequency_interval=None)
+        saved_query.sync_frequency_interval = None
     node.refresh_from_db(fields=["properties"])
     _log_cadence_change(
         request,
@@ -576,6 +586,9 @@ class NodeViewSet(
                     if node_id in names
                 ],
                 "pin_blocked_by": pin_blocker(option.value),
+                "unpinned_cadence": sync_frequency_interval_to_sync_frequency(
+                    resolved.unpinned_cadence.get(option.value, option.value)
+                ),
             }
             for option in resolved.bounds.options
         ]

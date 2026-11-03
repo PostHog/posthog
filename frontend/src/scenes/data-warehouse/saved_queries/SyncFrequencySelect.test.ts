@@ -381,19 +381,28 @@ describe('unpinnedCadence', () => {
         '1hour': [{ name: 'signups' }],
         '6hour': [{ name: 'signups' }],
     }
+    // Server-calculated, so a pin further downstream can stop demand: 1 hour unpinned runs hourly even
+    // though a descendant below that pin asks for 15 minutes.
+    const unpinnedBy = {
+        '15min': '15min',
+        '30min': '30min',
+        '1hour': '1hour',
+        '6hour': '15min',
+    } as const
 
     it.each([
         [
-            'a pin that delays a consumer drops back to that consumer',
+            'a pin that delays a consumer drops back to the cadence the server reports',
             '6hour',
             {
                 cadence: '15min',
                 note: 'Once you save, this view refreshes every 15 minutes to keep up with downstream view signups.',
             },
         ],
+        ['another pin that stops demand keeps the cadence it reports', '1hour', null],
         ['a pin that delays nobody changes nothing', '15min', null],
         ['a paused view changes nothing', 'never', null],
     ])('%s', (_case, value, expected) => {
-        expect(unpinnedCadence(delaysBy, value as SyncFrequencyValue)).toEqual(expected)
+        expect(unpinnedCadence(unpinnedBy, delaysBy, value as SyncFrequencyValue)).toEqual(expected)
     })
 })

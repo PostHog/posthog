@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -752,7 +752,10 @@ describe('materializationJobsLogic', () => {
                     : [404, { detail: 'Not found' }]
             mocks.get!['/api/projects/:team_id/data_modeling_nodes/:id/frequency_bounds/'] = [
                 200,
-                { pinned, options: [{ cadence: '24hour', delays_if_pinned: [dailyRevenue] }] },
+                {
+                    pinned,
+                    options: [{ cadence: '24hour', delays_if_pinned: [dailyRevenue], unpinned_cadence: '6hour' }],
+                },
             ]
             mocks.patch = {
                 '/api/projects/:team_id/data_modeling_nodes/:id/': async ({ request, params }) => {
@@ -820,6 +823,56 @@ describe('materializationJobsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pinDraft).toBeNull()
             expect(logic.values.hasMaterializationChanges).toBe(false)
+        })
+
+        it('addresses the node API by the active environment, not the project', async () => {
+            ApiConfig.setCurrentProjectId(111)
+            ApiConfig.setCurrentTeamId(222)
+            const mocks = pinMocks({ pinned: false })
+            const requested: string[] = []
+            for (const path of [
+                '/api/projects/:team_id/data_modeling_nodes/:id/',
+                '/api/projects/:team_id/data_modeling_nodes/:id/frequency_bounds/',
+            ]) {
+                const handler = mocks.get![path]
+                mocks.get![path] = (req: any) => {
+                    requested.push(String(req.params.team_id))
+                    return typeof handler === 'function' ? handler(req) : handler
+                }
+            }
+            useMocks(mocks)
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadNodeFrequencySuccess'])
+            expect(requested).toEqual(['222', '222'])
+        })
+
+        it('keeps a poll that started before the save from overwriting the saved cadence', async () => {
+            useMocks(pinMocks({ pinned: false }))
+            logic = materializationJobsLogic({ viewId: 'view-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadNodeFrequencySuccess', 'loadSavedQuerySuccess'])
+            const previous = logic.values.savedQuery!
+            let resolveStale!: (value: typeof previous) => void
+            const stale = new Promise<typeof previous>((resolve) => {
+                resolveStale = resolve
+            })
+            const fetch = jest
+                .spyOn(api.dataWarehouseSavedQueries, 'get')
+                .mockImplementationOnce(() => stale)
+                .mockResolvedValue({ ...previous, sync_frequency: '24hour' })
+            try {
+                logic.actions.loadSavedQuery()
+                logic.actions.setSyncFrequencyDraft('24hour')
+                await expectLogic(logic, () => logic.actions.saveMaterializationChanges()).toDispatchActions([
+                    'finishSavingMaterialization',
+                ])
+                resolveStale(previous)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.savedQuery?.sync_frequency).toBe('24hour')
+            } finally {
+                fetch.mockRestore()
+            }
         })
     })
     it.each(['Running', 'Completed'])(

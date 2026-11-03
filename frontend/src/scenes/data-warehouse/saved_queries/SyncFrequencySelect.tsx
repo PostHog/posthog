@@ -74,6 +74,8 @@ export interface CadencePin {
     blockedBy: Partial<Record<string, NodePinDelayApi>>
     /** Per cadence, the downstream views that would read older data if this view were pinned to it. */
     delaysBy: Partial<Record<string, NodePinDelayApi[]>>
+    /** Per cadence, the cadence this view runs at once unpinned, which only the server can work out because other pins stop demand. */
+    unpinnedBy: Partial<Record<string, DataModelingSyncInterval>>
 }
 
 export interface SyncFrequencySelectProps {
@@ -109,7 +111,7 @@ export function SyncFrequencySelect({
     pin,
     onUnpin,
 }: SyncFrequencySelectProps): JSX.Element {
-    const unpinning = pin && !pin.pinned && pin.pending ? unpinnedCadence(pin.delaysBy, value) : null
+    const unpinning = pin && !pin.pinned && pin.pending ? unpinnedCadence(pin.unpinnedBy, pin.delaysBy, value) : null
     const inherited = pin?.pinned || unpinning ? null : inheritedCadence(bounds, value)
     const selected = unpinning?.cadence ?? inherited?.cadence ?? (value && value !== 'never' ? value : undefined)
     const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
@@ -225,22 +227,24 @@ export function speedUpWarning(
 }
 
 export function unpinnedCadence(
+    unpinnedBy: Partial<Record<string, DataModelingSyncInterval>>,
     delaysBy: Partial<Record<string, { name: string }[]>>,
     value: SyncFrequencyValue | null
 ): { cadence: DataModelingSyncInterval; note: string } | null {
     if (!value || value === 'never') {
         return null
     }
+    const cadence = unpinnedBy[value]
+    if (!cadence || cadence === value) {
+        return null
+    }
+    // The names only describe who reads older data under the pin. The cadence itself comes from the server.
     const delayed = (delaysBy[value] ?? []).map((view) => view.name)
-    if (!delayed.length) {
-        return null
-    }
-    const finer = ORDERED_CADENCES.slice(0, ORDERED_CADENCES.indexOf(value))
-    const cadence = [...finer].reverse().find((candidate) => !delaysBy[candidate]?.length)
-    if (!cadence) {
-        return null
-    }
-    const who = delayed.length > 1 ? `downstream views ${delayed.join(', ')}` : `downstream view ${delayed[0]}`
+    const who = !delayed.length
+        ? 'downstream views'
+        : delayed.length > 1
+          ? `downstream views ${delayed.join(', ')}`
+          : `downstream view ${delayed[0]}`
     return {
         cadence,
         note: `Once you save, this view refreshes every ${CADENCE_LABELS[cadence]} to keep up with ${who}.`,

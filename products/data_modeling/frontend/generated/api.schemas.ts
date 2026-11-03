@@ -338,6 +338,17 @@ export interface NodeFrequencyOptionApi {
     delays_if_pinned: NodePinDelayApi[]
     /** The downstream view that stops a pin at this cadence. It reads fresh data only through this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null when this cadence can be pinned. */
     pin_blocked_by: NodePinDelayApi | null
+    /** The cadence the view would run at if it held this cadence without a pin. Finer than this cadence when a downstream view needs fresher data than the pin allows.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    unpinned_cadence: MaterializeSyncFrequencyEnumApi
 }
 
 export interface NodeFrequencyBoundsApi {

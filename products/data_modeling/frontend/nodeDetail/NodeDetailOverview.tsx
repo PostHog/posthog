@@ -44,6 +44,7 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
         savedQueryError: statusRefreshError,
         savedQueryLoading: statusRefreshing,
         lastSuccessfulSyncAt,
+        nodeFrequency,
     } = useValues(materializationLogic)
     const { refreshMaterialization } = useActions(materializationLogic)
     const savedQuery = polledSavedQuery ?? sceneSavedQuery
@@ -81,7 +82,8 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
     const suspended = !!suspension
     // The saved setting is a lower bound: a downstream view can make this one run more often unless it is pinned.
-    const inherited = node.pinned
+    // The node in the scene store is not reloaded after a pin save, so the refreshed bounds win when they have loaded.
+    const inherited = (nodeFrequency?.bounds.pinned ?? node.pinned)
         ? null
         : inheritedCadence(
               savedQuery?.sync_frequency_bounds,

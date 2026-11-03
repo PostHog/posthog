@@ -694,23 +694,28 @@ def descendants_broken_by_pin(
 
     A pin raises its children's source floor. A child with another, fresher parent keeps that
     parent's floor, but a child that reads fresh data only through this node can no longer meet
-    its own target. Targets that were already out of reach without the pin don't count against it.
+    its own target. Targets that were already out of reach of their source floor without the pin
+    don't count against it. A target that only broke its consumer ceiling still counts, because
+    the node can meet it at runtime and the pin's floor would take that away.
     """
     targets = {**declared_targets, node_id: target}
     others = set(pinned) - {node_id}
-    before = {
-        invalid.node_id
-        for invalid in find_invalid_targets(
-            edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others
-        )
-    }
+
+    def below_source_floor(pins: Collection[str]) -> dict[str, InvalidTarget]:
+        return {
+            invalid.node_id: invalid
+            for invalid in find_invalid_targets(
+                edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=pins
+            )
+            if is_finer_than(invalid.declared, invalid.source_floor)
+        }
+
+    before = below_source_floor(others)
     descendants = descendants_of(node_id, edges)
     return sorted(
         (
             invalid
-            for invalid in find_invalid_targets(
-                edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others | {node_id}
-            )
+            for invalid in below_source_floor(others | {node_id}).values()
             if invalid.node_id in descendants and invalid.node_id not in before
         ),
         key=lambda invalid: invalid.node_id,
