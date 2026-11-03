@@ -45137,8 +45137,6 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
-      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
-      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -49476,7 +49474,7 @@ export namespace Schemas {
          */
       flag_called_during_run: boolean | null;
       /**
-         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only once 3 days have passed since the end. Null before the end, before those 3 days are over without a call, or when the organization's flag calls can't be read.
          * @nullable
          */
       flag_called_after_end: boolean | null;
@@ -59708,8 +59706,56 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * * `pending` - Loading
+     * * `ready` - Ready
+     * * `empty` - No data
+     * * `error` - Could not load
+     */
+    export type PulseSlotStatusEnum = typeof PulseSlotStatusEnum[keyof typeof PulseSlotStatusEnum];
+
+
+    export const PulseSlotStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Empty: 'empty',
+      Error: 'error',
+    } as const;
+
+    export interface PulseSlot {
+      /** Why this number is selected, when known before its value arrives.
+       *
+       * * `routine` - You open this often
+       * * `dashboard` - On a dashboard you open often
+       * * `key_metric` - Project key metric
+       * * `popular` - Opened often in this project */
+      reason?: HighlightMetricReasonEnum | null;
+      /** Stable key of the selected number. */
+      key: string;
+      /** Title available before the number is computed. */
+      name: string;
+      /** Loading state of this number.
+       *
+       * * `pending` - Loading
+       * * `ready` - Ready
+       * * `empty` - No data
+       * * `error` - Could not load */
+      status: PulseSlotStatusEnum;
+      /**
+         * Path to the source, relative to the project.
+         * @nullable
+         */
+      url: string | null;
+      /** Measurement interval, when known.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      interval: CalendarUnitEnum | null;
+    }
+
     export interface Highlights {
-      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
+      /** `ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.
        *
        * * `computing` - Computing
        * * `ready` - Ready
@@ -59726,6 +59772,11 @@ export namespace Schemas {
       refresh_at: string;
       /** Key metrics of the project from its settings. */
       pulse: HighlightMetric[];
+      /**
+         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+         * @nullable
+         */
+      pulse_slots?: PulseSlot[] | null;
       /** Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first. */
       items: HighlightItem[];
       /** The numbers the person keeps, in their order, with the state of each one. Pinned numbers lead `pulse`. */
@@ -61998,6 +62049,16 @@ export namespace Schemas {
       StrikingDistance: 'striking_distance',
     } as const;
 
+    export interface MarketingAnalyticsRecommendationStep {
+      /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+      copyValue?: string | null;
+      /** The words in `text` that link to `url`, usually the section name. */
+      linkText?: string | null;
+      text: string;
+      /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+      url?: string | null;
+    }
+
     export interface MarketingAnalyticsRecommendation {
       action: string;
       /** The campaign a search term recommendation applies to, when it applies to one. */
@@ -62010,6 +62071,8 @@ export namespace Schemas {
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
       rule: MarketingAnalyticsRecommendationRule;
+      /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+      steps?: MarketingAnalyticsRecommendationStep[] | null;
       /** The campaign name or the search term the recommendation is about. */
       subject: string;
     }
@@ -88293,8 +88356,6 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
-      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
-      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -91886,6 +91947,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -96263,6 +96331,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -109956,34 +110031,6 @@ export namespace Schemas {
     }
 
     /**
-     * What one scout spent in the window, and what it produced for that spend.
-     */
-    export interface ScoutCost {
-      /** Full skill name of the scout, e.g. `signals-scout-error-tracking`. */
-      skill_name: string;
-      /** Model spend attributed to the scout's runs in the window, in US dollars. Zero when none of its runs had spend attributed, which `priced_run_count` tells apart from a scout that really spent nothing. */
-      spend_usd: number;
-      /** Runs the scout started in the window. */
-      run_count: number;
-      /** Runs of the scout that had spend attributed. Lower than `run_count` where a run failed before its first model call, or its generations haven't landed yet. Divide `spend_usd` by this, not by `run_count`, for cost per run. */
-      priced_run_count: number;
-      /** Distinct inbox reports the scout filed or added to in the window. A report it authored in one run and edited in three counts once. Zero means the scout produced no reports, so cost per report has no value rather than a value of zero. */
-      reports_touched: number;
-    }
-
-    /**
-     * Model spend and output per scout over a window.
-     */
-    export interface ScoutCosts {
-      /** Window the rows describe, in days. */
-      window_days: number;
-      /** One row per scout that started at least one run on this project in the window. */
-      scouts: ScoutCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `scouts` is empty and every spend is unknown rather than zero. */
-      available: boolean;
-    }
-
-    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -110434,29 +110481,6 @@ export namespace Schemas {
          * @maxItems 200
          */
       run_ids: string[];
-    }
-
-    /**
-     * What one scout run spent on model calls.
-     */
-    export interface ScoutRunTokenCost {
-      /** UUID of the `SignalScoutRun` this cost belongs to. */
-      run_id: string;
-      /**
-         * Model spend attributed to the run in US dollars, summed from its `$ai_generation` events. Null when no generation is attributed to the run — it failed before its first model call, or its events haven't landed yet. A run still in progress reports what it has spent so far.
-         * @nullable
-         */
-      token_cost_usd: number | null;
-    }
-
-    /**
-     * Model spend for a batch of scout runs.
-     */
-    export interface ScoutRunTokenCosts {
-      /** One entry per requested run that exists on this project. Runs from another project, and ids that match no run, are absent. */
-      costs: ScoutRunTokenCost[];
-      /** False when this deployment has no internal AI observability project to read the generations from, so `costs` is empty and every cost is unknown rather than zero. */
-      available: boolean;
     }
 
     /**
@@ -112135,6 +112159,23 @@ export namespace Schemas {
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
       enabled: boolean;
+    }
+
+    /**
+     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+     */
+    export type SetPreferencesTopics = {[key: string]: boolean};
+
+    export interface SetPreferences {
+      /**
+         * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+      all_marketing?: boolean;
+      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+      topics?: SetPreferencesTopics;
     }
 
     export interface SetTemplateEnabled {
@@ -123528,6 +123569,23 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+     */
+    export type TopicPreferencesTopics = {[key: string]: boolean};
+
+    export interface TopicPreferences {
+      /** The recipient the preferences belong to. */
+      identifier: string;
+      /**
+         * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+         * @nullable
+         */
+      all_marketing: boolean | null;
+      /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+      topics: TopicPreferencesTopics;
+    }
+
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
     export interface TracePerson {
@@ -124438,6 +124496,28 @@ export namespace Schemas {
          */
       connected_at?: string | null;
     }
+
+    /**
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
+
+
+    export const UserCreatableDestinationTypeEnum = {
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
 
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
@@ -126320,6 +126400,16 @@ export namespace Schemas {
          * @nullable
          */
       warehouse_source_type: string | null;
+      /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+       *
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
        * * `in-cli` - In the terminal
@@ -127223,6 +127313,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -137729,6 +137826,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.
+     */
+    deleted?: FeatureFlagsListDeleted;
+    /**
      * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
@@ -137784,6 +137885,14 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListArchived = {
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListDeleted = typeof FeatureFlagsListDeleted[keyof typeof FeatureFlagsListDeleted];
+
+
+    export const FeatureFlagsListDeleted = {
       False: 'false',
       True: 'true',
     } as const;
@@ -143714,15 +143823,6 @@ export namespace Schemas {
     report_id: string;
     };
 
-    export type SignalsScoutRunsCostsParams = {
-    /**
-     * Window in days over runs' `created_at` (default 7). Only 7 is accepted today — it matches the window the roster's fleet headline spans, so every number on the page describes one span.
-     * @minimum 7
-     * @maximum 7
-     */
-    window_days?: number;
-    };
-
     export type SignalsScoutRunsRecentEmissionsParams = {
     /**
      * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
@@ -144899,6 +144999,13 @@ export namespace Schemas {
      * @pattern ^[A-Z0-9]{4,12}$
      */
     room: string;
+    };
+
+    export type TodayHighlightsRetrieveParams = {
+    /**
+     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     */
+    refresh?: boolean;
     };
 
     export type TodayReportsKeyClausesRetrieveParams = {

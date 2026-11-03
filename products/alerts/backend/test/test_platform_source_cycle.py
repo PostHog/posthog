@@ -22,6 +22,7 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
+from posthog.query_cache.single_flight import query_single_flight_skipped
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
@@ -71,12 +72,14 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     Grouping,
     GroupingMode,
+    IncidentAction,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceEvaluationInputs,
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
 # A Wednesday, so no weekend rule applies.
@@ -211,7 +214,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        side_effect = result if isinstance(result, Exception | list) else None
+        side_effect = None if isinstance(result, AlertEvaluationResult) else result
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
@@ -430,9 +433,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         before = AlertConfiguration.objects.values("state", "next_check_at", "last_checked_at").get(id=alert.id)
         configuration = self._copy(alert)
 
-        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+        skipped_during_query: list[bool] = []
+
+        def query(*args: Any, **kwargs: Any) -> AlertEvaluationResult:
+            skipped_during_query.append(query_single_flight_skipped())
+            return AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        outcome, _ = self._evaluate(configuration, result=query)
         assert outcome is not None
         assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
+        assert skipped_during_query == [True]
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
         assert (outcome.groups[0].kind, outcome.groups[0].value, outcome.evaluation_key) == (
@@ -502,18 +512,44 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowlisted", True, False, False),
-            ("not_allowlisted", False, False, False),
-            ("allowlisted_resolve", True, True, False),
-            ("platform_owned", False, False, True),
+            # name, allowlisted, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
+            ("allowlisted", True, False, False, False, False, ({}, True)),
+            ("not_allowlisted", False, False, False, False, False, None),
+            ("allowlisted_resolve", True, True, False, False, False, None),
+            ("platform_owned", False, False, True, False, False, ({}, True)),
+            ("paged_firing", False, False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", False, True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", False, True, True, True, True, ({}, True)),
+            ("paged_but_not_allowlisted", False, False, False, True, False, None),
         ]
     )
-    def test_only_an_allowlisted_or_platform_owned_firing_or_failure_asks_for_a_delivery(
-        self, _name: str, allowlisted: bool, was_firing: bool, owned: bool
+    def test_only_an_allowlisted_or_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
+        self,
+        _name: str,
+        allowlisted: bool,
+        was_firing: bool,
+        owned: bool,
+        paged: bool,
+        breaks: bool,
+        delivered: tuple[dict[str, IncidentAction], bool] | None,
     ) -> None:
         alert = self._alert()
         configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
         allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
+        if paged:
+            HogFunction.objects.create(
+                team=self.team,
+                type="internal_destination",
+                name="PagerDuty",
+                template_id="template-pagerduty",
+                hog="return event",
+                enabled=True,
+                filters={
+                    "source": "internal-events",
+                    "events": [{"id": "$insight_alert_incident_closed", "type": "events"}],
+                    "properties": [{"key": "alert_id", "value": str(alert.id), "operator": "exact", "type": "event"}],
+                },
+            )
         if was_firing:
             fired, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
             assert fired is not None
@@ -524,26 +560,35 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
             self._evaluate(
                 configuration,
-                result=AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+                result=AlertExtractionError("bad query shape")
+                if breaks
+                else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
             )
 
-        expected = [
-            (
-                str(configuration.id),
-                str(alert.id),
-                {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
-                owned,
-            )
-        ]
+        expected = (
+            [
+                (
+                    str(configuration.id),
+                    str(alert.id),
+                    {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
+                    owned,
+                    *delivered,
+                )
+            ]
+            if delivered is not None
+            else []
+        )
         assert [
             (
                 delivery.configuration_id,
                 delivery.destination_alert_id,
                 delivery.event_ids_by_kind,
                 delivery.owned_by_platform,
+                delivery.incident_actions,
+                delivery.sends_messages,
             )
             for delivery in self.deliveries
-        ] == (expected if (allowlisted or owned) and not was_firing else [])
+        ] == expected
         # A native message links to the alert on its insight, where the insight stack's messages link.
         assert all(
             delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
@@ -807,7 +852,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert retried is not None and over_the_limit is None
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
-        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+        # The kill may not have landed, so the timed-out query stays counted until its thread frees it.
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == {"run:1:1"}
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)

@@ -74,3 +74,26 @@ export function canonicalizeUrl(url: string): CanonicalUrl | null {
     const verdict = tryCanonicalizeUrl(url)
     return verdict.ok ? verdict.url : null
 }
+
+export type UrlJob = 'drop' | 'refresh' | 'fetch'
+
+export function urlJob(nextFetchAtMs: number, storedAtMs: number | undefined, nowMs: number): UrlJob {
+    return native.urlJob(nextFetchAtMs, storedAtMs, nowMs)
+}
+
+export function isUrlHistoryValue(key: string, value: string): boolean {
+    return native.isUrlHistoryValue(key, value)
+}
+
+/** Parses `imageurl:v4:{team}:{YYYY-MM}:{hash}`. `parseImageRef` refuses it, so no v2 or v3 reader takes one. */
+export function parseV4UrlRef(reference: string): { teamId: number; keyMonth: string; hash: string } | null {
+    return native.parseV4UrlRef(reference)
+}
+
+export function sealFetchedImage(teamMonthKey: Buffer, reference: string, image: Buffer): Promise<Buffer> {
+    return native.sealFetchedImage(teamMonthKey, reference, image)
+}
+
+export function imageUrlHash(teamMonthKey: Buffer, url: string): string {
+    return native.imageUrlHash(teamMonthKey, url)
+}
