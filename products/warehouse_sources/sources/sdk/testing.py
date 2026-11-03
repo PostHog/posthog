@@ -8,6 +8,7 @@ on a re-export changes nothing.
 from posthog.hogql.parser import parse_select
 
 from posthog.models.integration.model import Integration
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint, resumable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -60,6 +61,7 @@ __all__ = [
     "build_default_schemas",
     "build_default_sync_settings",
     "error_message_matches",
+    "mock_anti_ssrf_dns_lookup",
     "parse_select",
     "rest_client",
     "resumable",
