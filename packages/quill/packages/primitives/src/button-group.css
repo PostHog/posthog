@@ -71,7 +71,7 @@
        ButtonGroupText — inline label-like child
        ========================================================================= */
     .quill-button-group__text {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.625;
         border-radius: var(--radius-sm);

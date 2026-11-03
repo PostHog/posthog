@@ -6,6 +6,7 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { DashboardSettingsChangesTooltip } from './DashboardSettingsChangesTooltip'
+import { dashboardUnsavedChangesActions } from './dashboardUnsavedChangesActions'
 
 export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
     const {
@@ -25,44 +26,16 @@ export function DashboardUnsavedChangesIndicator(): JSX.Element | null {
 
     const changedCount = dashboardSettingsChanges.length
     const changeSummary = `${changedCount} unsaved ${changedCount === 1 ? 'filter' : 'filters'}`
-    const discardDataAttr = layoutEditMode ? 'dashboard-discard-filters' : 'dashboard-edit-mode-discard'
-    const actions = [
-        {
-            key: 'discard',
-            label: 'Discard',
-            dataAttr: discardDataAttr,
-            disabledReason: dashboardFiltersSaving ? 'Dashboard filters are saving' : undefined,
-            tooltip: 'Restore the settings saved to this dashboard.',
-            onClick: discardDashboardChanges,
-            loading: false,
-        },
-        ...(showApplyFiltersBanner
-            ? [
-                  {
-                      key: 'preview',
-                      label: loadingPreview ? 'Previewing' : 'Preview',
-                      dataAttr: 'dashboard-apply-filters',
-                      disabledReason: loadingPreview ? 'Previewing unsaved filters' : undefined,
-                      tooltip: 'Update the dashboard data with these unsaved filters. This does not save them.',
-                      onClick: previewDashboardChanges,
-                      loading: false,
-                  },
-              ]
-            : []),
-        ...(canEditDashboard
-            ? [
-                  {
-                      key: 'save',
-                      label: 'Save filters',
-                      dataAttr: 'dashboard-save-filters',
-                      disabledReason: undefined,
-                      tooltip: 'Save these changes as the dashboard default.',
-                      onClick: saveDashboardChanges,
-                      loading: dashboardFiltersSaving,
-                  },
-              ]
-            : []),
-    ]
+    const actions = dashboardUnsavedChangesActions({
+        layoutEditMode,
+        canEditDashboard,
+        showApplyFiltersBanner,
+        loadingPreview,
+        dashboardFiltersSaving,
+        discard: discardDashboardChanges,
+        preview: previewDashboardChanges,
+        save: saveDashboardChanges,
+    })
 
     return (
         <span
