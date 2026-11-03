@@ -18,6 +18,8 @@ import { MaxTool } from 'scenes/max/MaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { openAddTileGroupDialog } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMenu'
+
 import { DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
@@ -29,10 +31,11 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
+    group: 'dashboard-add-tile-group',
 }
 
 export function QuillDashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles, tileGroupSectionsEnabled } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -40,6 +43,7 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         openTextTileModal,
         openImageTileModal,
         openButtonTileModal,
+        addTileGroup,
     } = useActions(dashboardLogic)
 
     if (!dashboard || tiles.length === 0) {
@@ -57,6 +61,7 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         onAddImage: openImageTileModal,
         onAddButton: openButtonTileModal,
         setAddWidgetModalOpen,
+        onAddGroup: tileGroupSectionsEnabled ? () => openAddTileGroupDialog(addTileGroup) : undefined,
     })
 
     return (

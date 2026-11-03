@@ -18,6 +18,7 @@ interface DashboardTileGroupProps {
     collapsed: boolean
     onToggle: () => void
     onRename?: (title: string) => void
+    onRemove?: () => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
@@ -31,6 +32,7 @@ export function DashboardTileGroup({
     collapsed,
     onToggle,
     onRename,
+    onRemove,
     copyToDestinations,
     onCopyToDashboard,
     copyLoading,
@@ -70,6 +72,7 @@ export function DashboardTileGroup({
                         groupDisplay="sections"
                         title={group.title}
                         onRename={onRename}
+                        onRemove={onRemove}
                         onChangeGroupDisplay={onChangeGroupDisplay}
                         copyToDestinations={copyToDestinations}
                         onCopyToDashboard={onCopyToDashboard}
@@ -77,6 +80,11 @@ export function DashboardTileGroup({
                     />
                 )}
             </div>
+            {!collapsed && tileCount === 0 && (
+                <p className="text-secondary text-sm mb-0" data-attr="dashboard-tile-group-empty">
+                    No tiles yet. Use a tile's menu to move it here, or drag one in while editing the layout.
+                </p>
+            )}
             {!collapsed && children}
         </section>
     )

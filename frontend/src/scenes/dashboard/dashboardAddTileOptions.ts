@@ -1,4 +1,4 @@
-export type DashboardAddTileKey = 'insight' | 'text' | 'image' | 'button' | 'widget'
+export type DashboardAddTileKey = 'insight' | 'text' | 'image' | 'button' | 'widget' | 'group'
 
 export interface DashboardAddTileOption {
     key: DashboardAddTileKey
@@ -13,6 +13,8 @@ export interface DashboardAddTileHandlers {
     onAddImage: () => void
     onAddButton: () => void
     setAddWidgetModalOpen: (open: boolean) => void
+    /** Left out where the dashboard can't show tile groups. */
+    onAddGroup?: () => void
 }
 
 /** What a dashboard can add, in menu order. The header's Add menu and the scene menu bar both render this list. */
@@ -22,12 +24,17 @@ export function getDashboardAddTileOptions({
     onAddImage,
     onAddButton,
     setAddWidgetModalOpen,
+    onAddGroup,
 }: DashboardAddTileHandlers): DashboardAddTileOption[] {
-    return [
+    const options: DashboardAddTileOption[] = [
         { key: 'insight', label: 'Charts', onClick: onAddInsight },
         { key: 'text', label: 'Add text', onClick: onAddText },
         { key: 'image', label: 'Image', tag: 'new', onClick: onAddImage },
         { key: 'button', label: 'Button', onClick: onAddButton },
         { key: 'widget', label: 'Widget', tag: 'new', onClick: () => setAddWidgetModalOpen(true) },
     ]
+    if (onAddGroup) {
+        options.push({ key: 'group', label: 'Group', tag: 'new', onClick: onAddGroup })
+    }
+    return options
 }

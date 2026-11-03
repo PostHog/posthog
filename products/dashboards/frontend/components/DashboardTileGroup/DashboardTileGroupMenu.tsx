@@ -14,10 +14,18 @@ import type { TileGroupDisplay } from '~/types'
 
 const MENU_ITEMS: Record<
     TileGroupDisplay,
-    { renameLabel: string; copyLabel: string; copyNoun: string; switchTo: TileGroupDisplay; switchLabel: string }
+    {
+        renameLabel: string
+        removeLabel: string
+        copyLabel: string
+        copyNoun: string
+        switchTo: TileGroupDisplay
+        switchLabel: string
+    }
 > = {
     sections: {
         renameLabel: 'Rename group',
+        removeLabel: 'Delete group',
         copyLabel: 'Copy group to dashboard',
         copyNoun: 'group',
         switchTo: 'tabs',
@@ -25,11 +33,25 @@ const MENU_ITEMS: Record<
     },
     tabs: {
         renameLabel: 'Rename tab',
+        removeLabel: 'Delete tab',
         copyLabel: 'Copy tab to dashboard',
         copyNoun: 'tab',
         switchTo: 'sections',
         switchLabel: 'Show groups as sections',
     },
+}
+
+export function openAddTileGroupDialog(onAdd: (title: string) => void): void {
+    LemonDialog.openForm({
+        title: 'Add group',
+        initialValues: { title: '' },
+        content: (
+            <LemonField name="title">
+                <LemonInput placeholder="Leave blank to show the tile count" maxLength={200} autoFocus />
+            </LemonField>
+        ),
+        onSubmit: ({ title }) => onAdd(title),
+    })
 }
 
 interface DashboardTileGroupMenuProps {
@@ -38,6 +60,8 @@ interface DashboardTileGroupMenuProps {
     groupDisplay: TileGroupDisplay
     title?: string
     onRename?: (title: string) => void
+    /** Only for a group with no tiles, so removing it never takes tiles out of their group. */
+    onRemove?: () => void
     onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
@@ -48,6 +72,7 @@ export function DashboardTileGroupMenu({
     groupDisplay,
     title,
     onRename,
+    onRemove,
     onChangeGroupDisplay,
     copyToDestinations,
     onCopyToDashboard,
@@ -56,7 +81,7 @@ export function DashboardTileGroupMenu({
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
     // Each rename sends every group, so a second rename before the first saves would undo it.
     const { dashboardLoading: dashboardSaving } = useValues(dashboardsModel)
-    const { renameLabel, copyLabel, copyNoun, switchTo, switchLabel } = MENU_ITEMS[groupDisplay]
+    const { renameLabel, removeLabel, copyLabel, copyNoun, switchTo, switchLabel } = MENU_ITEMS[groupDisplay]
 
     const openRenameDialog = (): void => {
         if (!onRename) {
@@ -92,6 +117,20 @@ export function DashboardTileGroupMenu({
                                 data-attr="dashboard-tile-group-menu-rename"
                             >
                                 {renameLabel}
+                            </LemonButton>
+                            {!onRemove && (onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
+                        </>
+                    )}
+                    {onRemove && (
+                        <>
+                            <LemonButton
+                                fullWidth
+                                status="danger"
+                                onClick={onRemove}
+                                disabledReason={dashboardSaving ? 'Saving dashboard changes' : undefined}
+                                data-attr="dashboard-tile-group-menu-remove"
+                            >
+                                {removeLabel}
                             </LemonButton>
                             {(onCopyToDashboard || onChangeGroupDisplay) && <LemonDivider />}
                         </>

@@ -12,6 +12,7 @@ interface DashboardTileGroupTabsProps {
     activeSectionKey: string
     onSelect: (sectionKey: string) => void
     onRenameGroup?: (groupKey: string, title: string) => void
+    onRemoveGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
@@ -24,6 +25,7 @@ export function DashboardTileGroupTabs({
     activeSectionKey,
     onSelect,
     onRenameGroup,
+    onRemoveGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
     copyLoading,
@@ -58,6 +60,11 @@ export function DashboardTileGroupTabs({
                             onRename={
                                 activeSection?.kind === 'group' && onRenameGroup
                                     ? (title) => onRenameGroup(activeSection.groupKey, title)
+                                    : undefined
+                            }
+                            onRemove={
+                                activeSection?.kind === 'group' && activeSection.tiles.length === 0 && onRemoveGroup
+                                    ? () => onRemoveGroup(activeSection.groupKey)
                                     : undefined
                             }
                             onChangeGroupDisplay={onChangeGroupDisplay}

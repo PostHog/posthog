@@ -146,8 +146,10 @@ import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getDashboardTabs,
+    getEmptyTileGroupKeys,
     getLayoutAfterSectionChange,
     getLayoutAfterTileMove,
+    getNewTileGroupKey,
     getSectionGroupKey,
     getSectionLayouts,
     getTileGroupLabel,
@@ -251,6 +253,13 @@ function reportDashboardTileRefreshed(
 }
 
 const TILE_REFRESH_CONCURRENCY = 4
+
+// Where an editor can change tile groups, matching where the dashboard shows its editing controls.
+const EDITABLE_TILE_GROUP_PLACEMENTS = [
+    DashboardPlacement.Dashboard,
+    DashboardPlacement.ProjectHomepage,
+    DashboardPlacement.Builtin,
+]
 
 /** `deferred` means a tab switch stopped the load, and the tile waits for its tab to open again. */
 type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted' | 'deferred'
@@ -854,6 +863,9 @@ export interface dashboardLogicActions {
         queryStartTime: number
         shortId: InsightShortId
     }
+    addTileGroup: (title: string) => {
+        title: string
+    }
     addWidgetTileFinished: () => {
         value: true
     }
@@ -1178,6 +1190,9 @@ export interface dashboardLogicActions {
     ) => {
         error: string
         errorObject?: any
+    }
+    removeTileGroup: (groupKey: string) => {
+        groupKey: string
     }
     removeTileSuccess: (
         dashboard: DashboardType | null,
@@ -1822,7 +1837,8 @@ export interface dashboardLogicMeta {
             layouts: Partial<Record<string, Layout>>,
             dashboard: DashboardType | null,
             placement: DashboardPlacement,
-            tileGroupDisplay: TileGroupDisplay
+            tileGroupDisplay: TileGroupDisplay,
+            canEditDashboard: boolean
         ) => DashboardSection[]
         tileGroupSectionLayouts: (
             tileGroupSections: DashboardSection[],
@@ -2038,6 +2054,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshOpenTileGroupsWaiting: true,
         changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => ({ groupDisplay }),
         renameTileGroup: (groupKey: string, title: string) => ({ groupKey, title }),
+        addTileGroup: (title: string) => ({ title }),
+        removeTileGroup: (groupKey: string) => ({ groupKey }),
         refreshTileGroup: (groupKey: string) => ({ groupKey }),
         setWaitingTileRefresh: (waiting: WaitingTileRefresh) => ({ waiting }),
         clearWaitingTileRefresh: (tileIds: number[]) => ({ tileIds }),
@@ -4174,23 +4192,39 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         /** Full-width bands, one per tile group, or none when the dashboard shows one grid. */
         tileGroupSections: [
-            (s) => [s.tileGroupSectionsEnabled, s.tiles, s.layouts, s.dashboard, s.placement, s.tileGroupDisplay],
+            (s) => [
+                s.tileGroupSectionsEnabled,
+                s.tiles,
+                s.layouts,
+                s.dashboard,
+                s.placement,
+                s.tileGroupDisplay,
+                s.canEditDashboard,
+            ],
             (
                 tileGroupSectionsEnabled: boolean,
                 tiles: DashboardTile[],
                 layouts: ResponsiveLayouts,
                 dashboard: DashboardType | null,
                 placement: DashboardPlacement,
-                tileGroupDisplay: TileGroupDisplay
+                tileGroupDisplay: TileGroupDisplay,
+                canEditDashboard: boolean
             ): DashboardSection[] => {
-                if (!tileGroupSectionsEnabled || !tiles.some((tile) => tile.group_key)) {
+                const groups = dashboard?.customization?.groups
+                // Only editors see a group with no tiles, so they can fill it. Viewers would see an empty band.
+                const emptyGroupKeys =
+                    canEditDashboard && EDITABLE_TILE_GROUP_PLACEMENTS.includes(placement)
+                        ? getEmptyTileGroupKeys(tiles, groups)
+                        : []
+                if (!tileGroupSectionsEnabled || (!tiles.some((tile) => tile.group_key) && !emptyGroupKeys.length)) {
                     return []
                 }
                 const widgetTilesShown = isWidgetTileVisibleOnPlacement(placement)
                 const sections = getDashboardSections({
                     tiles: tiles.filter((tile) => !tile.widget || widgetTilesShown),
                     layout: layouts.sm,
-                    groups: dashboard?.customization?.groups,
+                    groups,
+                    emptyGroupKeys,
                 })
                 return tileGroupDisplay === 'tabs' ? getDashboardTabs(sections) : sections
             },
@@ -5695,6 +5729,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.triggerDashboardUpdate({
                 groups: { ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } },
             })
+        },
+        addTileGroup: ({ title }) => {
+            const groups = values.dashboard?.customization?.groups ?? {}
+            const groupKey = getNewTileGroupKey(groups, uuid())
+            actions.triggerDashboardUpdate({ groups: { ...groups, [groupKey]: { title: title.trim() } } })
+            posthog.capture('dashboard tile group added', { dashboard_id: props.id })
+        },
+        removeTileGroup: ({ groupKey }) => {
+            const { [groupKey]: _removed, ...groups } = values.dashboard?.customization?.groups ?? {}
+            actions.triggerDashboardUpdate({ groups })
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
