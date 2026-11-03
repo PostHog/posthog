@@ -12,14 +12,6 @@ from enum import StrEnum
 
 from posthog.dataclasses import frozen
 
-FALLBACK_SUBJECT_LABEL = "Subject"
-FALLBACK_SUBJECT_NAME_LABEL = "Name"
-
-# A policy's issuer, subject and conditions form one entry of a unique btree index, which Postgres caps at
-# about 2.7 kB. With the 255-character issuer and subject, these limits keep the largest entry well below it.
-CONDITION_VALUE_MAX_LENGTH = 200
-CONDITIONS_MAX_BYTES = 1024
-
 
 class AudienceCheck(StrEnum):
     # The token's `aud` must equal this deployment's SITE_URL, which the workload sets when it asks
@@ -68,10 +60,6 @@ class WorkloadProvider:
             raise ValueError(f"{self.key}: condition claims must be unique.")
         if {self.subject_claim.name, self.subject_name_claim.name} & set(condition_names):
             raise ValueError(f"{self.key}: the subject claims can't also be condition claims.")
-
-    @property
-    def condition_claim_names(self) -> frozenset[str]:
-        return frozenset(claim.name for claim in self.condition_claims)
 
 
 @frozen

@@ -117,6 +117,19 @@ class VerifiedWorkload:
     # The claims an activity log entry records, with the same rules.
     recorded_claims: dict[str, str]
 
+    def match_filter(self, issuer: str) -> dict[str, Any]:
+        """The lookup a policy or a pending request must pass to match this workload.
+
+        `conditions <@ token claims` holds only when each stored key is present in the token with the same
+        string value, so a condition can never be skipped, and a token that lacks a condition claim matches
+        nothing that sets it."""
+        return {
+            "issuer": issuer,
+            "subject": self.subject,
+            "subject_name": self.subject_name,
+            "conditions__contained_by": self.condition_claims,
+        }
+
     def claims_sent(self, provider: WorkloadProvider) -> dict[str, Any]:
         """The claims an error echoes back, so the caller can see why no policy matched."""
         return {
@@ -291,18 +304,10 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
 def find_matching_policy(team_id: int, issuer: str, workload: VerifiedWorkload) -> WorkloadTrustPolicy | None:
     """The project's enabled policy for this subject whose every condition equals the token's claim.
 
-    `conditions <@ token claims` holds only when each stored key is present in the token with the same
-    string value, so a condition can never be skipped, and a token that lacks a condition claim matches
-    no policy that sets it. When several match, the one with more conditions wins, then the oldest, so
-    adding a broader policy never changes which policy an existing workload runs under.
+    When several match, the one with more conditions wins, then the oldest, so adding a broader policy
+    never changes which policy an existing workload runs under.
     """
-    candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(
-        issuer=issuer,
-        subject=workload.subject,
-        subject_name=workload.subject_name,
-        conditions__contained_by=workload.condition_claims,
-        enabled=True,
-    )
+    candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(**workload.match_filter(issuer), enabled=True)
     matching = list(candidates)
     matching.sort(key=lambda policy: (-len(policy.conditions), policy.created_at))
     return matching[0] if matching else None
@@ -312,10 +317,7 @@ def _pending_request_for(team_id: int, issuer: str, workload: VerifiedWorkload) 
     return (
         WorkloadTrustPolicyRequest.objects.for_team(team_id)
         .filter(
-            issuer=issuer,
-            subject=workload.subject,
-            subject_name=workload.subject_name,
-            conditions__contained_by=workload.condition_claims,
+            **workload.match_filter(issuer),
             status=WorkloadTrustPolicyRequest.Status.PENDING,
             expires_at__gt=timezone.now(),
         )
