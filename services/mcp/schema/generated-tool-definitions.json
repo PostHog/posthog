@@ -17457,7 +17457,7 @@
         "feature": "workflows",
         "summary": "Get a transactional email send",
         "title": "Get a transactional email send",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "person:read"],
         "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -17473,7 +17473,7 @@
         "feature": "workflows",
         "summary": "Get what people did after a transactional email",
         "title": "Get what people did after a transactional email",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "query:read"],
         "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/results/"],
         "annotations": {
             "destructiveHint": false,
@@ -17505,7 +17505,7 @@
         "feature": "workflows",
         "summary": "List transactional email sends",
         "title": "List transactional email sends",
-        "required_scopes": ["hog_flow:read"],
+        "required_scopes": ["hog_flow:read", "person:read"],
         "api_operations": ["GET /api/projects/{project_id}/transactional_email_log/"],
         "annotations": {
             "destructiveHint": false,
