@@ -4,7 +4,8 @@ description: >
   Author continuously-running online evaluations in PostHog AI observability, grounded in real failure
   modes you've identified. Use when the user wants evaluations that automatically score new generations or
   whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
-  "turn these failures into evals". Covers letting the explored data decide how many evals to create,
+  "turn these failures into evals". Also use when reading traces, sessions or clusters turns up a failure
+  worth catching again. Covers letting the explored data decide how many evals to create,
   proposing that set for the user to pick, choosing the target and eval type (hog / llm_judge /
   sentiment), configuring a provider and model for an llm_judge eval (a provider key gates enabling, not
   creation), scoping which generations trigger it via conditions, creating disabled, verifying scope,
