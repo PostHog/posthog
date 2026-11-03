@@ -198,7 +198,6 @@ function nameOrEmailForUser(
 // surface that shows the email must use this, or a row can disclose it in one place and hide it
 // in another.
 export function actorEmailForLogItem(logItem: ActivityLogItem): string | null {
-    // A workload row names the workload as the actor, so the owner its token acts as is not shown either.
     if (logItem.is_system || logItem.was_impersonated || parseWorkloadAttribution(logItem)) {
         return null
     }
