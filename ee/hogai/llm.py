@@ -1,4 +1,5 @@
 import ssl
+import time
 import datetime
 from collections.abc import (  # noqa: F401 — Sequence resolves inherited langchain field annotations lazily in this namespace
     AsyncIterator,
@@ -59,6 +60,8 @@ AI_GATEWAY_FALLBACK_COUNTER = Counter(
 AI_GATEWAY_TIMEOUT = httpx.Timeout(150.0, connect=10.0, write=15.0, pool=5.0)
 """Above the gateway's 120s stream idle close. Nothing heartbeats while the gateway stalls, so every phase is bounded
 to leave the twin time inside the 300s activity heartbeat."""
+
+AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS = 300.0
 
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
 
@@ -692,6 +695,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
 
     ai_gateway_fallback: ChatAnthropic | None = Field(default=None, exclude=True)
 
+    _ai_gateway_timed_out_monotonic: ClassVar[float | None] = None
+
     @model_validator(mode="before")
     @classmethod
     def _via_ai_gateway(cls, data: Any) -> Any:
@@ -762,6 +767,9 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         fallback = self.ai_gateway_fallback
         if fallback is None:
             return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+        if self._ai_gateway_cooling_down():
+            AI_GATEWAY_FALLBACK_COUNTER.labels(reason="timeout_cooldown").inc()
+            return fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
         try:
             return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
         except Exception as error:
@@ -770,6 +778,18 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
                 raise
             self._record_ai_gateway_fallback(reason, error)
         return fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+
+    def _record_ai_gateway_fallback(self, reason: str, error: Exception) -> None:
+        super()._record_ai_gateway_fallback(reason, error)
+        if reason == "timeout":
+            MaxChatAnthropic._ai_gateway_timed_out_monotonic = time.monotonic()
+
+    @staticmethod
+    def _ai_gateway_cooling_down() -> bool:
+        timed_out_monotonic = MaxChatAnthropic._ai_gateway_timed_out_monotonic
+        if timed_out_monotonic is None:
+            return False
+        return time.monotonic() - timed_out_monotonic < AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS
 
     def _ai_gateway_route(self, kwargs: Mapping[str, Any]) -> AIGatewayRoute | None:
         if self.ai_gateway_fallback is None:
@@ -790,6 +810,9 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         if billable:
             if ai_product not in AI_GATEWAY_BILLABLE_PRODUCTS:
                 return None
+        if self._ai_gateway_cooling_down():
+            AI_GATEWAY_FALLBACK_COUNTER.labels(reason="timeout_cooldown").inc()
+            return None
         return self._ai_gateway_route_attributed(ai_product=ai_product, billable=billable, handler=handler)
 
     def generate(

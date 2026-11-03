@@ -32,6 +32,7 @@ from ee.hogai.llm import (
     AI_GATEWAY_FALLBACK_COUNTER,
     AI_GATEWAY_SERVED_KEY,
     AI_GATEWAY_TIMEOUT,
+    AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS,
     BILLING_SKIPPED_COUNTER,
     PROJECT_ORG_USER_CONTEXT_PROMPT,
     MaxCallbackHandler,
@@ -681,6 +682,9 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
         super().setUp()
         self.requests: list[httpx.Request] = []
         self.gateway_outcome: httpx.Response | Exception = httpx.Response(200, json=_anthropic_message_body("gateway"))
+        cooldown = patch.object(MaxChatAnthropic, "_ai_gateway_timed_out_monotonic", None)
+        cooldown.start()
+        self.addCleanup(cooldown.stop)
 
     def _respond(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -930,6 +934,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             with self.subTest(reason=reason, outcome=outcome):
                 self.requests.clear()
                 self.gateway_outcome = outcome
+                MaxChatAnthropic._ai_gateway_timed_out_monotonic = None
                 model = self._model()
                 with (
                     patch("ee.hogai.llm.ensure_config", return_value=self._config()),
@@ -946,6 +951,36 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                 self.assertEqual(result.generations[0][0].text, "direct")
                 self.assertFalse(is_ai_gateway_served(result))
                 mock_labels.assert_called_once_with(reason=reason)
+
+    async def test_a_gateway_timeout_sends_calls_direct_until_the_cooldown_ends(self):
+        self.gateway_outcome = httpx.ReadTimeout("slow", request=httpx.Request("POST", "https://ai-gateway.test"))
+        model = self._model()
+        direct = self._direct_host(model)
+        with patch("ee.hogai.llm.ensure_config", return_value=self._config()):
+            await model.agenerate([[HumanMessage(content="hello")]])
+            await self._model().agenerate([[HumanMessage(content="hello")]])
+            with patch.object(
+                ChatAnthropic,
+                "get_num_tokens_from_messages",
+                lambda counting_model, *args, **kwargs: 3 if counting_model.ai_gateway_fallback else 7,
+            ):
+                tokens = self._model().get_num_tokens_from_messages([HumanMessage(content="hello")])
+            assert MaxChatAnthropic._ai_gateway_timed_out_monotonic is not None
+            MaxChatAnthropic._ai_gateway_timed_out_monotonic -= AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS
+            self.gateway_outcome = httpx.Response(200, json=_anthropic_message_body("gateway"))
+            result = await self._model().agenerate([[HumanMessage(content="hello")]])
+
+        self.assertEqual(
+            [(request.url.host, request.url.path) for request in self.requests],
+            [
+                ("ai-gateway.test", "/v1/messages"),
+                (direct, "/v1/messages"),
+                (direct, "/v1/messages"),
+                ("ai-gateway.test", "/v1/messages"),
+            ],
+        )
+        self.assertEqual(tokens, 7)
+        self.assertTrue(is_ai_gateway_served(result))
 
     async def test_non_retryable_gateway_failures_raise_without_fallback(self):
         cases: list[tuple[str, httpx.Response]] = [
