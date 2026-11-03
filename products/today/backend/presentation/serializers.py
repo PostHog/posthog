@@ -23,6 +23,7 @@ from ..facade.contracts import (
     PullRequestLink,
     PulsePin,
     PulsePins,
+    PulseSlot,
     RecordingTarget,
     ReportKeyClauses,
     ReportPage,
@@ -42,6 +43,7 @@ from ..facade.enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    PulseSlotStatus,
 )
 
 
@@ -439,10 +441,36 @@ class HighlightPinSerializer(DataclassSerializer):
         dataclass = HighlightPin
 
 
+class PulseSlotSerializer(DataclassSerializer):
+    reason = serializers.ChoiceField(
+        choices=HighlightMetricReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why this number is selected, when known before its value arrives.",
+    )
+    key = serializers.CharField(help_text="Stable key of the selected number.")
+    name = serializers.CharField(help_text="Title available before the number is computed.")
+    status = serializers.ChoiceField(choices=PulseSlotStatus.choices, help_text="Loading state of this number.")
+    url = serializers.CharField(allow_null=True, help_text="Path to the source, relative to the project.")
+    interval = serializers.ChoiceField(
+        choices=HighlightInterval.choices, allow_null=True, help_text="Measurement interval, when known."
+    )
+
+    class Meta:
+        dataclass = PulseSlot
+
+
+class HighlightsQuerySerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        default=False,
+        help_text="Retry failed sources when progressive loading is enabled. An active computation is reused.",
+    )
+
+
 class HighlightsSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
         choices=HighlightsStatus.choices,
-        help_text="`ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.",
+        help_text="`ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.",
     )
     generated_at = serializers.DateTimeField(
         allow_null=True, help_text="When the content was computed. Null when no highlights were computed yet today."
@@ -452,6 +480,12 @@ class HighlightsSerializer(DataclassSerializer):
         help_text="Midnight at the end of `day` in the project's timezone, when the next day's highlights start. Load them again then."
     )
     pulse = HighlightMetricSerializer(many=True, help_text="Key metrics of the project from its settings.")
+    pulse_slots = PulseSlotSerializer(
+        many=True,
+        allow_null=True,
+        required=False,
+        help_text="Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.",
+    )
     items = HighlightItemSerializer(
         many=True,
         help_text="Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first.",

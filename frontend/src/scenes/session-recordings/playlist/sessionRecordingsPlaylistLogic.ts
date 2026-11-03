@@ -46,7 +46,6 @@ import {
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
-    FilterType,
     LegacyRecordingFilters,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
@@ -1151,7 +1150,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadEventsHaveSessionId: async () => {
                     const filters = filtersFromUniversalFilterGroups(values.filters)
                     // "All events" (id == null) matches any event, so it can always filter recordings
-                    const events: FilterType['events'] = filters
+                    const events: Record<string, any>[] = filters
                         .filter(isEventFilter)
                         .filter((event) => event.id != null)
 

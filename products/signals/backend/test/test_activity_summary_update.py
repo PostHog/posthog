@@ -217,6 +217,9 @@ class TestUpdateActivitySummary(BaseTest):
         assert on.inputs_used is not None
         assert {key: value for key, value in on.inputs_used.items() if key.startswith("mcp_")} == {
             "mcp_sessions": 1,
+            "mcp_burst_cap_drops": 0,
+            "mcp_sample_cap_drops": 0,
+            "mcp_budget_drops": 0,
             "mcp_lines": 1,
             "mcp_chars": len(section),
             "mcp_records": 2,

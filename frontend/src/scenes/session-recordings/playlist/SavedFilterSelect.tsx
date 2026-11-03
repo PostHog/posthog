@@ -2,15 +2,16 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { stripSessionIds } from './playlistUtils'
+import { QuillMenuItems } from './QuillMenuItems'
 import { asUniversalFilters, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 const savedFilterName = (filter: SessionRecordingPlaylistType): string =>
@@ -84,21 +85,27 @@ export function SavedFilterSelect({
     ]
 
     return (
-        <LemonMenu items={items} placement="bottom-start" buttonSize="small">
-            <LemonButton
-                size="small"
-                type="secondary"
-                active={!!appliedSavedFilter}
-                icon={appliedSavedFilter ? <IconFilter /> : undefined}
-                sideIcon={<IconChevronDown />}
-                className="max-w-60"
-                truncate
-                data-attr="list-saved-filter-select"
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant={appliedSavedFilter ? 'secondary' : 'outline'}
+                        className="max-w-60"
+                        data-attr="list-saved-filter-select"
+                    />
+                }
             >
-                {appliedSavedFilter
-                    ? `${savedFilterName(appliedSavedFilter)}${edited ? ' (edited)' : ''}`
-                    : 'All recordings'}
-            </LemonButton>
-        </LemonMenu>
+                {appliedSavedFilter && <IconFilter />}
+                <span className="truncate">
+                    {appliedSavedFilter
+                        ? `${savedFilterName(appliedSavedFilter)}${edited ? ' (edited)' : ''}`
+                        : 'All recordings'}
+                </span>
+                <IconChevronDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+                <QuillMenuItems items={items} />
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
