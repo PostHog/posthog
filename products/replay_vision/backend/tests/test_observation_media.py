@@ -203,7 +203,11 @@ class TestObservationMedia(BaseTest):
             observation_id=self.observation.id,
         )
 
-        linked = ReplayObservationMedia.objects.for_team(self.team.id).filter(observation_id=self.observation.id)
+        linked = (
+            ReplayObservationMedia.objects.for_team(self.team.id)
+            .filter(observation_id=self.observation.id)
+            .select_related("asset", "small_asset")
+        )
         assert sorted((m.kind, m.position, m.asset_id, m.small_asset_id) for m in linked) == sorted(
             [(f.kind, f.position, f.media_asset_id, f.small_media_asset_id) for f in prepared.frames[:2]]
             + [(f.kind, f.position, f.media_asset_id, None) for f in prepared.frames[2:3]]

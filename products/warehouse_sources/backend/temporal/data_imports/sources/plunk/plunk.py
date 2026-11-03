@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     PageNumberPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -165,10 +166,9 @@ def _make_bounded_session(
     return session
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PlunkResumeConfig:
-    # Exactly one of these is set, matching the endpoint's pagination style. Persisted after each
-    # page is yielded, so a crash before the write re-yields the last page (merge dedupes on `id`).
+    # Exactly one of these is set, matching the endpoint's pagination style.
     cursor: str = ""
     page: int = 0
 
@@ -309,8 +309,7 @@ def plunk_source(
                 initial_paginator_state = {"page": resume.page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; the hook fires AFTER a page is yielded so a crash
-        # re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+        # Persist only when a next page remains. The framework stages it with the page it covers.
         if not state:
             return
         if state.get("cursor"):
@@ -348,7 +347,7 @@ def plunk_source(
         ],
     }
 
-    def items() -> Any:
+    def items() -> Resource:
         # Re-check at run time (not just at source-create) in case the URL was edited or now
         # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud. Refuse
         # plaintext HTTP before the key is used. Both raise before any request leaves the process.
@@ -358,7 +357,7 @@ def plunk_source(
         if not _is_https(resolved_base_url):
             raise PlunkHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
 
-        yield from rest_api_resource(
+        return rest_api_resource(
             rest_config,
             team_id,
             job_id,

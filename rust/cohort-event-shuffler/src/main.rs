@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use common_cohort_team_access::TeamAccess;
 use common_database::get_pool_with_config;
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 use envconfig::Envconfig;
@@ -14,7 +15,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use cohort_event_shuffler::config::Config;
 use cohort_event_shuffler::consumer::EventShuffler;
-use cohort_event_shuffler::filter_team_index::{run_refresh_loop, TeamIndex};
+use cohort_event_shuffler::filter_team_index::{run_refresh_loop, TeamGate, TeamIndex};
 use cohort_event_shuffler::observability;
 use cohort_event_shuffler::producer::CohortStreamProducer;
 
@@ -55,10 +56,14 @@ async fn async_main(config: Config) -> Result<()> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
-    // No liveness deadline: a refresh outage must not kill the service (staleness is safe). An
-    // unexpected exit still signals the manager via the process-scope guard.
+    // No liveness deadline on either refresh: a refresh outage must not kill the service
+    // (staleness is safe). An unexpected exit still signals the manager via the process-scope guard.
     let team_index_handle = manager.register(
         "team-index",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let team_access_handle = manager.register(
+        "team-access",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
     );
 
@@ -76,12 +81,21 @@ async fn async_main(config: Config) -> Result<()> {
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
-    let team_index = Arc::new(TeamIndex::with_allowlist(config.team_allowlist.clone()));
+    let team_index = Arc::new(TeamIndex::new());
     match team_index.refresh(&pool).await {
-        Ok(count) => info!(active_teams = count, "initial team index loaded"),
+        Ok(count) => info!(realtime_teams = count, "initial team index loaded"),
         Err(err) => warn!(
             error = %err,
             "initial team index load failed; consumer forwards nothing until the refresh task succeeds",
+        ),
+    }
+
+    let (team_access, mut team_access_poller) = TeamAccess::new(config.team_allowlist.clone());
+    match team_access_poller.poll(&pool).await {
+        Ok(granted) => info!(granted_teams = granted, "initial team access loaded"),
+        Err(err) => warn!(
+            error = %err,
+            "initial team access load failed; consumer forwards nothing until a poll succeeds",
         ),
     }
 
@@ -109,7 +123,10 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    let shuffler = EventShuffler::new(consumer, producer, team_index, consumer_handle, settings);
+    tokio::spawn(team_access_poller.run(pool, team_access_handle));
+
+    let team_gate = TeamGate::new(team_index, team_access);
+    let shuffler = EventShuffler::new(consumer, producer, team_gate, consumer_handle, settings);
     tokio::spawn(async move {
         shuffler.process().await;
     });

@@ -3,15 +3,17 @@
 Vendored from [depot/skills](https://github.com/depot/skills) — used by the Depot CI workflows this repo keeps under `.depot/workflows/`.
 
 - Source: `skills/depot-ci/SKILL.md` and `skills/depot-ci/references/`
-- Commit: [`71f008d`](https://github.com/depot/skills/tree/71f008de4dbfa8625ece3df85019bc914b9399a0/skills/depot-ci) (2026-10-15)
+- Commit: [`34871e1`](https://github.com/depot/skills/tree/34871e14c57f322e87debbe17e73f0a3b4e2e4f1/skills/depot-ci) (2026-10-30)
 - License: none in upstream at this commit; README documents `cp SKILL.md` install.
 
 Upstream also ships `agents/openai.yaml`, `assets/` icons and `references/test-splitting.md` in this directory. None is vendored: we do not run the OpenAI agent definition, the icons are branding for Depot's own docs, and PostHog does not use Depot test splitting.
+`references/entire.md` is not vendored either, because PostHog does not use Entire.
 
 ## Local additions
 
 - `references/posthog-check-run-semantics.md`, which upstream has no equivalent of.
 - In `SKILL.md`, the three sections between PostHog-local comment markers (one under the intro, one under "Parallel Steps" recording that GitHub Actions now has its own `parallel:` keyword, and one under "Test Results and Timing-Based Splitting" that replaces upstream's splitting sentences and its link to `references/test-splitting.md`), and the two sentences appended to the frontmatter `description`.
+- Entire mentions that lead to the unvendored `references/entire.md` are removed: "running Depot CI on Entire repositories" in the frontmatter `description`, the first line under "Getting Started" and the last clause of the forge paragraph in `SKILL.md`, and the last sentence of the Entire paragraph in `references/migration.md`.
 - In `references/oidc.md`, the trust policy JSON as reflowed by the repo formatter.
 - Three code fences tagged `text` to satisfy markdownlint MD040, which the pre-commit hook enforces: the directory tree in `SKILL.md` and `references/migration.md`, and the SPIFFE id in `references/oidc.md`. Upstream leaves them untagged, so a resync reintroduces the error.
 - One of two consecutive blank lines after the runner label table in `references/github-actions-compatibility.md`, which markdownlint MD012 rejects.

@@ -5,7 +5,10 @@ import contextvars
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import (
+    async_iterate,
+    run_in_source_executor,
+)
 
 _probe: contextvars.ContextVar[str | None] = contextvars.ContextVar("probe", default=None)
 
@@ -92,3 +95,43 @@ async def test_async_iterate_close_runs_when_cancelled_mid_iteration():
 
     # close() must have run despite cancellation mid-iteration.
     assert closed_flag.wait(timeout=3.0), "iterator.close() was not called"
+
+
+@pytest.mark.asyncio
+async def test_run_in_source_executor_closes_the_result_of_a_cancelled_call():
+    started = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    # Holding a reference stops garbage collection from closing the generator for us.
+    built: list = []
+
+    def build():
+        started.set()
+        release.wait(timeout=5)
+
+        def gen():
+            try:
+                yield 1
+            finally:
+                closed.set()
+
+        it = gen()
+        next(it)
+        built.append(it)
+        return it
+
+    task = asyncio.create_task(run_in_source_executor(build))
+    await asyncio.to_thread(started.wait, 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    release.set()
+    assert await asyncio.to_thread(closed.wait, 5)
+
+
+@pytest.mark.asyncio
+async def test_run_in_source_executor_propagates_contextvars():
+    _probe.set("bound-value")
+
+    assert await run_in_source_executor(_probe.get) == "bound-value"
