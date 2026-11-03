@@ -10,75 +10,133 @@ use axum::{
 use bytes::Bytes;
 use chrono::Utc;
 use metrics::counter;
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
 const RECORDS_COUNTER: &str = "capture_logs_vercel_records_total";
+const REJECTED_COUNTER: &str = "capture_logs_vercel_requests_rejected_total";
 
-/// One line of a Vercel log drain delivery. Fields follow the drain's logs schema; unknown
-/// fields are ignored so a schema addition on their side never fails a delivery.
+fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|v| serde_json::from_value(v).ok()))
+}
+
+/// One line of a Vercel log drain delivery. Fields follow the drain's logs schema. Unknown fields
+/// are ignored and a field of an unexpected type reads as missing, so a schema change on their
+/// side loses that attribute, not the line.
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct VercelLog {
+    #[serde(default, deserialize_with = "lenient")]
     pub id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub deployment_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub source: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub host: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub timestamp: Option<i64>,
+    #[serde(default, deserialize_with = "lenient")]
     pub project_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub project_name: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub level: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub message: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub build_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub entrypoint: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub destination: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub path: Option<String>,
     #[serde(rename = "type")]
+    #[serde(default, deserialize_with = "lenient")]
     pub log_type: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub status_code: Option<i64>,
+    #[serde(default, deserialize_with = "lenient")]
     pub request_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub environment: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub custom_environment: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub branch: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub ja3_digest: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub ja4_digest: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub edge_type: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub execution_region: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub trace_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub span_id: Option<String>,
     #[serde(rename = "trace.id")]
+    #[serde(default, deserialize_with = "lenient")]
     pub trace_id_dotted: Option<String>,
     #[serde(rename = "span.id")]
+    #[serde(default, deserialize_with = "lenient")]
     pub span_id_dotted: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub proxy: Option<VercelProxy>,
 }
 
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct VercelProxy {
+    #[serde(default, deserialize_with = "lenient")]
     pub timestamp: Option<i64>,
+    #[serde(default, deserialize_with = "lenient")]
     pub method: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub host: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub path: Option<String>,
     // An array of strings per the schema; a bare string is accepted too.
     pub user_agent: Option<Value>,
+    #[serde(default, deserialize_with = "lenient")]
     pub region: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub referer: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub status_code: Option<i64>,
+    #[serde(default, deserialize_with = "lenient")]
     pub client_ip: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub scheme: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub response_byte_size: Option<i64>,
+    #[serde(default, deserialize_with = "lenient")]
     pub cache_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub path_type: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub path_type_variant: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub vercel_id: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub vercel_cache: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub lambda_region: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub waf_action: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub waf_rule_id: Option<String>,
 }
 
@@ -86,6 +144,19 @@ pub struct VercelProxy {
 pub struct ParsedDelivery {
     pub logs: Vec<VercelLog>,
     pub invalid: u64,
+    pub first_error: Option<String>,
+}
+
+impl ParsedDelivery {
+    fn push(&mut self, result: Result<VercelLog, serde_json::Error>) {
+        match result {
+            Ok(log) => self.logs.push(log),
+            Err(e) => {
+                self.invalid += 1;
+                self.first_error.get_or_insert_with(|| e.to_string());
+            }
+        }
+    }
 }
 
 /// Reads a delivery in either drain format: a JSON array (or one object) or NDJSON. Entries that
@@ -94,31 +165,22 @@ pub struct ParsedDelivery {
 pub fn parse_delivery(body: &[u8]) -> Result<ParsedDelivery, serde_json::Error> {
     let text = String::from_utf8_lossy(body);
     let trimmed = text.trim();
+    let mut parsed = ParsedDelivery::default();
     if trimmed.is_empty() {
-        return Ok(ParsedDelivery::default());
-    }
-    if trimmed.starts_with('[') {
-        let mut parsed = ParsedDelivery::default();
-        for item in serde_json::from_str::<Vec<Value>>(trimmed)? {
-            match serde_json::from_value::<VercelLog>(item) {
-                Ok(log) => parsed.logs.push(log),
-                Err(_) => parsed.invalid += 1,
-            }
-        }
         return Ok(parsed);
     }
-    if !trimmed.contains('\n') {
-        let log = serde_json::from_str::<VercelLog>(trimmed)?;
-        return Ok(ParsedDelivery {
-            logs: vec![log],
-            invalid: 0,
-        });
-    }
-    let mut parsed = ParsedDelivery::default();
-    for line in trimmed.lines().map(str::trim).filter(|l| !l.is_empty()) {
-        match serde_json::from_str::<VercelLog>(line) {
-            Ok(log) => parsed.logs.push(log),
-            Err(_) => parsed.invalid += 1,
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(Value::Array(items)) => {
+            for item in items {
+                parsed.push(serde_json::from_value(item));
+            }
+        }
+        Ok(item) => parsed.push(serde_json::from_value(item)),
+        Err(e) if !trimmed.contains('\n') => return Err(e),
+        Err(_) => {
+            for line in trimmed.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                parsed.push(serde_json::from_str(line));
+            }
         }
     }
     Ok(parsed)
@@ -147,7 +209,15 @@ fn first_user_agent(user_agent: &Option<Value>) -> Option<String> {
     }
 }
 
-pub fn vercel_log_to_kafka_row(log: VercelLog) -> (KafkaLogRow, bool) {
+pub fn vercel_log_to_kafka_row(log: VercelLog, token: &str) -> (KafkaLogRow, bool) {
+    // A redelivered batch gets the same row ids, so its duplicates can be told apart.
+    let uuid = match log.id.as_deref() {
+        Some(id) => Uuid::new_v5(
+            &Uuid::NAMESPACE_URL,
+            format!("vercel-log:{token}:{id}").as_bytes(),
+        ),
+        None => Uuid::now_v7(),
+    };
     let (severity_text, severity_number) = normalize_vercel_severity(log.level.as_deref());
     let proxy = log.proxy.unwrap_or_default();
     let raw_timestamp = datetime_from_millis(log.timestamp.or(proxy.timestamp));
@@ -279,7 +349,7 @@ pub fn vercel_log_to_kafka_row(log: VercelLog) -> (KafkaLogRow, bool) {
     let (timestamp, was_overridden) = apply_timestamp_override(raw_timestamp, &mut attributes);
 
     let row = KafkaLogRow {
-        uuid: Uuid::now_v7().to_string(),
+        uuid: uuid.to_string(),
         trace_id,
         span_id,
         trace_flags: 0,
@@ -373,6 +443,8 @@ pub async fn export_vercel_logs_http(
 
     // Unlisted projects see the route as missing until it is open to them.
     if !gate.allows(&token) {
+        debug!("Vercel drain route is not enabled for this token");
+        counter!(REJECTED_COUNTER, "reason" => "gate_closed").increment(1);
         return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))));
     }
 
@@ -390,8 +462,12 @@ pub async fn export_vercel_logs_http(
     };
     if parsed.invalid > 0 {
         counter!(RECORDS_COUNTER, "kind" => "invalid").increment(parsed.invalid);
+        warn!(
+            invalid = parsed.invalid,
+            first_error = parsed.first_error.as_deref().unwrap_or(""),
+            "Skipped Vercel log lines that do not parse"
+        );
     }
-    counter!(RECORDS_COUNTER, "kind" => "valid").increment(parsed.logs.len() as u64);
 
     // The drain sends a test request when it is created; an empty delivery acknowledges it.
     if parsed.logs.is_empty() {
@@ -401,7 +477,7 @@ pub async fn export_vercel_logs_http(
     let results: Vec<(KafkaLogRow, bool)> = parsed
         .logs
         .into_iter()
-        .map(vercel_log_to_kafka_row)
+        .map(|log| vercel_log_to_kafka_row(log, &token))
         .collect();
     let row_count = results.len();
     let timestamps_overridden = results.iter().filter(|(_, overridden)| *overridden).count() as u64;
@@ -425,6 +501,7 @@ pub async fn export_vercel_logs_http(
             Json(json!({"error": "Internal server error"})),
         ));
     }
+    counter!(RECORDS_COUNTER, "kind" => "valid").increment(row_count as u64);
     debug!("Successfully sent {} Vercel logs to Kafka", row_count);
 
     Ok(Json(json!({})))

@@ -34,11 +34,9 @@ fn request_line(id: &str) -> serde_json::Value {
 
 #[test]
 fn parse_delivery_keeps_every_valid_line_in_both_formats() {
-    let lines = [
-        request_line("a"),
-        json!({"id": "b", "timestamp": "not a number"}),
-        request_line("c"),
-    ];
+    // `b` has drifted field types; it keeps its row and loses only those fields.
+    let drifted = json!({"id": "b", "timestamp": "soon", "proxy": {"statusCode": "200"}});
+    let lines = [request_line("a"), json!(42), drifted, request_line("c")];
 
     let ndjson = lines
         .iter()
@@ -50,12 +48,20 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
     for body in [ndjson, array] {
         let parsed = parse_delivery(body.as_bytes()).unwrap();
         let ids: Vec<_> = parsed.logs.iter().map(|l| l.id.clone().unwrap()).collect();
-        assert_eq!(ids, ["a", "c"]);
+        assert_eq!(ids, ["a", "b", "c"]);
         assert_eq!(parsed.invalid, 1);
+        assert!(parsed.first_error.is_some());
+        assert_eq!(parsed.logs[1].timestamp, None);
     }
 
-    let single = parse_delivery(request_line("only").to_string().as_bytes()).unwrap();
-    assert_eq!(single.logs.len(), 1);
+    for body in [
+        request_line("only").to_string(),
+        serde_json::to_string_pretty(&request_line("only")).unwrap(),
+        json!({"id": "only", "statusCode": "oops"}).to_string(),
+    ] {
+        let parsed = parse_delivery(body.as_bytes()).unwrap();
+        assert_eq!((parsed.logs.len(), parsed.invalid), (1, 0), "{body}");
+    }
 
     let empty = parse_delivery(b"  \n").unwrap();
     assert!(empty.logs.is_empty());
@@ -64,8 +70,22 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
 
 #[test]
 fn request_line_maps_to_semantic_attributes_and_an_access_log_body() {
-    let log: VercelLog = serde_json::from_value(request_line("a")).unwrap();
-    let (row, overridden) = vercel_log_to_kafka_row(log);
+    let log = |id: &str| serde_json::from_value::<VercelLog>(request_line(id)).unwrap();
+    let (row, overridden) = vercel_log_to_kafka_row(log("a"), "phc_test");
+
+    // A redelivered line gets the same row id; another line or project does not.
+    assert_eq!(
+        row.uuid,
+        vercel_log_to_kafka_row(log("a"), "phc_test").0.uuid
+    );
+    assert_ne!(
+        row.uuid,
+        vercel_log_to_kafka_row(log("b"), "phc_test").0.uuid
+    );
+    assert_ne!(
+        row.uuid,
+        vercel_log_to_kafka_row(log("a"), "phc_other").0.uuid
+    );
 
     assert!(!overridden);
     assert_eq!(row.body, "GET /docs/start?utm_source=newsletter 200");
@@ -116,7 +136,7 @@ fn function_output_keeps_its_message_severity_and_trace() {
         "spanId": "f24e8631bd11faa7"
     }))
     .unwrap();
-    let (row, _) = vercel_log_to_kafka_row(log);
+    let (row, _) = vercel_log_to_kafka_row(log, "phc_test");
 
     assert_eq!(row.body, "Database timeout");
     assert_eq!(
