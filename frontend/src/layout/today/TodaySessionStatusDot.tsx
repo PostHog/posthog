@@ -16,11 +16,11 @@ export function TodaySessionStatusDot({ dot }: { dot: TodaySessionDot }): JSX.El
                 render={<span className="relative flex size-2 shrink-0 items-center justify-center" />}
             >
                 {dot.mark === 'spinner' ? (
-                    <span className="relative size-2 -translate-y-px">
+                    <span className="relative size-2">
                         <Spinner
                             role="img"
                             aria-label={dot.label}
-                            className="absolute -inset-0.5 size-3 text-muted-foreground motion-reduce:animate-none"
+                            className="absolute top-1/2 left-1/2 size-3 -translate-1/2 text-muted-foreground motion-reduce:animate-none"
                         />
                     </span>
                 ) : (

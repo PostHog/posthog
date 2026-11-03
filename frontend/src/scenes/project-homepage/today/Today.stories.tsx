@@ -1418,22 +1418,3 @@ export const HomePulseEmptyAndError: Story = {
         }),
     ],
 }
-
-export const SessionHoverCardWhileWorking: Story = {
-    parameters: { testOptions: { snapshotBrowsers: [] } },
-    render: () => (
-        <HoverCardFrame>
-            <TodaySessionHoverCard
-                preview={sessionPreview(sessionItem(PINNED_SESSIONS[0] as unknown as TaskListItemApi), {
-                    unread: false,
-                    pinned: true,
-                    pullRequestStates: {},
-                    spaceNames: { 'space-checkout': 'checkout' },
-                    menuId: 'story-card',
-                    userId: 179,
-                })}
-                onAction={noop}
-            />
-        </HoverCardFrame>
-    ),
-}
