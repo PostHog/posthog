@@ -117,11 +117,9 @@ def finish_investigation(
     summary: str | None,
     notebook_id: UUID | None,
 ) -> InvestigationRelease:
-    """Records the verdict, then releases the firing's held delivery by it.
-
-    The terminal grace starts in the transaction that records the verdict, so the safety net cannot
-    send the firing between the two. A firing that already went out gets a verdict-changed
-    announcement when its verdict contradicts the firing's previous one.
+    """Records the verdict and releases the firing's held delivery by it, in one transaction, so the
+    safety net can never find a recorded verdict with its firing still held. A firing that already
+    went out gets a verdict-changed announcement when its verdict contradicts the firing's previous one.
 
     Safe to repeat for a recorded verdict: a retry gets back what the first call released.
     """
@@ -135,13 +133,13 @@ def finish_investigation(
         InsightAlertInvestigation.objects.for_team(investigation.team_id).filter(id=investigation.id).update(
             status=InvestigationStatus.DONE, verdict=verdict, summary=summary, notebook_id=notebook_id, error=None
         )
-        platform.reschedule_hold(_hold_of(investigation), release_after=datetime.now(UTC) + TERMINAL_HOLD)
-    delivery = release_held(
-        _hold_of(investigation),
-        # As the safety net does, so turning the alert back on never sends a firing that old.
-        suppress=not alert.enabled or _should_suppress_notification(verdict, alert.investigation_inconclusive_action),
-        released_by=HoldReleasedBy.VERDICT,
-    )
+        delivery = release_held(
+            _hold_of(investigation),
+            # As the safety net does, so turning the alert back on never sends a firing that old.
+            suppress=not alert.enabled
+            or _should_suppress_notification(verdict, alert.investigation_inconclusive_action),
+            released_by=HoldReleasedBy.VERDICT,
+        )
     if delivery is None:
         delivery = _announce_verdict_change(alert, investigation, verdict=verdict, previous_verdict=previous_verdict)
     return InvestigationRelease(deliveries=(delivery,) if delivery else (), previous_verdict=previous_verdict)
