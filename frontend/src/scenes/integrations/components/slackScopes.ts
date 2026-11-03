@@ -9,7 +9,7 @@ import { slackRequestedScopes } from '~/types'
  * Required Slack OAuth scopes for the current PostHog instance.
  *
  * The DEV instance and local development also require the scopes that wait on Slack review,
- * because they request them at install. See the note by ``SLACK_INTEGRATION_SCOPES_IN_REVIEW`` in ``~/types``.
+ * because they request them at install. See the note by ``SlackIntegrationScopeInReview`` in ``~/types``.
  *
  * Used by both the settings-side ``SlackIntegration`` connect/manage UI and the OAuth
  * landing page's status hook so the two surfaces always agree on what "fully scoped"

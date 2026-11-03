@@ -5719,9 +5719,15 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // request them (see `requestsSlackInReviewScopes`), because their Slack app manifests list them.
 // The US and EU apps reject an unapproved scope with `invalid_scope`, so every install there would fail.
 // When Slack approves a scope, add it to the US and EU manifests, then move it into
-// `SlackIntegrationScope`. This list does not go through the schema codegen, so keep it the same
-// as `SLACK_SCOPES_IN_REVIEW` in posthog/models/integration/oauth.py.
-export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = ['channels:join']
+// `SlackIntegrationScope`. The schema codegen emits it as `SlackIntegrationScopeInReview` in
+// posthog/schema_enums.py. Delete the enum and its uses when the last entry moves, because JSON
+// Schema rejects a zero-length `enum`.
+/** @schemaEnum */
+export enum SlackIntegrationScopeInReview {
+    CHANNELS_JOIN = 'channels:join',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export function slackRequestedScopes(includeInReview: boolean): string[] {
     return includeInReview

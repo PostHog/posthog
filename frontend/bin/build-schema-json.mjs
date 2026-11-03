@@ -11,11 +11,27 @@ const config = {
     tsconfig: 'tsconfig.json',
     discriminatorType: 'open-api',
     skipTypeCheck: true,
+    extraTags: ['schemaEnum'],
 }
 
 const output_path = 'src/queries/schema.json'
 
 const schema = tsj.createGenerator(config).createSchema(config.type)
+
+// ts-json-schema-generator writes a one-member enum as `const`, which the Python codegen turns into a
+// `Literal` root model instead of a `StrEnum`. A TS enum tagged `@schemaEnum` keeps its `enum` list, so
+// it reaches posthog/schema_enums.py as a `StrEnum` whatever its size. The tag is opt-in because other
+// one-member enums are already `Literal` fields with defaults in posthog/schema.py.
+for (const definition of Object.values(schema.definitions ?? {})) {
+    if (definition.schemaEnum !== undefined) {
+        if ('const' in definition) {
+            definition.enum = [definition.const]
+            delete definition.const
+        }
+        delete definition.schemaEnum
+    }
+}
+
 const stringify = config.sortProps ? stableStringify : JSON.stringify
 const schemaString = config.minify ? stringify(schema) : stringify(schema, null, 2)
 

@@ -54206,6 +54206,10 @@
             ],
             "type": "string"
         },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["channels:join"],
+            "type": "string"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"

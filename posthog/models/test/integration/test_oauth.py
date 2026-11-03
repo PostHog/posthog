@@ -39,8 +39,8 @@ from posthog.models.integration import (
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
-from posthog.models.integration.oauth import SLACK_SCOPES_IN_REVIEW, posthog_slack_scope
-from posthog.schema_enums import SlackIntegrationScope
+from posthog.models.integration.oauth import posthog_slack_scope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -77,7 +77,7 @@ def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
         requested = set(posthog_slack_scope().split(","))
 
     assert {scope.value for scope in SlackIntegrationScope} <= requested
-    assert (set(SLACK_SCOPES_IN_REVIEW) <= requested) is requests_in_review
+    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
 
 
 class TestOauthIntegrationModel(BaseTest):

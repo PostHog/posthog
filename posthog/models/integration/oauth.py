@@ -26,7 +26,7 @@ from posthog.egress.slack.observability import record_slack_api_response
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.schema_enums import SlackIntegrationScope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.scopes import get_oauth_scopes_supported
 
 from . import apple_ads, common, model, refresh_tracking
@@ -201,17 +201,14 @@ class OauthConfig:
 # Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
 
-# Scopes that wait on Slack app-directory review. Only the DEV instance and local development
-# request them, because their Slack app manifests list them. The US and EU apps reject an
-# unapproved scope with `invalid_scope`, so every install there would fail. Keep this the same as
-# SLACK_INTEGRATION_SCOPES_IN_REVIEW in frontend/src/types.ts. The schema codegen cannot carry it,
-# because it turns a one-value enum into a `const` instead of a `StrEnum`.
-SLACK_SCOPES_IN_REVIEW: tuple[str, ...] = ("channels:join",)
-
 
 def posthog_slack_scope() -> str:
+    # The DEV instance and local development also request the scopes that wait on Slack review,
+    # because their Slack app manifests list them. The US and EU apps reject an unapproved scope
+    # with `invalid_scope`, so every install there would fail. See the note by
+    # SlackIntegrationScopeInReview in frontend/src/types.ts.
     if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
-        return ",".join([POSTHOG_SLACK_SCOPE, *SLACK_SCOPES_IN_REVIEW])
+        return ",".join([POSTHOG_SLACK_SCOPE, *(scope.value for scope in SlackIntegrationScopeInReview)])
     return POSTHOG_SLACK_SCOPE
 
 

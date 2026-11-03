@@ -38,7 +38,7 @@ export function getMissingScopes(integration: IntegrationType, requiredScopes: s
     return requiredScopes.filter((scope) => !granted.includes(scope))
 }
 
-/** Whether this instance asks Slack for the scopes in ``SLACK_INTEGRATION_SCOPES_IN_REVIEW``. Mirrors ``posthog_slack_scope``. */
+/** Whether this instance asks Slack for the scopes in ``SlackIntegrationScopeInReview``. Mirrors ``posthog_slack_scope``. */
 export function requestsSlackInReviewScopes(preflight: PreflightStatus | null | undefined): boolean {
     return !!preflight?.is_debug || preflight?.region === Region.DEV
 }
