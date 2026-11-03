@@ -55,6 +55,8 @@ def _validate_exact_value(value: str, field_label: str) -> str:
     stripped = value.strip()
     if stripped != value:
         raise serializers.ValidationError(f"{field_label} must not start or end with whitespace.")
+    if "\x00" in value:
+        raise serializers.ValidationError(f"{field_label} must not contain a null character.")
     if any(character in WILDCARD_CHARACTERS for character in value):
         raise serializers.ValidationError(f"{field_label} must be an exact value. Wildcards are not supported.")
     return value
