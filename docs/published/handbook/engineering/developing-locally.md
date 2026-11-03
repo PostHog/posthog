@@ -191,6 +191,8 @@ Three env files come into play when `hogli start` runs:
 
 Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
 
+Outside tests, `DEBUG=1` defaults `TRUSTED_PROXIES` to `127.0.0.1,::1` so the backend can extract client IPs forwarded by the local Docker proxy on macOS. An explicit `TRUSTED_PROXIES` value overrides this default. Production has no default trusted proxies.
+
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
 ```bash
