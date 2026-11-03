@@ -6,8 +6,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -29,7 +27,6 @@ from products.messaging.backend.presentation.views.message_templates import (
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
-    SendEmailSerializer,
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
@@ -42,12 +39,15 @@ ADDRESS_VERDICTS = [
     ("jane~tag@example.com", True),
     ("jane#tag@example.com", True),
     ("o'brien@example.com", True),
-    ("a!b$c%d&e*f/g?h^i`j{k|l}m@example.com", True),
+    ("a!b$c%d&e*f/g?h^i`j|k~l@example.com", True),
     ("jane@sub.example.co.uk", True),
     ("jane@bücher.example", False),
     ("jane@[192.0.2.1]", False),
     ('"jane doe"@example.com', False),
     ("jane@localhost", False),
+    (".jane@example.com", False),
+    ("jane.@example.com", False),
+    ("jane..doe@example.com", False),
 ]
 
 
@@ -564,7 +564,6 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
-            ("recipient_the_pipeline_cannot_send_to", {"to": "jane@[192.0.2.1]"}, "to"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -579,6 +578,28 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == attr
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [(field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS]
+    )
+    def test_a_code_send_takes_the_addresses_the_pipeline_takes(
+        self, mock_post, _flag, _capture, field, address, accepted
+    ):
+        self._cdp_accepts(mock_post)
+        value = address if field == "to" else [address]
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**{field: value}), format="json"
+        )
+
+        if accepted:
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+            sent = json.loads(mock_post.call_args.kwargs["data"])
+            assert (sent["to"] if field == "to" else sent["send"]["replyTo"]) == value
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"].startswith(field)
+            mock_post.assert_not_called()
 
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
         response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
@@ -1054,22 +1075,3 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id == linked_hog_flow_id
-
-
-class TestSendEmailAddresses(SimpleTestCase):
-    @parameterized.expand(
-        [(field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS]
-    )
-    def test_takes_the_addresses_the_pipeline_takes(self, field, address, accepted):
-        body: dict[str, Any] = {
-            "to": "user@example.com",
-            "template_key": "welcome",
-            "subject": "Hi",
-            "html": "<p>Hi</p>",
-        }
-        body[field] = address if field == "to" else [address]
-
-        serializer = SendEmailSerializer(data=body)
-
-        assert serializer.is_valid() == accepted, serializer.errors
-        assert (field in serializer.errors) == (not accepted)
