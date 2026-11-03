@@ -165,6 +165,8 @@ class TestHistoryUpsert:
             (1, _TINY_CHUNKS),
             # Parquet stores the repeated names in a few bytes, so only their decoded size crosses the limit.
             (1000, {"max_call_bytes": 20_000, "chunk_target_bytes": 10_000}),
+            # Narrow rows decode under the limit, and only deltalite's key copies and per-row index entries cross it.
+            (1, {"max_call_bytes": 3_000, "chunk_target_bytes": 1_500}),
         ],
     )
     @pytest.mark.asyncio

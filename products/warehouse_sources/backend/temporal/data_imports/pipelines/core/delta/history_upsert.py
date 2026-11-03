@@ -45,7 +45,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
-    PartitionShape,
     estimate_rewrite_profile,
     get_governor,
 )
@@ -80,8 +79,9 @@ _SCAN_BATCH_ROWS = 16_384
 # Each chunk holds one open spill file while the staging table is read. Past this many chunks, a chunk grows
 # instead.
 _MAX_CHUNKS = 256
-# deltalite keeps at most this many month files open while it writes closed versions.
-_MAX_OPEN_MONTH_FILES = 32
+# deltalite's source guard also counts its copies of the key, order and tie-break columns (about twice their
+# size) and a key-map entry plus two row indexes per row.
+_INDEX_BYTES_PER_ROW = 48 + 2 * 4
 _SUMMED_STATS = (
     "rows_in",
     "rows_deduped",
@@ -205,7 +205,10 @@ async def finalize(
     # The batch tags are only needed for the cleanup, so they never reach the upsert.
     columns = [name for name in staging_dataset.schema.names if name != STAGED_BATCH_COLUMN]
     batch_tags = await asyncio.to_thread(_batch_tags, staging_dataset)
-    whole, staged_bytes = await asyncio.to_thread(_read_if_it_fits, staging_dataset, columns, max_call_bytes)
+    narrow_columns = list(dict.fromkeys([*key_columns, naming.valid_from, STAGED_ROW_COLUMN]))
+    whole, call_bytes = await asyncio.to_thread(
+        _read_if_it_fits, staging_dataset, columns, narrow_columns, max_call_bytes
+    )
     # One handle for every chunk, so each call does not load the table's log and checkpoint again.
     handle = await asyncio.to_thread(_open_deltalite, await table.get_table_uri(), table.get_storage_options())
 
@@ -214,7 +217,7 @@ async def finalize(
     with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
         sources: list[pa.Table | Path] = [whole] if whole is not None else []
         del whole
-        chunks = len(sources) or min(_MAX_CHUNKS, math.ceil(staged_bytes / chunk_target_bytes))
+        chunks = len(sources) or min(_MAX_CHUNKS, math.ceil(call_bytes / chunk_target_bytes))
         if not sources:
             sources = [
                 *await asyncio.to_thread(_spill_chunks, staging_dataset, columns, key_columns, chunks, Path(directory))
@@ -253,7 +256,7 @@ async def finalize(
     if refreshed is not None:
         await ensure_table_properties(refreshed, table.logger)
     result = HistoryFinalizeResult(staged_rows=staged_rows, calls=calls, **totals)
-    await table.logger.ainfo("history_finalize", staged_bytes=staged_bytes, **dataclasses.asdict(result))
+    await table.logger.ainfo("history_finalize", call_bytes=call_bytes, **dataclasses.asdict(result))
     return result
 
 
@@ -280,8 +283,10 @@ async def _history_table(
     return await evolve_delta_schema(history_table, schema)
 
 
-def _read_if_it_fits(dataset: ds.Dataset, columns: list[str], max_bytes: int) -> tuple[pa.Table | None, int]:
-    """The staged rows as one table when they fit `max_bytes` decoded, else None, and their decoded size.
+def _read_if_it_fits(
+    dataset: ds.Dataset, columns: list[str], narrow_columns: list[str], max_bytes: int
+) -> tuple[pa.Table | None, int]:
+    """The staged rows as one table when one call's footprint fits `max_bytes`, else None, and that footprint.
 
     Parquet stores repeated and null values in a few bytes, so only the decoded batches give the size
     deltalite counts against its source guard. Memory stays within `max_bytes` and one batch either way.
@@ -290,7 +295,8 @@ def _read_if_it_fits(dataset: ds.Dataset, columns: list[str], max_bytes: int) ->
     total = 0
     scanner = _scanner(dataset, columns)
     for batch in scanner.to_batches():
-        total += batch.nbytes
+        narrow = sum(batch.column(name).nbytes for name in narrow_columns)
+        total += batch.nbytes + 2 * narrow + batch.num_rows * _INDEX_BYTES_PER_ROW
         if held is not None and total <= max_bytes:
             held.append(batch)
         else:
@@ -378,9 +384,10 @@ async def _history_upsert(
     uri = await table.get_table_uri()
     storage_options = table.get_storage_options()
     governor = get_governor()
-    # Closed versions land in the month their successor starts, and the open ones in the current partition.
-    months = pc.count_distinct(pc.strftime(data.column(naming.valid_from), format="%Y-%m")).as_py()
-    n_partitions = 1 + min(_MAX_OPEN_MONTH_FILES, months)
+    # deltalite rewrites `current` with one worker and streams the closed versions to month files next to it,
+    # whatever plan the governor picks. Those writers hold at most the closed rows, about one per source row,
+    # so they count with the source.
+    reserved_bytes = 2 * data.nbytes
     rewrite = None
     if governor.config.mode != "off":
         # Every source row probes and lands in the current partition.
@@ -397,16 +404,11 @@ async def _history_upsert(
             partition_column,
             list(key_columns),
             row_group_reader,
-            functools.partial(governor.row_groups_can_widen, source_bytes=data.nbytes, n_partitions=n_partitions),
+            functools.partial(governor.row_groups_can_widen, source_bytes=reserved_bytes, n_partitions=1),
         )
         del probe
-        if rewrite is not None:
-            # The closed versions go to month partitions, about one row per changed key.
-            rewrite = dataclasses.replace(
-                rewrite, partitions=(*rewrite.partitions, PartitionShape.of([], source_bytes=data.nbytes))
-            )
     max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
-    async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
+    async with governor.admit(source_bytes=reserved_bytes, n_partitions=1, rewrite=rewrite) as adm:
 
         def _upsert() -> Any:
             return handle.history_upsert(
