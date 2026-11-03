@@ -343,6 +343,25 @@ class TestArticleTables:
         assert "honors the page param" in str(result.raised)
         assert result.params("page") == [str(n) for n in range(1, max_pages + 1)]
 
+    @parameterized.expand(
+        [
+            ("zero_based_server", [{"id": 1}, {"id": 2}, {"id": 3}], None),
+            ("empty_on_both_pages", [], DecagonContractError),
+        ]
+    )
+    def test_an_empty_first_page_against_a_total_retries_page_zero_once(
+        self, _name: str, page_zero_rows: list[dict[str, Any]], expected_error: type[Exception] | None
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            rows = page_zero_rows if request.param("page") == "0" else []
+            return _page({"articles": rows, "page": int(request.param("page") or 0), "page_size": 100, "total": 3})
+
+        result = _driver().run("articles", respond)
+
+        assert result.params("page") == ["1", "0"]
+        assert [row["id"] for row in result.rows] == [row["id"] for row in page_zero_rows]
+        assert (None if result.raised is None else type(result.raised)) is expected_error
+
     @parameterized.expand([("negative", -1), ("boolean", True), ("string", "3"), ("null", None)])
     def test_malformed_total_falls_back_to_short_page_termination(self, _name: str, total: Any) -> None:
         # A total that cannot bound the walk must not end it early: a negative or boolean
