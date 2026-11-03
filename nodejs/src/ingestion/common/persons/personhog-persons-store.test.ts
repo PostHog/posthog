@@ -143,6 +143,12 @@ describe('PersonhogPersonsStore', () => {
         )
     })
 
+    it.each([-1, 1.5, NaN])('refuses a flush deadline of %p at construction', (flushDeadlineMs) => {
+        expect(() => new PersonhogPersonsStore(repository, { flushDeadlineMs })).toThrow(
+            'PERSONHOG_STORE_FLUSH_DEADLINE_MS must be an integer >= 0'
+        )
+    })
+
     it('keeps an entry writable when the redirect resolve fails transiently', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
@@ -2691,6 +2697,43 @@ describe('PersonhogPersonsStore', () => {
                 await jest.advanceTimersByTimeAsync((store as any).flushWaitBudgetMs + 1_000)
                 expect(await settled).toMatch(/flush cannot complete/)
                 expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a flush past its deadline fails, releases the lanes it never started, and lets in-flight writes settle', async () => {
+            jest.useFakeTimers()
+            try {
+                const deadlineStore = new PersonhogPersonsStore(repository, {
+                    maxConcurrentUpdates: 1,
+                    flushDeadlineMs: 5_000,
+                })
+                const bound = deadlineStore.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { b: '1' } }), 'd2')
+                let settleFirstWrite!: () => void
+                repository.updatePersonProperties.mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            settleFirstWrite = () => resolve({ person, updated: true } as never)
+                        })
+                )
+
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                await jest.advanceTimersByTimeAsync(5_000)
+                expect(await settled).toMatch(/deadline with 1 lanes unwritten and 1 writes in flight/)
+                const entries = (deadlineStore as any).entries
+                expect(entries.get('1:9')).toMatchObject({ inFlight: false })
+                expect(entries.get('1:9').segments).toHaveLength(1)
+                expect(entries.get('1:7')).toMatchObject({ inFlight: true })
+
+                settleFirstWrite()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(entries.get('1:7')?.inFlight ?? false).toBe(false)
             } finally {
                 jest.useRealTimers()
             }

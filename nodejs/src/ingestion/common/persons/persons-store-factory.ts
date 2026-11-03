@@ -28,6 +28,7 @@ export type PersonsStoreConfig = Pick<
     | 'PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE'
     | 'PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS'
     | 'PERSONHOG_STORE_MAX_CONCURRENT_UPDATES'
+    | 'PERSONHOG_STORE_FLUSH_DEADLINE_MS'
     | 'PERSONHOG_SYNC_MERGE_MOVE_LIMIT'
 > &
     Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'> &
@@ -114,6 +115,7 @@ export function buildPersonsStore(
         updateAllProperties: config.PERSON_PROPERTIES_UPDATE_ALL,
         syncMergeMoveLimit: config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
         requestTimeoutMs: config.PERSONHOG_TIMEOUT_MS,
+        flushDeadlineMs: config.PERSONHOG_STORE_FLUSH_DEADLINE_MS,
     })
     return {
         personsStore: new RoutingPersonsStore(pgStore, personhogStore, mode),

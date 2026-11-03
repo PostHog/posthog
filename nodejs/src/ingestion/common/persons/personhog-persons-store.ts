@@ -102,6 +102,11 @@ export interface PersonhogPersonsStoreOptions {
     syncMergeMoveLimit: number
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
+    /**
+     * Fails a flush still writing past this many ms, so a degraded personhog cannot hold the host past its
+     * Kafka poll interval or stream ack deadline. 0 disables the bound.
+     */
+    flushDeadlineMs: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -109,6 +114,7 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     updateAllProperties: false,
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
+    flushDeadlineMs: 0,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -285,6 +291,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         if (!Number.isInteger(this.options.requestTimeoutMs) || this.options.requestTimeoutMs < 1) {
             throw new Error(`PERSONHOG_TIMEOUT_MS must be an integer >= 1, got ${this.options.requestTimeoutMs}`)
+        }
+        if (!Number.isInteger(this.options.flushDeadlineMs) || this.options.flushDeadlineMs < 0) {
+            throw new Error(
+                `PERSONHOG_STORE_FLUSH_DEADLINE_MS must be an integer >= 0, got ${this.options.flushDeadlineMs}`
+            )
         }
         // A flush waits out a claimed lane rather than failing past it. The
         // wait outlasts one write's full transport retry budget, derived
@@ -1248,12 +1259,13 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     private async flushPass(): Promise<FlushResult[]> {
+        const deadlineAt = this.options.flushDeadlineMs > 0 ? Date.now() + this.options.flushDeadlineMs : undefined
         // Success lets the batch ack, so the pass must not return while any
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
         for (let round = 0; ; round++) {
             const pass = { deferrals: 0 }
-            await this.writeEligibleLanes(pass)
+            await this.writeEligibleLanes(pass, deadlineAt)
             if (pass.deferrals === 0) {
                 // No FlushResults: the leader's changelog is the person
                 // feed, so a flush publishes nothing.
@@ -1264,6 +1276,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                 throw new Error(
                     `flush cannot complete: ${pass.deferrals} lanes deferred behind writes that did not settle`
                 )
+            }
+            if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+                throw this.flushDeadlineError(0, pass.deferrals)
             }
             // Bounded, so a wedged writer exhausts the rounds instead of
             // hanging the flush past the consumer's poll budget.
@@ -1285,7 +1300,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEligibleLanes(pass: { deferrals: number }): Promise<void> {
+    /** Unstarted lanes are released for the next flush; in-flight writes finish in the background and release their own. */
+    private flushDeadlineError(unstarted: number, inFlight: number): Error {
+        personhogStoreFlushCounter.inc({ outcome: 'deadline_exceeded' })
+        return new Error(
+            `flush exceeded its ${this.options.flushDeadlineMs}ms deadline with ${unstarted} lanes unwritten and ${inFlight} writes in flight`
+        )
+    }
+
+    private async writeEligibleLanes(pass: { deferrals: number }, deadlineAt?: number): Promise<void> {
         // Before the claim, so a held lane that resolves writes in this pass.
         await this.resolveHeldLanes()
         // No await in this block, so the claim snapshot is atomic.
@@ -1308,12 +1331,47 @@ export class PersonhogPersonsStore implements PersonsStore {
             captured.push({ personKey, entry, segments: entry.segments.length })
         }
         const limit = pLimit(this.options.maxConcurrentUpdates)
-        const outcomes = await Promise.allSettled(
-            captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
+        const started = new Set<CapturedLane>()
+        const settledAll = Promise.allSettled(
+            captured.map((lane) =>
+                limit(() => {
+                    started.add(lane)
+                    return this.writeEntry(lane.personKey, lane.entry, lane.segments)
+                })
+            )
         )
+        const outcomes = await this.raceFlushDeadline(settledAll, deadlineAt)
+        if (outcomes === 'deadline') {
+            limit.clearQueue()
+            const unstarted = captured.filter((lane) => !started.has(lane))
+            for (const lane of unstarted) {
+                this.releaseWritten(lane.personKey, lane.entry)
+            }
+            throw this.flushDeadlineError(unstarted.length, started.size)
+        }
         const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
         if (failed) {
             throw failed.reason
+        }
+    }
+
+    private async raceFlushDeadline<T>(
+        settledAll: Promise<T>,
+        deadlineAt: number | undefined
+    ): Promise<T | 'deadline'> {
+        if (deadlineAt === undefined) {
+            return settledAll
+        }
+        let timer: NodeJS.Timeout | undefined
+        try {
+            return await Promise.race([
+                settledAll,
+                new Promise<'deadline'>((resolve) => {
+                    timer = setTimeout(() => resolve('deadline'), Math.max(0, deadlineAt - Date.now()))
+                }),
+            ])
+        } finally {
+            clearTimeout(timer)
         }
     }
 
