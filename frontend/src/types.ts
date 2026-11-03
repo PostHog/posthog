@@ -5715,13 +5715,8 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Scopes that wait on Slack app-directory review. Only the DEV instance and local development
-// request them (see `requestsSlackInReviewScopes`), because their Slack app manifests list them.
-// The US and EU apps reject an unapproved scope with `invalid_scope`, so every install there would fail.
-// When Slack approves a scope, add it to the US and EU manifests, then move it into
-// `SlackIntegrationScope`. The schema codegen emits it as `SlackIntegrationScopeInReview` in
-// posthog/schema_enums.py. Delete the enum and its uses when the last entry moves, because JSON
-// Schema rejects a zero-length `enum`.
+// Scopes that wait on Slack app review. Only DEV and local development request them, because the
+// US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
 /** @schemaEnum */
 export enum SlackIntegrationScopeInReview {
     CHANNELS_JOIN = 'channels:join',

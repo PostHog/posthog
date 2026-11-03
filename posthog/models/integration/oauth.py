@@ -203,10 +203,7 @@ POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
 
 
 def posthog_slack_scope() -> str:
-    # The DEV instance and local development also request the scopes that wait on Slack review,
-    # because their Slack app manifests list them. The US and EU apps reject an unapproved scope
-    # with `invalid_scope`, so every install there would fail. See the note by
-    # SlackIntegrationScopeInReview in frontend/src/types.ts.
+    # See SlackIntegrationScopeInReview in frontend/src/types.ts for why only DEV and local request these.
     if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
         return ",".join([POSTHOG_SLACK_SCOPE, *(scope.value for scope in SlackIntegrationScopeInReview)])
     return POSTHOG_SLACK_SCOPE

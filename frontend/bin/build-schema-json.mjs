@@ -18,10 +18,8 @@ const output_path = 'src/queries/schema.json'
 
 const schema = tsj.createGenerator(config).createSchema(config.type)
 
-// ts-json-schema-generator writes a one-member enum as `const`, which the Python codegen turns into a
-// `Literal` root model instead of a `StrEnum`. A TS enum tagged `@schemaEnum` keeps its `enum` list, so
-// it reaches posthog/schema_enums.py as a `StrEnum` whatever its size. The tag is opt-in because other
-// one-member enums are already `Literal` fields with defaults in posthog/schema.py.
+// The generator writes a one-member enum as `const`, which Python gets as a `Literal` root model.
+// Tag a TS enum `@schemaEnum` to keep its `enum` list, so Python gets a `StrEnum` at any size.
 for (const definition of Object.values(schema.definitions ?? {})) {
     if (definition.schemaEnum !== undefined) {
         if ('const' in definition) {
