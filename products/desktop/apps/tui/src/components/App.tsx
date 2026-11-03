@@ -158,6 +158,16 @@ export function App({
     savePrefs({ pinnedChats: next });
     return true;
   };
+  const [inboxReadBefore, setInboxReadBefore] = useState(
+    () => loadPrefs().inboxReadBefore,
+  );
+  // Marks everything in the inbox read: a turn that ends from now on still shows.
+  const clearInbox = (): void => {
+    track("inbox cleared");
+    const now = Date.now();
+    setInboxReadBefore(now);
+    savePrefs({ inboxReadBefore: now });
+  };
   const [scope, setScope] = useState(() => loadPrefs().chatScope);
   const switchScope = (next: ChatScope): void => {
     if (next === scope) return;
@@ -388,6 +398,7 @@ export function App({
     compact,
     openSearch: () => latestSearch.current?.toggle(),
     openInbox: () => switchScope("inbox"),
+    clearInbox,
     openHelp: () => setHelpOpen(true),
     openSettings: settings.toggle,
     repos: repoPicker,
@@ -456,6 +467,7 @@ export function App({
         wake: facts?.wake ?? false,
         repliedAt: turns.repliedAt.get(taskId) ?? null,
         dismissedAt: inboxDismissed[taskId] ?? null,
+        readBefore: inboxReadBefore,
       });
       if (reason) result.add(taskId);
     }
@@ -468,6 +480,7 @@ export function App({
     working,
     taskOf,
     inboxDismissed,
+    inboxReadBefore,
   ]);
   const sidebar = useSidebar({
     layout,

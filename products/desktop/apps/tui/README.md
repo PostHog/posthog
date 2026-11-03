@@ -81,7 +81,7 @@ Cmd works in place of Ctrl where the terminal passes it on.
 | `/optimize` | Lay out this workspace's panes in an even grid |
 | `/expand` | Open this chat full width |
 | `/search` | Search your tasks |
-| `/inbox` | The Inbox tab, like Ctrl+0 |
+| `/inbox`, `/inbox clear` | The Inbox tab, like Ctrl+0; clear marks everything in it read |
 | `/local`, `/cloud` | Run this pane's new chats on this machine or in the cloud |
 | `/repo` | Pick the repositories this pane's new cloud chats clone |
 | `/mcp`, `/mcp add` | The MCP servers your chats reach, and add one |

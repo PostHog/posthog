@@ -40,6 +40,8 @@ export interface Prefs {
   chatScope: ChatScope;
   // Chats dismissed from the inbox, with when (epoch ms); a turn ending later brings one back.
   inboxDismissed: Record<string, number>;
+  // /inbox clear: every turn that ended before this (epoch ms) counts as read.
+  inboxReadBefore: number | null;
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -66,6 +68,7 @@ const DEFAULT_PREFS: Prefs = {
   pinnedChats: [],
   chatScope: "mine",
   inboxDismissed: {},
+  inboxReadBefore: null,
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -114,6 +117,10 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
               ),
             )
           : {},
+      inboxReadBefore:
+        typeof saved.inboxReadBefore === "number"
+          ? saved.inboxReadBefore
+          : null,
     };
   } catch {
     return DEFAULT_PREFS;

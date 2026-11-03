@@ -10,6 +10,7 @@ const idle: InboxChat = {
   wake: false,
   repliedAt: 500,
   dismissedAt: null,
+  readBefore: null,
 };
 
 describe("inboxReason", () => {
@@ -24,6 +25,16 @@ describe("inboxReason", () => {
     [
       "a turn ending after the dismissal brings it back",
       { dismissedAt: 900 },
+      "reply",
+    ],
+    [
+      "a turn that ended before everything was marked read is read",
+      { readBefore: 1_000 },
+      null,
+    ],
+    [
+      "a turn that ended after that still needs a reply",
+      { readBefore: 999 },
       "reply",
     ],
     ["a chat mid-turn is not done", { working: true }, null],

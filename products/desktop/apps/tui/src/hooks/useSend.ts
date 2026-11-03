@@ -70,6 +70,7 @@ export function useSend({
   compact,
   openSearch,
   openInbox,
+  clearInbox,
   openSettings,
   openHelp,
   onChatStarted,
@@ -112,6 +113,7 @@ export function useSend({
   ) => void;
   openSearch: () => void;
   openInbox: () => void;
+  clearInbox: () => void;
   openSettings: () => void;
   openHelp: () => void;
   repos: Pick<RepoPicker, "open" | "reposFor">;
@@ -204,7 +206,10 @@ export function useSend({
       return;
     }
     if (slash?.command === "inbox") {
-      openInbox();
+      if (slash.args.trim() === "clear") {
+        clearInbox();
+        flashNotice("Inbox marked read. Chats that finish from now on show");
+      } else openInbox();
       return;
     }
     if (slash?.command === "settings" || slash?.command === "config") {

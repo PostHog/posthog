@@ -18,6 +18,8 @@ export interface InboxChat {
   repliedAt: number | null;
   // Dismissed from the inbox at (epoch ms); a turn ending after that brings it back.
   dismissedAt: number | null;
+  // Everything that ended before this (epoch ms) was marked read at once, with /inbox clear.
+  readBefore: number | null;
 }
 
 // Why a chat sits in the inbox, or null when it does not.
@@ -31,6 +33,8 @@ export function inboxReason(chat: InboxChat): InboxReason | null {
   if (chat.repliedAt !== null && chat.repliedAt >= chat.turnEndedAt)
     return null;
   if (chat.dismissedAt !== null && chat.dismissedAt >= chat.turnEndedAt)
+    return null;
+  if (chat.readBefore !== null && chat.readBefore >= chat.turnEndedAt)
     return null;
   return "reply";
 }
