@@ -18,6 +18,7 @@ from requests.exceptions import (
 from products.warehouse_sources.sources.convex._config import ConvexSourceConfig
 from products.warehouse_sources.sources.convex.convex import (
     _CONVEX_RETRY,
+    ConvexApiError,
     ConvexDataSyncCursor,
     ConvexResumeConfig,
     ConvexResyncRequiredError,
@@ -302,6 +303,17 @@ class TestConvexNonRetryableErrors:
         # body-parsing added for StreamingExportNotEnabled detection - it should fall through
         # to the normal raise_for_status() error instead of raising an unhandled ValueError.
         with scripted_network([ScriptedResponse(status=400, body=b"not JSON")]), pytest.raises(HTTPError):
+            get_json_schemas("https://x.convex.cloud", "key")
+
+    def test_get_json_schemas_400_with_other_code_surfaces_it_instead_of_a_bare_http_error(self) -> None:
+        # A structured 400 whose code isn't StreamingExportNotEnabled used to fall straight through
+        # to raise_for_status(), producing a body-less "400 Client Error: Bad Request for url: ..."
+        # that discards the one piece of information (the code) that would let this error ever be
+        # diagnosed or classified. It must surface instead, as it does for StreamingExportNotEnabled.
+        with (
+            scripted_network([ScriptedResponse(status=400, json={"code": "SomeOtherCode", "message": "nope"})]),
+            pytest.raises(ConvexApiError, match="SomeOtherCode: nope"),
+        ):
             get_json_schemas("https://x.convex.cloud", "key")
 
     @parameterized.expand(
