@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -77,6 +78,37 @@ describe('setupWizardStatusLogic', () => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.setupStatus).toBeNull()
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    it.each([401, 403, 404])('stops polling an installing run after a %s', async (status) => {
+        const mockTasksList = tasksList as jest.Mock
+        mockTasksList.mockResolvedValueOnce({
+            results: [
+                {
+                    id: 'example-task',
+                    created_at: '2026-09-23T10:00:00Z',
+                    latest_run: { id: 'example-run', status: 'in_progress', output: null },
+                },
+            ],
+        })
+        const logic = setupWizardStatusLogic()
+        logic.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.setupStatus).toEqual({ kind: 'installing' })
+
+            mockTasksList.mockRejectedValue(new ApiError(undefined, status))
+            jest.advanceTimersByTime(10_000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.setupStatus).toBeNull()
+
+            const requests = mockTasksList.mock.calls.length
+            jest.advanceTimersByTime(30_000)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(mockTasksList).toHaveBeenCalledTimes(requests)
         } finally {
             logic.unmount()
         }

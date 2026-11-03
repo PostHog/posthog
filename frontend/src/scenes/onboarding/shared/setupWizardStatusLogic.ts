@@ -23,6 +23,8 @@ export type SetupWizardStatus =
 
 const RUNNING_STATUSES = ['not_started', 'queued', 'in_progress']
 const STATUS_POLL_INTERVAL_MS = 10_000
+// Lost access or a deleted resource does not recover on retry, unlike a network or server error.
+const PERMANENT_ERROR_STATUSES = [401, 403, 404]
 
 const byCreatedAtDesc = (a: { created_at?: string | null }, b: { created_at?: string | null }): number =>
     (b.created_at ?? '').localeCompare(a.created_at ?? '')
@@ -154,8 +156,13 @@ export const setupWizardStatusLogic = kea<setupWizardStatusLogicType>([
                             }
                         }
                         return null
-                    } catch {
-                        // Keep the last status so transient failures do not stop polling.
+                    } catch (error) {
+                        // A null status stops the poll, so permanent errors clear it. Transient
+                        // errors keep the last status so the poll continues.
+                        const status = (error as { status?: unknown } | null)?.status
+                        if (typeof status === 'number' && PERMANENT_ERROR_STATUSES.includes(status)) {
+                            return null
+                        }
                         return values.discoveredRun
                     }
                 },
