@@ -408,6 +408,7 @@ describe('RecordingService', () => {
             mockKeyStore.getKey.mockResolvedValue(sessionKey('cleartext'))
 
             expect(await service.annotateBlocks('sess-1', 1, [block])).toEqual([block])
+            expect(mockKeyStore.getKey).toHaveBeenCalledWith('sess-1', 1, { cacheMissing: false })
         })
 
         it('fetches the byte range a listed ref names', async () => {

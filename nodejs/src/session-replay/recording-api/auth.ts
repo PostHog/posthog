@@ -180,8 +180,11 @@ export function createReplayBlocksAuthMiddleware(jwtSecret: string) {
             !Number.isInteger(claims.team_id) ||
             String(claims.team_id) !== req.params.team_id ||
             claims.session_id !== req.params.session_id ||
+            // The viewer is in the URL so each viewer's blocks are separate browser cache entries: after an account
+            // switch the new viewer's URLs never match the previous viewer's cached blocks.
             typeof claims.sub !== 'string' ||
-            !claims.sub
+            !claims.sub ||
+            claims.sub !== req.params.viewer
         ) {
             res.status(403).json({ error: 'Forbidden: token not scoped to this recording' })
             return

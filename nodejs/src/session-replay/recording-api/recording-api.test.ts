@@ -140,6 +140,7 @@ describe('RecordingApi', () => {
             expect(getKeyStore).toHaveBeenCalledWith('us-west-2', {
                 kmsEndpoint: undefined,
                 dynamoDBEndpoint: undefined,
+                requestTimeoutMs: 2000,
             })
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
             expect(RecordingService).toHaveBeenCalled()
@@ -817,13 +818,13 @@ describe('RecordingApi', () => {
 
     describe('browser block route', () => {
         const JWT_SECRET = 'recording-api-test-secret'
-        const BLOCK_URL = '/replay-blocks/1/session-123/v1.abc'
+        const BLOCK_URL = '/replay-blocks/1/session-123/u7/v1.abc'
         let server: Server
         let rateLimiter: { rateLimitMany: jest.Mock }
 
         const browserToken = (claims: Record<string, unknown> = {}, expiresIn: string | null = '5m'): string =>
             `Bearer ${new JWT(JWT_SECRET).sign(
-                { team_id: 1, session_id: 'session-123', sub: 'user:7', ...claims },
+                { team_id: 1, session_id: 'session-123', sub: 'u7', ...claims },
                 PosthogJwtAudience.REPLAY_BLOCKS,
                 expiresIn ? { expiresIn } : {}
             )}`
@@ -875,7 +876,7 @@ describe('RecordingApi', () => {
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
             expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
-            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([{ id: 'user:7', cost: 1 }])
+            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([{ id: 'u7', cost: 1 }])
         })
 
         it.each([
@@ -883,6 +884,7 @@ describe('RecordingApi', () => {
             ['a token for another session', () => browserToken({ session_id: 'session-999' }), 403],
             ['a token for another team', () => browserToken({ team_id: 2 }), 403],
             ['a token with no caller', () => browserToken({ sub: undefined }), 403],
+            ['a token for another viewer', () => browserToken({ sub: 'u8' }), 403],
             ['a token with a string team', () => browserToken({ team_id: '1' }), 403],
             ['an internal service token', serviceToken, 401],
             ['an expired token', () => browserToken({}, '-5m'), 401],
@@ -907,7 +909,7 @@ describe('RecordingApi', () => {
             const app = await buildApp('public')
 
             const res = await supertest(app)
-                .get('/replay-blocks/01/session-123/v1.abc')
+                .get('/replay-blocks/01/session-123/u7/v1.abc')
                 .set('Authorization', browserToken())
 
             expect(res.status).toBe(403)
@@ -930,9 +932,7 @@ describe('RecordingApi', () => {
             ['enforced', true, 429],
             ['log only', false, 200],
         ])('applies the per-caller rate limit when %s', async (_, enforced, expectedStatus) => {
-            rateLimiter.rateLimitMany.mockResolvedValue([
-                ['user:7', { isRateLimited: true, tokens: -1, tokensBefore: 0 }],
-            ])
+            rateLimiter.rateLimitMany.mockResolvedValue([['u7', { isRateLimited: true, tokens: -1, tokensBefore: 0 }]])
             const app = await buildApp('public', enforced)
 
             const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())

@@ -45,6 +45,8 @@ import {
 const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=86400, immutable'
 
 const KEY_LOOKUP_TIMEOUT_MS = 1000
+// Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
+const DEPENDENCY_TIMEOUT_MS = 2000
 
 function sendRecordingDeleted(res: express.Response, deletion: RecordingDeletedResult): void {
     res.status(410).json({ error: 'recording_deleted', deleted_at: deletion.deletedAt, deleted_by: deletion.deletedBy })
@@ -128,20 +130,23 @@ export class RecordingApi {
 
         this.s3Client = new S3Client(s3Config)
 
+        // Bounded so a stalled Redis fails fast rather than holding requests the listing has stopped waiting for.
         const redisConfig = (name: string) => ({
             connection: {
                 url: this.config.SESSION_RECORDING_API_REDIS_HOST,
-                options: { port: this.config.SESSION_RECORDING_API_REDIS_PORT },
+                options: { port: this.config.SESSION_RECORDING_API_REDIS_PORT, commandTimeout: DEPENDENCY_TIMEOUT_MS },
                 name,
             },
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+            acquireTimeoutMillis: DEPENDENCY_TIMEOUT_MS,
         })
         this.redisPool = createRedisPoolFromConfig(redisConfig('recording-api'))
 
         const keyStore: KeyStore = getKeyStore(s3Region, {
             kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+            requestTimeoutMs: DEPENDENCY_TIMEOUT_MS,
         })
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
@@ -267,7 +272,7 @@ export class RecordingApi {
 
         if (this.servesPublicRoutes) {
             router.get(
-                '/replay-blocks/:team_id/:session_id/:ref',
+                '/replay-blocks/:team_id/:session_id/:viewer/:ref',
                 createReplayBlocksAuthMiddleware(this.config.RECORDING_API_JWT_SECRET),
                 asyncHandler(this.getBlockByRef)
             )

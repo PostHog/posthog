@@ -258,14 +258,14 @@ export class RecordingService {
 
     // Reports a deletion the key store recorded before ClickHouse learns of it through Kafka, and names each block of an
     // encrypted session with a ref the browser can fetch and cache. Cleartext sessions have no key to derive refs from.
-    // Call it only for a session that has blocks: the key store caches a missing key as cleartext for a day, and a
-    // lookup before ingestion creates the key would make getBlock skip decryption for that whole day.
+    // Call it only for a session that has blocks; a session without any has no key worth reading yet.
     async annotateBlocks(
         sessionId: string,
         teamId: number,
         blocks: RecordingBlock[]
     ): Promise<RecordingDeletedResult | ListedBlock[]> {
-        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        // DynamoDB reads are eventually consistent, so a key created moments ago can read as missing: never cache that.
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId, { cacheMissing: false })
         const deletion = deletionOf(sessionKey)
         if (deletion) {
             return deletion
