@@ -13,24 +13,29 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
 
+# The shared session retries a connection error, 429 and 5xx three times before it gives up.
+_RETRIED_ATTEMPTS = 4
+
 
 class TestBrevoSource:
     @pytest.mark.parametrize(
-        ("api_key", "answer", "expected_ok", "expected_msg"),
+        ("api_key", "answers", "expected_ok", "expected_msg"),
         [
-            ("xkeysib-test", ScriptedResponse(json={}), True, None),
-            ("xkeysib-test", ScriptedResponse(status=401), False, BREVO_INVALID_API_KEY_MESSAGE),
-            ("xsmtpsib-test", ScriptedResponse(status=401), False, BREVO_SMTP_KEY_MESSAGE),
-            ("xkeysib-test", ScriptedResponse(status=403), False, BREVO_MISSING_PERMISSIONS_MESSAGE),
-            ("xkeysib-test", ScriptedResponse(status=429), False, BREVO_UNREACHABLE_MESSAGE),
-            ("xkeysib-test", ScriptedResponse(status=503), False, BREVO_UNREACHABLE_MESSAGE),
-            ("xkeysib-test", OSError("network down"), False, BREVO_UNREACHABLE_MESSAGE),
+            ("xkeysib-test", [ScriptedResponse(json={})], True, None),
+            ("xkeysib-test", [ScriptedResponse(status=401)], False, BREVO_INVALID_API_KEY_MESSAGE),
+            ("xsmtpsib-test", [ScriptedResponse(status=401)], False, BREVO_SMTP_KEY_MESSAGE),
+            ("xkeysib-test", [ScriptedResponse(status=403)], False, BREVO_MISSING_PERMISSIONS_MESSAGE),
+            ("xkeysib-test", [ScriptedResponse(status=404)], False, BREVO_INVALID_API_KEY_MESSAGE),
+            ("xkeysib-test", [ScriptedResponse(status=429)] * _RETRIED_ATTEMPTS, False, BREVO_UNREACHABLE_MESSAGE),
+            ("xkeysib-test", [ScriptedResponse(status=503)] * _RETRIED_ATTEMPTS, False, BREVO_UNREACHABLE_MESSAGE),
+            ("xkeysib-test", [OSError("network down")] * _RETRIED_ATTEMPTS, False, BREVO_UNREACHABLE_MESSAGE),
         ],
     )
     def test_validate_credentials(
-        self, api_key: str, answer: ScriptedResponse | Exception, expected_ok: bool, expected_msg: str | None
+        self, api_key: str, answers: list[ScriptedResponse | Exception], expected_ok: bool, expected_msg: str | None
     ) -> None:
-        with scripted_network([answer]):
+        with scripted_network(answers) as network:
             ok, msg = BrevoSource().validate_credentials(BrevoSourceConfig(api_key=api_key), team_id=1)
         assert ok is expected_ok
         assert msg == expected_msg
+        assert len(network.requests_log) == len(answers)

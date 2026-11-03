@@ -63,6 +63,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{BREVO_BASE_URL}/account",
         headers={"api-key": api_key, "accept": "application/json"},
+        allow_redirects=False,
     )
     if ok:
         return True, None
