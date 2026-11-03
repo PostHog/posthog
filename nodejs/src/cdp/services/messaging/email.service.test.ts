@@ -1252,6 +1252,19 @@ describe('EmailService', () => {
                     }
                 })
 
+                it('skips a send when this worker never got the reload message for a committed pause', async () => {
+                    await setTenantStatus('ENABLED')
+                    service = createSandboxService(true, { senderSettings: { tenantName: tenantName() } })
+                    expect((await service.executeSendEmail(invocation)).skipped).toBeFalsy()
+
+                    await setTenantStatus('DISABLED')
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(result.logs).toContainEqual(expect.objectContaining({ message: pausedMessage }))
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                })
+
                 it('picks up a pause announced while the state is cached', async () => {
                     await setTenantStatus('ENABLED')
                     service = createSandboxService(true, { senderSettings: { tenantName: tenantName() } })
