@@ -345,6 +345,35 @@ class TestBuildAsyncOpenAIClient:
         assert headers["x-posthog-property-evaluation_id"] == "evaluation-123"
 
 
+class TestOpenAIClientPrivacyMode:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @pytest.mark.parametrize(
+        "builder,client_target",
+        [(build_openai_client, "OpenAI"), (build_async_openai_client, "AsyncOpenAI")],
+    )
+    @pytest.mark.parametrize("privacy_mode", [True, False])
+    def test_gateway_mode_sends_privacy_header_only_when_asked(self, builder, client_target, privacy_mode):
+        with patch(f"posthog.llm.gateway_client.{client_target}") as mock_client:
+            builder("django", ai_product="logs", privacy_mode=privacy_mode)
+
+        headers = mock_client.call_args.kwargs["default_headers"]
+        assert ("X-PostHog-Privacy-Mode" in headers) is privacy_mode
+        if privacy_mode:
+            assert headers["X-PostHog-Privacy-Mode"] == "true"
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @pytest.mark.parametrize(
+        "builder,fallback_target",
+        [(build_openai_client, "get_llm_client"), (build_async_openai_client, "get_async_llm_client")],
+    )
+    def test_privacy_mode_never_falls_back_to_the_python_gateway(self, builder, fallback_target):
+        with patch(f"posthog.llm.gateway_client.{fallback_target}") as mock_fallback:
+            with pytest.raises(GatewayNotConfiguredError):
+                builder("django", ai_product="logs", privacy_mode=True)
+
+        mock_fallback.assert_not_called()
+
+
 class TestTeamTraceId:
     # Expected ids are $ai_trace_id values observed on captured events, not recomputed from the
     # helper: recomputing would make the test agree with itself and miss a namespace change.
