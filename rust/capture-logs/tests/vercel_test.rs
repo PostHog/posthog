@@ -141,3 +141,20 @@ fn severity_table() {
         assert_eq!((text.as_str(), number), expected, "{level:?}");
     }
 }
+
+#[test]
+fn drain_gate_is_closed_unless_a_token_is_listed() {
+    for (enabled, token, allowed) in [
+        ("", "phc_a", false),
+        ("phc_a", "phc_a", true),
+        (" phc_a , phc_b ", "phc_b", true),
+        ("phc_a", "phc_c", false),
+        ("*", "phc_c", true),
+    ] {
+        assert_eq!(
+            VercelDrainGate::new(enabled).allows(token),
+            allowed,
+            "{enabled:?} / {token}"
+        );
+    }
+}

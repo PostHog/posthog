@@ -26,6 +26,7 @@ The service is configured using environment variables:
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
+| VERCEL_DRAIN_ENABLED_TOKENS | (none) | Comma-separated tokens that may use the Vercel drain route, or `*` for all. Other tokens get 404 |
 
 ## Authentication
 
@@ -194,6 +195,7 @@ A customer creates a log drain with this URL and the project API key, in either 
 
 - Auth: the project API key in an `Authorization: Bearer <token>` custom header, in the path, or as `?token=`.
   The same shape check as every other route applies.
+- Rollout: the route is closed until the project's token is in `VERCEL_DRAIN_ENABLED_TOKENS` (or the list is `*`); other tokens get 404.
 - Body: a JSON array or NDJSON, gzip or plain.
   Every valid line becomes a log row.
   A line that does not parse is skipped and counted, so one bad line does not make the drain retry the batch.

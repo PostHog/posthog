@@ -3,7 +3,7 @@ use crate::endpoints::datadog::{extract_token_from_auth_header, hex_to_base64};
 use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Json,
 };
@@ -12,7 +12,8 @@ use chrono::Utc;
 use metrics::counter;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tracing::{debug, error, instrument};
 use uuid::Uuid;
 
@@ -301,6 +302,33 @@ pub fn vercel_log_to_kafka_row(log: VercelLog) -> (KafkaLogRow, bool) {
     (row, was_overridden)
 }
 
+/// Which project tokens may use the drain route while it rolls out.
+#[derive(Clone, Debug, Default)]
+pub struct VercelDrainGate {
+    allow_all: bool,
+    tokens: Arc<HashSet<String>>,
+}
+
+impl VercelDrainGate {
+    /// Reads a comma-separated token list; `*` opens the route to every token.
+    pub fn new(enabled_tokens: &str) -> Self {
+        let tokens: HashSet<String> = enabled_tokens
+            .split(',')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(String::from)
+            .collect();
+        Self {
+            allow_all: tokens.contains("*"),
+            tokens: Arc::new(tokens),
+        }
+    }
+
+    pub fn allows(&self, token: &str) -> bool {
+        self.allow_all || self.tokens.contains(token)
+    }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct VercelQueryParams {
     pub token: Option<String>,
@@ -317,6 +345,7 @@ pub struct VercelQueryParams {
 ]
 pub async fn export_vercel_logs_http(
     State(service): State<Service>,
+    Extension(gate): Extension<VercelDrainGate>,
     path_token: Option<Path<String>>,
     Query(query_params): Query<VercelQueryParams>,
     headers: HeaderMap,
@@ -343,6 +372,11 @@ pub async fn export_vercel_logs_http(
 
     service.authorizer.authorize_token(&token, Signal::Logs)?;
     tracing::Span::current().record("token", &token);
+
+    // Unlisted projects see the route as missing until it is open to them.
+    if !gate.allows(&token) {
+        return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))));
+    }
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
