@@ -46,6 +46,12 @@ WORKLOAD_TRUST_POLICY_DENIED_SCOPES: frozenset[str] = frozenset(
 )
 
 
+# A policy's issuer, subject and conditions form one entry of the unique btree index below, which Postgres caps
+# at about 2.7 kB. With the 255-character issuer and subject, these limits keep the largest entry well below it.
+CONDITION_VALUE_MAX_LENGTH = 200
+CONDITIONS_MAX_BYTES = 1024
+
+
 def workload_trust_policy_grantable_scopes() -> frozenset[str]:
     return UNPRIVILEGED_SCOPES - WORKLOAD_TRUST_POLICY_DENIED_SCOPES
 
@@ -78,7 +84,7 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     subject_name = models.CharField(max_length=255)
     subject = models.CharField(max_length=255)
     # Claim name to required value. Write it only through `normalize_workload_conditions`, which drops empty
-    # values and sorts the keys, so two policies with the same conditions always collide in the constraint.
+    # values, so two policies with the same conditions always collide in the constraint.
     conditions = models.JSONField(default=dict, blank=True)
     scopes = ArrayField(models.CharField(max_length=100), default=list)
     enabled = models.BooleanField(default=True)
