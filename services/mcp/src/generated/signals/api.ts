@@ -4652,7 +4652,9 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
     text: zod
         .string()
         .optional()
-        .describe('ILIKE substring match against `content`. Omit to return the most recent entries.'),
+        .describe(
+            'ILIKE substring match against `content` and `key`. Must contain at least 3 letters or digits in a row. Omit to return the most recent entries.'
+        ),
 })
 
 /**

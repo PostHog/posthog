@@ -1117,13 +1117,19 @@ class ScratchpadEntrySerializer(serializers.Serializer):
     )
 
 
+_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}")
+
+
 class SearchMemoryQuerySerializer(serializers.Serializer):
     """Query parameters for `search-memory`."""
 
     text = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
+        help_text=(
+            "ILIKE substring match against `content` and `key`. Must contain at least 3 letters or digits in a row. "
+            "Omit to return the most recent entries."
+        ),
     )
     key = serializers.CharField(
         required=False,
@@ -1183,6 +1189,16 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max rows to return (default 20, hard cap 1000).",
     )
+
+    def validate_text(self, value: str) -> str:
+        # The trigram indexes extract nothing from a term without 3 letters or digits in a row, so
+        # Postgres reads and upper-cases every body the team holds to answer it.
+        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+            raise serializers.ValidationError(
+                "Use at least 3 letters or digits in a row, for example a whole word or identifier. "
+                "To read one known entry, pass `key` instead."
+            )
+        return value
 
 
 @extend_schema_field(OpenApiTypes.STR)

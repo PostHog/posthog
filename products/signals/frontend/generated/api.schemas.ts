@@ -11783,7 +11783,7 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     skill_name?: string
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain at least 3 letters or digits in a row. Omit to return the most recent entries.
      */
     text?: string
 }
