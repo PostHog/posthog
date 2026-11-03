@@ -233,6 +233,14 @@ class ExperimentOnFlag:
     ended_at: datetime | None
     archived: bool
 
+    @property
+    def is_draft(self) -> bool:
+        return self.launched_at is None
+
+    @property
+    def is_running(self) -> bool:
+        return self.launched_at is not None and self.ended_at is None
+
 
 @frozen
 class PrimaryMetric:
@@ -575,8 +583,8 @@ class HealthContext:
     flag_called_after_end: bool | None
     # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
     flag_last_called_at: datetime | None
-    # The other non-deleted experiments on the flag. None when not loaded: it is loaded only for an ended experiment.
-    other_experiments_on_flag: tuple[ExperimentOnFlag, ...] | None
+    # The other non-deleted experiments on the flag.
+    other_experiments_on_flag: tuple[ExperimentOnFlag, ...]
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -772,9 +780,7 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     return None if _flag_calls_unrecorded(experiment) else False
 
 
-def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...] | None:
-    if not experiment.is_stopped:
-        return None
+def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
     others = (
         live_experiments_for_flag(experiment.feature_flag_id)
         .filter(team_id=experiment.team_id)
