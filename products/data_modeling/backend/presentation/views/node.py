@@ -8,7 +8,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -554,7 +554,11 @@ class NodeViewSet(
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
-        from products.data_modeling.backend.facade.api import start_node_materialization
+        from products.data_modeling.backend.facade.api import (
+            MaterializationRanRecentlyError,
+            raise_if_ran_recently,
+            start_node_materialization,
+        )
 
         node = self.get_object()
 
@@ -569,6 +573,10 @@ class NodeViewSet(
         # skips the check for a real node; it exists because the FK is typed as nullable.
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+            try:
+                raise_if_ran_recently(node.saved_query)
+            except MaterializationRanRecentlyError as error:
+                raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 
         start_node_materialization(node, triggered_by_id=req.user.pk)
 

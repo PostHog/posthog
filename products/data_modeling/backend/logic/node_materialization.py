@@ -1,3 +1,4 @@
+import math
 import asyncio
 from dataclasses import asdict
 from datetime import timedelta
@@ -5,6 +6,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from temporalio.client import Client, WorkflowExecutionStatus
@@ -32,13 +34,15 @@ from products.data_modeling.backend.facade.contracts import (
     ManagedWarehouseUnavailableError,
     MaterializationAlreadyRunningError,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRunDirection,
 )
 from products.data_modeling.backend.graph import Graph
+from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, humanize_cadence
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
-from products.data_modeling.backend.models import DataModelingJobEngine, Node
+from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
@@ -47,6 +51,12 @@ logger = structlog.get_logger(__name__)
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
 MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed warehouse set up."
+# A manual run gets the same floor as a schedule, so a script calling run in a loop cannot rebuild a view
+# more often than the shortest schedule a person may pick.
+MANUAL_RUN_MIN_INTERVAL = min(SCHEDULABLE_BUCKETS)
+RAN_RECENTLY_REFUSAL = (
+    f"This view ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet."
+)
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
 MAX_NAMED_BUILDING_MODELS = 5
@@ -87,6 +97,32 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
             retry_policy=RetryPolicy(maximum_attempts=1),  # retries handled within the workflow
         )
     )
+
+
+def raise_if_ran_recently(saved_query: DataWarehouseSavedQuery) -> None:
+    """Refuse a manual run of a view that started a ClickHouse run less than MANUAL_RUN_MIN_INTERVAL ago.
+
+    A failed run does not count, so a person can retry it at once. A query edit after the last run
+    lifts the limit, because the stored rows no longer match the query.
+    """
+    last_run_at = (
+        DataModelingJob.objects.filter(
+            team_id=saved_query.team_id,
+            saved_query_id=saved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            status__in=[DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED],
+        )
+        .order_by("-last_run_at")
+        .values_list("last_run_at", flat=True)
+        .first()
+    )
+    if last_run_at is None:
+        return
+    if saved_query.query_updated_at is not None and saved_query.query_updated_at > last_run_at:
+        return
+    wait_seconds = (last_run_at + MANUAL_RUN_MIN_INTERVAL - timezone.now()).total_seconds()
+    if wait_seconds > 0:
+        raise MaterializationRanRecentlyError(RAN_RECENTLY_REFUSAL, retry_after_seconds=math.ceil(wait_seconds))
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:

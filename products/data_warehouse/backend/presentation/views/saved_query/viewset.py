@@ -31,6 +31,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationEngine,
     MaterializationFailedError,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRefusedError,
     MaterializationRunDirection,
     SavedQueryNotFoundError,
@@ -315,6 +316,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 description="You can't edit every view in the run, or engine is 'trino' and the organization has no managed warehouse."
             ),
             409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
+            429: OpenApiResponse(
+                description="A run without direction or engine 'trino' started less than 15 minutes ago and the query has not changed since. The Retry-After header gives the wait in seconds."
+            ),
         },
     )
     @action(
@@ -330,6 +334,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             MissingDagNodeError,
             clear_incremental_state,
             materialize_saved_query,
+            raise_if_ran_recently,
             run_trino_node_materializations,
         )
 
@@ -338,6 +343,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         saved_query = self.get_object()
         on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
+        direction = body.validated_data.get("direction")
+
+        if not direction and not on_trino:
+            # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
+            try:
+                raise_if_ran_recently(saved_query)
+            except MaterializationRanRecentlyError as error:
+                raise exceptions.Throttled(wait=error.retry_after_seconds, detail=str(error))
 
         if body.validated_data["full_refresh"] and not on_trino:
             # Dropping the watermark is the whole mechanism: the next run finds no progress to
@@ -348,7 +361,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
 
         try:
-            direction = body.validated_data.get("direction")
             if direction or on_trino:
                 node = (
                     Node.objects.filter(team_id=self.team_id, saved_query_id=saved_query.id)

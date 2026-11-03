@@ -2977,6 +2977,46 @@ class TestSavedQueryRun(APIBaseTest):
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
+    @parameterized.expand(
+        [
+            ("completed_run_5_minutes_ago", DataModelingJob.Status.COMPLETED, 5, None, 429),
+            ("running_run_5_minutes_ago", DataModelingJob.Status.RUNNING, 5, None, 429),
+            ("completed_run_20_minutes_ago", DataModelingJob.Status.COMPLETED, 20, None, 200),
+            ("failed_run_5_minutes_ago", DataModelingJob.Status.FAILED, 5, None, 200),
+            ("query_edited_after_the_run", DataModelingJob.Status.COMPLETED, 5, 2, 200),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_is_refused_soon_after_the_last_run(
+        self, _name, job_status, run_minutes_ago, query_edited_minutes_ago, expected_status, mock_sync_connect
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        now = timezone.now()
+        saved_query, _dag, _node = self._make_saved_query_with_node("floored_view")
+        if query_edited_minutes_ago is not None:
+            saved_query.query_updated_at = now - timedelta(minutes=query_edited_minutes_ago)
+            saved_query.save(update_fields=["query_updated_at"])
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=job_status,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            last_run_at=now - timedelta(minutes=run_minutes_ago),
+        )
+
+        with time_machine.travel(now, tick=False):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 429:
+            self.assertEqual(response.headers["Retry-After"], str((15 - run_minutes_ago) * 60))
+            mock_client.start_workflow.assert_not_called()
+        else:
+            mock_client.start_workflow.assert_called_once()
+
     @parameterized.expand([("upstream",), ("downstream",)])
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies(self, direction, mock_sync_connect):
