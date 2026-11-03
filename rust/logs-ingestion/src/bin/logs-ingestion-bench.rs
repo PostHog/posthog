@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
         .build()?;
     runtime.block_on(async move {
         let scenario = json_parse(&std::fs::read_to_string(path)?)?;
-        let client = redis::Client::open("redis://127.0.0.1:6379")?;
+        let client = redis::Client::open("redis://127.0.0.1:6379/9")?;
         let mut conn = client.get_multiplexed_async_connection().await?;
         let _: () = redis::cmd("FLUSHDB").query_async(&mut conn).await?;
         let redis: Arc<dyn TokenBucketRedis> = Arc::new(RedisTokenBucket::new(conn));
