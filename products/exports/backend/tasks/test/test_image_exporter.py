@@ -1,3 +1,4 @@
+import ipaddress
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -681,7 +682,12 @@ class TestHeatmapExportURLEncoding(APIBaseTest):
             },
         )
 
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=False),
+            patch(
+                "posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("93.184.216.34")}
+            ),
+        ):
             image_exporter.export_image(exported_asset)
 
         url_to_render = mock_screenshot_asset.call_args[0][1]
