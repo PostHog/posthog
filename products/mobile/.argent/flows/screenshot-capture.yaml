@@ -1,0 +1,40 @@
+# Fresh production-identity demo install, portrait orientation. See docs/TESTING.md.
+steps:
+    - launch: { ios: com.posthog.code.mobile, android: com.posthog.mobile }
+    - await: { visible: { id: try-demo }, timeout: 30000 }
+    - tap: { id: try-demo }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+    - echo: Inbox
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false }
+    - tap: { id: inbox-row-demo-report-load-time }
+    - await: { visible: { id: handoff-picker-button } }
+    - await: { idle: true }
+    - echo: Report
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false }
+    - tap: { id: handoff-picker-button }
+    - await: { visible: { id: handoff-agent-posthog } }
+    - await: { idle: true }
+    - echo: Handoff
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false }
+    - swipe: { from: { text: Choose an agent }, direction: down }
+    - await: { hidden: { id: handoff-agent-posthog } }
+    - tap: { id: action-chat }
+    - await: { visible: { id: chat-input } }
+    - await: { idle: true }
+    - echo: Chat
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false }
+    - tap: { id: chat-back }
+    - await: { visible: { id: report-back } }
+    - tap: { id: report-back }
+    - await: { visible: { id: inbox-screen } }
+    - tap: { id: inbox-nav-views }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+    - echo: Views
+    - tool: screenshot
+      args: { scale: 1, includeImageInContext: false }
