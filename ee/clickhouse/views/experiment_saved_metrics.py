@@ -7,14 +7,21 @@ from rest_framework import filters, serializers, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.api.utils import parse_tag_names
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import (
+    SAVED_METRIC_TYPE_FILTERS,
+    SAVED_METRIC_TYPES,
+    filter_metric_group_ids_by_event,
+    refresh_action_names_in_metric,
+)
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -184,6 +191,31 @@ class ExperimentSavedMetricSerializer(
                 "Use this for reuse discovery (find a metric by what it measures); distinct from 'search', "
                 "which matches the metric's own name/description/tags.",
             ),
+            OpenApiParameter(
+                name="created_by_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to shared metrics created by these users. Accepts a single user ID, a "
+                "comma-separated list, or a JSON-encoded array of user IDs.",
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to shared metrics carrying any of these tags. Accepts a JSON-encoded array "
+                "of tag names. Distinct from 'search', which also matches name and description.",
+            ),
+            OpenApiParameter(
+                name="metric_type",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=SAVED_METRIC_TYPES,
+                description="Filter to shared metrics of this type. 'funnel' also matches legacy funnel "
+                "metrics, and 'trend' matches legacy trend metrics.",
+            ),
         ],
     ),
 )
@@ -197,12 +229,14 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
     search_fields = ["name", "description", "tagged_items__tag__name"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        # `?event=` matches metrics whose query references the event directly (EventsNode) or via an action's
-        # step events (ActionsNode resolved live) — mirrors the experiments-list filter. Scoped to `list` so it
-        # never narrows a detail/update/destroy lookup. Rows are read team-scoped (safely_get_queryset runs
-        # before the mixin's team filter), then matched in Python since event references live deep in the JSON.
+        # Every filter below is scoped to `list`, so none of them can narrow a detail/update/destroy lookup
+        # into a 404. Rows are read team-scoped because safely_get_queryset runs before the mixin's team filter.
         if self.action != "list":
             return queryset
+
+        # `?event=` matches metrics whose query references the event directly (EventsNode) or via an action's
+        # step events (ActionsNode resolved live) — mirrors the experiments-list filter. Matched in Python
+        # since event references live deep in the JSON.
         event = self.request.query_params.get("event")
         if event:
             # One group per saved metric: (pk, [its query]). `.order_by()` drops the class-level
@@ -213,6 +247,29 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
                 for pk, query in queryset.filter(team_id=self.team.pk).order_by().values_list("pk", "query")
             ]
             queryset = queryset.filter(pk__in=filter_metric_group_ids_by_event(groups, event, self.team))
+
+        user_ids = parse_created_by_ids(self.request.query_params.get("created_by_id"))
+        if user_ids:
+            queryset = queryset.filter(created_by_id__in=user_ids)
+
+        tags = parse_tag_names(self.request.query_params.get("tags"))
+        if tags:
+            # Match by ID subquery rather than joining tagged_items: the class-level queryset already
+            # carries a DISTINCT, and a second row per matching tag would otherwise skew the page size.
+            tagged_ids = ExperimentSavedMetric.objects.filter(
+                team_id=self.team.pk, tagged_items__tag__name__in=tags
+            ).values("pk")
+            queryset = queryset.filter(pk__in=tagged_ids)
+
+        metric_type = self.request.query_params.get("metric_type")
+        if metric_type:
+            type_filter = SAVED_METRIC_TYPE_FILTERS.get(metric_type)
+            if type_filter is None:
+                raise serializers.ValidationError(
+                    f"Invalid metric_type: '{metric_type}'. Expected one of: {', '.join(SAVED_METRIC_TYPES)}."
+                )
+            queryset = queryset.filter(type_filter)
+
         return queryset
 
     def perform_destroy(self, instance: ExperimentSavedMetric) -> None:

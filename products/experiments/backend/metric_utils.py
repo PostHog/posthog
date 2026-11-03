@@ -4,6 +4,8 @@ import copy
 import logging
 from typing import Any
 
+from django.db.models import Q
+
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
@@ -255,3 +257,17 @@ def filter_metric_group_ids_by_event(
         if event in resolved:
             matching_ids.append(group_id)
     return matching_ids
+
+
+# Metric type as the shared metrics list labels it, mapped to the stored query shapes that carry that label.
+# A new-engine metric states its type in `metric_type`; the two legacy kinds have no such field, so they are
+# matched on `kind`. Legacy funnels share the "Funnel" label with new-engine funnel metrics.
+SAVED_METRIC_TYPE_FILTERS: dict[str, Q] = {
+    "mean": Q(query__metric_type="mean"),
+    "funnel": Q(query__metric_type="funnel") | Q(query__kind="ExperimentFunnelsQuery"),
+    "ratio": Q(query__metric_type="ratio"),
+    "retention": Q(query__metric_type="retention"),
+    "trend": Q(query__kind="ExperimentTrendsQuery"),
+}
+
+SAVED_METRIC_TYPES = list(SAVED_METRIC_TYPE_FILTERS)

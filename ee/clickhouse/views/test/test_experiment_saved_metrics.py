@@ -4,6 +4,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
@@ -1130,3 +1131,95 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], metric_id)
+
+    def _seed_metrics_for_type_filter(self) -> None:
+        mean_source = {"kind": "EventsNode", "event": "$pageview"}
+        for name, query in [
+            ("New mean", {"kind": "ExperimentMetric", "metric_type": "mean", "source": mean_source}),
+            ("New funnel", {"kind": "ExperimentMetric", "metric_type": "funnel", "series": [mean_source]}),
+            (
+                "New ratio",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "ratio",
+                    "numerator": mean_source,
+                    "denominator": mean_source,
+                },
+            ),
+            (
+                "New retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": mean_source,
+                    "completion_event": mean_source,
+                },
+            ),
+            # The legacy kinds carry no `metric_type`, so they are matched on `kind` alone.
+            ("Legacy funnel", {"kind": "ExperimentFunnelsQuery", "funnels_query": {"kind": "FunnelsQuery"}}),
+            ("Legacy trend", {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery"}}),
+        ]:
+            ExperimentSavedMetric.objects.create(team=self.team, created_by=self.user, name=name, query=query)
+
+    @parameterized.expand(
+        [
+            ("mean", "mean", {"New mean"}),
+            # A type selection covers both engines where the list labels them the same.
+            ("funnel_covers_legacy", "funnel", {"New funnel", "Legacy funnel"}),
+            ("ratio", "ratio", {"New ratio"}),
+            ("retention", "retention", {"New retention"}),
+            ("trend_is_legacy_only", "trend", {"Legacy trend"}),
+        ]
+    )
+    def test_metric_type_filter_matches_the_listed_type(
+        self, _name: str, metric_type: str, expected_names: set[str]
+    ) -> None:
+        self._seed_metrics_for_type_filter()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={"metric_type": metric_type}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, expected_names)
+
+    def test_unknown_metric_type_is_rejected(self) -> None:
+        # An unrecognized value must not silently fall through and return every metric.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={"metric_type": "nonsense"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_created_by_id_filter_narrows_to_those_users(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other-metric-author@posthog.com", None)
+        self._create_saved_metric("Mine")
+        ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=other_user,
+            name="Theirs",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "x"}},
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={"created_by_id": f"[{other_user.id}]"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, {"Theirs"})
+
+    def test_tags_filter_narrows_and_counts_each_metric_once(self) -> None:
+        # Two matching tags on one metric must not duplicate its row, which would skew the page size.
+        self._create_saved_metric("Growth metric", tags=["growth", "north-star"])
+        self._create_saved_metric("Untagged metric")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={"tags": '["growth", "north-star"]'}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["count"], 1)
+        self.assertEqual([row["name"] for row in body["results"]], ["Growth metric"])

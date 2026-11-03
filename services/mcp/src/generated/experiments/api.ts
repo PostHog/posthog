@@ -657,6 +657,12 @@ export const ExperimentSavedMetricsListParams = () => zod.object({
 })
 
 export const ExperimentSavedMetricsListQueryParams = () => zod.object({
+    created_by_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to shared metrics created by these users. Accepts a single user ID, a comma-separated list, or a JSON-encoded array of user IDs.'
+        ),
     event: zod
         .string()
         .optional()
@@ -664,8 +670,20 @@ export const ExperimentSavedMetricsListQueryParams = () => zod.object({
             "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name\/description\/tags."
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    metric_type: zod
+        .enum(['funnel', 'mean', 'ratio', 'retention', 'trend'])
+        .optional()
+        .describe(
+            "Filter to shared metrics of this type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics."
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            "Filter to shared metrics carrying any of these tags. Accepts a JSON-encoded array of tag names. Distinct from 'search', which also matches name and description."
+        ),
 })
 
 export const ExperimentSavedMetricsCreateParams = () => zod.object({
