@@ -442,6 +442,7 @@ describe('traceDrawerLogic', () => {
         ['generations', urls.aiObservabilityGenerations()],
         ['prompt-traces', urls.aiObservabilityPrompt('p1')],
         ['reviews', urls.aiObservabilityReviews()],
+        ['review-queue', urls.aiObservabilityReviews()],
         ['evaluation-runs', urls.aiObservabilityEvaluation('e1')],
         ['evaluation-runs', `/project/1${urls.aiObservabilityEvaluation('e1')}`],
         ['dataset-items', urls.aiObservabilityDataset('d1')],

@@ -23,11 +23,22 @@ import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ReviewQueueApi, ReviewQueueItemApi } from '../generated/api.schemas'
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
+import { useTraceDrawerTable } from '../redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from '../redesign/trace/traceListRows'
 import {
     aiObservabilityReviewQueuesLogic,
     REVIEW_QUEUE_ITEMS_PER_PAGE,
     REVIEW_QUEUES_PER_PAGE,
 } from './aiObservabilityReviewQueuesLogic'
+
+const TRACE_DRAWER_LIST_ID = 'review-queue'
+const TRACE_LINK = '[data-attr="llma-review-queue-trace-link"]'
+
+// `created_at` is when the trace was queued, which says nothing about when the trace happened, so no timestamp.
+function toTraceDrawerRow(item: ReviewQueueItemApi): TraceListRow | null {
+    return item.trace_id ? { traceId: item.trace_id, timestamp: null, stepId: null } : null
+}
 
 export function AIObservabilityReviewQueues(): JSX.Element {
     const logic = useMountedLogic(aiObservabilityReviewQueuesLogic())
@@ -65,6 +76,7 @@ export function AIObservabilityReviewQueues(): JSX.Element {
         hasLoadedQueuesOnce,
     } = useValues(logic)
     const { searchParams } = useValues(router)
+    const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
 
     const queueColumns: LemonTableColumns<ReviewQueueApi> = [
         {
@@ -349,6 +361,7 @@ export function AIObservabilityReviewQueues(): JSX.Element {
                                     rowKey="id"
                                     loadingSkeletonRows={REVIEW_QUEUE_ITEMS_PER_PAGE}
                                     nouns={['pending trace', 'pending traces']}
+                                    {...drawerTableProps}
                                     emptyState={
                                         <div className="py-6">
                                             <InsightEmptyState
@@ -411,6 +424,7 @@ export function AIObservabilityReviewQueues(): JSX.Element {
                     </LemonModalFooter>
                 </LemonModal>
             ) : null}
+            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
         </div>
     )
 }

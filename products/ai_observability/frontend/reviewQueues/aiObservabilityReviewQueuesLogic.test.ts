@@ -191,4 +191,28 @@ describe('aiObservabilityReviewQueuesLogic', () => {
             limit: REVIEW_QUEUE_ITEMS_PER_PAGE,
         })
     })
+
+    it('keeps the queue while only the drawer params change, and reloads it when the drawer closes', async () => {
+        const reviewsUrl = combineUrl(urls.aiObservabilityReviews(), { queue_id: 'queue_1' }).url
+        router.actions.push(addProjectIdIfMissing(reviewsUrl, MOCK_TEAM_ID))
+        const logic = aiObservabilityReviewQueuesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockReviewQueuesApi.listQueues.mockClear()
+        mockReviewQueuesApi.listQueueItems.mockClear()
+
+        router.actions.push(addProjectIdIfMissing(combineUrl(reviewsUrl, { trace: 'trace_1' }).url, MOCK_TEAM_ID))
+        router.actions.push(
+            addProjectIdIfMissing(combineUrl(reviewsUrl, { trace: 'trace_1', step: 'gen-1' }).url, MOCK_TEAM_ID)
+        )
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockReviewQueuesApi.listQueueItems).not.toHaveBeenCalled()
+
+        router.actions.push(addProjectIdIfMissing(reviewsUrl, MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockReviewQueuesApi.listQueues).toHaveBeenCalled()
+        expect(mockReviewQueuesApi.listQueueItems).toHaveBeenCalledWith(
+            expect.objectContaining({ queue_id: 'queue_1' })
+        )
+    })
 })

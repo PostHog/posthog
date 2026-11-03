@@ -6,6 +6,7 @@ export type TraceDrawerListId =
     | 'generations'
     | 'prompt-traces'
     | 'reviews'
+    | 'review-queue'
     | 'evaluation-runs'
     | 'dataset-items'
     | 'cluster-traces'
@@ -44,6 +45,13 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         pathMatcher: /^\/ai-observability\/reviews$/,
         backTo: 'reviews',
         backLabel: 'Back to reviews',
+        rowClick: true,
+    },
+    // Shares its path with reviews: the two are tabs of one scene, and only the open tab mounts its list.
+    'review-queue': {
+        pathMatcher: /^\/ai-observability\/reviews$/,
+        backTo: 'review-queue',
+        backLabel: 'Back to queue',
         rowClick: true,
     },
     'evaluation-runs': {
