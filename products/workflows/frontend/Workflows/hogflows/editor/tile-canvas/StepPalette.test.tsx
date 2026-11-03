@@ -95,6 +95,8 @@ describe('StepPalette', () => {
 
             expect(onDragStep.mock.calls).toEqual(starts ? [[SECTIONS[0].steps[0]]] : [])
             expect(onDragEnd).toHaveBeenCalledTimes(starts ? 1 : 0)
+            // A text field under the pointer accepts a drop that carries text, and types the label into the step.
+            expect(dataTransfer.setData.mock.calls.map(([type]) => type)).not.toContain('text/plain')
         } finally {
             jest.useRealTimers()
         }

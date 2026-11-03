@@ -63,9 +63,8 @@ export function StepPalette({
     placeholder: string
     trigger?: RefObject<HTMLElement>
     onSelectStep: (step: CreateActionType) => void
-    /** Lets a step row drag onto the canvas. */
-    onDragStep?: (step: CreateActionType) => void
-    onDragEnd?: () => void
+    onDragStep: (step: CreateActionType) => void
+    onDragEnd: () => void
     onClose: () => void
 }): JSX.Element {
     const [query, setQuery] = useState(initialQuery)
@@ -109,7 +108,7 @@ export function StepPalette({
     const startDrag = (step: CreateActionType): void => {
         dragFrameRef.current = requestAnimationFrame(() => {
             dragFrameRef.current = null
-            onDragStep?.(step)
+            onDragStep(step)
         })
     }
 
@@ -119,7 +118,7 @@ export function StepPalette({
             dragFrameRef.current = null
             return
         }
-        onDragEnd?.()
+        onDragEnd()
     }
 
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -182,7 +181,7 @@ export function StepPalette({
                             active={index === activeIndex}
                             onHover={() => setActiveIndex(index)}
                             onChoose={() => choose(item)}
-                            onDragStart={onDragStep && item.kind === 'step' ? () => startDrag(item.step) : undefined}
+                            onDragStep={startDrag}
                             onDragEnd={endDrag}
                         />
                     </div>

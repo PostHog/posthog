@@ -1,7 +1,9 @@
 import { IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import type { CreateActionType } from '../../hogFlowEditorLogic'
 import { StepIcon } from './StepIcon'
+import { STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import type { PaletteItem } from './tileCanvasModel'
 import type { CanvasCommand } from './useCanvasCommands'
 
@@ -12,7 +14,7 @@ export function StepPaletteRow({
     active,
     onHover,
     onChoose,
-    onDragStart,
+    onDragStep,
     onDragEnd,
 }: {
     item: PaletteItem<CanvasCommand>
@@ -21,11 +23,9 @@ export function StepPaletteRow({
     active: boolean
     onHover: () => void
     onChoose: () => void
-    /** Set for a step row on the canvas, which a drag can drop on a +. */
-    onDragStart?: () => void
-    onDragEnd?: () => void
+    onDragStep: (step: CreateActionType) => void
+    onDragEnd: () => void
 }): JSX.Element {
-    const draggable = item.kind === 'step' && !!onDragStart
     const button = (
         <LemonButton
             fullWidth
@@ -44,7 +44,7 @@ export function StepPaletteRow({
                     </span>
                 )
             }
-            sideIcon={draggable && active ? <IconDrag className="text-secondary" /> : undefined}
+            sideIcon={item.kind === 'step' && active ? <IconDrag className="text-secondary" /> : undefined}
             onMouseEnter={onHover}
             onClick={onChoose}
         >
@@ -56,7 +56,7 @@ export function StepPaletteRow({
             </span>
         </LemonButton>
     )
-    if (!draggable) {
+    if (item.kind !== 'step') {
         return button
     }
     return (
@@ -64,8 +64,8 @@ export function StepPaletteRow({
             draggable
             onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = 'move'
-                event.dataTransfer.setData('text/plain', item.label)
-                onDragStart?.()
+                event.dataTransfer.setData(STEP_DRAG_DATA_TYPE, item.step.type)
+                onDragStep(item.step)
             }}
             onDragEnd={onDragEnd}
         >
