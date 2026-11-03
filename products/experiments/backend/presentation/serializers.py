@@ -307,7 +307,7 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "The value that decided a passed check, against its threshold. Null for the other statuses, and for a "
-            "pass that no single value against a threshold decided. A finding carries its values in `evidence`."
+            "pass without a value. A finding carries its values in `evidence`."
         ),
     )
 

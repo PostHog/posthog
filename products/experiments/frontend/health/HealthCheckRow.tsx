@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
+import { HealthCheckPlainRow } from './HealthCheckPlainRow'
 import { type ListedHealthCheck, healthMeasurementText } from './healthPanelChecks'
 
 export function HealthCheckRow({ check, icon }: { check: ListedHealthCheck; icon: JSX.Element }): JSX.Element {
@@ -15,14 +16,8 @@ export function HealthCheckRow({ check, icon }: { check: ListedHealthCheck; icon
     const name = <span className={cn(check.status === 'not_applicable' && 'text-secondary')}>{check.name}</span>
 
     if (!check.description) {
-        // An exposure answer cached before the descriptions existed has nothing to show. The row copies the height,
-        // gap and sizes of the xsmall button rows, because both kinds can share a group.
-        return (
-            <li className="flex items-center gap-1 min-h-[1.625rem] pl-0.5 text-xs">
-                <span className="flex shrink-0 text-sm">{icon}</span>
-                {name}
-            </li>
-        )
+        // An exposure answer cached before the descriptions existed has nothing to show.
+        return <HealthCheckPlainRow icon={icon}>{name}</HealthCheckPlainRow>
     }
 
     return (

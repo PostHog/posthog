@@ -10287,7 +10287,7 @@ export namespace Schemas {
          */
         reason: string | null;
         /**
-         * The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass that no single value against a threshold decided. A finding carries its values in `evidence`.
+         * The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`.
          */
         measurement: ExperimentHealthMeasurement | null;
     };

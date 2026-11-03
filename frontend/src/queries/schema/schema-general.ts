@@ -6641,7 +6641,7 @@ export interface ExperimentExposureHealthCheck {
     status: ExperimentExposureHealthCheckStatus
     /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
     reason: string | null
-    /** The value that decided a passed check. Null for the other statuses and for a pass that no single value decided. */
+    /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
     measurement?: ExperimentExposureHealthMeasurement | null
 }
 

@@ -1,5 +1,6 @@
 import { IconCheck, IconMinus, IconQuestion } from '@posthog/icons'
 
+import { HealthCheckPlainRow } from './HealthCheckPlainRow'
 import { HealthCheckRow } from './HealthCheckRow'
 import type { ListedHealthCheck } from './healthPanelChecks'
 
@@ -45,10 +46,11 @@ export function HealthCheckList({
                     <span className="text-xs font-semibold text-secondary">
                         Couldn't check. Refresh the results to run these checks.
                     </span>
-                    <span className="flex items-center gap-2">
-                        <span className="flex shrink-0 text-base">{STATUS_DISPLAY.not_checked.icon}</span>
-                        <span>Exposure checks</span>
-                    </span>
+                    <ul className="m-0 p-0 list-none flex flex-col">
+                        <HealthCheckPlainRow icon={STATUS_DISPLAY.not_checked.icon}>
+                            <span>Exposure checks</span>
+                        </HealthCheckPlainRow>
+                    </ul>
                 </div>
             )}
             {groupByOutcome(checks).map((group) => (

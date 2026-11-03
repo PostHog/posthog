@@ -19411,8 +19411,7 @@ class ExperimentExposureHealthCheck(BaseModel):
     measurement: ExperimentExposureHealthMeasurement | None = Field(
         default=None,
         description=(
-            "The value that decided a passed check. Null for the other statuses and for"
-            " a pass that no single value decided."
+            "The value that decided a passed check. Null for the other statuses and for a pass without a value."
         ),
     )
     name: str = Field(

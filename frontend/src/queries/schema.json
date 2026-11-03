@@ -26459,7 +26459,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "The value that decided a passed check. Null for the other statuses and for a pass that no single value decided."
+                    "description": "The value that decided a passed check. Null for the other statuses and for a pass without a value."
                 },
                 "name": {
                     "description": "The problem the check looks for, as the health panel lists it.",

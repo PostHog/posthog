@@ -21,8 +21,8 @@ class CheckPassed:
     measurement: ExperimentHealthMeasurement
 
 
-# What a check returns: a finding, why the check doesn't look, or a pass. A check returns CheckPassed when one value
-# against its threshold decided the pass, and None for any other pass.
+# What a check returns: a finding, why the check doesn't look, or a pass. CheckPassed is a pass that shows the value
+# that decided it against its threshold, and None is a pass without a value.
 CheckOutcome = ExperimentHealthFinding | CheckSkip | CheckPassed | None
 
 RUNS_AFTER_LAUNCH = "Runs after launch"

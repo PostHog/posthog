@@ -43216,7 +43216,7 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
-      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass that no single value against a threshold decided. A finding carries its values in `evidence`. */
+      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
       measurement: ExperimentHealthMeasurement | null;
     }
 
@@ -43526,7 +43526,7 @@ export namespace Schemas {
       description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
-      /** The value that decided a passed check. Null for the other statuses and for a pass that no single value decided. */
+      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
       measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;

@@ -399,7 +399,7 @@ class ExperimentHealthCheckResult:
     status: ExperimentHealthCheckStatus
     # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
     reason: str | None
-    # Only for the status passed, and only when one value against a threshold decided the pass.
+    # Only for the status passed, when the check shows the value that decided the pass.
     measurement: ExperimentHealthMeasurement | None
 
 
