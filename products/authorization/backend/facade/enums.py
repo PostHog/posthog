@@ -170,6 +170,7 @@ class ResourceType(StrEnum):
     SIGNAL_SCOUT_MONITORING = "signal_scout_monitoring"
     SIGNAL_SCOUT_REPORT = "signal_scout_report"
     SIGNAL_SCRATCHPAD_INTERNAL = "signal_scratchpad_internal"
+    SIGNAL_USAGE = "signal_usage"
     SLACK_RUN = "slack_run"
     STREAMLIT_APP = "streamlit_app"
     SUBSCRIPTION = "subscription"
