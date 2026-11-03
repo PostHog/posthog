@@ -67,6 +67,7 @@
         "expo-image-picker": "~57.0.20",
         "expo-linking": "~57.0.4",
         "expo-localization": "~57.0.2",
+        "expo-network": "57.0.2",
         "expo-notifications": "~57.0.7",
         "expo-router": "~57.0.8",
         "expo-secure-store": "~57.0.1",
