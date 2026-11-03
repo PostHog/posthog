@@ -11,6 +11,7 @@ import {
     emptyRemoteSlots,
     pickDisplayedQuery,
     resultsSettled,
+    themeSearchItem,
 } from './commandKSections'
 import { RESULTS_LIMIT } from './commandKSources'
 
@@ -447,6 +448,46 @@ describe('buildSections', () => {
             expect(sections.map((section) => section.key)).toEqual(keys)
             const firstItem = sections[0].rows[0]
             expect(firstItem.kind === 'item' ? firstItem.item.id : null).toBe(first)
+        }
+    )
+
+    test.each([
+        [false, []],
+        [true, []],
+        [false, ['Theme']],
+        [true, ['Theme']],
+    ] as [boolean, string[]][])(
+        'keeps the theme shortcut next to a dashboard that matches every word, unified ranking %s, settings %j',
+        (unifiedRanking, settingNames) => {
+            const themeItem = themeSearchItem('dark theme', false, { setTheme: jest.fn(), toggleTheme: jest.fn() })
+            const settings: SearchItem[] = settingNames.map((name) => ({
+                id: `settings-${name}`,
+                name,
+                category: 'settings',
+                searchKeywords: ['dark theme'],
+            }))
+            const remote = emptyRemoteSlots()
+            remote.results = {
+                cache: {
+                    'dark theme': [
+                        { ...dashboard('a', '1'), name: 'Dark theme adoption', rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, 0] },
+                    ],
+                },
+            }
+            const sections = buildSections(
+                input('search', {
+                    local: { ...emptyLocal(), settings },
+                    remote,
+                    remoteQueries: { results: 'dark theme' },
+                    localQuery: 'dark theme',
+                    themeItem,
+                    unifiedRanking,
+                })
+            )
+
+            const rows = sections.flatMap((section) => section.rows)
+            expect(rows.some((row) => row.kind === 'item' && row.item.id === themeItem?.id)).toBe(true)
+            expect(sections.filter((section) => section.label === 'Settings').length).toBeLessThanOrEqual(1)
         }
     )
 

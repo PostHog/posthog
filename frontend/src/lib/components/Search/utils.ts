@@ -1,5 +1,5 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { FuseResultMatch, createFuse } from 'lib/utils/fuseSearch'
+import { FUSE_DEFAULT_THRESHOLD, FuseResultMatch, createFuse } from 'lib/utils/fuseSearch'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { pluralize } from 'lib/utils/strings'
 
@@ -21,6 +21,7 @@ const SEARCH_KEYWORDS_KEY = 'searchKeywords'
 const NAME_KEYS = new Set(['name', 'displayName'])
 
 const FUSE_OPTIONS = {
+    threshold: FUSE_DEFAULT_THRESHOLD,
     keys: [
         { name: 'name', weight: 2 },
         { name: 'displayName', weight: 2 },

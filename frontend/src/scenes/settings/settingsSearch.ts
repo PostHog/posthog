@@ -1,8 +1,8 @@
 import FuseClass from 'fuse.js'
 import { type ReactNode, isValidElement } from 'react'
 
-import { settingsContextText } from 'lib/components/Search/settingsContext'
-import { createFuse } from 'lib/utils/fuseSearch'
+import { settingsContextText, settingsSearchText } from 'lib/components/Search/settingsContext'
+import { FUSE_DEFAULT_THRESHOLD, createFuse } from 'lib/utils/fuseSearch'
 
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId } from './types'
 
@@ -16,6 +16,7 @@ export interface SearchIndexEntry {
     sectionTitle: string
     level: SettingLevelId
     context: string
+    searchText: string
     keywords: string
     sectionKeywords: string
     description: string
@@ -83,6 +84,7 @@ export function buildSettingsSearchIndex(
         if (section.settings.length === 0) {
             entries.push({
                 ...shared,
+                searchText: settingsSearchText(section.level, sectionTitle, section.keywords, []),
                 settingId: section.id as SettingId,
                 settingTitle: sectionTitle,
                 keywords: '',
@@ -98,6 +100,14 @@ export function buildSettingsSearchIndex(
 
             entries.push({
                 ...shared,
+                searchText: settingsSearchText(section.level, sectionTitle, section.keywords, [
+                    {
+                        id: setting.id,
+                        title: getTitleText(setting.title) || null,
+                        keywords: setting.keywords,
+                        description: settingDescription(setting),
+                    },
+                ]),
                 settingId: setting.id,
                 settingTitle: indexedTitle(setting.title, setting.id),
                 keywords: keywordText(setting.keywords),
@@ -119,8 +129,9 @@ export function createSettingsSearchFuse(entries: SearchIndexEntry[]): GlobalSea
             { name: 'context', weight: 0.75 },
             { name: 'description', weight: 0.5 },
             { name: 'settingId', weight: 0.5 },
+            { name: 'searchText', weight: 0.5 },
         ],
-        threshold: FUSE_THRESHOLD,
+        threshold: FUSE_DEFAULT_THRESHOLD,
         // Fuse defaults to scoring a match by how close it sits to the start of the field. A
         // keyword list is one joined string, so without this an exact keyword late in the list
         // (such as "max" on "Internal AI training") scores below the threshold and never matches.

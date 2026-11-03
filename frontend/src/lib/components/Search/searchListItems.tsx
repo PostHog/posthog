@@ -9,7 +9,6 @@ import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { toSentenceCase } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +20,13 @@ import type { SettingId, SettingLevelId, SettingSectionId } from '~/scenes/setti
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
-import { settingsContextText, settingsLevelName } from './settingsContext'
+import {
+    SettingSearchTextSetting,
+    sentenceCaseId,
+    settingsContextText,
+    settingsLevelName,
+    settingsSearchText,
+} from './settingsContext'
 import { SEARCH_TAB_CATEGORY } from './utils'
 
 /** Max starred shortcuts shown in quick search (folders excluded). */
@@ -363,8 +368,6 @@ const LEVEL_SEARCH_KEYWORDS: Partial<Record<SettingsSectionSummary['level'], str
     user: ['account settings', 'personal settings', 'my settings'],
 }
 
-const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
-
 const settingsItem = (
     id: string,
     name: string,
@@ -385,12 +388,12 @@ const settingsItem = (
 
 type SettingSummary = SettingsSectionSummary['settings'][number]
 
-const settingTerms = (setting: SettingSummary): string[] => [
-    setting.titleString ?? sentenceCaseId(setting.id),
-    sentenceCaseId(setting.id),
-    ...(setting.keywords ?? []),
-    setting.descriptionString ?? '',
-]
+const textSetting = (setting: SettingSummary): SettingSearchTextSetting => ({
+    id: setting.id,
+    title: setting.titleString,
+    keywords: setting.keywords,
+    description: setting.descriptionString,
+})
 
 const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: string | null): SearchItem[] => {
     const levelName = settingsLevelName(section.level)
@@ -412,9 +415,7 @@ const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: st
                 ...(section.keywords ?? []),
                 ...folded.flatMap((setting) => [sentenceCaseId(setting.id), ...(setting.keywords ?? [])]),
             ],
-            hiddenSearchText: [context, ...(section.keywords ?? []), ...folded.flatMap(settingTerms)]
-                .filter(Boolean)
-                .join(' '),
+            hiddenSearchText: settingsSearchText(section.level, title, section.keywords, folded.map(textSetting)),
         }
     )
     return [
@@ -428,9 +429,9 @@ const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: st
                 {
                     parentName: `${levelName} › ${title}`,
                     searchKeywords: [sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
-                    hiddenSearchText: [context, ...(section.keywords ?? []), ...settingTerms(setting)]
-                        .filter(Boolean)
-                        .join(' '),
+                    hiddenSearchText: settingsSearchText(section.level, title, section.keywords, [
+                        textSetting(setting),
+                    ]),
                 }
             )
         ),

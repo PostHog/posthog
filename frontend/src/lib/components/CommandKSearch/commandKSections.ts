@@ -379,11 +379,15 @@ function lowerSections(
     }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
-            if (ranked && (source === 'products' || (source === 'settings' && settingsRanked))) {
+            const themeItem =
+                source === 'settings' && input.themeItem && !shown.has(input.themeItem.id) ? input.themeItem : null
+            if (ranked && (source === 'products' || (source === 'settings' && settingsRanked && !themeItem))) {
                 continue
             }
-            const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
-            const themeItem = source === 'settings' && !ranked ? input.themeItem : null
+            const filtered =
+                ranked && source === 'settings' && settingsRanked
+                    ? []
+                    : matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
                 : itemRows(source, filtered, SECONDARY_LIMIT)
@@ -507,6 +511,32 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
         sections.push(withViewAll(results ? remoteSection('results', results, state) : null, input.viewAll))
     }
     if (mode !== 'value') {
+        const themeItem = input.themeItem
+        const settingsGroupIndex = sections.findIndex((section) => section?.key === 'group-settings')
+        const settingsGroup = sections[settingsGroupIndex]
+        if (
+            ranked &&
+            themeItem &&
+            settingsGroup &&
+            !sections.some((section) =>
+                section?.rows.some((row) => row.kind === 'item' && row.item.id === themeItem.id)
+            )
+        ) {
+            sections[settingsGroupIndex] = {
+                ...settingsGroup,
+                rows: [
+                    {
+                        kind: 'item',
+                        key: `group-settings/${themeItem.id}`,
+                        item: themeItem,
+                        section: 'settings',
+                        ranked: true,
+                        highlightWords: freeWords(localQuery),
+                    },
+                    ...settingsGroup.rows,
+                ],
+            }
+        }
         const shown = new Set(
             sections.flatMap(
                 (section) => section?.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])) ?? []
