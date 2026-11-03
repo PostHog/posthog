@@ -305,9 +305,6 @@ jobs:
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
 
             - name: Compute changed files
               id: diff
@@ -316,6 +313,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
                   git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
                   # `...` resolves against the merge-base so files merged in from base
                   # don't inflate the diff (mirrors find-affected-stories / snob).
