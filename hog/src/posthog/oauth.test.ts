@@ -64,6 +64,26 @@ describe('OAuth credentials', () => {
         expect(Object.keys(runtime.files).filter((path) => LOCK.test(path))).toEqual([])
     })
 
+    test('retry a renewal whose answer got lost, and keep the rotated refresh token', async () => {
+        let calls = 0
+        const runtime = fakeRuntime({
+            ...stored('pha_old', 30_000),
+            respond: () => {
+                calls += 1
+                if (calls === 1) {
+                    throw new Error('connection reset')
+                }
+                return { status: 200, body: { access_token: 'pha_new', refresh_token: 'phr_new', expires_in: 3600 } }
+            },
+        })
+
+        const credentials = await resolveCredentials(runtime, {})
+
+        expect(credentials.credential).toMatchObject({ token: 'pha_new' })
+        expect(tokenRequests(runtime)).toHaveLength(2)
+        expect(JSON.parse(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_new' })
+    })
+
     test('use a token with time left as it is', async () => {
         const runtime = fakeRuntime({
             ...stored('pha_old', 3_600_000),
