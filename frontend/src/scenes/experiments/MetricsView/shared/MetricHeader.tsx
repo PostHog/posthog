@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconEllipsis, IconPencil, IconSort, IconStack, IconTarget, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonMenuItem, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -91,6 +91,22 @@ const AddBreakdownMenuItem = ({
         </LemonDropdown>
     )
 }
+
+const getBreakdownMenuItem = (
+    metric: ExperimentMetric,
+    experiment: Experiment,
+    onChange: (breakdown: Breakdown) => void
+): LemonMenuItem =>
+    isExperimentQuantileMetric(metric)
+        ? {
+              label: 'Add breakdown',
+              icon: <IconStack />,
+              disabledReason: "Breakdowns aren't available for percentile metrics yet",
+          }
+        : {
+              label: () => <AddBreakdownMenuItem experiment={experiment} onChange={onChange} />,
+              custom: true,
+          }
 
 export const MetricHeader = ({
     dragHandle,
@@ -267,25 +283,10 @@ export const MetricHeader = ({
                                         {
                                             items: [
                                                 canAddBreakdown &&
-                                                    isExperimentQuantileMetric(metric) && {
-                                                        label: 'Add breakdown',
-                                                        icon: <IconStack />,
-                                                        disabledReason:
-                                                            "Breakdowns aren't available for percentile metrics yet",
-                                                    },
-                                                canAddBreakdown &&
-                                                    !isExperimentQuantileMetric(metric) && {
-                                                        label: () => (
-                                                            <AddBreakdownMenuItem
-                                                                experiment={experiment}
-                                                                onChange={(breakdown) => {
-                                                                    onBreakdownChange(breakdown)
-                                                                    closeMenu()
-                                                                }}
-                                                            />
-                                                        ),
-                                                        custom: true,
-                                                    },
+                                                    getBreakdownMenuItem(metric, experiment, (breakdown) => {
+                                                        onBreakdownChange(breakdown)
+                                                        closeMenu()
+                                                    }),
                                                 {
                                                     label: 'Duplicate',
                                                     icon: <IconCopy />,

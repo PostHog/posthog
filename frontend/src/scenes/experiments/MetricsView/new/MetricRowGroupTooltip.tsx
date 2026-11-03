@@ -21,6 +21,29 @@ import {
     metricSupportsTimeseries,
 } from '../shared/utils'
 
+const renderValueRows = (variantResult: ExperimentVariantResult, metric: ExperimentMetric): JSX.Element =>
+    isExperimentQuantileMetric(metric) ? (
+        <>
+            <div className="flex justify-between items-center">
+                <span className="text-muted-alt font-semibold">{formatQuantileLevel(metric.quantile)}:</span>
+                <span className="font-semibold">{formatMetricValue(variantResult, metric)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+                <span className="text-muted-alt font-semibold">Events:</span>
+                <span className="font-semibold">
+                    {variantResult.denominator_sum != null ? humanFriendlyNumber(variantResult.denominator_sum) : '–'}
+                </span>
+            </div>
+        </>
+    ) : (
+        <div className="flex justify-between items-center">
+            <span className="text-muted-alt font-semibold">Total value:</span>
+            <span className="font-semibold">
+                {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '–'}
+            </span>
+        </div>
+    )
+
 export const renderTooltipContent = (
     variantResult: ExperimentVariantResult,
     metric: ExperimentMetric,
@@ -44,29 +67,7 @@ export const renderTooltipContent = (
                 )}
             </div>
 
-            {isExperimentQuantileMetric(metric) ? (
-                <>
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-alt font-semibold">{formatQuantileLevel(metric.quantile)}:</span>
-                        <span className="font-semibold">{formatMetricValue(variantResult, metric)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                        <span className="text-muted-alt font-semibold">Events:</span>
-                        <span className="font-semibold">
-                            {variantResult.denominator_sum != null
-                                ? humanFriendlyNumber(variantResult.denominator_sum)
-                                : '–'}
-                        </span>
-                    </div>
-                </>
-            ) : (
-                <div className="flex justify-between items-center">
-                    <span className="text-muted-alt font-semibold">Total value:</span>
-                    <span className="font-semibold">
-                        {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '–'}
-                    </span>
-                </div>
-            )}
+            {renderValueRows(variantResult, metric)}
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Exposures:</span>
