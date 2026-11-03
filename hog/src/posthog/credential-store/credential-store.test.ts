@@ -97,7 +97,10 @@ describe('credential stores', () => {
         expect(runtime.now() - start).toBe(elapsedMs)
     })
 
-    test('a keychain write that lands after hog gave up is removed again', async () => {
+    test.each([
+        ['removed again when the caller stops using the keychain', true, {}],
+        ['kept when the caller keeps using the keychain', false, { [EU]: JSON.stringify(secret('phx_late')) }],
+    ])('a keychain write that lands after hog gave up is %s', async (_name, removeIfLate, keychain) => {
         const runtime = fakeRuntime()
         const items = runtime.secrets
         runtime.secrets = {
@@ -108,10 +111,12 @@ describe('credential stores', () => {
             },
         }
 
-        const write = await new KeychainStore(runtime).write(EU, secret('phx_late')).catch((error: unknown) => error)
+        const write = await new KeychainStore(runtime)
+            .write(EU, secret('phx_late'), { removeIfLate })
+            .catch((error: unknown) => error)
         await runtime.sleep(60_000)
 
         expect((write as HogError).code).toBe('keychain_access_timeout')
-        expect(runtime.keychain).toEqual({})
+        expect(runtime.keychain).toEqual(keychain)
     })
 })
