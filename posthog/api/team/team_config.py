@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
-from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.property import validate_group_type_index
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.customer_analytics.backend.facade.account_property_pins import (
