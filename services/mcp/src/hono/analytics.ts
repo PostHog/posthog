@@ -605,6 +605,7 @@ export async function trackSkillInvoked(state: ResolvedState, invocation: SkillI
                 skill_name: invocation.skill,
                 skill_identifier: `${invocation.source}:${invocation.skill}`,
                 skill_read_kind: invocation.readKind,
+                ...(invocation.path ? { skill_file_path: invocation.path } : {}),
             },
         })
     } catch {

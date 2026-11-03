@@ -655,7 +655,7 @@ describe('Hono MCP analytics contexts', () => {
 
     describe('trackSkillInvoked', () => {
         it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
-            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            'captures %s reads with skill_read_kind and the file path so file-only consumption still counts',
             async (readKind) => {
                 await trackSkillInvoked(makeState(), {
                     source: 'posthog',
@@ -672,6 +672,12 @@ describe('Hono MCP analytics contexts', () => {
                         skill_read_kind: readKind,
                     },
                 })
+                const properties = mockCapture.mock.calls[0]![0].properties
+                if (readKind === 'skill') {
+                    expect(properties).not.toHaveProperty('skill_file_path')
+                } else {
+                    expect(properties.skill_file_path).toBe('references/functions.md')
+                }
             }
         )
     })
