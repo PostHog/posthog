@@ -3,6 +3,7 @@ import { installMockEventSource } from 'lib/wizard-sync/eventSource.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -13,6 +14,7 @@ import type { PreflightStatus } from '~/types'
 
 import { wizardRegistryList, wizardRunsCreate } from '../../generated/api'
 import type { WizardProgramApi, WizardRunApi } from '../../generated/api.schemas'
+import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { onboardingWizardRunLogic } from './onboardingWizardRunLogic'
 import { wizardOnboardingCloudRunLogic } from './wizardOnboardingCloudRunLogic'
 
@@ -136,8 +138,27 @@ describe('wizardOnboardingCloudRunLogic', () => {
         logic.actions.startCloudRun()
         await expectLogic(logic).toFinishAllListeners()
         expect(jest.mocked(wizardRunsCreate).mock.calls.map(([, body]) => body.idempotency_key)).toEqual([key, key])
+
+        jest.mocked(wizardRunsCreate).mockRejectedValue(
+            new ApiError(undefined, 429, undefined, { detail: 'Wait an hour before you start another run.' })
+        )
+        const failedRun: WizardRunApi = { ...run, status: 'failed' }
+        onboardingWizardRunLogic(props).actions.acceptCreatedRun(failedRun)
+        wizardRunSyncLogic({ projectId: props.projectId }).actions.runsLoaded([failedRun], true)
+        expect(logic.values.startLabel).toBe('Retry cloud setup')
+        logic.actions.startCloudRun()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.createError).toBe('Wait an hour before you start another run.')
+        logic.actions.startCloudRun()
+        await expectLogic(logic).toFinishAllListeners()
+        const [, , retryKey, repeatedRetryKey] = jest
+            .mocked(wizardRunsCreate)
+            .mock.calls.map(([, body]) => body.idempotency_key)
+        expect(retryKey).not.toBe(key)
+        expect(repeatedRetryKey).toBe(retryKey)
+
         logic.actions.setRepository('example/another-project')
-        expect(logic.values.idempotencyKey).not.toBe(key)
+        expect(logic.values.idempotencyKey).not.toBe(retryKey)
     })
 
     it.each(['flag', 'instance', 'repository', 'program'])(

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { resolveTeamGitHubIntegration } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
@@ -86,6 +87,9 @@ export interface wizardOnboardingCloudRunLogicActions {
     retrySetup: () => {
         value: true
     }
+    rotateIdempotencyKey: () => {
+        value: true
+    }
     setMode: (mode: 'cloud' | 'local') => {
         mode: 'cloud' | 'local'
     }
@@ -144,6 +148,7 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
     actions({
         setMode: (mode: 'cloud' | 'local') => ({ mode }),
         setRepository: (repository: string) => ({ repository, idempotencyKey: uuid() }),
+        rotateIdempotencyKey: true,
         startCloudRun: true,
         retrySetup: true,
     }),
@@ -155,6 +160,7 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
             {
                 setRepository: (_, { idempotencyKey }) => idempotencyKey,
                 createRunRequestSuccess: () => uuid(),
+                rotateIdempotencyKey: () => uuid(),
             },
         ],
         registryError: [false, { loadRegistry: () => false, loadRegistryFailure: () => true }],
@@ -163,7 +169,11 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
             {
                 createRunRequest: () => null,
                 setRepository: () => null,
-                createRunRequestFailure: () => 'Could not start the cloud run. Check the repository and try again.',
+                // The API explains limits and invalid input in `detail`. Network failures have none.
+                createRunRequestFailure: (_, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.detail
+                        ? errorObject.detail
+                        : 'Could not start the cloud run. Check the repository and try again.',
             },
         ],
     }),
@@ -226,7 +236,7 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
                 `${getIntegrationsAuthorizeRetrieveUrl(props.projectId)}?${new URLSearchParams({ kind: 'github', next: returnUrl })}`,
         ],
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         retrySetup: () => {
             if (!values.integrations) {
                 actions.loadIntegrations()
@@ -247,6 +257,13 @@ export const wizardOnboardingCloudRunLogic = kea<wizardOnboardingCloudRunLogicTy
                 !values.program
             ) {
                 return
+            }
+            // A create request whose response got lost keeps its key, so a retry with that key
+            // returns the same run. A retry of a terminal run must start a new run, so rotate the
+            // key once per terminal run. Later retries of the same run reuse the key and stay idempotent.
+            if (values.run && !wizardRunIsActive(values.run) && cache.retriedRunId !== values.run.id) {
+                cache.retriedRunId = values.run.id
+                actions.rotateIdempotencyKey()
             }
             posthog.capture('wizard run create requested', {
                 ...wizardEventProperties(props.projectId, 'cloud'),
