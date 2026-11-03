@@ -1,4 +1,4 @@
-{% autoescape off %}# PostHog Cloud app
+{% autoescape off %}# PostHog app
 
 > This is the PostHog web app. Most pages need a login. Agents get better results from the MCP server or the API than from reading app pages.
 

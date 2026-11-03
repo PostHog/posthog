@@ -319,7 +319,8 @@ class TestAgentDiscoveryFiles(SimpleTestCase):
     @parameterized.expand(
         [
             ("llms_txt_on_cloud", "/llms.txt", "US", 200),
-            ("llms_txt_on_self_hosted", "/llms.txt", None, 404),
+            ("llms_txt_on_local_dev", "/llms.txt", "LOCAL", 200),
+            ("llms_txt_on_hobby", "/llms.txt", None, 404),
             ("ai_catalog", "/ai-catalog.json", "US", 404),
             ("well_known_ai_catalog", "/.well-known/ai-catalog.json", "US", 404),
         ]

@@ -37,7 +37,7 @@ from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, mult
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cache_utils import cache_for
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_many_or_settings
@@ -176,7 +176,7 @@ Disallow: /flags/
 
 
 def llms_txt(request: HttpRequest) -> HttpResponse:
-    if not is_cloud():
+    if is_hobby():
         return HttpResponseNotFound()
 
     return render(request, "llms_txt.md", {"site_url": settings.SITE_URL}, content_type="text/markdown; charset=utf-8")
