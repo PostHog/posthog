@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { TextInput } from 'react-native'
 import { ChatScreen } from './ChatScreen'
 import { queueActions, queueReducer } from './messageQueue'
 import { useSession } from './session/useSession'
@@ -102,6 +103,18 @@ test.each([null, 'task-1'])('shows the regional AI incident for chat %s', (taskI
 })
 
 describe('chat send preparation', () => {
+    test('focuses the composer only when the route is ready', () => {
+        mockReadyChat()
+        const focus = jest.mocked(TextInput.prototype.focus)
+        const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        expect(focus).not.toHaveBeenCalled()
+
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} autoFocus onBack={jest.fn()} />)
+        expect(focus).toHaveBeenCalledTimes(1)
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} autoFocus onBack={jest.fn()} />)
+        expect(focus).toHaveBeenCalledTimes(1)
+    })
+
     test('keeps an unsaved draft notice visible and disables retry while saving', () => {
         const { session, draft } = mockReadyChat()
         session.notice = 'Connection interrupted. Reconnect to continue.'
@@ -352,8 +365,7 @@ describe('chat send preparation', () => {
         draft.draft = { text: '', reportIds: [] }
         draft.queue = { rows: [{ id: 'queued-1', text: 'Keep this question', attachments: [] }], hold: 'cancelled' }
         render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
-        expect(screen.getByTestId('chat-new').props.accessibilityState.disabled).toBe(true)
-        fireEvent.press(screen.getByTestId('chat-new'))
+        expect(screen.queryByTestId('chat-new')).toBeNull()
         expect(session.reset).not.toHaveBeenCalled()
         expect(session.send).not.toHaveBeenCalled()
         expect(screen.getByText('Keep this question')).toBeTruthy()
