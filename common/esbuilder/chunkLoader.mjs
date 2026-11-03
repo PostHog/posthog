@@ -17,8 +17,12 @@ export const CHUNK_MAP_GLOBAL = 'ESBUILD_CHUNK_MAP'
 // would reuse the old immutable URL while serving different bytes, letting caches keep the stale
 // wrapper.
 export function chunkMapFileName(entry, chunks) {
-    const hash = createHash('sha256').update(chunkMapFileContents(chunks)).digest('hex').slice(0, 8).toUpperCase()
-    return `chunk-map-${entry}-${hash}.js`
+    return `chunk-map-${entry}-${shortContentHash(chunkMapFileContents(chunks))}.js`
+}
+
+/** Uppercase like esbuild's own hashes, so the asset upload's Name-HASH pattern caches the file as immutable. */
+export function shortContentHash(contents) {
+    return createHash('sha256').update(contents).digest('hex').slice(0, 8).toUpperCase()
 }
 
 /** Contents of the external map file: merges the full map into the inline global. */
