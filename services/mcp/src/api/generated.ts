@@ -73335,6 +73335,7 @@ export namespace Schemas {
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
      * * `COMPLAINT` - Complaint
+     * * `KNOWN_INVALID` - Known invalid
      */
     export type SuppressionSourceEnum = typeof SuppressionSourceEnum[keyof typeof SuppressionSourceEnum];
 
@@ -73343,6 +73344,7 @@ export namespace Schemas {
       Bounce: 'BOUNCE',
       Manual: 'MANUAL',
       Complaint: 'COMPLAINT',
+      KnownInvalid: 'KNOWN_INVALID',
     } as const;
 
     export interface MessageSuppression {
@@ -73354,7 +73356,8 @@ export namespace Schemas {
        *
        * * `BOUNCE` - Bounce
        * * `MANUAL` - Manual
-       * * `COMPLAINT` - Complaint */
+       * * `COMPLAINT` - Complaint
+       * * `KNOWN_INVALID` - Known invalid */
       readonly source: SuppressionSourceEnum;
       /**
          * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').

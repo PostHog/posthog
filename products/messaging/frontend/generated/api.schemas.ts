@@ -507,6 +507,7 @@ export interface AddSuppressionRequestApi {
  * * `BOUNCE` - Bounce
  * * `MANUAL` - Manual
  * * `COMPLAINT` - Complaint
+ * * `KNOWN_INVALID` - Known invalid
  */
 export type SuppressionSourceEnumApi = (typeof SuppressionSourceEnumApi)[keyof typeof SuppressionSourceEnumApi]
 
@@ -514,6 +515,7 @@ export const SuppressionSourceEnumApi = {
     Bounce: 'BOUNCE',
     Manual: 'MANUAL',
     Complaint: 'COMPLAINT',
+    KnownInvalid: 'KNOWN_INVALID',
 } as const
 
 export interface MessageSuppressionApi {
@@ -525,7 +527,8 @@ export interface MessageSuppressionApi {
      *
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
-     * * `COMPLAINT` - Complaint */
+     * * `COMPLAINT` - Complaint
+     * * `KNOWN_INVALID` - Known invalid */
     readonly source: SuppressionSourceEnumApi
     /**
      * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
