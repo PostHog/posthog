@@ -88,6 +88,8 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ("duplicate_selection_key", {"selectedSeries": ["replay", "replay"]}),
             ("too_many_selection_keys", {"selectedSeries": [str(index) for index in range(65)]}),
             ("identity", {"accountId": "example-account"}),
+            ("weeks_out_of_range", {"weeks": 3}),
+            ("duplicate_metric_id", {"metricIds": ["m", "m"]}),
         ]
     )
     def test_rejects_invalid_dot_matrix_config(self, _name: str, config: dict) -> None:
@@ -96,7 +98,13 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
             )
 
-    @parameterized.expand([({},), ({"dataset": "ci", "mode": "count", "selectedSeries": ["build", "test"]},)])
+    @parameterized.expand(
+        [
+            ({},),
+            ({"dataset": "ci", "mode": "count", "selectedSeries": ["build", "test"]},),
+            ({"weeks": 12, "metricIds": ["metric-one"], "selectedSeries": ["metric-one"]},),
+        ]
+    )
     def test_accepts_dot_matrix_config(self, config: dict) -> None:
         content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
         self.assertEqual(validate_account_view_content(content), (content, "Dot matrix"))
