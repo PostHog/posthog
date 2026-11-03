@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
 import api from 'lib/api'
+import { INSIGHT_ALERT_FIRING_EVENT_ID } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType, IntegrationType } from '~/types'
@@ -23,6 +24,7 @@ import {
     AlertNotificationType,
     PendingAlertNotification,
     getAlertNotificationAddDisabledReason,
+    listensOnEvent,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
@@ -235,22 +237,30 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
     }
 
     // One PagerDuty destination is a trigger function and a resolve function, shown and removed as one.
-    const pagerDutyGroups = new Map<string, HogFunctionType[]>()
+    // The key holds what the backend groups on, apart from the secret routing key, whose tail is in the name.
+    const pagerDutyGroups = new Map<string, { label: string; incident: boolean; hogFunctions: HogFunctionType[] }>()
     for (const hogFunction of existingHogFunctions) {
         if (hogFunction.template_id === 'template-pagerduty') {
             const label = pagerDutyDestinationLabel(hogFunction) ?? hogFunction.id
-            pagerDutyGroups.set(label, [...(pagerDutyGroups.get(label) ?? []), hogFunction])
+            const incident = !listensOnEvent(hogFunction, INSIGHT_ALERT_FIRING_EVENT_ID)
+            const key = [label, incident, hogFunction.inputs?.severity?.value, hogFunction.inputs?.region?.value].join(
+                '|'
+            )
+            const group = pagerDutyGroups.get(key) ?? { label, incident, hogFunctions: [] }
+            group.hogFunctions.push(hogFunction)
+            pagerDutyGroups.set(key, group)
         }
     }
     const pagerDutyDestinations: AlertNotificationDestinationView[] = Array.from(pagerDutyGroups.entries()).map(
-        ([label, hogFunctions]) => {
+        ([key, { label, incident, hogFunctions }]) => {
             const enabled = hogFunctions.every((hogFunction) => hogFunction.enabled)
             return {
-                key: `pagerduty:${label}`,
+                key: `pagerduty:${key}`,
                 title: 'PagerDuty',
                 detail: label.replace(/^PagerDuty\s*/, ''),
+                // A legacy PagerDuty destination on the firing event pages from either stack.
                 tags: [
-                    !pagerDutyAvailable
+                    incident && !pagerDutyAvailable
                         ? { label: 'Not paging', type: 'warning' }
                         : { label: enabled ? 'Active' : 'Paused', type: enabled ? 'success' : 'default' },
                 ],

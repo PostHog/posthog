@@ -1981,7 +1981,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="destinations/pagerduty", required_scopes=["alert:write"])
+    # The routing key is a target the caller supplies, so an alert-only token cannot add one. A sandboxed agent
+    # can hold `alert:write`, and the HogFunction API already asks for `hog_function:write` for the same reach.
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="destinations/pagerduty",
+        required_scopes=["alert:write", "hog_function:write"],
+    )
     def create_pagerduty_destination(self, request, *args, **kwargs):
         alert = self.get_object()
         serializer = AlertCreatePagerDutyDestinationSerializer(data=request.data)

@@ -2519,6 +2519,13 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
                 status.HTTP_403_FORBIDDEN,
                 "alert:write",
             ),
+            (
+                ["alert:write"],
+                "post",
+                "/{alert_id}/destinations/pagerduty/",
+                status.HTTP_403_FORBIDDEN,
+                "hog_function:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
