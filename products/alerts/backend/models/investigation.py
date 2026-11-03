@@ -72,6 +72,8 @@ class InsightAlertInvestigation(TeamScopedRootMixin, UUIDModel):
             ),
             # The claim's in-flight and cooldown checks.
             models.Index(fields=["configuration_id", "created_at"], name="insight_alert_inv_recent_idx"),
+            # The daily retention prune, which reads every team's rows by age.
+            models.Index(fields=["created_at"], name="insight_alert_inv_age_idx"),
         ]
 
     @classmethod
