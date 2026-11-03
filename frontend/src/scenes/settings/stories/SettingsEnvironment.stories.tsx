@@ -319,13 +319,26 @@ export const SettingsEnvironmentAccessControl: Story = {
 export const SettingsEnvironmentObjectAccessControl: Story = {
     args: { sectionId: 'environment-object-access-control' },
     decorators: accessControlDecorators,
-    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const table = within(await canvas.findByRole('table'))
+        await table.findByRole('link', { name: 'Example dashboard' })
+        await table.findByText('Viewer', { exact: true })
+        await canvas.findByRole('button', { name: 'Add rule', exact: true })
+    },
 }
 
 export const SettingsEnvironmentPropertyAccessControl: Story = {
     args: { sectionId: 'environment-property-access-control' },
     decorators: accessControlDecorators,
-    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const table = within(await canvas.findByRole('table'))
+        await table.findByText('email', { exact: true })
+        await table.findByText('Person property', { exact: true })
+        await table.findByText('Read only', { exact: true })
+        await canvas.findByRole('button', { name: 'Add rule', exact: true })
+    },
 }
 
 export const SettingsEnvironmentActivityLogs: Story = {
