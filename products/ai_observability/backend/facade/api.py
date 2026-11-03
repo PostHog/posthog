@@ -51,6 +51,8 @@ from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
+from ..logic.traces.review import HumanReview, QueueAssignment
+from ..logic.traces.review_queries import load_trace_review_state
 from ..logic.traces.summary import (
     AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
     FailedSummary,
@@ -385,6 +387,32 @@ def get_trace_feedback(
             total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
         ),
     )
+
+
+def get_trace_review_status(team: Team, user: User, trace_id: str) -> contracts.TraceReviewStatus:
+    """The trace's human review and the review queue it waits in, as far as the user may see them. An unknown trace
+    has neither."""
+    state = load_trace_review_state(team, user, trace_id)
+    return contracts.TraceReviewStatus(
+        review=_to_human_review(state.review) if state.review else None,
+        queue=_to_review_queue_assignment(state.queue) if state.queue else None,
+    )
+
+
+def _to_human_review(review: HumanReview) -> contracts.TraceHumanReview:
+    return contracts.TraceHumanReview(
+        reviewed_by=review.reviewed_by,
+        reviewed_at=review.reviewed_at,
+        comment=review.comment,
+        scores=[
+            contracts.TraceHumanReviewScore(name=score.name, value=score.value, label=score.label)
+            for score in review.scores
+        ],
+    )
+
+
+def _to_review_queue_assignment(queue: QueueAssignment) -> contracts.TraceReviewQueueAssignment:
+    return contracts.TraceReviewQueueAssignment(id=queue.queue_id, name=queue.queue_name, item_id=queue.item_id)
 
 
 def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:

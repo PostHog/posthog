@@ -165,6 +165,7 @@ import type {
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceReviewStatusApi,
     TraceSearchResultsApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
@@ -939,6 +940,24 @@ export const aiObservabilityTracesPullRequestRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getAiObservabilityTracesReviewRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/review/`
+}
+
+/**
+ * The trace's human review with its scores ready to render, and the review queue the trace waits in.
+ */
+export const aiObservabilityTracesReviewRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceReviewStatusApi> => {
+    return apiMutator<TraceReviewStatusApi>(getAiObservabilityTracesReviewRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getAiObservabilityTracesSearchRetrieveUrl = (
