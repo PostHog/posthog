@@ -830,13 +830,14 @@ class VerifiedWorkloadAccessToken:
     workload_claims: dict[str, str]
 
 
-def _format_with_claims(template: str, claims: dict[str, str], *, require_all: bool = False) -> str | None:
+def _template_fields(template: str) -> set[str]:
+    return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+
+def _format_with_claims(template: str, claims: dict[str, str]) -> str:
     """Fill a provider template's `{claim}` fields with the recorded claims. A missing claim formats as an
-    empty string, or makes the result None when `require_all` is set, so a link is never half built."""
-    fields = {name for _, name, _, _ in string.Formatter().parse(template) if name}
-    if require_all and not all(claims.get(name) for name in fields):
-        return None
-    return template.format_map({name: claims.get(name, "") for name in fields})
+    empty string. The registry refuses templates whose fields aren't recorded claims."""
+    return template.format_map({name: claims.get(name, "") for name in _template_fields(template)})
 
 
 class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
@@ -1011,9 +1012,11 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
             actor_label = (
                 _format_with_claims(provider.actor_label_template, claims).strip(" ·") if provider else ""
             ) or subject_name
+            run_url_template = provider.run_url_template if provider else None
+            # A link with an empty path segment points nowhere useful, so it needs every claim it names.
             run_url = (
-                _format_with_claims(provider.run_url_template, claims, require_all=True)
-                if provider and provider.run_url_template
+                _format_with_claims(run_url_template, claims)
+                if run_url_template and all(claims.get(name) for name in _template_fields(run_url_template))
                 else None
             )
             claim_labels = {claim.name: claim.label for claim in provider.recorded_claims} if provider else {}
