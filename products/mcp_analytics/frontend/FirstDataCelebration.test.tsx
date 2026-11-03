@@ -68,7 +68,11 @@ describe('FirstDataCelebration', () => {
             .mockResolvedValueOnce({ results: [CONNECTED] } as any)
             .mockResolvedValueOnce({ results: [ONE_CALL] } as any)
         sceneLogic.mount()
-        sceneLogic.actions.setExportedScene({} as any, 'MCPAnalytics', 'mcpAnalyticsIntentClustering', {})
+        sceneLogic.actions.setExportedScene({} as any, 'MCPAnalytics', 'mcpAnalyticsIntentClustering', {
+            params: {},
+            searchParams: {},
+            hashParams: {},
+        })
         const logic = mcpAnalyticsOnboardingLogic()
         logic.mount()
         mcpAnalyticsSceneLogic().mount()
