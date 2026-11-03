@@ -40,6 +40,36 @@ describe('FilterSearchSubMenu', () => {
         expect(onChange).not.toHaveBeenCalled()
     })
 
+    it('calls onOpen when the submenu opens', async () => {
+        const onOpen = jest.fn()
+        render(
+            <DropdownMenu defaultOpen>
+                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={[]}
+                        selected={[]}
+                        onChange={jest.fn()}
+                        onOpen={onOpen}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+        const row = await screen.findByText('Tags')
+        expect(onOpen).not.toHaveBeenCalled()
+
+        await act(async () => {
+            fireEvent.click(row)
+        })
+
+        expect(onOpen).toHaveBeenCalledTimes(1)
+    })
+
     it('caps the rows until a search narrows them', async () => {
         render(
             <DropdownMenu defaultOpen>
