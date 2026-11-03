@@ -58,7 +58,7 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool) -> None:
     """
     if not can_move(alert):
         raise PlatformCannotOwn(
-            "The alerts platform runs this alert, and it cannot run real-time checks or the investigation agent yet."
+            "The alerts platform runs this alert, and it can't run real-time checks yet. Choose a schedule other than real-time."
         )
     update_owned_copy(
         team_id=alert.team_id,

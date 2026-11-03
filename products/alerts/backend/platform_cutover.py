@@ -71,8 +71,6 @@ class CutoverSkip(StrEnum):
     ENVIRONMENT = "environment"
     # The platform evaluates it only in parallel, such as a real-time alert.
     NOT_ON_PLATFORM = "not_on_platform"
-    # The investigation agent reads and writes the insight stack's checks, which the platform does not keep.
-    INVESTIGATION = "investigation"
     # The two stacks key a firing differently, so a firing moves only after it resolves.
     FIRING = "firing"
     # The insight scheduler owes this alert a check, which may already be running and could notify
@@ -149,7 +147,7 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
         if in_an_environment(alert):
             return CutoverSkip.ENVIRONMENT
         if not can_move(alert):
-            return CutoverSkip.INVESTIGATION if alert.investigation_agent_enabled else CutoverSkip.NOT_ON_PLATFORM
+            return CutoverSkip.NOT_ON_PLATFORM
         if not delivers_as_it_does_today(alert):
             return CutoverSkip.NO_HOG_FUNCTION_PATH
         if alert.state == AlertState.FIRING:
@@ -168,8 +166,8 @@ def in_an_environment(alert: AlertConfiguration) -> bool:
 
 def can_move(alert: AlertConfiguration) -> bool:
     """Whether the platform can own the alert: a scheduled alert it evaluates, with a threshold or a
-    detector, which no investigation agent reads."""
-    return platform_upsert_of(alert) is not None and _is_scheduled(alert) and not alert.investigation_agent_enabled
+    detector, and with or without the investigation agent."""
+    return platform_upsert_of(alert) is not None and _is_scheduled(alert)
 
 
 def has_begun_cutover(team_id: int) -> bool:
