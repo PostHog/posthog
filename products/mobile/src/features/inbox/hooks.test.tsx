@@ -255,10 +255,13 @@ describe('inbox hooks', () => {
         jest.useFakeTimers()
         const previousState = AppState.currentState
         AppState.currentState = 'active'
-        let appChange: ((state: AppStateStatus) => void) | undefined
+        const appListeners = new Set<(state: AppStateStatus) => void>()
+        const appChange = (state: AppStateStatus): void => {
+            for (const listener of appListeners) listener(state)
+        }
         const listener = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
-            appChange = handler
-            return { remove: () => undefined }
+            appListeners.add(handler)
+            return { remove: () => appListeners.delete(handler) }
         })
         let reads = 0
         globalThis.fetch = jest.fn(async (url: string) => {

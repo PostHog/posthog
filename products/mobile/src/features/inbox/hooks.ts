@@ -28,11 +28,12 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoInboxQuery } from '@/demo/hooks'
 import { track } from '@/lib/analytics'
+import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import { useNow } from '@/lib/useNow'
 import { inboxFromReports, reportsFromPages, signalCountsFromReports } from '@/model/adapters/inbox'
-import { errorQuery, loadingQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery } from '@/model/queryStates'
 import type { InboxItem, QueryState } from '@/model/types'
 
 import { useAppActive } from '../handoff/useTaskRun'
@@ -130,6 +131,7 @@ function useLiveInboxItems(
     now: Date
 ): InboxQueryState {
     const scope = useProjectScope()
+    const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
     const active = enabled && scope !== null
     const snoozes = useSnoozeEntries()
@@ -305,7 +307,7 @@ function useLiveInboxItems(
     if (list.isError) {
         return { ...errorQuery(toError(list.error), refetch), ...noMorePages, ...noItems }
     }
-    return { ...loadingQuery<InboxItem[]>(), refetch, ...noMorePages, ...noItems }
+    return { ...connectionLoadingQuery<InboxItem[]>(offline, refetch), ...noMorePages, ...noItems }
 }
 
 /** `for_you/` has no sort or filter parameters, so `filters` apply on the device to the ranked reports. */
