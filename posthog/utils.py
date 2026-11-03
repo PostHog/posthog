@@ -1021,9 +1021,13 @@ def full_stage_user_app_context(request: HttpRequest) -> dict[str, Any]:
         )
     }
     if user.team and UserAccessControl(user=user, team=user.team).has_project_access:
-        full_stage["current_team"] = _serialize_app_context_stage(
-            TeamSerializer(user.team, context={"request": request}), FULL_STAGE_TEAM_FIELDS, "full"
-        )
+        # The id lets the page skip fields for a team it no longer shows.
+        full_stage["current_team"] = {
+            "id": user.team.id,
+            **_serialize_app_context_stage(
+                TeamSerializer(user.team, context={"request": request}), FULL_STAGE_TEAM_FIELDS, "full"
+            ),
+        }
         full_stage["current_project"] = _serialize_app_context_stage(
             ProjectSerializer(user.team.project, context={"request": request}), FULL_STAGE_PROJECT_FIELDS, "full"
         )

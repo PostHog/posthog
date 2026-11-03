@@ -368,7 +368,7 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             delete window.POSTHOG_APP_CONTEXT?.has_person_email
             window.POSTHOG_APP_CONTEXT!.current_team = { id: 1 } as AppContext['current_team']
 
-            applyFullStageAppContext(1, { current_user: {}, current_team: {}, has_person_email: true })
+            applyFullStageAppContext({ current_user: {}, current_team: { id: 1 }, has_person_email: true })
 
             expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
         })

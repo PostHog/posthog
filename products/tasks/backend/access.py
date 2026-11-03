@@ -221,6 +221,8 @@ _POSTHOG_AI_DECISION_CACHE_KEY = "posthog_ai_access_decision:{organization_id}:{
 # load, and each miss waits on a remote flag lookup. An edit to a deciding flag changes the cache key, so only other
 # inputs, such as billing or the trust score, can make the UI lag an access change, by up to this long.
 _POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS = 24 * 60 * 60
+# Before the flag definitions load, a flag edit cannot change the cache key, so the cache stays short.
+_POSTHOG_AI_UNLOADED_DEFINITIONS_CACHE_SECONDS = 60
 
 
 @frozen
@@ -311,13 +313,12 @@ def get_posthog_ai_access_decision(user: User, organization: "Organization") -> 
     return PostHogAIAccessDecision.ALLOWED
 
 
-def _deciding_flags_fingerprint() -> str:
+def _deciding_flags_fingerprint() -> str | None:
+    all_definitions = posthoganalytics.feature_flag_definitions()
+    if all_definitions is None:
+        return None
     deciding_keys = {*POSTHOG_AI_GRANDFATHERED_FLAGS, POSTHOG_AI_BETA_FLAG}
-    definitions = [
-        definition
-        for definition in posthoganalytics.feature_flag_definitions() or []
-        if definition.get("key") in deciding_keys
-    ]
+    definitions = [definition for definition in all_definitions if definition.get("key") in deciding_keys]
     serialized = json.dumps(sorted(definitions, key=lambda definition: definition["key"]), sort_keys=True, default=str)
     return hashlib.sha256(serialized.encode()).hexdigest()[:16]
 
@@ -327,8 +328,11 @@ def get_cached_posthog_ai_access_decision(
 ) -> PostHogAIAccessDecision:
     """For page renders, so a load does not wait on remote flag lookups. Enforcement points call the uncached
     decision. An unresolved decision is never cached."""
+    flags_fingerprint = _deciding_flags_fingerprint()
+    if flags_fingerprint is None:
+        cache_seconds = min(cache_seconds, _POSTHOG_AI_UNLOADED_DEFINITIONS_CACHE_SECONDS)
     cache_key = _POSTHOG_AI_DECISION_CACHE_KEY.format(
-        organization_id=organization.id, user_id=user.pk, flags_fingerprint=_deciding_flags_fingerprint()
+        organization_id=organization.id, user_id=user.pk, flags_fingerprint=flags_fingerprint
     )
     try:
         cached = cache.get(cache_key)

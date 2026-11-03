@@ -19,17 +19,17 @@ describe('applyFullStageAppContext', () => {
 
     it.each([
         ['the page team', MOCK_TEAM_ID, FULL_STAGE_INTENTS],
-        ['a team the user switched away from', MOCK_TEAM_ID + 1, undefined],
-    ])('merges the full stage fields into the mounted logics for %s', async (_, requestedTeamId, expectedIntents) => {
+        ['a team the user switched to in another tab', MOCK_TEAM_ID + 1, undefined],
+    ])('merges the full stage fields into the mounted logics for %s', async (_, serverTeamId, expectedIntents) => {
         delete window.POSTHOG_APP_CONTEXT?.current_team?.product_intents
         delete window.POSTHOG_APP_CONTEXT?.has_person_email
         userLogic.mount()
         teamLogic.mount()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
 
-        applyFullStageAppContext(requestedTeamId, {
+        applyFullStageAppContext({
             current_user: { is_2fa_enabled: true, has_sso_enforcement: true },
-            current_team: { product_intents: FULL_STAGE_INTENTS },
+            current_team: { id: serverTeamId, product_intents: FULL_STAGE_INTENTS },
             has_person_email: true,
         })
 

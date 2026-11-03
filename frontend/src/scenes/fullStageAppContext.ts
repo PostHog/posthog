@@ -23,7 +23,7 @@ export function onFullStageTeamFieldsApplied(listener: () => void): () => void {
     return () => teamFieldsListeners.delete(listener)
 }
 
-export function applyFullStageAppContext(teamId: number, fullStage: FullStageAppContext): void {
+export function applyFullStageAppContext(fullStage: FullStageAppContext): void {
     const context = getAppContext()
     if (!context) {
         return
@@ -34,7 +34,9 @@ export function applyFullStageAppContext(teamId: number, fullStage: FullStageApp
     }
     userLogic.findMounted()?.actions.addFullStageUserFields(fullStage.current_user)
 
-    if (fullStage.current_team && context.current_team?.id === teamId) {
+    // The server sends the user's current team, which can differ from the page's team after a switch in another tab.
+    const teamId = fullStage.current_team?.id
+    if (teamId !== undefined && context.current_team?.id === teamId) {
         Object.assign(context.current_team, fullStage.current_team)
         if (context.current_project) {
             Object.assign(context.current_project, fullStage.current_project)
@@ -53,17 +55,18 @@ export function applyFullStageAppContext(teamId: number, fullStage: FullStageApp
  * A deferred page boots without the fields the first screen does not read. This fetches them after the boot.
  */
 export function loadFullStageAppContext(): void {
-    const teamId = getAppContext()?.current_team?.id
-    if (!window.POSTHOG_APP_CONTEXT_REQUEST || !teamId) {
+    if (!window.POSTHOG_APP_CONTEXT_REQUEST) {
         return
     }
+    const teamId = getAppContext()?.current_team?.id
+    const projectPrefix = teamId ? `/project/${teamId}` : ''
     void retryWithBackoff(async () => {
-        const response = await fetch(`/project/${teamId}/_app_context?stage=full`, { credentials: 'same-origin' })
+        const response = await fetch(`${projectPrefix}/_app_context?stage=full`, { credentials: 'same-origin' })
         if (!response.ok) {
             throw new Error(`The full stage app context request failed with status ${response.status}`)
         }
         return (await response.json()) as { app_context: FullStageAppContext }
     })
-        .then((body) => applyFullStageAppContext(teamId, body.app_context))
+        .then((body) => applyFullStageAppContext(body.app_context))
         .catch((error) => posthog.captureException(error))
 }
