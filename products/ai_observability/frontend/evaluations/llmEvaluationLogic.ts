@@ -26,6 +26,7 @@ import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } f
 import type { EvaluationApiOutputConfig } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic, type ModelOption, type ProviderModelGroup } from '../modelPickerLogic'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { LLMProviderKey, llmProviderKeysLogic, toLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
@@ -2059,7 +2060,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
             return [
                 router.values.location.pathname,
-                { ...router.values.searchParams, evaluation_tab: evaluationTab },
+                { ...withoutTraceDrawerParams(router.values.searchParams), evaluation_tab: evaluationTab },
                 router.values.hashParams,
                 { replace: true },
             ]

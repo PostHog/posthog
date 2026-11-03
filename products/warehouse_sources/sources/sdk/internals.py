@@ -39,7 +39,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_log_
     WORKSPACE_FIELDS,
     LogAnalyticsWorkspaceSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
+    _MYSQL_SAFE_CONVERSIONS,
+    CONNECT_TIMEOUT_SECONDS,
+    METADATA_READ_TIMEOUT_SECONDS,
+    WRITE_TIMEOUT_SECONDS,
+    MySQLImplementation,
+    _connect_with_transient_retry,
+    connection_timeouts,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    ClientDeadlineExceededError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    _HOST_UNREACHABLE_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tests.contract_harness import (
     check_extraction,
     start_source,
@@ -55,16 +78,31 @@ __all__ = [
     "AzureLogAnalyticsResumeConfig",
     "Batcher",
     "BinaryColumnReporter",
+    "CONNECT_TIMEOUT_SECONDS",
+    "ClientDeadlineExceededError",
     "DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT",
     "LogAnalyticsWorkspaceSource",
+    "METADATA_READ_TIMEOUT_SECONDS",
     "MongoDBSource",
+    "MySQLImplementation",
+    "MySQLSource",
+    "MySQLSourceConfig",
     "NamingConvention",
     "PARTITION_KEY",
+    "PostgresSource",
+    "PostgresSourceConfig",
     "Transient_Error_Messages",
     "WORKSPACE_FIELDS",
+    "WRITE_TIMEOUT_SECONDS",
     "WorkspaceCredentials",
+    "_DATABASE_NOT_FOUND_VALIDATION_ERROR",
+    "_HOST_UNREACHABLE_ERROR",
+    "_INVALID_CREDENTIALS_VALIDATION_ERROR",
+    "_MYSQL_SAFE_CONVERSIONS",
+    "_connect_with_transient_retry",
     "append_partition_key_to_table",
     "check_extraction",
+    "connection_timeouts",
     "filter_trino_incremental_fields",
     "incremental_type_to_initial_value",
     "incremental_value_for_trino_column",

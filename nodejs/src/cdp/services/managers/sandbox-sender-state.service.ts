@@ -4,6 +4,11 @@ import { PubSub } from '~/common/utils/pubsub'
 
 type SandboxSenderState = { sendingStatus: string | undefined; generation: number }
 
+function isDisabled(state: SandboxSenderState | undefined): boolean {
+    // No row means never synced; SES stays the final word.
+    return state?.sendingStatus === 'DISABLED'
+}
+
 export class SandboxSenderStateService {
     private lazyLoader: LazyLoader<SandboxSenderState>
     private generation = 0
@@ -25,12 +30,16 @@ export class SandboxSenderStateService {
         })
     }
 
-    public async isPaused(tenantName: string): Promise<boolean> {
+    // `fresh` reads the row itself, for the check right before delivery: a worker that missed the
+    // reload message would otherwise answer from a cached state until the next refresh.
+    public async isPaused(tenantName: string, { fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
+        if (fresh) {
+            return isDisabled((await this.fetchStates([tenantName]))[tenantName])
+        }
         for (let attempt = 0; attempt < 2; attempt++) {
             const state = await this.lazyLoader.get(tenantName)
             if (state?.generation === this.generation) {
-                // No row means never synced; SES stays the final word.
-                return state.sendingStatus === 'DISABLED'
+                return isDisabled(state)
             }
             this.lazyLoader.markForRefresh(tenantName)
         }

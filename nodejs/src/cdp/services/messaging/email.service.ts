@@ -932,7 +932,7 @@ export class EmailService {
                     if (!capGrant) {
                         return result
                     }
-                    const deliverTo = (await this.passesSandboxPauseGate(result, isTest))
+                    const deliverTo = (await this.passesSandboxPauseGate(result, isTest, { fresh: true }))
                         ? await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true })
                         : null
                     if (!deliverTo) {
@@ -1259,11 +1259,14 @@ export class EmailService {
         return null
     }
 
+    // The check right before delivery passes `fresh`, like the member check, so a pause the worker
+    // missed the reload message for still stops the send.
     private async passesSandboxPauseGate(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        isTest: boolean
+        isTest: boolean,
+        { fresh = false }: { fresh?: boolean } = {}
     ): Promise<boolean> {
-        const gate = await this.sandboxSender!.pauseGate()
+        const gate = await this.sandboxSender!.pauseGate({ fresh })
         if (gate === 'open') {
             return true
         }

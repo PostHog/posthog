@@ -12,6 +12,7 @@ export interface traceViewHostLogicValues {
     mode: TraceMode
     openingMode: TraceOpeningMode
     requestedStepId: string | null
+    requestedTraceId: string | null
     seedQuery: string
 }
 
@@ -20,8 +21,12 @@ export interface traceViewHostLogicActions {
     publishQuery: (query: string) => {
         query: string
     }
-    requestStep: (stepId: string | null) => {
+    requestStep: (
+        stepId: string | null,
+        traceId: string | null
+    ) => {
         stepId: string | null
+        traceId: string | null
     }
     setDetailTab: (tab: NodeDetailTab) => {
         tab: NodeDetailTab
@@ -56,7 +61,7 @@ export const traceViewHostLogic = kea<traceViewHostLogicType>([
     actions({
         setMode: (mode: TraceMode) => ({ mode }),
         setDetailTab: (tab: NodeDetailTab) => ({ tab }),
-        requestStep: (stepId: string | null) => ({ stepId }),
+        requestStep: (stepId: string | null, traceId: string | null) => ({ stepId, traceId }),
         setOpeningMode: (mode: TraceOpeningMode) => ({ mode }),
         setSeedQuery: (query: string) => ({ query }),
         publishQuery: (query: string) => ({ query }),
@@ -78,6 +83,12 @@ export const traceViewHostLogic = kea<traceViewHostLogicType>([
             null as string | null,
             {
                 requestStep: (_, { stepId }) => stepId,
+            },
+        ],
+        requestedTraceId: [
+            null as string | null,
+            {
+                requestStep: (_, { traceId }) => traceId,
             },
         ],
         openingMode: [
