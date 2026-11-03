@@ -299,14 +299,15 @@ pub struct Fallback {
 /// What `finish` found about a block.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RewriteReport {
-    /// No URL the policy declines can stay in the stored bytes, and no URL the inspector named stays there as written.
+    /// No URL the policy declines can stay in the stored bytes, and each URL the inspector named was replaced where the
+    /// stored bytes hold it on its own, or the fallback scrubbed every token that could hold it.
     pub safe: bool,
     /// A declined URL stayed, as a second copy that the rewrite passed over.
     pub declined_kept: bool,
     /// A declined URL is among the URLs of `unfound_hosts`.
     pub declined_unfound: bool,
     /// The hosts of URLs the inspector named but the stored bytes do not hold as it read them. `None` when one of
-    /// them has no host to look for.
+    /// them has no host that the scrub can look for.
     pub unfound_hosts: Option<Vec<String>>,
     pub scrubbed: u64,
     pub kept_in: Option<String>,
@@ -797,7 +798,9 @@ fn enclosing_key(bytes: &[u8], at: usize) -> Option<&str> {
     .then_some(key)
 }
 
-/// The host of a URL the inspector named, in lowercase, protocol-relative and backslash forms included.
+/// The host of a URL the inspector named, in lowercase, protocol-relative and backslash forms included. `None` when the
+/// URL spells its host in another form than the parser reads it, for example with a percent escape or as an IDN,
+/// because the scrub looks for the host as the stored bytes spell it.
 fn url_host(url: &str) -> Option<String> {
     let with_scheme;
     let url = if replay_core_v4::url_policy::is_protocol_relative(url) {
@@ -806,10 +809,26 @@ fn url_host(url: &str) -> Option<String> {
     } else {
         url
     };
-    url::Url::parse(url)
-        .ok()?
-        .host_str()
-        .map(str::to_ascii_lowercase)
+    let host = url::Url::parse(url).ok()?.host_str()?.to_ascii_lowercase();
+    written_host(url)?
+        .eq_ignore_ascii_case(&host)
+        .then_some(host)
+}
+
+/// The host as the URL spells it: after the scheme and its slashes or backslashes, without the user info and the port.
+fn written_host(url: &str) -> Option<&str> {
+    let (_, after_scheme) = url.trim().split_once(':')?;
+    let authority = after_scheme.trim_start_matches(['/', '\\']);
+    let authority = &authority[..authority
+        .find(['/', '\\', '?', '#'])
+        .unwrap_or(authority.len())];
+    let host_and_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, after)| after);
+    if host_and_port.starts_with('[') {
+        return host_and_port.get(..host_and_port.find(']')? + 1);
+    }
+    host_and_port.split(':').next()
 }
 
 /// Where the JSON string that opens at `start` ends, after its closing quote.

@@ -918,20 +918,25 @@ mod tests {
         assert!(!stored_lines(&event, &[public]).is_empty());
         // An inline image taken out of an accepted URL changes the URL, so the stored bytes do not show it as the
         // inspector read it either. Its reference leaves out the fragment, which the stored URL must not keep.
-        let inline_in_url =
-            "https://cdn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret";
-        for attributes in [
-            json!({"src": inline_in_url}),
-            json!({"srcset": format!("{inline_in_url} 1x")}),
+        for inline_in_url in [
+            "https://cdn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+            // The parser reads these hosts as `cdn.example.com` and `xn--9ca.example.com`, not as the bytes spell them.
+            "https://%63dn.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
+            "https://ç.example.com/data:image/png;base64,iVBORw0KGgo=#access_token=secret",
         ] {
-            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "texts": [], "attributes": [],
-                "adds": [{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": attributes, "childNodes": [], "id": 5}}]}}])
-            .to_string();
-            let lines = stored_lines(&events, &[]);
-            assert!(
-                !lines.is_empty() && !lines.contains("access_token"),
-                "{lines}"
-            );
+            for attributes in [
+                json!({"src": inline_in_url}),
+                json!({"srcset": format!("{inline_in_url} 1x")}),
+            ] {
+                let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "texts": [], "attributes": [],
+                    "adds": [{"parentId": 1, "node": {"type": 2, "tagName": "img", "attributes": attributes, "childNodes": [], "id": 5}}]}}])
+                .to_string();
+                let lines = stored_lines(&events, &[]);
+                assert!(
+                    !lines.is_empty() && !lines.contains("access_token"),
+                    "{lines}"
+                );
+            }
         }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
