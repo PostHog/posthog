@@ -1,10 +1,9 @@
 import { BlurTargetView } from 'expo-blur'
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Keyboard, type TextInput, View } from 'react-native'
+import { Keyboard, ScrollView, type TextInput, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
-
 import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
@@ -17,8 +16,10 @@ import { useNow } from '@/lib/useNow'
 import { taskWebUrl } from '@/model/adapters/chats'
 import { reportWebUrl } from '@/model/adapters/report'
 import type { InboxItem, ReportView } from '@/model/types'
+import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { createStyles } from '@/ui/theme'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { useScreenInsets } from '@/ui/useScreenInsets'
 
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
@@ -94,6 +95,9 @@ export function ChatScreen({
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { height: sceneHeight, width: sceneWidth } = useSceneDimensions()
+    const compact = sceneHeight < 480 && sceneWidth >= 600
+    const headerHeight = compact ? 60 : CHAT_HEADER_HEIGHT
     const now = useNow()
     const inbox = useInboxItems()
     const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
@@ -603,20 +607,25 @@ export function ChatScreen({
                     <BlurTargetView ref={blurTarget} style={styles.body}>
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
                             {showEmptyState ? (
-                                <View style={[styles.empty, { paddingTop: insets.top + CHAT_HEADER_HEIGHT }]}>
+                                <ScrollView
+                                    style={styles.empty}
+                                    contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + headerHeight }}
+                                    keyboardShouldPersistTaps="handled"
+                                >
                                     <ChatEmptyState
                                         reportCount={attached.length}
                                         suggestedPrompts={suggestedPrompts}
                                         onPrompt={setText}
                                     />
-                                </View>
+                                </ScrollView>
                             ) : (
                                 <SessionThread
                                     session={session}
-                                    topInset={insets.top + CHAT_HEADER_HEIGHT}
+                                    topInset={insets.top + headerHeight}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
-                                        session.reloadHistory().catch(() => undefined)
+                                        if (session.reconnect) session.reconnect()
+                                        else session.reloadHistory().catch(() => undefined)
                                     }}
                                 />
                             )}
@@ -655,6 +664,7 @@ export function ChatScreen({
                                         pending={session.isSending}
                                         onAnswer={(answerInput) => void session.answer(answerInput)}
                                         onDismissNotice={dismissNotice}
+                                        onReconnect={notice === session.notice ? session.reconnect : undefined}
                                         onRetryNotice={composerDraft.draftError ? composerDraft.retrySave : undefined}
                                         noticePending={composerDraft.draftSaving}
                                     />
@@ -665,6 +675,7 @@ export function ChatScreen({
                                                 <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
                                             ) : null}
                                             <Composer
+                                                compact={compact}
                                                 ref={input}
                                                 text={text}
                                                 onChangeText={changeText}
@@ -693,6 +704,7 @@ export function ChatScreen({
                         </Animated.View>
                     </BlurTargetView>
                     <ChatHeader
+                        compact={compact}
                         key={session.taskId ?? 'new'}
                         webUrl={demo ? undefined : taskWebUrl(scope, session.taskId)}
                         blurTarget={blurTarget}
@@ -723,7 +735,7 @@ const useStyles = createStyles(({ colors }) => ({
         flex: 1,
         backgroundColor: colors.surface,
     },
-    body: { flex: 1 },
+    body: { flex: 1, width: '100%', maxWidth: READING_WIDTH, alignSelf: 'center' },
     keyboard: { flex: 1 },
     empty: { flex: 1 },
     composerArea: { position: 'relative' },
