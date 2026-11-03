@@ -18,6 +18,7 @@ from posthog.temporal.exports.types import ExportAssetResult
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SubscriptionTriggerType
+from products.subscriptions.backend.logic.slack_subscriptions import SlackDeliveryResult
 from products.subscriptions.backend.temporal.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -76,6 +77,68 @@ async def test_deliver_slack_explains_missing_file_upload_scope(team, user) -> N
         "message": "PostHog can no longer upload files to Slack",
         "type": "slack_file_upload_permission_revoked",
     }
+
+
+async def test_deliver_slack_records_partial_when_an_asset_cannot_be_attached(team, user) -> None:
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        created_by=user,
+        target_type="slack",
+        target_value="C123|#general",
+        integration=integration,
+    )
+    send = AsyncMock(
+        return_value=SlackDeliveryResult(
+            main_message_sent=True,
+            total_thread_messages=0,
+            failed_thread_message_indices=[],
+            undelivered_asset_count=1,
+        )
+    )
+
+    result = await deliver_slack(subscription, [], send)
+
+    assert result.recipient_results[0].status == "partial"
+    assert result.recipient_results[0].error == {
+        "message": "1 chart could not be attached",
+        "type": "undelivered_assets",
+    }
+
+
+@pytest.mark.parametrize(
+    "rendered_count,expected_status,expected_message",
+    [
+        (0, "failed", "1 of 1 insight could not be generated"),
+        (1, "partial", "1 of 2 insights could not be generated"),
+    ],
+    ids=["all_unrendered", "some_unrendered"],
+)
+async def test_deliver_subscription_downgrades_unrendered_assets(
+    team, user, rendered_count, expected_status, expected_message
+) -> None:
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="unrnd", name="Never rendered")
+    unrendered = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight=insight, export_format="image/png", exception="render timed out"
+    )
+    asset_ids = [unrendered.id]
+    for _ in range(rendered_count):
+        rendered = await sync_to_async(ExportedAsset.objects.create)(
+            team=team, insight=insight, export_format="image/png", content_location="s3://bucket/ok.png"
+        )
+        asset_ids.append(rendered.id)
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=asset_ids,
+        total_insight_count=len(asset_ids),
+    )
+
+    with patch("products.subscriptions.backend.temporal.activities.send_email_subscription_report"):
+        result = await ActivityEnvironment().run(deliver_subscription_v2, inputs)
+
+    assert result.recipient_results[0].status == expected_status
+    assert result.recipient_results[0].human_readable_error == expected_message
 
 
 # v1 only exists as a Temporal history-compat shim for pre-patch workflows. Both
