@@ -111350,9 +111350,9 @@ export namespace Schemas {
       distinct_id?: string | null;
       /** Subject of the email your code rendered. */
       subject?: string;
-      /** HTML body of the email your code rendered. */
+      /** HTML body of the email your code rendered, at most 5 MiB as UTF-8. */
       html?: string;
-      /** Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`. */
+      /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
       text?: string;
       /**
          * Addresses replies to the email your code rendered go to.

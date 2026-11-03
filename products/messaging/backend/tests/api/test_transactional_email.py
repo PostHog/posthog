@@ -332,6 +332,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("recipient_suppressed", 422, 422, "recipient_suppressed"),
             ("recipient_unreachable", 422, 422, "recipient_unreachable"),
             ("not_sendable", 400, 400, "transactional_email_paused"),
+            ("Request entity too large", 413, 400, "content_too_large"),
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
@@ -515,6 +516,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
+            ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
+            ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
         ]
     )
     def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):

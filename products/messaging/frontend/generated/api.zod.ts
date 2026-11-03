@@ -50,11 +50,13 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
             "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
         ),
     subject: zod.string().optional().describe('Subject of the email your code rendered.'),
-    html: zod.string().optional().describe('HTML body of the email your code rendered.'),
+    html: zod.string().optional().describe('HTML body of the email your code rendered, at most 5 MiB as UTF-8.'),
     text: zod
         .string()
         .optional()
-        .describe('Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.'),
+        .describe(
+            'Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`.'
+        ),
     reply_to: zod
         .array(zod.email())
         .max(messagingSendEmailCreateBodyReplyToMax)

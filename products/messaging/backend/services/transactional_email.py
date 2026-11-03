@@ -25,6 +25,7 @@ from posthog.plugins.plugin_server_api import (
 
 from products.messaging.backend.facade.contracts import (
     CodeEmail,
+    ContentTooLarge,
     DeliveryUnavailable,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
@@ -554,6 +555,11 @@ def _queue(
     _observe_cdp_call(time.monotonic() - started_at)
     CDP_SEND_RESULTS.labels(result=_cdp_response_result(response.status_code)).inc()
 
+    if response.status_code == 413:
+        raise ContentTooLarge(
+            "The email is larger than PostHog can send. Make the content or `message_data` smaller, and link to "
+            "large images and files instead of embedding them."
+        )
     if response.status_code != 202:
         refusal_code = _refusal_code(response)
         refusal = PIPELINE_REFUSALS.get(refusal_code or "")
