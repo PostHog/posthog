@@ -104,6 +104,99 @@ export function WorkloadTrustPolicyRequestScene({ id }: WorkloadTrustPolicyReque
     )
 }
 
+function RequestDetailTable({
+    policyRequest,
+    isPending,
+}: {
+    policyRequest: WorkloadTrustPolicyRequestApi
+    isPending: boolean
+}): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    return (
+        <div className="border rounded px-3">
+            {/* An approval link can switch the app into another organization, so name where the access goes. */}
+            <DetailRow label="Project">
+                {currentTeam?.name} <span className="text-secondary">in {currentOrganization?.name}</span>
+            </DetailRow>
+            <DetailRow label="Name">{policyRequest.name}</DetailRow>
+            <DetailRow label="CI provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
+            <DetailRow label="Repository">
+                <span className="font-mono">{policyRequest.repository}</span>{' '}
+                <span className="text-secondary">(ID {policyRequest.repository_id})</span>
+            </DetailRow>
+            <DetailRow label="Ref">{policyRequest.ref || <span className="text-secondary">Any ref</span>}</DetailRow>
+            <DetailRow label="Environment">
+                {policyRequest.environment || <span className="text-secondary">Any environment</span>}
+            </DetailRow>
+            <DetailRow label="Scopes">
+                <span className="flex flex-wrap gap-1">
+                    {policyRequest.scopes.map((scope) => (
+                        <LemonTag key={scope} type={scope in policyRequest.risky_scopes ? 'warning' : 'default'}>
+                            {scope}
+                        </LemonTag>
+                    ))}
+                </span>
+            </DetailRow>
+            <DetailRow label={isPending ? 'Expires' : 'Requested'}>
+                <TZLabel time={isPending ? policyRequest.expires_at : policyRequest.created_at} />
+            </DetailRow>
+        </div>
+    )
+}
+
+function RequestActions({
+    policyRequest,
+    resolving,
+    onApprove,
+    onReject,
+}: {
+    policyRequest: WorkloadTrustPolicyRequestApi
+    resolving: 'approve' | 'reject' | null
+    onApprove: () => void
+    onReject: () => void
+}): JSX.Element {
+    if (!policyRequest.can_approve) {
+        return (
+            <AuthBanner variant="note">
+                Only organization admins and owners can approve this request
+                {policyRequest.approvers.length > 0 ? `: ${policyRequest.approvers.join(', ')}` : ''}. Send them this
+                page's link.
+            </AuthBanner>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonButton
+                type="primary"
+                size="large"
+                fullWidth
+                center
+                onClick={onApprove}
+                loading={resolving === 'approve'}
+                disabledReason={resolving ? 'Saving' : undefined}
+                data-attr="workload-trust-policy-request-approve"
+            >
+                Approve
+            </LemonButton>
+            <LemonButton
+                type="secondary"
+                status="danger"
+                fullWidth
+                center
+                onClick={onReject}
+                loading={resolving === 'reject'}
+                disabledReason={resolving ? 'Saving' : undefined}
+                data-attr="workload-trust-policy-request-reject"
+            >
+                Reject
+            </LemonButton>
+        </div>
+    )
+}
+
 function RequestDetails({
     policyRequest,
     resolving,
@@ -115,8 +208,6 @@ function RequestDetails({
     onApprove: () => void
     onReject: () => void
 }): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const isPending = policyRequest.status === 'pending'
     const riskyScopes = Object.entries(policyRequest.risky_scopes)
 
@@ -135,36 +226,7 @@ function RequestDetails({
                 </p>
             ) : null}
 
-            <div className="border rounded px-3">
-                {/* An approval link can switch the app into another organization, so name where the access goes. */}
-                <DetailRow label="Project">
-                    {currentTeam?.name} <span className="text-secondary">in {currentOrganization?.name}</span>
-                </DetailRow>
-                <DetailRow label="Name">{policyRequest.name}</DetailRow>
-                <DetailRow label="CI provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
-                <DetailRow label="Repository">
-                    <span className="font-mono">{policyRequest.repository}</span>{' '}
-                    <span className="text-secondary">(ID {policyRequest.repository_id})</span>
-                </DetailRow>
-                <DetailRow label="Ref">
-                    {policyRequest.ref || <span className="text-secondary">Any ref</span>}
-                </DetailRow>
-                <DetailRow label="Environment">
-                    {policyRequest.environment || <span className="text-secondary">Any environment</span>}
-                </DetailRow>
-                <DetailRow label="Scopes">
-                    <span className="flex flex-wrap gap-1">
-                        {policyRequest.scopes.map((scope) => (
-                            <LemonTag key={scope} type={scope in policyRequest.risky_scopes ? 'warning' : 'default'}>
-                                {scope}
-                            </LemonTag>
-                        ))}
-                    </span>
-                </DetailRow>
-                <DetailRow label={isPending ? 'Expires' : 'Requested'}>
-                    <TZLabel time={isPending ? policyRequest.expires_at : policyRequest.created_at} />
-                </DetailRow>
-            </div>
+            <RequestDetailTable policyRequest={policyRequest} isPending={isPending} />
 
             {isPending && riskyScopes.length > 0 ? (
                 <AuthBanner variant="warning">
@@ -187,41 +249,13 @@ function RequestDetails({
                 </AuthBanner>
             ) : null}
 
-            {isPending && policyRequest.can_approve ? (
-                <div className="flex flex-col gap-2">
-                    <LemonButton
-                        type="primary"
-                        size="large"
-                        fullWidth
-                        center
-                        onClick={onApprove}
-                        loading={resolving === 'approve'}
-                        disabledReason={resolving ? 'Saving' : undefined}
-                        data-attr="workload-trust-policy-request-approve"
-                    >
-                        Approve
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        fullWidth
-                        center
-                        onClick={onReject}
-                        loading={resolving === 'reject'}
-                        disabledReason={resolving ? 'Saving' : undefined}
-                        data-attr="workload-trust-policy-request-reject"
-                    >
-                        Reject
-                    </LemonButton>
-                </div>
-            ) : null}
-
-            {isPending && !policyRequest.can_approve ? (
-                <AuthBanner variant="note">
-                    Only organization admins and owners can approve this request
-                    {policyRequest.approvers.length > 0 ? `: ${policyRequest.approvers.join(', ')}` : ''}. Send them
-                    this page's link.
-                </AuthBanner>
+            {isPending ? (
+                <RequestActions
+                    policyRequest={policyRequest}
+                    resolving={resolving}
+                    onApprove={onApprove}
+                    onReject={onReject}
+                />
             ) : null}
         </div>
     )
