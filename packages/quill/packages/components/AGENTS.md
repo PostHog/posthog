@@ -5,6 +5,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 ## Exports
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
+- `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
@@ -47,6 +48,45 @@ Rules:
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
 - `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
+
+## FilterMenu
+
+A list's sort, filters and display choices live in one `DropdownMenu`, opened by a funnel button beside its search field.
+
+```tsx
+<DropdownMenu>
+  <FilterMenuTrigger active={active} dataAttr="my-list-filter" />
+  <DropdownMenuContent align="start" className="min-w-64">
+    <FilterRadioSubMenu label="Sort by" options={sorts} value={sort} onChange={setSort} />
+    <DropdownMenuSeparator />
+    <FilterCheckboxSubMenu
+      label="Type"
+      allLabel="All types"
+      pluralNoun="types"
+      options={types}
+      selected={picked}
+      onChange={setPicked}
+    />
+    <FilterSearchSubMenu
+      label="Tags"
+      allLabel="Any tag"
+      pluralNoun="tags"
+      options={tags}
+      selected={tagged}
+      onChange={setTagged}
+      searchPlaceholder="Search tags"
+      emptyText="No tag matches"
+    />
+    <FilterClearItem active={active} onClear={clear} />
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+Rules:
+
+- One choice → `FilterRadioSubMenu`. Several from a short list → `FilterCheckboxSubMenu`. Several from a long list → `FilterSearchSubMenu`.
+- An empty selection means all of them. Pass `defaultValue` on a radio filter so that a change takes the primary color. Leave it out on a row that isn't a filter, such as a sort.
+- `active` covers filters only. A sort, a display choice or the search text never lights the dot.
 
 ## DateTimePicker
 
