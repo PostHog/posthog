@@ -7,6 +7,7 @@ import { AppState, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
 import { findTask } from '@/features/notifications/taskLookup'
+import { useDefaultPageStore } from '@/features/settings/defaultPageStore'
 
 import RootLayout from '../../../app/_layout'
 import ChatRoute from '../../../app/chat'
@@ -38,14 +39,14 @@ jest.mock('expo-notifications', () => ({
 jest.mock('@/features/notifications/pushSupport', () => ({ notificationsSupported: () => true }))
 jest.mock('@/features/notifications/taskLookup', () => ({ findTask: jest.fn() }))
 jest.mock('@/lib/posthogClient', () => ({ initAnalytics: jest.fn() }))
-jest.mock('@/features/chat/ChatSheet', () => {
+jest.mock('@/features/chat/ChatScreen', () => {
     const { useEffect, useState } = jest.requireActual<typeof import('react')>('react')
     const { Button, Text, TextInput, View } = jest.requireActual<typeof import('react-native')>('react-native')
     const { setViewedNotificationTask } = jest.requireActual<
         typeof import('@/features/notifications/foregroundNotifications')
     >('@/features/notifications/foregroundNotifications')
     return {
-        ChatSheet: ({ initialTaskId, onClosed }: { initialTaskId?: string; onClosed: () => void }): ReactElement => {
+        ChatScreen: ({ initialTaskId, onBack }: { initialTaskId?: string; onBack: () => void }): ReactElement => {
             const [taskId, setTaskId] = useState(initialTaskId)
             const [draft, setDraft] = useState('')
             useEffect(() => {
@@ -55,10 +56,10 @@ jest.mock('@/features/chat/ChatSheet', () => {
                 return () => setViewedNotificationTask(null)
             }, [taskId])
             return (
-                <View testID="chat-sheet">
+                <View testID="chat-screen">
                     <Text testID="loaded-task">{taskId ?? 'new'}</Text>
                     <TextInput testID="draft" value={draft} onChangeText={setDraft} />
-                    <Button title="Close" testID="chat-close" onPress={onClosed} />
+                    <Button title="Back" testID="chat-back" onPress={onBack} />
                     <Button title="Start task" testID="start-task" onPress={() => setTaskId('task-a')} />
                     <Button title="New chat" testID="new-chat" onPress={() => setTaskId(undefined)} />
                 </View>
@@ -75,6 +76,7 @@ describe('chat navigation', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         setViewedNotificationTask(null)
+        useDefaultPageStore.setState({ page: null })
         AppState.currentState = 'active'
         jest.mocked(findTask).mockResolvedValue({ found: true, reportId: null })
         useAuthStore.setState({
@@ -93,17 +95,24 @@ describe('chat navigation', () => {
         fireEvent.changeText(screen.getByTestId('draft'), 'Unsent message')
 
         act(() => router.push('/chat?taskId=task-a&from=push'))
-        expect(screen.getAllByTestId('chat-sheet')).toHaveLength(1)
+        expect(screen.getAllByTestId('chat-screen')).toHaveLength(1)
         expect(screen.getByTestId('draft').props.value).toBe('Unsent message')
 
         act(() => router.push('/chat?taskId=task-b&from=push'))
-        expect(screen.getAllByTestId('chat-sheet')).toHaveLength(1)
+        expect(screen.getAllByTestId('chat-screen')).toHaveLength(1)
         expect(screen.getByTestId('loaded-task').props.children).toBe('task-b')
         expect(screen.getByTestId('draft').props.value).toBe('')
 
-        fireEvent.press(screen.getByTestId('chat-close'))
+        fireEvent.press(screen.getByTestId('chat-back'))
         expect(app.getPathname()).toBe('/inbox')
-        expect(screen.queryByTestId('chat-sheet')).toBeNull()
+        expect(screen.queryByTestId('chat-screen')).toBeNull()
+    })
+
+    test.each(['/chat', '/chat?taskId=task-a'])('uses the default page for a direct link to %s', (initialUrl) => {
+        useDefaultPageStore.setState({ page: 'views' })
+        const app = renderRouter({ _layout: RootLayout, inbox: Inbox, views: Inbox, chat: ChatRoute }, { initialUrl })
+        fireEvent.press(screen.getByTestId('chat-back'))
+        expect(app.getPathname()).toBe('/views')
     })
 
     test.each([
@@ -148,11 +157,11 @@ describe('chat navigation', () => {
         })
         await act(async () => listener(response))
 
-        expect(screen.getAllByTestId('chat-sheet')).toHaveLength(1)
+        expect(screen.getAllByTestId('chat-screen')).toHaveLength(1)
         expect(screen.getByTestId('loaded-task').props.children).toBe('task-a')
         expect(screen.getByTestId('draft').props.value).toBe(preserveDraft ? 'Keep this draft' : '')
-        fireEvent.press(screen.getByTestId('chat-close'))
+        fireEvent.press(screen.getByTestId('chat-back'))
         expect(app.getPathname()).toBe('/inbox')
-        expect(screen.queryByTestId('chat-sheet')).toBeNull()
+        expect(screen.queryByTestId('chat-screen')).toBeNull()
     })
 })

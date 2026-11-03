@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { escapeDottedHogQLIdentifier, escapeHogQLString } from 'lib/utils/hogql'
 import { percentage } from 'lib/utils/numbers'
 import { BOT_ANALYTICS_EVENTS, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import type { DateFilterState } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -20,7 +21,6 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapeHogQLString } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { AiAssistantRow } from './AiAssistantList'

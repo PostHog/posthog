@@ -479,3 +479,50 @@ class TestIncremental:
 
         with pytest.raises(DestinationConfigurationError, match="delivered_at"):
             await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": ["soon"]}), 1)
+
+
+@pytest.mark.asyncio
+class TestAppend:
+    """sync_type "incremental" with no primary keys: plain `WRITE_APPEND`, no `MERGE`."""
+
+    async def test_a_whole_number_float_appends_without_changing_the_int64_column(self) -> None:
+        # Regression: the append path used to load the raw batch straight through, so a column
+        # BigQuery had autodetected as INTEGER on an earlier batch failed the whole load job as
+        # soon as a later batch sent it as a float, even when every value still fit as a whole
+        # number. The merge path already aligned to the target's type before this writer existed
+        # for plain appends.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "count": [1]}), 0)
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "count": [2.0]}), 1, is_final=True)
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["count"] == "INTEGER"
+        assert sorted(row["count"] for row in table.rows) == [1, 2]
+
+    async def test_a_fractional_value_that_cannot_fit_the_int64_column_is_a_configuration_error(self) -> None:
+        # A retry sends the same values, so a retryable error would fail until someone widens
+        # the column in BigQuery to FLOAT64.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "rate": [1]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="rate"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "rate": [0.5]}), 1)
+
+    async def test_a_number_other_than_0_or_1_cannot_convert_to_the_bool_column(self) -> None:
+        # Regression: `pc.cast` treats any nonzero number as truthy rather than raising, unlike
+        # its float-to-int64 cast, so aligning to a BOOL target used to silently turn 2 into true
+        # instead of raising the way a direct append to BigQuery always did.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental")
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "active": [True]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="active"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)

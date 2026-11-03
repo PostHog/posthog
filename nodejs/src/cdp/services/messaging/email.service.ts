@@ -20,6 +20,7 @@ import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -118,12 +119,12 @@ const sesSendDurationMs = new Histogram({
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane.',
-    labelNames: ['source', 'priority_class'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
+    labelNames: ['source', 'priority_class', 'team_capped'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
-type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime }
+type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
@@ -132,7 +133,7 @@ function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQue
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
     const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
-    return startedAt ? { source, startedAt } : undefined
+    return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
 }
 
 /**
@@ -152,6 +153,16 @@ export class SESThrottleError extends Error {
         this.retryAfterMs = retryAfterMs
     }
 }
+
+class UnverifiedEmailDomainError extends Error {
+    constructor() {
+        super('The selected email integration domain is not verified')
+        this.name = 'UnverifiedEmailDomainError'
+    }
+}
+
+const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
+    !isTest && 'hogFlow' in invocation
 
 function pickThrottleRetryDelayMs(): number {
     // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
@@ -379,6 +390,7 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
 // characters that would let a templated value smuggle a second address or break out of the
 // RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
 const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+const MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 // The display name is embedded as `"${name}" <email>`, so strip the characters that would
 // terminate the quoted phrase or start the address part, plus control characters.
@@ -423,6 +435,7 @@ export class EmailService {
         // Required, so that a caller which builds the service without it fails to compile. Pass null
         // only where no email status is recorded.
         private emailStatusService: EmailStatusService | null,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -576,6 +589,13 @@ export class EmailService {
                     })
                 }
                 this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
+                if (isRealWorkflowSend(invocation, isTest)) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
+                        reason: 'missing_recipient',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
@@ -693,6 +713,7 @@ export class EmailService {
                 // per-workflow limit above: createInvocationResult cleared queueParameters, and
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -775,6 +796,13 @@ export class EmailService {
                 result.error = error.message
                 result.emailSendResult = { status: 'failed', reason: error.message }
                 result.finished = true
+                if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+                        reason: 'unverified_domain',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
             }
         }
 
@@ -1057,7 +1085,7 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): { email: string; name: string } {
         if (!integration.config.verified) {
-            throw new Error('The selected email integration domain is not verified')
+            throw new UnverifiedEmailDomainError()
         }
 
         if (!integration.config.email || !integration.config.name) {
@@ -1083,6 +1111,14 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): string {
         if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (overrideEmail.length > MAX_FROM_OVERRIDE_EMAIL_LENGTH) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address because it is too long. Sending from ${integration.config.email} instead. Use a From address with ${MAX_FROM_OVERRIDE_EMAIL_LENGTH} characters or fewer.`
+            )
             return integration.config.email
         }
 
@@ -1284,6 +1320,7 @@ export class EmailService {
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
+                    team_capped: queueWait.teamCapped ? 'true' : 'false',
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
