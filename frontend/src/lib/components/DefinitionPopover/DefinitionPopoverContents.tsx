@@ -622,7 +622,9 @@ function DefinitionEdit(): JSX.Element {
     const allowVerification =
         !isCoreFilter(
             definition.name || '',
-            propertyFilterTypeToPropertyDefinitionType(taxonomicFilterTypeToPropertyFilterType(type))
+            isProperty
+                ? propertyFilterTypeToPropertyDefinitionType(taxonomicFilterTypeToPropertyFilterType(type))
+                : undefined
         ) && 'verified' in localDefinition
 
     return (

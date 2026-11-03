@@ -153,7 +153,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </Link>
                                 </p>
                                 <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
+                                    type={PropertyDefinitionType.Person}
                                     properties={properties}
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
@@ -173,7 +173,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </Link>
                                 </p>
                                 <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
+                                    type={PropertyDefinitionType.Person}
                                     properties={properties}
                                     useDetectedPropertyType={true}
                                     tableProps={tableProps}
@@ -203,11 +203,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </div>
                                 )}
                                 <PropertiesTable
-                                    type={
-                                        ['$set_properties', '$set_once_properties'].includes(tabKey)
-                                            ? PropertyDefinitionType.Person
-                                            : PropertyDefinitionType.Event
-                                    }
+                                    type={PropertyDefinitionType.Event}
                                     properties={properties}
                                     useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
                                     tableProps={tableProps}

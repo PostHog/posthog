@@ -20,8 +20,7 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
-import { isCorePropertyKey } from '~/taxonomy/taxonomy'
-import { PersonType, PropertyDefinitionType, PropertyFilterType, SessionRecordingType } from '~/types'
+import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import type {
     RecordingEventType,
@@ -63,17 +62,12 @@ export function getPropertyDisplayInfo(
     type: TaxonomicFilterGroupType
     propertyFilterType?: PropertyFilterType
 } {
-    const coreType = getFirstFilterTypeFor(property)
     const propertyType =
         recordingProperties && property in recordingProperties
             ? // anything the query returned that doesn't match a core definition must be an event property
-              coreType || TaxonomicFilterGroupType.EventProperties
-            : // a pinned key this recording lacks still has a type: a core session property stays a session property.
-              // The value comes from the person, so an event-only key such as `title` is a person property here.
-              coreType === TaxonomicFilterGroupType.EventProperties &&
-                !isCorePropertyKey(property, PropertyDefinitionType.Person)
-              ? TaxonomicFilterGroupType.PersonProperties
-              : coreType || TaxonomicFilterGroupType.PersonProperties
+              getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+            : // a pinned key this recording lacks still has a type: a core session property stays a session property
+              getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.PersonProperties
 
     const propertyFilterType: PropertyFilterType | undefined =
         propertyType === TaxonomicFilterGroupType.EventProperties

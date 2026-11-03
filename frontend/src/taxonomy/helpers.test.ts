@@ -7,6 +7,7 @@ describe('isCoreFilter', () => {
         ['title', undefined, true],
         ['title', PropertyDefinitionType.Person, false],
         ['utm_source', PropertyDefinitionType.Person, true],
+        ['utm_source', PropertyDefinitionType.Group, false],
     ])('%s with type %s is core: %s', (key, type, expected) => {
         expect(isCoreFilter(key, type)).toBe(expected)
     })

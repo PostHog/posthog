@@ -3,14 +3,7 @@ import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLo
 
 import { CoreFilterDefinition, PropertyDefinition, PropertyDefinitionType, PropertyType } from '~/types'
 
-import {
-    CORE_FILTER_DEFINITIONS_BY_GROUP,
-    CoreFilterDefinitionsGroup,
-    isCorePropertyKey,
-    PROPERTY_KEYS,
-} from './taxonomy'
-
-/** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinitionsGroup } from './taxonomy'
 
 const hasCoreFilterDefinitionsForGroup = (
     type: TaxonomicFilterGroupType
@@ -19,9 +12,22 @@ const hasCoreFilterDefinitionsForGroup = (
         ? CORE_FILTER_DEFINITIONS_BY_GROUP[type as CoreFilterDefinitionsGroup]
         : null
 
+const CORE_FILTER_GROUP_BY_PROPERTY_TYPE: Partial<Record<PropertyDefinitionType, CoreFilterDefinitionsGroup>> = {
+    [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+    [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+    [PropertyDefinitionType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
+    [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+    [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
+    [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+}
+
+/** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 export function isCoreFilter(key: string, propertyType?: PropertyDefinitionType): boolean {
-    if (PROPERTY_KEYS.includes(key) && !isCorePropertyKey(key, propertyType)) {
-        return false
+    const group = propertyType && CORE_FILTER_GROUP_BY_PROPERTY_TYPE[propertyType]
+    if (group) {
+        return Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP[group]).includes(key)
     }
     return Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))
 }
