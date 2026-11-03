@@ -527,13 +527,17 @@ async def _paged_rows(
 
     while True:
         response = await _with_transient_rpc_retry(functools.partial(fetch_page, page_token), logger)
+        page_token = response.next_page_token
+        # A full refresh appends without deduplication, so a resume must not read this page again:
+        # stage the token of the next page, then hand the page on as one item so the batcher never
+        # writes part of it.
         if page_token:
             yield _ResumePoint(state=TemporalIOResumeConfig(next_page_token=_encode_page_token(page_token)))
 
-        for row in to_rows(response):
-            yield row
+        rows = list(to_rows(response))
+        if rows:
+            yield rows
 
-        page_token = response.next_page_token
         if not page_token:
             break
 

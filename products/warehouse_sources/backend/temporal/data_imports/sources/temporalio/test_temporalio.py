@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.temporalio
     _encode_page_token,
     _estimate_size_bytes,
     _get_temporal_client,
+    _paged_rows,
     _ResumePoint,
     _with_transient_rpc_retry,
 )
@@ -371,6 +372,27 @@ class TestPagedListTables:
         assert _page_tokens(rpc) == expected_tokens
         assert all(rpc_call.args[0].namespace == "namespace" for rpc_call in rpc.await_args_list)
         assert result.final_state == TemporalIOResumeConfig(next_page_token=_encode_page_token(b"page-2"))
+
+    async def test_stages_the_next_page_token_before_handing_on_the_whole_page(self):
+        pages = {b"": _activities_page(["a", "b"], b"page-2"), b"page-2": _activities_page(["c"])}
+        manager = MagicMock(**{"can_resume.return_value": False})
+
+        items = [
+            item
+            async for item in _paged_rows(
+                AsyncMock(side_effect=lambda token: pages[token]),
+                lambda response: ({"id": info.activity_id} for info in response.executions),
+                manager,
+                MagicMock(),
+            )
+        ]
+
+        # A resume after the first page is written starts at page 2, so a full refresh appends no row twice.
+        assert items == [
+            _ResumePoint(state=TemporalIOResumeConfig(next_page_token=_encode_page_token(b"page-2"))),
+            [{"id": "a"}, {"id": "b"}],
+            [{"id": "c"}],
+        ]
 
     def test_schedule_rows_carry_the_workflow_type_recent_runs_and_search_attributes(self):
         service = MagicMock(list_schedules=AsyncMock(return_value=_schedules_page(["nightly"])))
