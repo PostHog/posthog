@@ -7167,11 +7167,7 @@ class MetricsAlertConfig(BaseModel):
     type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
     variables: dict[str, MetricsDashboardVariableSelection] | None = Field(
         default=None,
-        description=(
-            "Values for the `$name` variables in the insight's query, keyed by variable"
-            " name. The alert runs the query with these values. When an alert is"
-            " created without them, it copies the values the insight holds."
-        ),
+        description="Values for the `$name` variables in the insight's query.",
     )
 
 
@@ -30598,11 +30594,7 @@ class MetricsHistogramQuery(BaseModel):
     )
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
-        description=(
-            "Values of the dashboard variables that the filters or interval refer to as"
-            " `$name`. The dashboard or the alert sets them when the query runs. A"
-            " saved insight can't store them."
-        ),
+        description=("Values of the dashboard variables that the filters or interval refer to as `$name`."),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -30660,9 +30652,7 @@ class MetricsQuery(BaseModel):
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
         description=(
-            "Values of the dashboard variables that the PromQL, SQL, filters or"
-            " interval refer to as `$name`. The dashboard or the alert sets them when"
-            " the query runs. A saved insight can't store them."
+            "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`."
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

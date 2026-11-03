@@ -1,6 +1,5 @@
 import api from 'lib/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightModel } from '~/types'
 
@@ -39,25 +38,6 @@ describe('insightsApi.create', () => {
             { id: 104, dashboard_id: 4 },
         ])
         expect(api.insights.update).not.toHaveBeenCalled()
-    })
-
-    const promql = { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'up{job=~"$job"}' }
-    const hogql = {
-        kind: NodeKind.DataVisualizationNode,
-        source: { kind: NodeKind.HogQLQuery, query: 'select {variables.v}', variables: { v: { code_name: 'v' } } },
-    }
-
-    it.each([
-        [
-            'drops the variable values of a metrics query',
-            { ...promql, variables: { job: { values: ['api'] } } },
-            promql,
-        ],
-        ['keeps the variables of a SQL insight', hogql, hogql],
-    ])('%s', async (_name, query, sentQuery) => {
-        await insightsApi.create({ name: 'Copy', query: query as InsightModel['query'] })
-
-        expect(api.insights.create).toHaveBeenCalledWith({ name: 'Copy', query: sentQuery })
     })
 
     it('deletes the new insight again when a dashboard refuses it', async () => {

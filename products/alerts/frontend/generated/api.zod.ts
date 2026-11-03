@@ -1211,9 +1211,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 zod.null(),
                             ])
                             .optional()
-                            .describe(
-                                "Values for the `$name` variables in the insight's query, keyed by variable name. The alert runs the query with these values. When an alert is created without them, it copies the values the insight holds."
-                            ),
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(

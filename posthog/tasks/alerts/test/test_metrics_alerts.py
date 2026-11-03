@@ -26,7 +26,6 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.facade.testing import seed_metric
-from products.product_analytics.backend.facade.models import Insight
 
 # 08:55 — the 08:00 hourly bucket is still accumulating; 07:00 is the last complete one.
 FROZEN_TIME = dateutil.parser.parse("2026-09-19T08:55:00.000Z")
@@ -256,9 +255,8 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         breach_messages = mock_send_breaches.call_args.args[1]
         assert any("big" in message for message in breach_messages), breach_messages
 
-    @parameterized.expand([("set_on_the_alert",), ("copied_from_a_legacy_insight",)])
     def test_alert_checks_with_its_own_variable_values(
-        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock, source: str
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
         self.seed_gauge({6: 5.0, 7: 5.0}, labels={"container": "small"})
         self.seed_gauge({6: 50.0, 7: 50.0}, labels={"container": "big"})
@@ -272,17 +270,9 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
                 }
             ]
         )
-        big = {"container": {"values": ["big"]}}
-        if source == "set_on_the_alert":
-            alert = self.create_alert(insight, upper=20.0, config={"type": "MetricsAlertConfig", "variables": big})
-        else:
-            saved = Insight.objects.get(pk=insight["id"])
-            saved.query = {**saved.query, "variables": big}
-            saved.save()
-            alert = self.create_alert(insight, upper=20.0)
-            saved.query = {**saved.query, "variables": {"container": {"values": ["small"]}}}
-            saved.save()
-        assert alert["config"]["variables"] == big
+        alert = self.create_alert(
+            insight, upper=20.0, config={"type": "MetricsAlertConfig", "variables": {"container": {"values": ["big"]}}}
+        )
 
         run_alert_check(alert["id"])
 

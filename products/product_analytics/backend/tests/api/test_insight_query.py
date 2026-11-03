@@ -163,32 +163,13 @@ _JOB_VALUES = {"job": {"values": ["api"]}}
 class TestRejectMetricsVariableValues(SimpleTestCase):
     @parameterized.expand(
         [
-            ("create_without_values", _PROMQL_WITH_VARIABLE, None, False),
-            ("create_with_empty_values", {**_PROMQL_WITH_VARIABLE, "variables": {}}, None, False),
-            ("create_with_values", {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES}, None, True),
+            ("without_values", _PROMQL_WITH_VARIABLE, False),
+            ("with_empty_values", {**_PROMQL_WITH_VARIABLE, "variables": {}}, False),
+            ("with_values", {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES}, True),
             (
-                "histogram_create_with_values",
+                "histogram_with_values",
                 {"kind": "MetricsHistogramQuery", "metricName": "latency", "variables": _JOB_VALUES},
-                None,
                 True,
-            ),
-            (
-                "update_keeps_saved_values",
-                {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES},
-                {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES},
-                False,
-            ),
-            (
-                "update_changes_saved_values",
-                {**_PROMQL_WITH_VARIABLE, "variables": {"job": {"values": ["worker"]}}},
-                {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES},
-                True,
-            ),
-            (
-                "update_removes_saved_values",
-                _PROMQL_WITH_VARIABLE,
-                {**_PROMQL_WITH_VARIABLE, "variables": _JOB_VALUES},
-                False,
             ),
             (
                 "hogql_variables_are_not_metrics_values",
@@ -196,19 +177,16 @@ class TestRejectMetricsVariableValues(SimpleTestCase):
                     "kind": "DataVisualizationNode",
                     "source": {"kind": "HogQLQuery", "query": "select 1", "variables": {"v": {"code_name": "v"}}},
                 },
-                None,
                 False,
             ),
         ]
     )
-    def test_metrics_variable_values(
-        self, _name: str, query: dict[str, Any], saved_query: dict[str, Any] | None, rejected: bool
-    ) -> None:
+    def test_metrics_variable_values(self, _name: str, query: dict[str, Any], rejected: bool) -> None:
         if rejected:
             with self.assertRaises(serializers.ValidationError):
-                _reject_metrics_variable_values(query, saved_query)
+                _reject_metrics_variable_values(query)
         else:
-            _reject_metrics_variable_values(query, saved_query)
+            _reject_metrics_variable_values(query)
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):

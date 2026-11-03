@@ -5195,8 +5195,7 @@ export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryRes
     interval?: string
     /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
     unit?: string
-    /** Values of the dashboard variables that the filters or interval refer to as `$name`. The dashboard or
-     * the alert sets them when the query runs. A saved insight can't store them. */
+    /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -5303,8 +5302,7 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
     display?: MetricsDisplaySettings
-    /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. The
-     * dashboard or the alert sets them when the query runs. A saved insight can't store them. */
+    /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
     variables?: Record<string, MetricsVariableValue>
 }
 
@@ -7215,8 +7213,7 @@ export interface MetricsAlertConfig {
     type: 'MetricsAlertConfig'
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
-    /** Values for the `$name` variables in the insight's query, keyed by variable name. The alert runs the
-     * query with these values. When an alert is created without them, it copies the values the insight holds. */
+    /** Values for the `$name` variables in the insight's query. */
     variables?: Record<string, MetricsDashboardVariableSelection>
 }
 

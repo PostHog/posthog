@@ -61,7 +61,6 @@ class MetricsExtractor:
 
         check_ongoing_interval = bool(config.check_ongoing_interval)
 
-        # An alert created before it held values keeps the values its insight holds.
         query_override = (
             {
                 **query,

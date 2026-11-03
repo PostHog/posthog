@@ -1,23 +1,10 @@
 import api, { ApiConfig, ApiError, ApiMethodOptions } from 'lib/api'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
-import { DashboardFilter, HogQLVariable, NodeKind, RefreshType, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, RefreshType, TileFilters } from '~/queries/schema/schema-general'
 import { DashboardTileBasicType, InsightShortId, InsightModel } from '~/types'
 
 import { dashboardsAddInsightCreate, dashboardsDeleteTile } from 'products/dashboards/frontend/generated/api'
-
-export function withoutMetricsVariableValues(insight: Partial<InsightModel>): Partial<InsightModel> {
-    const query = insight.query
-    if (
-        !query ||
-        (query.kind !== NodeKind.MetricsQuery && query.kind !== NodeKind.MetricsHistogramQuery) ||
-        !('variables' in query)
-    ) {
-        return insight
-    }
-    const { variables: _variables, ...rest } = query
-    return { ...insight, query: rest }
-}
 
 async function _perform(
     method: 'create' | 'update',
@@ -25,9 +12,7 @@ async function _perform(
     id?: number,
     options?: ApiMethodOptions
 ): Promise<InsightModel> {
-    return method === 'create'
-        ? api.insights.create(withoutMetricsVariableValues(insight))
-        : api.insights.update(id!, insight, options)
+    return method === 'create' ? api.insights[method](insight) : api.insights[method](id!, insight, options)
 }
 
 export const insightsApi = {

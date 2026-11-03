@@ -39710,7 +39710,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsDashboardVariableSelection"
                     },
-                    "description": "Values for the `$name` variables in the insight's query, keyed by variable name. The alert runs the query with these values. When an alert is created without them, it copies the values the insight holds.",
+                    "description": "Values for the `$name` variables in the insight's query.",
                     "type": "object"
                 }
             },
@@ -39920,7 +39920,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsVariableValue"
                     },
-                    "description": "Values of the dashboard variables that the filters or interval refer to as `$name`. The dashboard or the alert sets them when the query runs. A saved insight can't store them.",
+                    "description": "Values of the dashboard variables that the filters or interval refer to as `$name`.",
                     "type": "object"
                 },
                 "version": {
@@ -40081,7 +40081,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/MetricsVariableValue"
                     },
-                    "description": "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. The dashboard or the alert sets them when the query runs. A saved insight can't store them.",
+                    "description": "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.",
                     "type": "object"
                 },
                 "version": {

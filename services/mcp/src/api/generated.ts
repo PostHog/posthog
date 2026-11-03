@@ -12867,7 +12867,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Values for the `$name` variables in the insight's query, keyed by variable name. The alert runs the query with these values. When an alert is created without them, it copies the values the insight holds.
+     * Values for the `$name` variables in the insight's query.
      */
     export type MetricsAlertConfigVariables = {[key: string]: MetricsDashboardVariableSelection} | null;
 
@@ -12875,7 +12875,7 @@ export namespace Schemas {
       /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
       check_ongoing_interval?: boolean | null;
       type: MetricsAlertConfigType;
-      /** Values for the `$name` variables in the insight's query, keyed by variable name. The alert runs the query with these values. When an alert is created without them, it copies the values the insight holds. */
+      /** Values for the `$name` variables in the insight's query. */
       variables?: MetricsAlertConfigVariables;
     }
 
@@ -62966,7 +62966,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. The dashboard or the alert sets them when the query runs. A saved insight can't store them.
+     * Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.
      */
     export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -62992,7 +62992,7 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
-      /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. The dashboard or the alert sets them when the query runs. A saved insight can't store them. */
+      /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
       variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -63027,7 +63027,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the filters or interval refer to as `$name`. The dashboard or the alert sets them when the query runs. A saved insight can't store them.
+     * Values of the dashboard variables that the filters or interval refer to as `$name`.
      */
     export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -63047,7 +63047,7 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
-      /** Values of the dashboard variables that the filters or interval refer to as `$name`. The dashboard or the alert sets them when the query runs. A saved insight can't store them. */
+      /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
       variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
