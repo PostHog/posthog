@@ -76,15 +76,25 @@ function useScrollEdges(
     }, [rootRef, viewportRef])
 }
 
-type TableColumns = {
-    /** Moves a column to a width straight in the DOM, for each frame of a drag. Rendering there would render every row. */
-    previewColumnWidth: (index: number, width: number) => void
-}
-
-const TableColumnsContext = React.createContext<TableColumns | null>(null)
-
 function sumWidths(widths: number[]): number {
     return widths.reduce((total, width) => total + width, 0)
+}
+
+/**
+ * Moves a column to a width straight in the DOM, for each frame of a drag, because rendering there would render every
+ * row. It does nothing until the table's widths are fixed.
+ */
+function previewTableColumnWidth(table: HTMLTableElement, index: number, width: number): void {
+    const cols = Array.from(table.querySelector('colgroup')?.children ?? []) as HTMLElement[]
+    const col = cols[index]
+    if (!col?.style.width) {
+        return
+    }
+    col.style.width = `${width}px`
+    // A full-width table's last `col` is the filler, which has no width.
+    const total = sumWidths(cols.map((c) => parseFloat(c.style.width) || 0))
+    // The same property the render sets: React leaves alone a style it thinks has not changed.
+    table.style[table.hasAttribute('data-full-width') ? 'minWidth' : 'width'] = `${total}px`
 }
 
 type TableProps = React.ComponentProps<'table'> & {
@@ -141,84 +151,59 @@ const Table = React.forwardRef<HTMLTableElement, TableProps>(function Table(
 ) {
     const rootRef = React.useRef<HTMLDivElement | null>(null)
     const innerViewportRef = React.useRef<HTMLDivElement | null>(null)
-    const tableRef = React.useRef<HTMLTableElement | null>(null)
     useScrollEdges(rootRef, innerViewportRef)
     const setViewport = React.useCallback(
         (node: HTMLDivElement | null): void => setRefs(node, innerViewportRef, viewportRef),
         [viewportRef]
     )
-    const setTable = React.useCallback((node: HTMLTableElement | null): void => setRefs(node, tableRef, ref), [ref])
     const widths = Array.isArray(columnWidths) ? columnWidths : null
-    const sizing = React.useRef({ widths, fullWidth })
-    React.useLayoutEffect(() => {
-        sizing.current = { widths, fullWidth }
-    })
-    const columns = React.useMemo<TableColumns>(
-        () => ({
-            previewColumnWidth: (index, width) => {
-                const current = sizing.current
-                const table = tableRef.current
-                const col = table?.querySelector('colgroup')?.children[index] as HTMLElement | undefined
-                if (!table || !col || !current.widths) {
-                    return
-                }
-                col.style.width = `${width}px`
-                const total = sumWidths(current.widths) - (current.widths[index] ?? 0) + width
-                // The same property the render sets: React leaves alone a style it thinks has not changed.
-                table.style[current.fullWidth ? 'minWidth' : 'width'] = `${total}px`
-            },
-        }),
-        []
-    )
     // `className` sizes the non-scrolling root (which clips + hosts the fixed edge
     // shadows); the inner viewport owns the scroll. Sticky header/columns position
     // against the viewport.
     return (
-        <TableColumnsContext.Provider value={columns}>
-            <div
-                ref={rootRef}
-                data-quill
-                data-slot="table-container"
-                data-page-sticky={stickyHeader === 'page' ? '' : undefined}
-                className={cn('quill-table__root', className)}
-            >
-                <div ref={setViewport} data-slot="table-viewport" className="quill-table__viewport">
-                    <table
-                        ref={setTable}
-                        data-slot="table"
-                        data-sticky-header={stickyHeader ? '' : undefined}
-                        data-full-width={fullWidth ? '' : undefined}
-                        data-size={size}
-                        data-resizable={columnWidths ? '' : undefined}
-                        data-layout={widths ? 'fixed' : undefined}
-                        className={cn('quill-table', tableClassName)}
-                        style={
-                            widths
-                                ? {
-                                      ...style,
-                                      // A full-width table fills its container, and only grows past it.
-                                      ...(fullWidth ? {} : { width: sumWidths(widths) }),
-                                      minWidth: fullWidth ? sumWidths(widths) : 0,
-                                  }
-                                : style
-                        }
-                        {...props}
-                    >
-                        {/* In the DOM from the first render: inserting it beside the rows at the first drag restyles them all. */}
-                        {columnWidths ? (
-                            <colgroup>
-                                {widths?.map((width, index) => (
-                                    <col key={index} style={{ width }} />
-                                ))}
-                                {widths && fullWidth ? <col /> : null}
-                            </colgroup>
-                        ) : null}
-                        {children}
-                    </table>
-                    {viewportEndRef ? <div ref={viewportEndRef} aria-hidden /> : null}
-                </div>
+        <div
+            ref={rootRef}
+            data-quill
+            data-slot="table-container"
+            data-page-sticky={stickyHeader === 'page' ? '' : undefined}
+            className={cn('quill-table__root', className)}
+        >
+            <div ref={setViewport} data-slot="table-viewport" className="quill-table__viewport">
+                <table
+                    ref={ref}
+                    data-slot="table"
+                    data-sticky-header={stickyHeader ? '' : undefined}
+                    data-full-width={fullWidth ? '' : undefined}
+                    data-size={size}
+                    data-resizable={columnWidths ? '' : undefined}
+                    data-layout={widths ? 'fixed' : undefined}
+                    className={cn('quill-table', tableClassName)}
+                    style={
+                        widths
+                            ? {
+                                  ...style,
+                                  // A full-width table fills its container, and only grows past it.
+                                  ...(fullWidth ? {} : { width: sumWidths(widths) }),
+                                  minWidth: fullWidth ? sumWidths(widths) : 0,
+                              }
+                            : style
+                    }
+                    {...props}
+                >
+                    {/* In the DOM from the first render: inserting it beside the rows at the first drag restyles them all. */}
+                    {columnWidths ? (
+                        <colgroup>
+                            {widths?.map((width, index) => (
+                                <col key={index} style={{ width }} />
+                            ))}
+                            {widths && fullWidth ? <col /> : null}
+                        </colgroup>
+                    ) : null}
+                    {children}
+                </table>
+                {viewportEndRef ? <div ref={viewportEndRef} aria-hidden /> : null}
             </div>
-        </TableColumnsContext.Provider>
+        </div>
     )
 })
 
@@ -337,5 +322,5 @@ export {
     TableCell,
     TableEmpty,
     TableCaption,
-    TableColumnsContext,
+    previewTableColumnWidth,
 }

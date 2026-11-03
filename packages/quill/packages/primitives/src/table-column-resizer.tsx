@@ -1,11 +1,12 @@
+import { mergeProps } from '@base-ui/react/merge-props'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
 import { ResizeGrip } from './resizable'
-import { TableColumnsContext } from './table'
+import { previewTableColumnWidth } from './table'
 
 // Enough for a short label and its sort icon.
-const DEFAULT_MIN_COLUMN_WIDTH = 64
+export const MIN_TABLE_COLUMN_WIDTH = 64
 const KEYBOARD_STEP = 16
 
 type TableColumnResizerProps = Omit<React.ComponentProps<'div'>, 'children' | 'defaultValue'> & {
@@ -36,7 +37,7 @@ const TableColumnResizer = React.forwardRef<HTMLDivElement, TableColumnResizerPr
         className,
         value,
         onValueCommitted,
-        min = DEFAULT_MIN_COLUMN_WIDTH,
+        min = MIN_TABLE_COLUMN_WIDTH,
         max = Infinity,
         onResizeStart,
         onReset,
@@ -45,7 +46,6 @@ const TableColumnResizer = React.forwardRef<HTMLDivElement, TableColumnResizerPr
     },
     ref
 ) {
-    const columns = React.useContext(TableColumnsContext)
     const [resizing, setResizing] = React.useState(false)
     const clamp = (width: number): number => Math.round(Math.min(max, Math.max(min, width)))
     const currentWidth = (element: Element): number =>
@@ -58,7 +58,8 @@ const TableColumnResizer = React.forwardRef<HTMLDivElement, TableColumnResizerPr
             return
         }
         const grip = event.currentTarget
-        const columnIndex = grip.closest('th')?.cellIndex ?? 0
+        const head = grip.closest('th')
+        const table = grip.closest('table')
         const startX = event.clientX
         const startWidth = currentWidth(grip)
         const direction = inlineDirection(grip)
@@ -68,7 +69,9 @@ const TableColumnResizer = React.forwardRef<HTMLDivElement, TableColumnResizerPr
 
         const applyWidth = (): void => {
             frame = 0
-            columns?.previewColumnWidth(columnIndex, width)
+            if (table && head) {
+                previewTableColumnWidth(table, head.cellIndex, width)
+            }
             grip.setAttribute('aria-valuenow', String(width))
         }
 
@@ -101,7 +104,6 @@ const TableColumnResizer = React.forwardRef<HTMLDivElement, TableColumnResizerPr
     }
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-        props.onKeyDown?.(event)
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
             return
         }
@@ -123,21 +125,16 @@ const TableColumnResizer = React.forwardRef<HTMLDivElement, TableColumnResizerPr
             aria-valuemin={min}
             aria-valuemax={max === Infinity ? undefined : max}
             className={cn('quill-table__resizer', className)}
-            {...props}
-            onPointerDown={(event) => {
-                props.onPointerDown?.(event)
-                onPointerDown(event)
-            }}
-            // Stops a drag selecting the header text. It also keeps focus, and its ring, away from a pointer drag.
-            onMouseDown={(event) => {
-                props.onMouseDown?.(event)
-                event.preventDefault()
-            }}
-            onKeyDown={onKeyDown}
-            onDoubleClick={(event) => {
-                props.onDoubleClick?.(event)
-                onReset?.()
-            }}
+            {...mergeProps<'div'>(
+                {
+                    onPointerDown,
+                    // Stops a drag selecting the header text. It also keeps focus, and its ring, away from a pointer drag.
+                    onMouseDown: (event) => event.preventDefault(),
+                    onKeyDown,
+                    onDoubleClick: () => onReset?.(),
+                },
+                props
+            )}
         />
     )
 })

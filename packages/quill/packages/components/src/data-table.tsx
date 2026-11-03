@@ -38,6 +38,7 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
+    MIN_TABLE_COLUMN_WIDTH,
     Table,
     TableBody,
     TableCell,
@@ -166,8 +167,6 @@ export interface DataTableProps<TData, TValue> {
 
 // `getIsSorted()` → ARIA sort token for the header cell.
 const ARIA_SORT = { asc: 'ascending', desc: 'descending' } as const
-
-const MIN_COLUMN_WIDTH = 64
 
 // Minimal, generic empty state. Deliberately unopinionated — no app-specific
 // copy or action buttons; pass a richer `empty` for those. Module-level so it's
@@ -475,7 +474,7 @@ function DataTable<TData, TValue>({
         data,
         columns,
         enableColumnResizing: resizableColumns,
-        defaultColumn: { minSize: MIN_COLUMN_WIDTH, maxSize: Infinity },
+        defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
         state: { sorting, columnSizing, ...(paginated ? { pagination } : {}) },
         onColumnSizingChange: setColumnSizing,
         manualSorting: controlledSorting !== undefined,

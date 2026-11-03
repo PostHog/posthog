@@ -21,6 +21,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    useComboboxFilteredItems,
 } from '@posthog/quill-primitives'
 
 export interface FilterOption<Value extends string = string> {
@@ -67,36 +68,38 @@ export function FilterMenuTrigger({ active, dataAttr }: { active: boolean; dataA
     )
 }
 
-/** One filter in the menu: its label, the choice in force, and a submenu of the options. */
-export function FilterSubMenu({
-    label,
-    value,
-    active = false,
-    dataAttr,
-    contentClassName,
-    children,
-}: {
+interface FilterSubMenuRowProps {
     label: string
     /** The choice in force, shown beside the label. */
     value: string
     /** The choice differs from the default, so the value takes the primary color. */
     active?: boolean
     dataAttr?: string
-    contentClassName?: string
-    children: React.ReactNode
-}): React.ReactElement {
+}
+
+function FilterSubMenuRow({ label, value, active = false, dataAttr }: FilterSubMenuRowProps): React.ReactElement {
+    return (
+        <DropdownMenuSubTrigger data-attr={dataAttr}>
+            <span>{label}</span>
+            <span
+                title={value}
+                className={cn('flex-1 truncate pl-4 text-right', active ? 'text-primary' : 'text-muted-foreground')}
+            >
+                {value}
+            </span>
+        </DropdownMenuSubTrigger>
+    )
+}
+
+/** One filter in the menu: its label, the choice in force, and a submenu of the options. */
+export function FilterSubMenu({
+    children,
+    ...row
+}: FilterSubMenuRowProps & { children: React.ReactNode }): React.ReactElement {
     return (
         <DropdownMenuSub>
-            <DropdownMenuSubTrigger data-attr={dataAttr}>
-                <span>{label}</span>
-                <span
-                    title={value}
-                    className={cn('flex-1 truncate pl-4 text-right', active ? 'text-primary' : 'text-muted-foreground')}
-                >
-                    {value}
-                </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className={contentClassName}>{children}</DropdownMenuSubContent>
+            <FilterSubMenuRow {...row} />
+            <DropdownMenuSubContent>{children}</DropdownMenuSubContent>
         </DropdownMenuSub>
     )
 }
@@ -203,6 +206,14 @@ const stopPropagation = (event: React.SyntheticEvent): void => event.stopPropaga
 
 type SearchOption = FilterOption<string> | { value: null; label: string; icon?: undefined; hint?: undefined }
 
+// Each row is a mounted component, and opening the menu slows past a few hundred of them.
+const SEARCH_OPTION_LIMIT = 200
+
+function SearchLimitHint(): React.ReactElement | null {
+    const reachedLimit = useComboboxFilteredItems().length >= SEARCH_OPTION_LIMIT
+    return reachedLimit ? <div className="p-2 text-xs text-muted-foreground">Keep typing to see more</div> : null
+}
+
 /** A filter with several choices from a long list, such as people or tags. An empty selection means all of them. */
 export function FilterSearchSubMenu({
     label,
@@ -215,6 +226,7 @@ export function FilterSearchSubMenu({
     searchPlaceholder,
     emptyText,
     dataAttr,
+    optionDataAttr,
 }: {
     label: string
     allLabel: string
@@ -226,6 +238,7 @@ export function FilterSearchSubMenu({
     searchPlaceholder: string
     emptyText: string
     dataAttr?: string
+    optionDataAttr?: string
 }): React.ReactElement {
     const allOption: SearchOption = { value: null, label: allLabel }
     // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
@@ -233,73 +246,81 @@ export function FilterSearchSubMenu({
     const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
     const picked = known.filter((option) => selected.includes(option.value))
     return (
-        <FilterSubMenu
-            label={label}
-            value={filterSummary(
-                picked.map((option) => option.label),
-                allLabel,
-                pluralNoun
-            )}
-            active={selected.length > 0}
-            dataAttr={dataAttr}
-            // The list scrolls on its own, under a search field that stays put.
-            contentClassName="w-64 [&>div]:overflow-hidden [&>div]:p-0"
-        >
-            <Combobox<SearchOption, true>
-                multiple
-                // The submenu is the popup, so the list is always open and a pick resets the search.
-                inline
-                autoHighlight
-                items={[allOption, ...known]}
-                itemToStringValue={(option) => option.label}
-                isItemEqualToValue={(option, other) => option.value === other.value}
-                value={picked.length > 0 ? picked : [allOption]}
-                onValueChange={(next) => {
-                    // While nothing is picked, "all" is the ticked row, so ticking a value also carries it along.
-                    const allTicked = next.some((option) => option.value === null)
-                    onChange(
-                        allTicked && selected.length > 0
-                            ? []
-                            : next.flatMap((option) => (option.value === null ? [] : [option.value]))
-                    )
-                }}
-            >
-                <div className="p-1">
-                    <ComboboxInput
-                        autoFocus
-                        showTrigger={false}
-                        placeholder={searchPlaceholder}
-                        aria-label={searchPlaceholder}
-                        data-compact=""
-                        onClick={stopPropagation}
-                        onKeyDown={(event) => {
-                            if (event.key !== 'Escape') {
-                                event.stopPropagation()
-                            }
-                        }}
-                    />
-                </div>
-                <ComboboxEmpty>{emptyText}</ComboboxEmpty>
-                <ComboboxList className="max-h-72">
-                    {(option: SearchOption) => (
-                        <ComboboxItem
-                            key={option.value ?? 'all'}
-                            value={option}
-                            title={option.label}
+        <DropdownMenuSub>
+            <FilterSubMenuRow
+                label={label}
+                value={filterSummary(
+                    picked.map((option) => option.label),
+                    allLabel,
+                    pluralNoun
+                )}
+                active={selected.length > 0}
+                dataAttr={dataAttr}
+            />
+            {/* Flush because the list scrolls on its own, under a search field that stays put. */}
+            <DropdownMenuSubContent flush className="w-64">
+                <Combobox<SearchOption, true>
+                    multiple
+                    // The submenu is the popup, so the list is always open and a pick resets the search.
+                    inline
+                    autoHighlight
+                    limit={SEARCH_OPTION_LIMIT}
+                    items={[allOption, ...known]}
+                    itemToStringValue={(option) => option.label}
+                    isItemEqualToValue={(option, other) => option.value === other.value}
+                    value={picked.length > 0 ? picked : [allOption]}
+                    onValueChange={(next, { reason }) => {
+                        // The list counts as closed while inline, so Base UI treats Escape as a request to clear.
+                        if (reason === 'escape-key') {
+                            return
+                        }
+                        // While nothing is picked, "all" is the ticked row, so ticking a value also carries it along.
+                        const allTicked = next.some((option) => option.value === null)
+                        onChange(
+                            allTicked && selected.length > 0
+                                ? []
+                                : next.flatMap((option) => (option.value === null ? [] : [option.value]))
+                        )
+                    }}
+                >
+                    <div className="p-1">
+                        <ComboboxInput
+                            autoFocus
+                            showTrigger={false}
+                            placeholder={searchPlaceholder}
+                            aria-label={searchPlaceholder}
+                            data-compact=""
                             onClick={stopPropagation}
-                            data-attr={dataAttr ? `${dataAttr}-${option.value === null ? 'any' : 'option'}` : undefined}
-                        >
-                            {option.icon}
-                            <span className="truncate">{option.label}</span>
-                            {option.hint && (
-                                <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>
-                            )}
-                        </ComboboxItem>
-                    )}
-                </ComboboxList>
-                {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
-            </Combobox>
-        </FilterSubMenu>
+                            onKeyDown={(event) => {
+                                if (event.key !== 'Escape') {
+                                    event.stopPropagation()
+                                }
+                            }}
+                        />
+                    </div>
+                    <ComboboxEmpty>{emptyText}</ComboboxEmpty>
+                    <ComboboxList className="max-h-72">
+                        {(option: SearchOption) => (
+                            <ComboboxItem
+                                key={option.value ?? 'all'}
+                                value={option}
+                                title={option.label}
+                                onClick={stopPropagation}
+                                data-attr={optionDataAttr}
+                            >
+                                {option.icon}
+                                <span className="truncate">{option.label}</span>
+                                {option.hint && (
+                                    <span className="ml-auto text-xs text-muted-foreground">{option.hint}</span>
+                                )}
+                            </ComboboxItem>
+                        )}
+                    </ComboboxList>
+                    <SearchLimitHint />
+                    {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
+                </Combobox>
+            </DropdownMenuSubContent>
+        </DropdownMenuSub>
     )
 }
 
