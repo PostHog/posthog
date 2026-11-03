@@ -107,19 +107,24 @@ def _computed(value: Any) -> dict[str, Any] | None:
     return {"tasks": [], "mcp_sessions": [], **value}
 
 
-def _readable_config(team: Team) -> ActivitySummaryConfig | None:
+def readable_config(team: Team) -> ActivitySummaryConfig | None:
     config = read_config()
     return config if is_team_enrolled_for_read(config, team) else None
 
 
 def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
     """The user's current summary. A failed later update keeps the last good summary, so it is still ready."""
-    config = _readable_config(team)
+    config = readable_config(team)
     if config is None:
         return None
     row = UserActivitySummary.objects.for_team(team.id).filter(user_id=user_id).first()
-    if row is None or not isinstance(row.summary, dict) or row.generated_at is None:
-        return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    return (row and ready_view(row, config)) or ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+
+
+def ready_view(row: UserActivitySummary, config: ActivitySummaryConfig) -> ActivitySummaryView | None:
+    """The view of a stored summary, or `None` when no update succeeded yet."""
+    if not isinstance(row.summary, dict) or row.generated_at is None:
+        return None
     return ActivitySummaryView(
         status=ActivitySummaryStatus.READY,
         headline=_headline(row.summary),
@@ -157,7 +162,7 @@ def list_versions(
 
     With `version`, the list holds only that version, with its profile, or nothing when it does not exist.
     """
-    config = _readable_config(team)
+    config = readable_config(team)
     if config is None:
         return None
     rows = UserActivitySummaryVersion.objects.for_team(team.id).filter(summary_row__user_id=user_id)

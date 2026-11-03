@@ -1,5 +1,6 @@
 //! Moves inline images out of a v4 block. Each raster data URI becomes an `image:v4` reference, and its decoded bytes
-//! go to the flush's image pack. An image the image scrub cannot read, or one over a cap, becomes a [`Declined`] marker.
+//! go to the flush's image pack. An image the image scrub cannot read, or one over a cap, becomes an [`ImageDecline`]
+//! marker.
 //!
 //! The scan is one pass over the colons, for `data:image/` in any case. A data URI looks the same in an attribute, a CSS `url()`, a
 //! `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits. Every other byte is
@@ -13,46 +14,10 @@ use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use base64::engine::DecodePaddingMode;
 use base64::Engine;
 
+use posthog_replay_anonymizer::v4_image_refs::{image_ref, ImageDecline};
+
 use crate::bytescan as scan;
-use crate::refs::{image_ref, reference_hash};
-
-pub const DECLINED_PREFIX: &str = "image:v4:declined:";
-
-/// Readers of the dataset accept only these exact markers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Declined {
-    Avif,
-    OverLimit,
-    Undecodable,
-    Unsupported,
-}
-
-impl Declined {
-    pub const ALL: [Declined; 4] = [
-        Declined::Avif,
-        Declined::OverLimit,
-        Declined::Undecodable,
-        Declined::Unsupported,
-    ];
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Declined::Avif => "avif",
-            Declined::OverLimit => "over_limit",
-            Declined::Undecodable => "undecodable",
-            Declined::Unsupported => "unsupported",
-        }
-    }
-
-    pub const fn marker(self) -> &'static str {
-        match self {
-            Declined::Avif => "image:v4:declined:avif",
-            Declined::OverLimit => "image:v4:declined:over_limit",
-            Declined::Undecodable => "image:v4:declined:undecodable",
-            Declined::Unsupported => "image:v4:declined:unsupported",
-        }
-    }
-}
+use crate::refs::reference_hash;
 
 /// Base64 as a browser reads a data URI: the padding is optional, and the bits after the last byte do not count.
 const FORGIVING_BASE64: GeneralPurpose = GeneralPurpose::new(
@@ -102,7 +67,7 @@ pub struct ImageSink<'k> {
     pub images: Vec<Image>,
     /// SVG data URIs, the only images left inline.
     pub left_inline: u32,
-    pub declined: [u32; Declined::ALL.len()],
+    pub declined: [u32; ImageDecline::ALL.len()],
 }
 
 impl<'k> ImageSink<'k> {
@@ -121,7 +86,7 @@ impl<'k> ImageSink<'k> {
             total_bytes: 0,
             images: Vec::new(),
             left_inline: 0,
-            declined: [0; Declined::ALL.len()],
+            declined: [0; ImageDecline::ALL.len()],
         }
     }
 
@@ -135,27 +100,27 @@ impl<'k> ImageSink<'k> {
 
     pub(crate) fn take_base64(&mut self, payload: &[u8]) -> String {
         if payload.len() > self.limits.max_image_bytes.div_ceil(3) * 4 {
-            return self.decline(Declined::OverLimit);
+            return self.decline(ImageDecline::OverLimit);
         }
         match FORGIVING_BASE64.decode(payload) {
             Ok(bytes) => self.take(bytes),
-            Err(_) => self.decline(Declined::Undecodable),
+            Err(_) => self.decline(ImageDecline::Undecodable),
         }
     }
 
-    pub(crate) fn decline(&mut self, reason: Declined) -> String {
+    pub(crate) fn decline(&mut self, reason: ImageDecline) -> String {
         self.declined[reason as usize] += 1;
         reason.marker().to_owned()
     }
 
-    fn store(&mut self, bytes: Vec<u8>) -> Result<String, Declined> {
+    fn store(&mut self, bytes: Vec<u8>) -> Result<String, ImageDecline> {
         if bytes.len() > self.limits.max_image_bytes {
-            return Err(Declined::OverLimit);
+            return Err(ImageDecline::OverLimit);
         }
         if is_avif_header(&bytes) {
-            return Err(Declined::Avif);
+            return Err(ImageDecline::Avif);
         }
-        let mime = raster_type(&bytes).ok_or(Declined::Unsupported)?;
+        let mime = raster_type(&bytes).ok_or(ImageDecline::Unsupported)?;
         let reference = image_ref(
             self.team_id,
             self.key_month,
@@ -168,7 +133,7 @@ impl<'k> ImageSink<'k> {
         if self.images.len() >= self.limits.max_images
             || self.total_bytes + bytes.len() > self.limits.max_total_bytes
         {
-            return Err(Declined::OverLimit);
+            return Err(ImageDecline::OverLimit);
         }
         self.seen.insert(reference.clone());
         self.total_bytes += bytes.len();
@@ -420,7 +385,7 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
         Meta::TooLong(meta) if meta.starts_with("image/") => {
             let end = uri_end(bytes, start, meta_start);
             return DataUri::Replaced {
-                replacement: sink.decline(Declined::Undecodable),
+                replacement: sink.decline(ImageDecline::Undecodable),
                 end,
             };
         }
@@ -436,10 +401,10 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
         let end = uri_end(bytes, start, payload_start);
         let replacement = match &bytes[payload_start..end] {
             [] => return DataUri::NotImage,
-            _ if subtype.starts_with("avif") => sink.decline(Declined::Avif),
+            _ if subtype.starts_with("avif") => sink.decline(ImageDecline::Avif),
             raw => match percent_decoded(raw) {
                 Some(image) => sink.take(image),
-                None => sink.decline(Declined::Undecodable),
+                None => sink.decline(ImageDecline::Undecodable),
             },
         };
         return DataUri::Replaced { replacement, end };
@@ -458,9 +423,9 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
     }
     // The label or the bytes can name AVIF, so both count.
     let replacement = if subtype.starts_with("avif") {
-        sink.decline(Declined::Avif)
+        sink.decline(ImageDecline::Avif)
     } else if !readable {
-        sink.decline(Declined::Undecodable)
+        sink.decline(ImageDecline::Undecodable)
     } else if end == run_end {
         sink.take_base64(&bytes[payload_start..end])
     } else {
@@ -507,6 +472,17 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
     }
 }
 
+/// Whether the scan keeps the image of this data URI, as a reference or inline as an SVG, by the rules for one image.
+/// A message past its caps can still decline it.
+pub fn keeps_inline_image(data_uri: &str) -> bool {
+    let mut json = Vec::with_capacity(data_uri.len() + 2);
+    scan::write_json_string(data_uri, &mut json);
+    let mut sink = ImageSink::new(&[0; 32], 0, "", ImageLimits::default());
+    extract_images(&json, &mut sink);
+    sink.declined == [0; ImageDecline::ALL.len()]
+        && (!sink.images.is_empty() || sink.left_inline > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use base64::engine::general_purpose::STANDARD;
@@ -541,29 +517,10 @@ mod tests {
         text.into_bytes()
     }
 
-    fn declined(reason: Declined) -> [u32; Declined::ALL.len()] {
-        let mut counts = [0; Declined::ALL.len()];
+    fn declined(reason: ImageDecline) -> [u32; ImageDecline::ALL.len()] {
+        let mut counts = [0; ImageDecline::ALL.len()];
         counts[reason as usize] = 1;
         counts
-    }
-
-    #[test]
-    fn writes_only_the_markers_readers_accept() {
-        assert_eq!(
-            Declined::ALL.map(Declined::marker),
-            [
-                "image:v4:declined:avif",
-                "image:v4:declined:over_limit",
-                "image:v4:declined:undecodable",
-                "image:v4:declined:unsupported",
-            ]
-        );
-        for reason in Declined::ALL {
-            assert_eq!(
-                reason.marker(),
-                format!("{DECLINED_PREFIX}{}", reason.label())
-            );
-        }
     }
 
     #[test]
@@ -671,7 +628,7 @@ mod tests {
                     max_image_bytes: 999,
                     ..limits
                 },
-                Declined::OverLimit,
+                ImageDecline::OverLimit,
             ),
             (
                 data_uri("image/png", &big),
@@ -679,7 +636,7 @@ mod tests {
                     max_images: 0,
                     ..limits
                 },
-                Declined::OverLimit,
+                ImageDecline::OverLimit,
             ),
             (
                 data_uri("image/png", &big),
@@ -687,23 +644,23 @@ mod tests {
                     max_total_bytes: 999,
                     ..limits
                 },
-                Declined::OverLimit,
+                ImageDecline::OverLimit,
             ),
             (
                 "data:image/png;base64,iVBORw0KG".to_owned(),
                 limits,
-                Declined::Undecodable,
+                ImageDecline::Undecodable,
             ),
             (
                 "data:image/png;base64,iVBO=Rw0KGgo".to_owned(),
                 limits,
-                Declined::Undecodable,
+                ImageDecline::Undecodable,
             ),
             // A CSS escape for `/`, with the backslash doubled by JSON.
             (
                 format!(r"{wrapped}\\2f {}", STANDARD.encode([8; 30])),
                 limits,
-                Declined::Undecodable,
+                ImageDecline::Undecodable,
             ),
             (
                 format!(
@@ -712,32 +669,32 @@ mod tests {
                     STANDARD.encode(png(b"x"))
                 ),
                 limits,
-                Declined::Undecodable,
+                ImageDecline::Undecodable,
             ),
             (
                 data_uri("image/ttf", b"\x00\x01\x00\x00font"),
                 limits,
-                Declined::Unsupported,
+                ImageDecline::Unsupported,
             ),
             (
                 data_uri("image/x-icon", b"\x00\x00\x01\x00icon"),
                 limits,
-                Declined::Unsupported,
+                ImageDecline::Unsupported,
             ),
             (
                 data_uri("image/bmp", b"BMbitmap"),
                 limits,
-                Declined::Unsupported,
+                ImageDecline::Unsupported,
             ),
             (
                 data_uri("image/png", b"not an image"),
                 limits,
-                Declined::Unsupported,
+                ImageDecline::Unsupported,
             ),
             (
                 "data:image/png;utf8,abc".to_owned(),
                 limits,
-                Declined::Unsupported,
+                ImageDecline::Unsupported,
             ),
         ];
         for (uri, limits, reason) in cases {
@@ -776,7 +733,7 @@ mod tests {
                 ),
                 "{event}"
             );
-            assert_eq!(images.declined, [0; Declined::ALL.len()], "{event}");
+            assert_eq!(images.declined, [0; ImageDecline::ALL.len()], "{event}");
             assert_eq!(
                 images.left_inline,
                 u32::from(event.contains("svg")),
@@ -787,7 +744,7 @@ mod tests {
 
     #[test]
     fn replaces_every_avif_data_uri_with_the_marker() {
-        let marker = Declined::Avif.marker();
+        let marker = ImageDecline::Avif.marker();
         let avif = STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf");
         // AVIF as a compatible brand only, under the major brand `mif1`.
         let compatible = STANDARD.encode(b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00miafavif");
@@ -811,7 +768,7 @@ mod tests {
             );
             assert_eq!(
                 (images.images.len(), images.declined),
-                (0, declined(Declined::Avif)),
+                (0, declined(ImageDecline::Avif)),
                 "{uri}"
             );
         }
@@ -865,12 +822,12 @@ mod tests {
             String::from_utf8_lossy(&out),
             format!(
                 r#"["{reference}","{}","{reference}"]"#,
-                Declined::OverLimit.marker()
+                ImageDecline::OverLimit.marker()
             )
         );
         assert_eq!(
             (images.images.len(), images.declined),
-            (1, declined(Declined::OverLimit))
+            (1, declined(ImageDecline::OverLimit))
         );
     }
 
@@ -888,7 +845,7 @@ mod tests {
         let mut images = sink(ImageLimits::default());
         assert_eq!(
             extract_images(unbroken.as_bytes(), &mut images).as_ref(),
-            Declined::Undecodable.marker().as_bytes()
+            ImageDecline::Undecodable.marker().as_bytes()
         );
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }

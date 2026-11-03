@@ -46,7 +46,8 @@ export function EvaluationModelPanel(): JSX.Element | null {
                     <p className="text-muted text-sm">
                         The judge sees the images, PDFs, audio and video in what it evaluates. PDFs need an OpenAI,
                         Anthropic or Gemini judge, audio a Gemini judge or an OpenAI audio model, and video a Gemini
-                        judge. Other file types are not supported yet.
+                        judge. On OpenRouter, the judge gets the types its model reads. Other file types are not
+                        supported yet.
                     </p>
                 </LemonField.Pure>
             )}

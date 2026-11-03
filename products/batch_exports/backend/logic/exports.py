@@ -23,6 +23,8 @@ from posthog.models.integration import (
     SnowflakeIntegration,
     SnowflakeIntegrationError,
 )
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
@@ -629,9 +631,7 @@ def get_batch_export(team_id: int, export_id: UUID, *, include_latest_runs: bool
     return _to_configuration(batch_export, include_latest_runs=include_latest_runs)
 
 
-def list_batch_exports(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.BatchExportConfiguration], int]:
+def list_batch_exports(team_id: int, *, page: PageRequest) -> Page[contracts.BatchExportConfiguration]:
     batch_exports = (
         BatchExport.objects.exclude(deleted=True)
         .filter(team_id=team_id)
@@ -640,8 +640,9 @@ def list_batch_exports(
         .order_by("-created_at", "-id")
         .select_related("destination", "source")
     )
-    page = batch_exports[offset : offset + limit]
-    return [_to_configuration(batch_export, include_latest_runs=True) for batch_export in page], batch_exports.count()
+    return select_page(batch_exports, page).map(
+        lambda batch_export: _to_configuration(batch_export, include_latest_runs=True)
+    )
 
 
 def schedule_and_save(batch_export: BatchExport) -> None:
