@@ -429,6 +429,32 @@ describe('buildSections', () => {
         expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
     })
 
+    it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
+        const setting: SearchItem = {
+            id: 'settings-api-keys',
+            name: 'User: Personal API keys (api keys)',
+            displayName: 'Personal API keys',
+            category: 'settings',
+        }
+        const products: SearchItem[] = [
+            { id: 'product-endpoints', name: 'Endpoints', category: 'products', searchKeywords: ['api'] },
+        ]
+        const remote = emptyRemoteSlots()
+        remote.results.cache.personal_api_keys = []
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: [setting], products },
+                remote,
+                remoteQueries: { results: 'personal_api_keys' },
+                localQuery: 'personal_api_keys',
+                settingsInResults: true,
+                unifiedRanking: true,
+            })
+        )
+
+        expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: setting })
+    })
+
     it('says which words were dropped when a filter is active', () => {
         const remote = emptyRemoteSlots()
         remote.results = {

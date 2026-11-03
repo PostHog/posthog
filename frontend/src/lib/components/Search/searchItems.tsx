@@ -223,6 +223,7 @@ export const accountToSearchItem = (account: AccountApi): SearchItem => {
             account.external_id,
             account.properties?.website_domain,
             ...(account.properties?.email_domains ?? []),
+            ...(account.properties?.known_emails ?? []),
         ].filter((value): value is string => !!value),
         isCurated: !!(
             account.properties?.sfdc_id ||
