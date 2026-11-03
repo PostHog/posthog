@@ -3712,15 +3712,6 @@ email@example.org,
 
         self.assertEqual(response.status_code, 200, response.content)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
-        cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(2, len(response.json()["results"]))
-
     def _create_calculated_cohort_matching_p1_and_p2(self) -> int:
         _create_person(
             distinct_ids=["p1"],
@@ -3792,6 +3783,15 @@ email@example.org,
         cohort_id = response.json()["id"]
         self.assertFalse(Cohort.objects.get(pk=cohort_id).is_calculating)
         return cohort_id
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
+        cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(2, len(response.json()["results"]))
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")

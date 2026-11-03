@@ -195,7 +195,8 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
 
                 deadline = time.monotonic() + 10
                 while not server.started:
-                    assert thread.is_alive() and time.monotonic() < deadline, "the gateway server never started"
+                    assert thread.is_alive(), "the gateway server exited"
+                    assert time.monotonic() < deadline, "the gateway server never started"
                     time.sleep(0.01)
 
                 try:

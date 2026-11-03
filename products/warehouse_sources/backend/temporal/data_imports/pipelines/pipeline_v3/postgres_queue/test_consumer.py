@@ -4176,11 +4176,12 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        stderr: list[str] = []
+        stderr = ""
 
         def stacks_dumped() -> bool:
-            stderr.append(capfd.readouterr().err)
-            return "most recent call first" in "".join(stderr)
+            nonlocal stderr
+            stderr += capfd.readouterr().err
+            return "most recent call first" in stderr
 
         # A synchronous wait keeps the event loop, and so the heartbeat, blocked until the dump arrives.
         wait_until(stacks_dumped, message="the stalled heartbeat never dumped stacks")

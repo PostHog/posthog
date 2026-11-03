@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
-from posthog.models.ai.pg_embeddings import PG_EMBEDDINGS_DATA_TABLE
+from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_WITH_TIMESTAMP_SQL
 
 
 class PgEmbeddingRow(BaseModel):
@@ -63,9 +63,4 @@ def bulk_create_pg_embeddings(
             }
         )
 
-    sync_execute(
-        f"INSERT INTO {PG_EMBEDDINGS_DATA_TABLE()} (domain, team_id, id, vector, text, properties, is_deleted, timestamp) VALUES "
-        + ", ".join(inserts),
-        params,
-        flush=False,
-    )
+    sync_execute(INSERT_BULK_PG_EMBEDDINGS_WITH_TIMESTAMP_SQL + ", ".join(inserts), params, flush=False)

@@ -433,8 +433,14 @@ class TestCleanupSandboxActivity:
         long_task = threading.Thread(target=run_long_command)
         long_task.start()
 
+        def long_command_started() -> bool:
+            try:
+                return sandbox.execute("test -f /tmp/long-command-started", timeout_seconds=10).exit_code == 0
+            except Exception:
+                return False
+
         wait_until(
-            lambda: sandbox.execute("test -f /tmp/long-command-started", timeout_seconds=10).exit_code == 0,
+            long_command_started,
             timeout=30,
             interval=0.5,
             message="the long command never started",
