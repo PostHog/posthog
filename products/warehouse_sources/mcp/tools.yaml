@@ -682,7 +682,38 @@ tools:
         title: Read a Fivetran account again
         description: >
             Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep
-            their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.
+            their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'. A migration
+            with 'has_vendor_key' false was uploaded from the Fivetran MCP: read the changed connections again and send
+            them with 'warehouse-migration-upload-connections' instead.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-start-upload:
+        operation: warehouse_migrations_upload_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start a Fivetran migration from the user's Fivetran MCP
+        description: >
+            Start a Fivetran migration that you fill with what you read through the user's Fivetran MCP server, so the
+            Fivetran key never reaches PostHog. Use it only after the user chose this over the API key link and you
+            warned them that every connection passes through the chat and uses their tokens. Then send the Fivetran
+            responses with 'warehouse-migration-upload-connections'.
+        feature_flag: warehouse-migration-import
+    warehouse-migration-upload-connections:
+        operation: warehouse_migrations_connections_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Upload Fivetran connections to a migration
+        description: >
+            Send what the Fivetran MCP returned to a migration from 'warehouse-migration-start-upload'. Pass every
+            Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and
+            plans from the raw response. Send the account info and every destination first, then the connections in
+            batches of about 10, each with its connection details and its schema config. Returns the planned items
+            for the batch. A 400 names the connections PostHog could not read; the rest of the batch is saved.
         feature_flag: warehouse-migration-import
     warehouse-migrations-list:
         operation: warehouse_migrations_list

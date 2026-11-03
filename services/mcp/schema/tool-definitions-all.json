@@ -17248,7 +17248,7 @@
         "feature_flag": "warehouse-migration-import"
     },
     "warehouse-migration-refresh": {
-        "description": "Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'.",
+        "description": "Read the Fivetran account again after the user changed it. Applied, skipped and in-progress connections keep their state; the rest are planned again. Poll 'warehouse-migration-get' until status is 'ready'. A migration with 'has_vendor_key' false was uploaded from the Fivetran MCP: read the changed connections again and send them with 'warehouse-migration-upload-connections' instead.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Read a Fivetran account again",
@@ -17258,6 +17258,38 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-start-upload": {
+        "description": "Start a Fivetran migration that you fill with what you read through the user's Fivetran MCP server, so the Fivetran key never reaches PostHog. Use it only after the user chose this over the API key link and you warned them that every connection passes through the chat and uses their tokens. Then send the Fivetran responses with 'warehouse-migration-upload-connections'.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Start a Fivetran migration from the user's Fivetran MCP",
+        "title": "Start a Fivetran migration from the user's Fivetran MCP",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/upload/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-migration-import"
+    },
+    "warehouse-migration-upload-connections": {
+        "description": "Send what the Fivetran MCP returned to a migration from 'warehouse-migration-start-upload'. Pass every Fivetran response unchanged: never summarize, trim or retype it, because PostHog removes the secrets and plans from the raw response. Send the account info and every destination first, then the connections in batches of about 10, each with its connection details and its schema config. Returns the planned items for the batch. A 400 names the connections PostHog could not read; the rest of the batch is saved.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Upload Fivetran connections to a migration",
+        "title": "Upload Fivetran connections to a migration",
+        "required_scopes": ["external_data_source:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_migrations/{id}/connections/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
