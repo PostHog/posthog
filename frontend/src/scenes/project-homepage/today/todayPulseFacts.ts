@@ -92,16 +92,10 @@ const PERIOD_NAMES: Record<HighlightMetricApi['interval'], string> = {
     month: 'Last month',
 }
 
-export function pulseComparison(metric: HighlightMetricApi, formatValue: (value: number) => string): string {
-    const period = PERIOD_NAMES[metric.interval]
-    const previous = metric.previous_value
-    if (previous === null) {
-        return period
-    }
-    if (metric.value === previous) {
-        return `${period}, same as the period before`
-    }
-    return `${period}, ${metric.value > previous ? 'up' : 'down'} from ${formatValue(previous)}`
+const PERIODS_BEFORE: Record<HighlightMetricApi['interval'], string> = {
+    day: 'the 7 days before',
+    week: 'the week before',
+    month: 'the month before',
 }
 
 const PEAK_DATE_FORMATS: Record<HighlightMetricApi['interval'], string> = {
@@ -110,13 +104,48 @@ const PEAK_DATE_FORMATS: Record<HighlightMetricApi['interval'], string> = {
     month: 'MMMM YYYY',
 }
 
+export interface PulseChange {
+    value: number | null
+    unit: '%' | 'pp'
+}
+
+export function pulseChange(metric: HighlightMetricApi): PulseChange {
+    const previous = metric.previous_value
+    if (metric.value_format?.format === 'percentage') {
+        return { value: previous === null || previous === 0 ? null : metric.value - previous, unit: 'pp' }
+    }
+    return { value: metric.change_pct, unit: '%' }
+}
+
+function peakIsPeriodBefore(metric: HighlightMetricApi, peak: PulsePeak): boolean {
+    return metric.interval !== 'day' && peak.start === metric.period_starts[metric.period_starts.length - 2]
+}
+
+export function pulseComparison(metric: HighlightMetricApi, formatValue: (value: number) => string): string {
+    const period = PERIOD_NAMES[metric.interval]
+    const previous = metric.previous_value
+    if (previous === null) {
+        return period
+    }
+    if (previous === 0) {
+        return `${period}, no data for ${PERIODS_BEFORE[metric.interval]}`
+    }
+    if (metric.value === previous) {
+        return `${period}, same as ${PERIODS_BEFORE[metric.interval]}`
+    }
+    const peak = pulsePeak(metric)
+    const best = peak !== null && peakIsPeriodBefore(metric, peak) ? `, its best ${metric.interval}` : ''
+    return `${period}, ${metric.value > previous ? 'up' : 'down'} from ${formatValue(previous)}${best}`
+}
+
 export function pulsePeakNote(metric: HighlightMetricApi, formatValue: (value: number) => string): string | null {
     const peak = pulsePeak(metric)
-    if (peak === null || metric.series.length < 3) {
+    if (peak === null || metric.series.length < 3 || peakIsPeriodBefore(metric, peak)) {
         return null
     }
-    if (peak.latest) {
-        return `Best ${metric.interval} in ${metric.series.length} ${metric.interval}s`
+    if (peak.latest && metric.interval !== 'day') {
+        return `Best ${metric.interval} of the last ${metric.series.length}`
     }
-    return `Best ${metric.interval} was ${dayjs(peak.start).format(PEAK_DATE_FORMATS[metric.interval])}, at ${formatValue(peak.value)}`
+    const when = peak.latest ? `, ${peak.latest}` : ` on ${dayjs(peak.start).format(PEAK_DATE_FORMATS[metric.interval])}`
+    return `Best ${metric.interval}: ${formatValue(peak.value)}${when}`
 }

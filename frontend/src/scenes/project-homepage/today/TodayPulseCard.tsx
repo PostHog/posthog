@@ -14,20 +14,19 @@ import {
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
 import { TodayPulseMovers } from './TodayPulseMovers'
-import { pulseComparison, pulsePeakNote, pulseWhy } from './todayPulseFacts'
+import { todayNumber } from './todayNumbers'
+import { pulseChange, pulseComparison, pulsePeakNote, pulseWhy } from './todayPulseFacts'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
 
 function openLabel(metric: HighlightMetricApi): string {
-    if (metric.dashboard_id !== null || metric.reason === 'dashboard') {
-        return metric.dashboard_name ? `Open ${metric.dashboard_name}` : 'Open dashboard'
-    }
-    return metric.key.startsWith('insight:') ? 'Open insight' : 'Open as a trend'
+    return metric.dashboard_id !== null || metric.reason === 'dashboard' ? 'Open dashboard' : 'Open insight'
 }
 
 export function TodayPulseCard({
@@ -46,11 +45,12 @@ export function TodayPulseCard({
     const [whyOpen, setWhyOpen] = useState(false)
     const peakNote = pulsePeakNote(metric, formatValue)
     const why = pulseWhy(metric)
+    const change = pulseChange(metric)
     return (
         <div className="flex flex-col" data-attr="today-pulse-card">
             <div className="flex flex-col gap-4 p-3 pb-3">
                 <div className="flex flex-col">
-                    <Text size="sm" weight="semibold" render={<span />} className="truncate">
+                    <Text size="sm" weight="semibold" render={<span />} className="line-clamp-2">
                         {metric.name}
                     </Text>
                     <div className="mt-1 flex items-baseline gap-2">
@@ -58,24 +58,27 @@ export function TodayPulseCard({
                             {formatValue(metric.value)}
                         </Heading>
                         <span className="text-sm text-muted-foreground">
-                            <TodayChange change={metric.change_pct} tone={tone} />
+                            <TodayChange change={change.value} unit={change.unit} tone={tone} />
                         </span>
                     </div>
                     <Text size="xs" variant="muted" render={<span />} className="mt-1.5">
                         {pulseComparison(metric, formatValue)}
                     </Text>
                     {peakNote && (
-                        <Text size="xs" variant="muted" render={<span />} className="mt-0.5 opacity-75">
+                        <Text size="xs" variant="muted" render={<span />} className="mt-0.5">
                             {peakNote}
                         </Text>
                     )}
                 </div>
                 {metric.movers.length > 1 && (
                     <div className="flex flex-col gap-1">
-                        <Text size="xs" variant="muted" render={<span />} className="opacity-75">
+                        <Text size="xs" variant="muted" render={<span />}>
                             What changed most
                         </Text>
-                        <TodayPulseMovers movers={metric.movers} />
+                        <TodayPulseMovers
+                            movers={metric.movers}
+                            formatValue={metric.value_format ? formatValue : todayNumber}
+                        />
                     </div>
                 )}
             </div>
@@ -83,21 +86,19 @@ export function TodayPulseCard({
                 variant="folder"
                 open={whyOpen}
                 onOpenChange={setWhyOpen}
-                className="flex flex-col border-t border-border px-3 py-1"
+                className={cn('flex flex-col px-3 py-1', metric.url ? 'border-t border-border' : '-mt-2')}
             >
                 <div className="flex min-h-6 items-center justify-between gap-2">
                     {metric.url ? (
-                        <Button
-                            size="xs"
-                            variant="link-muted"
-                            className="-ms-2"
-                            render={<LinkPrimitive to={metric.url} />}
+                        <LinkPrimitive
+                            to={metric.url}
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                             {...pulseOpenHandlers(onOpen)}
                             data-attr="today-pulse-card-open"
                         >
                             {openLabel(metric)}
                             <IconArrowRight />
-                        </Button>
+                        </LinkPrimitive>
                     ) : (
                         <span />
                     )}

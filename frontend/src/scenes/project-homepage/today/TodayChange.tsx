@@ -1,13 +1,23 @@
 import { type TodayTone, useTodayTonePalette } from './todayTone'
 
-export function TodayChange({ change, tone }: { change: number | null; tone: TodayTone }): JSX.Element | null {
+export function TodayChange({
+    change,
+    tone,
+    unit = '%',
+}: {
+    change: number | null
+    tone: TodayTone
+    unit?: '%' | 'pp'
+}): JSX.Element | null {
     const palette = useTodayTonePalette()
     if (change === null) {
         return null
     }
-    const rounded = Math.round(change)
+    const rounded = unit === 'pp' ? Math.round(change * 10) / 10 : Math.round(change)
     const text =
-        rounded >= 1000
+        unit === 'pp'
+            ? `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded)} pp`
+            : rounded >= 1000
             ? `${Math.round(1 + change / 100)}×`
             : rounded === 0
               ? '0%'

@@ -17,6 +17,7 @@ import type { HighlightMetricApi, PulseSlotApi } from 'products/today/frontend/g
 import { TodayChange } from './TodayChange'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
+import { pulseChange } from './todayPulseFacts'
 import { TodayPulseCard } from './TodayPulseCard'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
@@ -170,6 +171,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 const isInsight = metric.key.startsWith('insight:')
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
+                const change = pulseChange(metric)
                 const content = (
                     <>
                         <span className="TodayPulse__name">{metric.name}</span>
@@ -177,7 +179,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             <span className="TodayPulse__value" translate="no">
                                 {formatValue(metric.value)}
                             </span>
-                            <TodayChange change={metric.change_pct} tone={tone} />
+                            <TodayChange change={change.value} unit={change.unit} tone={tone} />
                         </span>
                         <span className="TodayPulse__spark">
                             <Suspense fallback={null}>
