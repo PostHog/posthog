@@ -155,6 +155,13 @@ def routing_pull_request(repo_config: StamphogRepoConfig, pr_number: int) -> Pul
     return pr_obj
 
 
+def pinned_on_partial_data(record: Mapping[str, Any]) -> bool:
+    """Whether a pinned routing planned from partial ownership data, which can miss a pin."""
+    return record.get("scope") == SCOPE_PINNED and not (
+        record.get("additions_resolved") and not record.get("files_truncated")
+    )
+
+
 def _is_claim(record: Mapping[str, Any] | None) -> bool:
     return record is not None and record.get("status") in _CLAIMED_STATUSES
 
@@ -497,7 +504,7 @@ def _request_and_comment(client: StamphogGitHubClient, pr_obj: PullRequest, plan
     requested[REQUESTED_OWNERS] = sorted({*(plan.get(REQUESTED_OWNERS) or []), *plan["request_owners"]})
     if plan["scope"] == SCOPE_PINNED:
         # A pinned routing from partial data must not stop the safety net, which routes this head in full.
-        if plan["additions_resolved"] and not plan["files_truncated"]:
+        if not pinned_on_partial_data(plan):
             requested.update({PINNED_ROUTED_HEAD: plan["head_sha"], "pinned_routed_at": plan["routed_at"]})
     else:
         requested.update({FULL_ROUTED_HEAD: plan["head_sha"], "full_routed_at": plan["routed_at"]})

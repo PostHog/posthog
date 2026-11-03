@@ -33,6 +33,7 @@ from products.stamphog.backend.logic.routing.service import (
     is_foreign_claim,
     is_own_claim,
     live_pr_skip_reason,
+    pinned_on_partial_data,
     release_claim,
     resume_own_claim,
     route_claimed,
@@ -261,6 +262,14 @@ def _verdict_step(client: StamphogGitHubClient, state: _State, *, head_sha: str,
     )
 
 
+def _schedule_net_after_partial_pins(repo_config: StamphogRepoConfig, pr_number: int, review_path: ReviewPath) -> None:
+    # The net of the opening event can be gone already, so a pinned routing that can have missed a
+    # pin needs a net of its own to route the head in full.
+    record = stored_routing(repo_config, pr_number)
+    if record is not None and record.get("status") == STATUS_DONE and pinned_on_partial_data(record):
+        review_path.schedule_safety_net(repo_config, pr_number)
+
+
 def route_after_verdict(
     *,
     team_id: int,
@@ -280,13 +289,13 @@ def route_after_verdict(
         return
     client = StamphogGitHubClient(repo_config.installation_id)
     state = _load_state(repo_config, pr_number, task_id)
-    if _resume(client, state):
-        return
-    if is_foreign_claim(state.stored, task_id):
-        # The claim can end in a pinned-only routing that this verdict still upgrades, so decide after it ends.
-        raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
-    step = _verdict_step(client, state, head_sha=head_sha, outcome=outcome)
-    _execute(client, state, step, review_path, retry_when_busy=True)
+    if not _resume(client, state):
+        if is_foreign_claim(state.stored, task_id):
+            # The claim can end in a pinned-only routing that this verdict still upgrades, so decide after it ends.
+            raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
+        step = _verdict_step(client, state, head_sha=head_sha, outcome=outcome)
+        _execute(client, state, step, review_path, retry_when_busy=True)
+    _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
 def _safety_net_step(client: StamphogGitHubClient, state: _State) -> _Step | None:

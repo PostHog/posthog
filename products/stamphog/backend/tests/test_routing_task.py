@@ -495,18 +495,33 @@ def test_a_failed_kind_lookup_routes_without_the_owners_of_additions(team, user,
 
 
 @pytest.mark.parametrize(
-    "name,setup_kwargs,kind_lookup_fails",
+    "name,setup_kwargs,kind_lookup_fails,later_head",
     [
-        ("failed_kind_lookup", {}, True),
-        ("truncated_file_list", {"changed_files": 5000}, False),
+        ("failed_kind_lookup", {}, True, False),
+        ("truncated_file_list", {"changed_files": 5000}, False, False),
+        # The net of the opening event already ran when the later head gets its approval.
+        ("failed_kind_lookup_on_a_later_head", {}, True, True),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_an_approval_on_partial_ownership_still_gets_the_full_routing_from_the_safety_net(
-    name: str, setup_kwargs: dict[str, Any], kind_lookup_fails: bool, team, user, routing_chain, safety_net
+    name: str,
+    setup_kwargs: dict[str, Any],
+    kind_lookup_fails: bool,
+    later_head: bool,
+    team,
+    user,
+    routing_chain,
+    safety_net,
 ) -> None:
     # Partial data can miss a pin, so the pinned-only routing of the approval must not close the head.
     repo_config = _open_fallback(routing_chain, team, user, **setup_kwargs)
+    head_sha = HEAD_SHA
+    if later_head:
+        _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
+        _fire_safety_net(safety_net)
+        head_sha = _HEAD_2
+        _push(routing_chain, head_sha)
     lookup = (
         patch(
             "posthog.ownership.github_files.GitHubFilesFetcher.path_kinds",
@@ -516,13 +531,19 @@ def test_an_approval_on_partial_ownership_still_gets_the_full_routing_from_the_s
         else nullcontext()
     )
     with lookup:
-        _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED)
+        _finish_review(repo_config, ReviewRunStatus.COMPLETED, ReviewVerdict.APPROVED, head_sha=head_sha)
 
+    assert safety_net.call_count == 2
     _fire_safety_net(safety_net)
 
     assert _requested(routing_chain) == ({"carol"}, {"team-alpha", "team-beta"})
     record = _stored(team.id)
-    assert (record["trigger"], record["scope"], record["status"]) == ("safety_net", "full", "done")
+    assert (record["trigger"], record["scope"], record["status"], record["head_sha"]) == (
+        "safety_net",
+        "full",
+        "done",
+        head_sha,
+    )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
