@@ -3429,12 +3429,18 @@ describe('Hogflow Executor', () => {
         })
 
         it.each([
-            { captureEngagement: true, teamCaptures: true, captured: ['$workflows_email_sent'] },
-            { captureEngagement: false, teamCaptures: true, captured: [] },
-            { captureEngagement: true, teamCaptures: false, captured: [] },
+            {
+                captureEngagement: true,
+                teamCaptures: true,
+                savedWithoutSend: false,
+                captured: ['$workflows_email_sent'],
+            },
+            { captureEngagement: false, teamCaptures: true, savedWithoutSend: false, captured: [] },
+            { captureEngagement: true, teamCaptures: false, savedWithoutSend: false, captured: [] },
+            { captureEngagement: false, teamCaptures: true, savedWithoutSend: true, captured: [] },
         ])(
-            "captures the email's events by the code send's choice $captureEngagement and the team switch $teamCaptures",
-            async ({ captureEngagement, teamCaptures, captured }) => {
+            "captures the email's events by the code send's choice $captureEngagement and the team switch $teamCaptures, step state saved without the send: $savedWithoutSend",
+            async ({ captureEngagement, teamCaptures, savedWithoutSend, captured }) => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO workflows_teamworkflowsconfig
@@ -3449,6 +3455,9 @@ describe('Hogflow Executor', () => {
 
                 let result = await executor.execute(invocation)
                 const events = [...result.capturedPostHogEvents]
+                if (savedWithoutSend) {
+                    delete result.invocation.state.currentAction!.hogFunctionState!.send
+                }
                 while (!result.finished) {
                     result = await executor.execute(result.invocation)
                     events.push(...result.capturedPostHogEvents)
