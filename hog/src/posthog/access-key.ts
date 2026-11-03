@@ -16,7 +16,6 @@ export interface AccessKeyStatus {
     expiresAt: number | null
 }
 
-// What logging out did in PostHog.
 export interface LogoutOutcome {
     // Whether PostHog revoked the login. Null for a key hog can't revoke.
     revoked: boolean | null
@@ -131,18 +130,18 @@ export class PersonalAPIKey implements AccessKey {
     }
 
     record(store: StoreChoice): LoginRecord {
-        return { store, type: 'personal_api_key', projectId: this.projectId }
+        return { store, type: 'personal_api_key', projectId: this.projectId, host: this.host }
     }
 }
 
 // The one place that reads the stored kind. A secret of the wrong kind for its record, such as one
 // an older hog wrote, reads as no login.
-export function accessKeyFromStorage(host: string, record: LoginRecord, secret: StoredSecret): AccessKey | undefined {
+export function accessKeyFromStorage(record: LoginRecord, secret: StoredSecret): AccessKey | undefined {
     if (record.type === 'personal_api_key' && 'apiKey' in secret) {
-        return new PersonalAPIKey({ host, projectId: record.projectId, apiKey: secret.apiKey })
+        return new PersonalAPIKey({ host: record.host, projectId: record.projectId, apiKey: secret.apiKey })
     }
     if (record.type === 'oauth' && 'accessToken' in secret) {
-        const { projectId, expiresAt, scopes, loginId } = record
+        const { host, projectId, expiresAt, scopes, loginId } = record
         return new OAuthLogin({ host, projectId, expiresAt, scopes, loginId, ...secret })
     }
     return undefined

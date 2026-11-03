@@ -11,7 +11,6 @@ import { readSettings } from './settings'
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = 'https://us.i.posthog.com'
 
-// The key a command sends to PostHog, and where hog found it.
 export type Credentials = { key: AccessKey } & (
     | { source: 'env' }
     | { source: 'dotenv-file'; path: string }
@@ -145,18 +144,16 @@ function validate(raw: RawCredentials, host: string): PersonalAPIKey {
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
-// then what `hog auth login` stored. posthog-cli's credentials file is never read here: `hog auth
-// migrate` moves its key into hog's store. The global host overrides
-// whichever host the source carried, and picks which stored login to use. posthog.json comes from
-// the repository, so its host never redirects a key: it can pick a stored login for that host, and
-// otherwise only stops the command when the key belongs to another host.
+// then what `hog auth login` stored. The global host overrides whichever host the source carried,
+// and picks which stored login to use. posthog.json comes from the repository, so its host never
+// redirects a key: it can pick a stored login for that host, and otherwise only stops the command
+// when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
     // `skipStore` leaves out what `hog auth login` stored, for callers that must never open the
     // keychain or renew a token, like telemetry for a command that needed no credentials.
     options: { host?: string; dotenvFile?: string; configHost?: string; skipStore?: boolean }
 ): Promise<Credentials> {
-    // posthog.json only stops a command whose credentials belong to another host. It never redirects them.
     const checkConfigHost = (host: string): void => {
         const { configHost } = options
         if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {

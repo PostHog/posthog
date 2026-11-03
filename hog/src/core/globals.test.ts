@@ -5,7 +5,7 @@ import { runHog, TEST_CREDENTIALS } from '@/testing'
 // hog logins for each host, the first one the last login.
 function storedLogins(...hosts: string[]): { files: Record<string, string>; keychain: Record<string, string> } {
     const logins = Object.fromEntries(
-        hosts.map((host) => [host, { store: 'keychain', type: 'personal_api_key', projectId: '7' }])
+        hosts.map((host) => [host, { store: 'keychain', type: 'personal_api_key', projectId: '7', host }])
     )
     return {
         files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins, host: hosts[0] }) },

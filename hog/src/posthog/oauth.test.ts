@@ -19,6 +19,7 @@ function settings(expiresInMs: number): string {
         store: 'keychain',
         type: 'oauth',
         projectId: '42',
+        host: EU,
         expiresAt: START + expiresInMs,
         scopes: ['openid', 'insight:read'],
         loginId: 'login-1',

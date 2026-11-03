@@ -34,8 +34,13 @@ function keychainError(error: unknown): HogError {
 }
 
 // Runs one keychain call. After a moment it tells the person a dialog may be waiting for them, and
-// after KEYCHAIN_TIMEOUT_MS it stops waiting.
-async function keychainCall<T>(runtime: Runtime, operation: () => Promise<T>): Promise<T> {
+// after KEYCHAIN_TIMEOUT_MS it stops waiting. The dialog can still be answered after that, so `undo`
+// reverts a call that lands late, and no keychain item outlives what settings.json records.
+async function keychainCall<T>(
+    runtime: Runtime,
+    operation: () => Promise<T>,
+    undo?: () => Promise<unknown>
+): Promise<T> {
     const settled = new AbortController()
     void runtime.sleep(KEYCHAIN_PROGRESS_MS, settled.signal).then(() => {
         if (!settled.signal.aborted) {
@@ -52,9 +57,13 @@ async function keychainCall<T>(runtime: Runtime, operation: () => Promise<T>): P
             'Close the keychain dialog that is still open. Then run the command again and click "Always Allow".'
         )
     })
+    const pending = operation()
     try {
-        return await Promise.race([operation(), timeout])
+        return await Promise.race([pending, timeout])
     } catch (error) {
+        if (undo && error instanceof HogError && error.code === 'keychain_access_timeout') {
+            void pending.then(undo).catch(() => {})
+        }
         throw keychainError(error)
     } finally {
         settled.abort()
@@ -73,7 +82,12 @@ export class KeychainStore implements CredentialStore {
     }
 
     async write(host: string, secret: StoredSecret): Promise<void> {
-        await keychainCall(this.runtime, () => this.runtime.secrets.set(hostKey(host), JSON.stringify(secret)))
+        const name = hostKey(host)
+        await keychainCall(
+            this.runtime,
+            () => this.runtime.secrets.set(name, JSON.stringify(secret)),
+            () => this.runtime.secrets.delete(name)
+        )
     }
 
     async remove(host: string): Promise<boolean> {

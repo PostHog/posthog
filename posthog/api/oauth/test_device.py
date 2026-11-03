@@ -159,6 +159,21 @@ class TestOAuthDeviceGrant(APIBaseTest):
             rejected = [call for call in capture.call_args_list if call.kwargs.get("event") == "oauth_token_rejected"]
             self.assertEqual(len(rejected), 1 if counts_as_rejected else 0)
 
+    def test_a_client_that_polls_too_fast_must_wait_longer(self) -> None:
+        with time_machine.travel(START, tick=False) as clock:
+            started = self._start()
+            clock.shift(timedelta(seconds=1))
+
+            too_fast = self._poll(started["device_code"])
+            same_second = self._poll(started["device_code"])
+            clock.shift(timedelta(seconds=10))
+            on_time = self._poll(started["device_code"])
+
+        self.assertEqual(too_fast.json()["error"], "slow_down")
+        self.assertEqual(same_second.json()["error"], "slow_down")
+        self.assertEqual(OAuthDeviceGrant.objects.get().interval, 10)
+        self.assertEqual(on_time.json()["error"], "authorization_pending")
+
     @parameterized.expand(
         [
             ("an unknown device code", {"device_code": "not-a-real-code"}, "invalid_grant"),

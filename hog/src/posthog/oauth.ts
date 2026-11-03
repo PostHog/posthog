@@ -210,7 +210,7 @@ export class OAuthLogin implements AccessKey {
     }
 
     record(store: StoreChoice): LoginRecord {
-        const { projectId, expiresAt, scopes, loginId } = this
-        return { store, type: 'oauth', projectId, expiresAt, scopes, loginId }
+        const { host, projectId, expiresAt, scopes, loginId } = this
+        return { store, type: 'oauth', projectId, host, expiresAt, scopes, loginId }
     }
 }
