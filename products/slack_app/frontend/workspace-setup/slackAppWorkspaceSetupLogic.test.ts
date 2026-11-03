@@ -102,7 +102,7 @@ describe('slackAppWorkspaceSetupLogic', () => {
 
         expect(mockJoinChannels).toHaveBeenCalledWith(expect.any(String), '7', {
             channel_ids: ['C1', 'C2'],
-            post_welcome: false,
+            post_welcome: true,
         })
         expect(warning).toHaveBeenCalledWith(expect.stringContaining('#growth'))
         await expectLogic(logic).toMatchValues({ currentStep: null })

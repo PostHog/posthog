@@ -89,7 +89,7 @@ class SlackAppJoinChannelsSerializer(serializers.Serializer):
         help_text="IDs of the public channels that PostHog joins.",
     )
     post_welcome = serializers.BooleanField(
-        default=False,
+        default=True,
         help_text="Whether PostHog posts its welcome message in each channel it joins. When false, it joins quietly.",
     )
 
