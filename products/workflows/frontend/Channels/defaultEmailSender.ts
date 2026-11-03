@@ -1,4 +1,4 @@
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 
 import { IntegrationType } from '~/types'
 

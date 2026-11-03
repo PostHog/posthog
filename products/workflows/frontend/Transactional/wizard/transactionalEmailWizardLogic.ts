@@ -3,7 +3,7 @@ import { beforeUnload, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { senderAddressError, senderFrom } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
