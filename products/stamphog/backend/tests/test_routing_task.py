@@ -594,7 +594,9 @@ def test_a_later_approval_requests_only_the_pins_no_routing_requested_yet(
     assert routing_chain.cut_model.calls == []
 
 
-def _seed_claim(repo_config: StamphogRepoConfig, *, claimed_at: datetime) -> dict[str, Any]:
+def _seed_claim(
+    repo_config: StamphogRepoConfig, *, claimed_at: datetime, overrides: dict[str, Any] | None = None
+) -> dict[str, Any]:
     claim = {
         "head_sha": "head-sha-0",
         "mode": "fallback",
@@ -604,6 +606,7 @@ def _seed_claim(repo_config: StamphogRepoConfig, *, claimed_at: datetime) -> dic
         "claimed_by": "another-task",
         "claimed_at": claimed_at.isoformat(),
         "previous": None,
+        **(overrides or {}),
     }
     team_id = repo_config.team_id
     with team_scope(team_id):
@@ -634,21 +637,37 @@ def _run_safety_net_task(repo_config: StamphogRepoConfig) -> None:
 
 
 @pytest.mark.parametrize(
-    "name,run_task,raises,expected_safety_nets",
+    "name,run_task,claim_overrides,raises,expected_safety_nets",
     [
         # The event and the verdict retry until the claim is gone, so their work is not lost.
-        ("event", _run_event_task, True, 0),
-        ("verdict", _run_verdict_task, True, 0),
+        ("event", _run_event_task, {}, True, 0),
+        ("verdict", _run_verdict_task, {}, True, 0),
+        # A refusal behind the approval's pinned-only routing of the same head still owes the full routing.
+        (
+            "verdict_behind_a_pinned_claim_on_its_head",
+            _run_verdict_task,
+            {"head_sha": HEAD_SHA, "scope": "pinned", "status": "requested", "trigger": "verdict:approved"},
+            True,
+            0,
+        ),
         # The claiming task can still run out of retries, so the safety net checks again later.
-        ("safety_net", _run_safety_net_task, False, 1),
+        ("safety_net", _run_safety_net_task, {}, False, 1),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_another_tasks_claim_on_any_head_blocks_routing(
-    name: str, run_task: Any, raises: bool, expected_safety_nets: int, team, user, routing_chain, safety_net
+    name: str,
+    run_task: Any,
+    claim_overrides: dict[str, Any],
+    raises: bool,
+    expected_safety_nets: int,
+    team,
+    user,
+    routing_chain,
+    safety_net,
 ) -> None:
     repo_config = _setup(routing_chain, team, user, routing_mode="fallback")
-    claim = _seed_claim(repo_config, claimed_at=datetime.now(UTC))
+    claim = _seed_claim(repo_config, claimed_at=datetime.now(UTC), overrides=claim_overrides)
 
     if raises:
         with pytest.raises(Retry) as retry:

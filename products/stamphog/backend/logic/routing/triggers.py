@@ -282,6 +282,9 @@ def route_after_verdict(
     state = _load_state(repo_config, pr_number, task_id)
     if _resume(client, state):
         return
+    if is_foreign_claim(state.stored, task_id):
+        # The claim can end in a pinned-only routing that this verdict still upgrades, so decide after it ends.
+        raise RoutingBusy(f"another task holds the routing claim of PR {pr_number}")
     step = _verdict_step(client, state, head_sha=head_sha, outcome=outcome)
     _execute(client, state, step, review_path, retry_when_busy=True)
 

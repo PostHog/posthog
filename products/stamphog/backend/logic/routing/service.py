@@ -149,6 +149,9 @@ def routing_pull_request(repo_config: StamphogRepoConfig, pr_number: int) -> Pul
         .using(router.db_for_write(PullRequest))
         .get_or_create(repo_config=repo_config, pr_number=pr_number, defaults={"team_id": team_id})
     )
+    # The caller read the config on the writer. A lazy load of the relation reads a replica, which can
+    # lag behind a fork label change.
+    pr_obj.repo_config = repo_config
     return pr_obj
 
 
