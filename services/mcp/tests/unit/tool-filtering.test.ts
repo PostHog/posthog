@@ -1110,6 +1110,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'scout-trials',
             'signals-report-checks-replace',
             'inbox-report-actions-mcp',
+            'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',

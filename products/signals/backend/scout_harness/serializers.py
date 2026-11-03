@@ -1527,7 +1527,8 @@ class ReportLinkWriteSerializer(serializers.Serializer):
 
 
 class EmitReportRequestSerializer(serializers.Serializer):
-    """Request body for `emit-report`. Run attribution is taken from the URL path."""
+    """Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+    taken from the URL path; a person is the authenticated caller."""
 
     title = serializers.CharField(
         max_length=MAX_REPORT_TITLE_LENGTH,
@@ -1557,7 +1558,7 @@ class EmitReportRequestSerializer(serializers.Serializer):
     actionability = serializers.ChoiceField(
         choices=[(c.value, c.value) for c in ActionabilityChoice],
         help_text=(
-            "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; "
+            "The author's actionability call: `immediately_actionable` -> the report surfaces READY; "
             "`requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge "
             "failure suppresses the report regardless. A root cause you have not found is not human "
             "input: a report that names the evidence, the code surface, or a reproducible failure "
@@ -1571,14 +1572,14 @@ class EmitReportRequestSerializer(serializers.Serializer):
         help_text=(
             "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
             "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
-            "task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately."
+            "task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately."
         ),
     )
     repository = serializers.CharField(
         required=False,
         allow_null=True,
         help_text=(
-            "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass "
+            "Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass "
             "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
             "which triggers free-form selection across the team's repos (the slow path on a many-repo "
             "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
@@ -1589,7 +1590,9 @@ class EmitReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         choices=[(p.value, p.value) for p in Priority],
-        help_text="Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.",
+        help_text=(
+            "Optional priority (`P0`-`P4`). Required for autostart of a scout report; pair with `priority_explanation`."
+        ),
     )
     priority_explanation = serializers.CharField(
         required=False,
@@ -1604,7 +1607,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
             "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
             "of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. "
-            "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
+            "On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their "
+            "autonomy threshold. A report a person files never autostarts."
         ),
     )
     charts = serializers.ListField(
@@ -1672,7 +1676,8 @@ class EmitReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
         help_text=(
-            "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call "
+            "Optional name for this emission, unique within a scout's run or within a person's own reports. "
+            "Reuse it verbatim to retry a call "
             "whose outcome you don't know (a timeout, a dropped connection): the retry returns the "
             "report the first call authored, with `idempotent_replay` true, instead of a second report. "
             "Omit it and the report's own content is the key, which covers a retry of the identical "

@@ -544,6 +544,74 @@ const inboxReportReviewersUpdate = (): ToolBase<
     },
 })
 
+const InboxReportsCreateSchema = () => {
+    const SignalsReportsCreateBody = orvalSchemas.SignalsReportsCreateBody()
+    return SignalsReportsCreateBody.meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
+}
+
+const inboxReportsCreate = (): ToolBase<
+    ReturnType<typeof InboxReportsCreateSchema>,
+    WithPostHogUrl<Schemas.EmitReportResponse>
+> => ({
+    name: 'inbox-reports-create',
+    schema: InboxReportsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
+        }
+        if (params.suggested_prompts !== undefined) {
+            body['suggested_prompts'] = params.suggested_prompts
+        }
+        if (params.links !== undefined) {
+            body['links'] = params.links
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.idempotency_key !== undefined) {
+            body['idempotency_key'] = params.idempotency_key
+        }
+        const result = await context.api.request<Schemas.EmitReportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.report_id}`)
+    },
+})
+
 const InboxReportsBulkSetStateSchema = () => {
     const SignalsReportsBulkStateCreateBody = orvalSchemas.SignalsReportsBulkStateCreateBody()
     return SignalsReportsBulkStateCreateBody
@@ -3686,6 +3754,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-checks-replace': inboxReportChecksReplace,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-report-reviewers-update': inboxReportReviewersUpdate,
+    'inbox-reports-create': inboxReportsCreate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
