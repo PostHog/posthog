@@ -18,8 +18,11 @@ import { InsightShortId } from '~/types'
 import { definitionField } from './dataCatalogMetricSceneLogic'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
 
+export type MetricSceneMenu = 'file' | 'edit' | 'view'
+
 export interface MetricSceneAction {
     key: string
+    menu: MetricSceneMenu
     label: string
     icon: JSX.Element
     onClick: () => void
@@ -68,6 +71,7 @@ export function buildMetricSceneActions({
             ? [
                   {
                       key: 'explore-bi',
+                      menu: 'file' as const,
                       label: 'Explore in BI',
                       icon: <IconGraph />,
                       onClick: () => router.actions.push(urls.businessIntelligenceNew(), { metric: metric.name }),
@@ -79,6 +83,7 @@ export function buildMetricSceneActions({
             : [
                   {
                       key: 'approve',
+                      menu: 'edit' as const,
                       label: 'Approve',
                       icon: <IconCheck />,
                       onClick: handlers.approve,
@@ -93,6 +98,7 @@ export function buildMetricSceneActions({
             ? [
                   {
                       key: 'refresh',
+                      menu: 'edit' as const,
                       label: 'Refresh from insight',
                       icon: <IconRefresh />,
                       onClick: handlers.refreshFromInsight,
@@ -100,6 +106,7 @@ export function buildMetricSceneActions({
                   },
                   {
                       key: 'source-insight',
+                      menu: 'view' as const,
                       label: 'View source insight',
                       icon: <IconGraph />,
                       onClick: () => router.actions.push(urls.insightView(sourceShortId as InsightShortId)),
@@ -109,13 +116,16 @@ export function buildMetricSceneActions({
         isMarkdownMetric
             ? {
                   key: RUN_ACTION_KEY,
+                  menu: 'file',
                   label: 'Run with AI',
                   icon: <IconSparkles />,
                   onClick: handlers.runWithAI,
                   disabledReason: isMaxAvailable ? undefined : MAX_UNAVAILABLE_REASON,
+                  opensFloatingUi: true,
               }
             : {
                   key: RUN_ACTION_KEY,
+                  menu: 'file',
                   label: 'Run metric',
                   icon: <IconPlay />,
                   onClick: handlers.run,
@@ -123,6 +133,7 @@ export function buildMetricSceneActions({
               },
         {
             key: 'rename',
+            menu: 'edit',
             label: 'Rename',
             icon: <IconPencil />,
             onClick: handlers.rename,
@@ -133,6 +144,7 @@ export function buildMetricSceneActions({
             ? [
                   {
                       key: 'open-sql',
+                      menu: 'file' as const,
                       label: 'Open in SQL editor',
                       icon: <IconServer />,
                       onClick: () => router.actions.push(urls.sqlEditor({ source: 'metric', metricName: metric.name })),
@@ -141,11 +153,11 @@ export function buildMetricSceneActions({
             : []),
         {
             key: 'delete',
+            menu: 'file',
             label: 'Delete',
             icon: <IconTrash />,
             onClick: handlers.delete,
             destructive: true,
-            opensFloatingUi: true,
         },
     ]
 }

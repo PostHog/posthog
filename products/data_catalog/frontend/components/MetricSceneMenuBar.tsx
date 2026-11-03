@@ -10,43 +10,59 @@ import {
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
 
-import type { MetricSceneAction } from '../metricSceneActions'
+import type { MetricSceneAction, MetricSceneMenu } from '../metricSceneActions'
+
+const MENU_DATA_ATTR_PREFIX = 'data-catalog-metric-menubar'
+
+function MetricMenuItem({ action }: { action: MetricSceneAction }): JSX.Element {
+    return (
+        <SceneMenuBarItem
+            onClick={action.onClick}
+            disabled={!!action.disabledReason}
+            tooltip={action.disabledReason}
+            variant={action.destructive ? 'destructive' : undefined}
+            opensFloatingUi={action.opensFloatingUi}
+            data-attr={`${MENU_DATA_ATTR_PREFIX}-${action.key}`}
+        >
+            {action.icon}
+            {action.label}
+        </SceneMenuBarItem>
+    )
+}
 
 export function MetricSceneMenuBar({ actions }: { actions: MetricSceneAction[] }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]) {
         return null
     }
-    const nonDestructive = actions.filter((action) => !action.destructive)
-    const destructive = actions.filter((action) => action.destructive)
+    const inMenu = (menu: MetricSceneMenu): MetricSceneAction[] => actions.filter((action) => action.menu === menu)
+    const fileActions = inMenu('file').filter((action) => !action.destructive)
+    const destructiveActions = inMenu('file').filter((action) => action.destructive)
+    const viewActions = inMenu('view')
 
     return (
         <SceneMenuBar>
-            <SceneMenuBarMenu label="Metric" dataAttr="data-catalog-metric-menubar">
-                {nonDestructive.map((action) => (
-                    <SceneMenuBarItem
-                        key={action.key}
-                        onClick={action.onClick}
-                        disabled={!!action.disabledReason}
-                        data-attr={`data-catalog-metric-menubar-${action.key}`}
-                    >
-                        {action.icon}
-                        {action.label}
-                    </SceneMenuBarItem>
+            <SceneMenuBarMenu label="File" dataAttr={`${MENU_DATA_ATTR_PREFIX}-file`}>
+                {fileActions.map((action) => (
+                    <MetricMenuItem key={action.key} action={action} />
                 ))}
                 <SceneMenuBarSeparator />
-                {destructive.map((action) => (
-                    <SceneMenuBarItem
-                        key={action.key}
-                        variant="destructive"
-                        onClick={action.onClick}
-                        data-attr={`data-catalog-metric-menubar-${action.key}`}
-                    >
-                        {action.icon}
-                        {action.label}
-                    </SceneMenuBarItem>
+                {destructiveActions.map((action) => (
+                    <MetricMenuItem key={action.key} action={action} />
                 ))}
             </SceneMenuBarMenu>
+            <SceneMenuBarMenu label="Edit" dataAttr={`${MENU_DATA_ATTR_PREFIX}-edit`}>
+                {inMenu('edit').map((action) => (
+                    <MetricMenuItem key={action.key} action={action} />
+                ))}
+            </SceneMenuBarMenu>
+            {viewActions.length > 0 && (
+                <SceneMenuBarMenu label="View" dataAttr={`${MENU_DATA_ATTR_PREFIX}-view`}>
+                    {viewActions.map((action) => (
+                        <MetricMenuItem key={action.key} action={action} />
+                    ))}
+                </SceneMenuBarMenu>
+            )}
         </SceneMenuBar>
     )
 }

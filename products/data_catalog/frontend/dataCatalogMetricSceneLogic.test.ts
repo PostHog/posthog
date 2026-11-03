@@ -161,7 +161,7 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(lineageRequest()).not.toHaveBeenCalled()
     })
 
-    it('retries a not-ready lineage exactly once', async () => {
+    it('retries a not-ready lineage exactly once, then reports it missing', async () => {
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
         try {
             lineageRequest().mockRejectedValue(new ApiError('nope', 404))
@@ -169,12 +169,14 @@ describe('dataCatalogMetricSceneLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(lineageRequest()).toHaveBeenCalledTimes(1)
 
+            expect(logic.values.lineageProblem).toBe('not_ready')
+
             await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
             expect(lineageRequest()).toHaveBeenCalledTimes(2)
 
             await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 3)
             expect(lineageRequest()).toHaveBeenCalledTimes(2)
-            expect(logic.values.lineageProblem).toBe('not_ready')
+            expect(logic.values.lineageProblem).toBe('missing')
         } finally {
             jest.useRealTimers()
         }

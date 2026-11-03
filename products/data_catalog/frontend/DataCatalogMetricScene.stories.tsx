@@ -60,7 +60,7 @@ interface StoryProps {
 
 const meta: Meta<StoryProps> = {
     title: 'Products/Data catalog/Metric',
-    args: { metric: metric(), className: 'w-[960px]' },
+    args: { metric: metric(), className: 'w-[960px] @container/main-content' },
     parameters: {
         layout: 'padded',
         viewMode: 'story',
@@ -75,6 +75,21 @@ const meta: Meta<StoryProps> = {
                 '/api/projects/:team_id/data_quality_checks/': { results: [] },
                 '/api/projects/:team_id/data_quality_checks/health/': [],
                 '/api/projects/:team_id/data_quality_runs/': { results: [] },
+                '/api/organizations/:organization_id/members/': {
+                    results: [
+                        {
+                            id: 'member-1',
+                            level: 8,
+                            user: {
+                                id: 1,
+                                uuid: 'user-1',
+                                email: 'alex@example.com',
+                                first_name: 'Alex',
+                                last_name: 'Rivera',
+                            },
+                        },
+                    ],
+                },
             },
         })
         return (
@@ -92,6 +107,16 @@ type Story = StoryObj<StoryProps>
 
 export const QuillProposedSqlMetric: Story = {}
 
-export const QuillProposedSqlMetricNarrow: Story = { args: { className: 'w-128' } }
+export const QuillProposedSqlMetricNarrow: Story = { args: { className: 'w-130 @container/main-content' } }
+
+export const QuillWithSceneMenuBar: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+            FEATURE_FLAGS.SCENE_MENU_BAR,
+        ],
+    },
+}
 
 export const QuillDriftedMarkdownMetric: Story = { args: { metric: DRIFTED_MARKDOWN_METRIC } }

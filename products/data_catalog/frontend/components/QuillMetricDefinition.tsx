@@ -15,7 +15,6 @@ import type { DataCatalogMetricRunResult } from './MetricDefinition'
 import { QuillMarkdownDefinitionEditor } from './QuillMarkdownDefinitionEditor'
 import { QuillMetricCallout } from './QuillMetricCallout'
 import { QuillMetricCodeBlock, renderQuillMetricCodeBlock } from './QuillMetricCodeBlock'
-import { QuillMetricDefinitionSection } from './QuillMetricDefinitionSection'
 import { QuillMetricRunResult } from './QuillMetricRunResult'
 import { QuillRunMetricWithAIButton } from './QuillRunMetricWithAIButton'
 
@@ -86,7 +85,7 @@ export function QuillMetricDefinition({
 
     if (kind === 'HogQLQuery') {
         return (
-            <QuillMetricDefinitionSection>
+            <div className="flex flex-col gap-2">
                 <QuillMetricCodeBlock code={definitionField(metric, 'query')} language={Language.SQL} />
                 <div className="flex flex-wrap gap-2">
                     {runButton}
@@ -97,13 +96,13 @@ export function QuillMetricDefinition({
                     {sourceInsightButton}
                 </div>
                 {results}
-            </QuillMetricDefinitionSection>
+            </div>
         )
     }
 
     if (kind === 'MarkdownDefinition') {
         return (
-            <QuillMetricDefinitionSection>
+            <div className="flex flex-col gap-2">
                 {editingDefinition ? (
                     markdownEditor
                 ) : (
@@ -120,13 +119,13 @@ export function QuillMetricDefinition({
                         </div>
                     </>
                 )}
-            </QuillMetricDefinitionSection>
+            </div>
         )
     }
 
     if (!kind) {
         return (
-            <QuillMetricDefinitionSection>
+            <div className="flex flex-col gap-2">
                 {editingDefinition ? (
                     markdownEditor
                 ) : (
@@ -146,12 +145,12 @@ export function QuillMetricDefinition({
                         This metric is a stub with no definition. Add one to make it runnable.
                     </QuillMetricCallout>
                 )}
-            </QuillMetricDefinitionSection>
+            </div>
         )
     }
 
     return (
-        <QuillMetricDefinitionSection>
+        <div className="flex flex-col gap-2">
             {sourceInsightButton ? (
                 <Text size="xs" variant="muted" className="m-0">
                     This metric is derived from an insight. Edit the query in the insight, then refresh the metric.
@@ -178,6 +177,6 @@ export function QuillMetricDefinition({
                 {sourceInsightButton}
             </div>
             {results}
-        </QuillMetricDefinitionSection>
+        </div>
     )
 }

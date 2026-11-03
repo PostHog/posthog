@@ -129,7 +129,7 @@ function quillAtWidths(props: MetricLineagePanelProps): JSX.Element {
             <div className="w-[960px]">
                 <QuillMetricLineagePanel {...props} />
             </div>
-            <div className="w-128">
+            <div className="w-130">
                 <QuillMetricLineagePanel {...props} />
             </div>
         </div>
@@ -141,6 +141,11 @@ export const QuillGraph: Story = { parameters: QUILL_PARAMETERS, render: () => q
 export const QuillNoDefinition: Story = {
     parameters: QUILL_PARAMETERS,
     render: () => quillAtWidths({ ...BASE, metric: MARKDOWN_METRIC, lineage: null }),
+}
+
+export const QuillMissingLineage: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, lineage: null, lineageProblem: 'missing' }),
 }
 
 export const QuillLoadFailed: Story = {

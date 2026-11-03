@@ -51,7 +51,7 @@ export interface DataCatalogMetricSceneLogicProps {
 export type MetricSceneTab = 'definition' | 'data-quality' | 'lineage'
 
 /** What stopped the lineage load, in the terms the tab has a screen for. */
-export type LineageLoadProblem = 'not_ready' | 'no_warehouse_access' | 'failed'
+export type LineageLoadProblem = 'not_ready' | 'missing' | 'no_warehouse_access' | 'failed'
 
 export interface MetricLineage {
     nodes: DataModelingNode[]
@@ -90,6 +90,11 @@ function apiErrorDetail(error: unknown): string | null {
 /** A metric with no query definition has no lineage to fetch; the tab says so without asking. */
 export function metricHasExecutableDefinition(metric: DataCatalogMetricApi | null): boolean {
     return !!metric?.definition_kind && metric.definition_kind !== 'MarkdownDefinition'
+}
+
+export function metricReferencedTableNames(metric: DataCatalogMetricApi): string[] {
+    const names = metric.referenced_table_names
+    return Array.isArray(names) ? names.filter((name): name is string => typeof name === 'string') : []
 }
 
 // What a lineage graph was computed for. The upstream tables follow from the metric and its
@@ -227,6 +232,9 @@ export interface dataCatalogMetricSceneLogicActions {
         runResult: DataCatalogMetricRunApi
         payload?: any
     }
+    markLineageMissing: () => {
+        value: true
+    }
     markLineageStale: () => {
         value: true
     }
@@ -332,6 +340,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         markLineageStale: true,
         setLineageRequestedFor: (key: string | null) => ({ key }),
         setLineageRetried: (lineageRetried: boolean) => ({ lineageRetried }),
+        markLineageMissing: true,
         setMetric: (metric: DataCatalogMetricApi) => ({ metric }),
         approveMetric: true,
         refreshMetricFromInsight: true,
@@ -404,6 +413,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 loadLineage: () => null,
                 loadLineageSuccess: () => null,
                 loadLineageFailure: (_, { errorObject }: { errorObject?: unknown }) => lineageProblem(errorObject),
+                markLineageMissing: () => 'missing',
             },
         ],
         lineageStale: [
@@ -543,7 +553,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             actions.loadLineageIfNeeded()
         },
         loadLineageFailure: async (_, breakpoint) => {
-            if (values.lineageProblem !== 'not_ready' || values.lineageRetried) {
+            if (values.lineageProblem !== 'not_ready') {
+                return
+            }
+            if (values.lineageRetried) {
+                actions.markLineageMissing()
                 return
             }
             actions.setLineageRetried(true)

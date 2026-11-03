@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,10 +17,11 @@ import { METRIC_DESCRIPTION_MAX_LENGTH } from './common'
 import { MetricSceneMenuBar } from './components/MetricSceneMenuBar'
 import { QuillEditApprovedMetricDialog } from './components/QuillEditApprovedMetricDialog'
 import { QuillMetricDefinition } from './components/QuillMetricDefinition'
-import { QuillMetricMetadata } from './components/QuillMetricMetadata'
 import { QuillMetricMoreActions } from './components/QuillMetricMoreActions'
+import { QuillMetricProvenance } from './components/QuillMetricProvenance'
 import { QuillMetricSceneSkeleton } from './components/QuillMetricSceneSkeleton'
 import { QuillMetricStatusCallouts } from './components/QuillMetricStatusCallouts'
+import { QuillMetricSummary } from './components/QuillMetricSummary'
 import { QuillRenameMetricDialog } from './components/QuillRenameMetricDialog'
 import {
     dataCatalogMetricSceneLogic,
@@ -28,12 +29,7 @@ import {
     MetricSceneTab,
 } from './dataCatalogMetricSceneLogic'
 import type { PatchedDataCatalogMetricApi } from './generated/api.schemas'
-import {
-    buildMetricSceneActions,
-    MAX_UNAVAILABLE_REASON,
-    MetricSceneAction,
-    RUN_ACTION_KEY,
-} from './metricSceneActions'
+import { buildMetricSceneActions, MAX_UNAVAILABLE_REASON, RUN_ACTION_KEY } from './metricSceneActions'
 import { QuillMetricLineagePanel } from './QuillMetricLineagePanel'
 import { QuillMetricTestsTab } from './tabs/QuillMetricTestsTab'
 import { QuillMetricTestsTabLabel } from './tabs/QuillMetricTestsTabLabel'
@@ -42,20 +38,6 @@ type OpenDialog =
     | { kind: 'rename' }
     | { kind: 'delete' }
     | { kind: 'edit-approved'; patch: PatchedDataCatalogMetricApi }
-
-function RunButton({ action }: { action: MetricSceneAction }): JSX.Element {
-    return (
-        <Button
-            variant="outline"
-            onClick={action.onClick}
-            disabledReason={action.disabledReason}
-            data-attr={`data-catalog-metric-action-${action.key}`}
-        >
-            {action.icon}
-            {action.label}
-        </Button>
-    )
-}
 
 export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps): JSX.Element {
     const {
@@ -122,8 +104,8 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
             delete: () => setOpenDialog({ kind: 'delete' }),
         },
     })
-    const runAction = actions.find((action) => action.key === RUN_ACTION_KEY)
-    const menuActions = actions.filter((action) => action.key !== RUN_ACTION_KEY)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const overflowActions = actions.filter((action) => action.key !== RUN_ACTION_KEY)
 
     return (
         <BindLogic logic={dataCatalogMetricSceneLogic} props={{ name }}>
@@ -141,14 +123,21 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
                     renameDebounceMs={0}
                     saveOnBlur
                     actions={
-                        <div className="flex flex-wrap items-center gap-2" data-quill>
-                            {runAction && <RunButton action={runAction} />}
-                            <QuillMetricMoreActions actions={menuActions} />
-                        </div>
+                        sceneMenuBarEnabled ? undefined : (
+                            <div data-quill>
+                                <QuillMetricMoreActions actions={overflowActions} />
+                            </div>
+                        )
                     }
                 />
 
                 <div className="flex flex-col gap-4" data-quill>
+                    <QuillMetricSummary
+                        metric={metric}
+                        saving={mutating}
+                        onSaveUnit={(unit) => confirmAndUpdate({ unit })}
+                        onSaveOwner={(owner) => updateMetric({ owner })}
+                    />
                     <QuillMetricStatusCallouts
                         metric={metric}
                         mutating={mutating}
@@ -176,12 +165,6 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
                         >
                             {mountedTabs.includes('definition') && (
                                 <>
-                                    <QuillMetricMetadata
-                                        metric={metric}
-                                        saving={mutating}
-                                        onSaveUnit={(unit) => confirmAndUpdate({ unit })}
-                                        onSaveOwner={(owner) => updateMetric({ owner })}
-                                    />
                                     <QuillMetricDefinition
                                         metric={metric}
                                         editingDefinition={editingDefinition}
@@ -199,6 +182,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
                                         onRunWithAI={runMetricWithAI}
                                         runWithAIDisabledReason={isMaxAvailable ? undefined : MAX_UNAVAILABLE_REASON}
                                     />
+                                    <QuillMetricProvenance metric={metric} />
                                 </>
                             )}
                         </TabsContent>

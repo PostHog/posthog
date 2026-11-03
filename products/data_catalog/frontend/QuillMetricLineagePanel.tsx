@@ -33,7 +33,8 @@ import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageN
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
 import { QuillMetricCallout } from './components/QuillMetricCallout'
-import { metricHasExecutableDefinition } from './dataCatalogMetricSceneLogic'
+import { metricHasExecutableDefinition, metricReferencedTableNames } from './dataCatalogMetricSceneLogic'
+import { DataCatalogMetricApi } from './generated/api.schemas'
 import type { MetricLineagePanelProps } from './MetricLineagePanel'
 
 type LineageView = 'graph' | 'table'
@@ -63,6 +64,46 @@ function LineageMessage({
                     </Button>
                 </EmptyContent>
             )}
+        </Empty>
+    )
+}
+
+function MissingLineage({ metric, onRetry }: { metric: DataCatalogMetricApi; onRetry: () => void }): JSX.Element {
+    const tableNames = metricReferencedTableNames(metric)
+
+    return (
+        <Empty className="border border-border rounded-md">
+            <EmptyHeader>
+                <EmptyTitle>No lineage for this metric yet</EmptyTitle>
+                <EmptyDescription>
+                    {tableNames.length > 0
+                        ? 'Its definition reads the tables below. The lineage graph shows them once they are linked to this metric.'
+                        : "We couldn't trace which tables this metric reads. Check that its query runs, then check again."}
+                </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+                {tableNames.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-2">
+                        {tableNames.map((tableName) => (
+                            <Button
+                                key={tableName}
+                                variant="outline"
+                                render={
+                                    <LinkPrimitive
+                                        to={urls.sqlEditor({ query: `SELECT * FROM ${tableName} LIMIT 100` })}
+                                    />
+                                }
+                                data-attr="data-catalog-metric-lineage-referenced-table"
+                            >
+                                {tableName}
+                            </Button>
+                        ))}
+                    </div>
+                )}
+                <Button variant="default" onClick={onRetry} data-attr="data-catalog-metric-lineage-check-again">
+                    Check again
+                </Button>
+            </EmptyContent>
         </Empty>
     )
 }
@@ -155,6 +196,10 @@ export function QuillMetricLineagePanel({
                 action={{ label: 'Refresh', onClick: onRetry }}
             />
         )
+    }
+
+    if (lineageProblem === 'missing') {
+        return <MissingLineage metric={metric} onRetry={onRetry} />
     }
 
     if (lineageProblem === 'no_warehouse_access') {
