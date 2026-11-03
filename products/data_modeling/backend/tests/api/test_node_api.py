@@ -758,7 +758,7 @@ class TestNodeViewSet(APIBaseTest):
     def _node_url(self, node: Node) -> str:
         return f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/"
 
-    def _give_the_view_a_consumer(self, consumer_target: timedelta) -> Node:
+    def _give_the_view_a_consumer(self, consumer_target: timedelta, *, reads_the_table_too: bool = False) -> Node:
         self.view_node.type = NodeType.MAT_VIEW
         self.view_node.save(update_fields=["type"])
         consumer = Node.objects.create(
@@ -770,6 +770,8 @@ class TestNodeViewSet(APIBaseTest):
             type=NodeType.MAT_VIEW,
         )
         Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=consumer)
+        if reads_the_table_too:
+            Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=consumer)
         set_declared_target(consumer, consumer_target)
         return consumer
 
@@ -778,7 +780,7 @@ class TestNodeViewSet(APIBaseTest):
             return self.client.patch(self._node_url(node), data=payload, format="json")
 
     def test_a_pinned_view_keeps_a_cadence_slower_than_its_consumer_until_unpinned(self):
-        self._give_the_view_a_consumer(timedelta(hours=6))
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=True)
 
         bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
         options = {option["cadence"]: option for option in bounds["options"]}
@@ -809,6 +811,38 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(
             (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), False)
         )
+
+    @parameterized.expand(
+        [
+            ("consumer_reads_only_this_view", False, {"6hour": None, "24hour": "consumer_view"}),
+            ("consumer_has_a_fresher_input", True, {"6hour": None, "24hour": None}),
+        ]
+    )
+    def test_a_pin_that_strands_a_downstream_view_is_marked_and_refused(
+        self, _name, reads_the_table_too, expected_blockers
+    ):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=reads_the_table_too)
+
+        bounds = self.client.get(f"{self._node_url(self.view_node)}frequency_bounds/").json()
+        blockers = {
+            option["cadence"]: option["pin_blocked_by"] and option["pin_blocked_by"]["name"]
+            for option in bounds["options"]
+            if option["cadence"] in expected_blockers
+        }
+        self.assertEqual(blockers, expected_blockers)
+
+        response = self._patch_cadence(self.view_node, {"sync_frequency": "24hour", "pinned": True})
+        if expected_blockers["24hour"] is None:
+            self.assertEqual(response.status_code, 200, response.json())
+            return
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(
+            response.json()["detail"],
+            "Can't pin this view to 1 day: downstream view consumer_view refreshes every 6 hours and has no "
+            "fresher input than this view. Slow down consumer_view first, or pin a faster cadence.",
+        )
+        self.view_node.refresh_from_db()
+        self.assertEqual((get_declared_target(self.view_node), get_declared_pin(self.view_node)), (None, False))
 
     @parameterized.expand(
         [

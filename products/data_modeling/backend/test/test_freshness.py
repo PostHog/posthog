@@ -15,11 +15,13 @@ from products.data_modeling.backend.logic.freshness import (
     clamp_to_source_floor,
     compute_effective_cadences,
     compute_target_bounds,
+    descendants_broken_by_pin,
     find_invalid_targets,
     intersect_target_bounds,
     max_data_age,
     normalize_seed_target,
     validate_declared_target,
+    validate_pin,
 )
 
 M5 = timedelta(minutes=5)
@@ -380,6 +382,66 @@ class TestIntersectTargetBounds(TestCase):
         self.assertIsNone(bounds.floor)
         self.assertIsNone(bounds.ceiling)
         self.assertTrue(all(option.allowed for option in options.values()))
+
+
+class TestPinBreaksDescendants(TestCase):
+    @parameterized.expand(
+        [
+            ("chain_child_reads_only_the_pinned_view", [("src", "up"), ("up", "maps")], {"maps": H6}, ["maps"]),
+            (
+                "fan_in_child_keeps_a_fresh_input",
+                [("src", "up"), ("up", "maps"), ("src", "maps")],
+                {"maps": H6},
+                [],
+            ),
+            # maps is already finer than the slow source it reads through up, so the pin is not to blame
+            (
+                "already_invalid_child_does_not_block",
+                [("slow", "up"), ("up", "maps")],
+                {"maps": M15},
+                [],
+            ),
+        ]
+    )
+    def test_descendants_broken_by_pin(self, _name, edges, child_targets, expected):
+        broken = descendants_broken_by_pin(
+            node_id="up",
+            target=DAY,
+            edges=edges,
+            declared_targets={"up": H1, **child_targets},
+            source_intervals={"src": STREAMING, "slow": H6},
+            pinned=set(),
+        )
+        self.assertEqual([invalid.node_id for invalid in broken], expected)
+
+    @parameterized.expand(
+        [
+            (
+                "named",
+                {"maps": "maps"},
+                "Can't pin this view to 1 day: downstream view maps refreshes every 6 hours and has no "
+                "fresher input than this view. Slow down maps first, or pin a faster cadence.",
+            ),
+            (
+                "withheld",
+                {},
+                "Can't pin this view to 1 day: a downstream view refreshes every 6 hours and has no "
+                "fresher input than this view. Slow down that view first, or pin a faster cadence.",
+            ),
+        ]
+    )
+    def test_refusal_names_the_downstream_view_it_would_strand(self, _name, names, message):
+        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
+            validate_pin(
+                node_id="up",
+                target=DAY,
+                edges=[("src", "up"), ("up", "maps")],
+                declared_targets={"up": DAY, "maps": H6},
+                source_intervals={"src": STREAMING},
+                pinned=set(),
+                names=names,
+            )
+        self.assertEqual(str(raised.exception), message)
 
 
 class TestFindInvalidTargets(TestCase):

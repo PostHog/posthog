@@ -768,6 +768,14 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     delayed:
                         nodeFrequency.bounds.options.find((option) => option.cadence === cadence)?.delays_if_pinned ??
                         [],
+                    blockedBy: Object.fromEntries(
+                        nodeFrequency.bounds.options.flatMap((option) =>
+                            option.pin_blocked_by ? [[option.cadence, option.pin_blocked_by]] : []
+                        )
+                    ),
+                    delaysBy: Object.fromEntries(
+                        nodeFrequency.bounds.options.map((option) => [option.cadence, option.delays_if_pinned])
+                    ),
                 }
             },
         ],

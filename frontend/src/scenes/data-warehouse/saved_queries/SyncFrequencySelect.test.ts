@@ -39,23 +39,38 @@ describe('SyncFrequencySelect', () => {
     })
 
     it.each([
-        ['without pinning', false, 'Too slow for downstream view daily_revenue', 'Every 1 day'],
+        ['without pinning', {}, 'Too slow for downstream view daily_revenue', 'Every 1 day'],
         [
-            'with pinning, a too-slow cadence pins instead',
-            true,
+            'with pinning, a too-slow cadence names the views the pin delays',
+            { canPin: true, pinDelays: { '24hour': [blocker('daily_revenue'), blocker('mrr')] } },
             undefined,
-            'Pin to every 1 day. Downstream view daily_revenue needs fresher data.',
+            'Pin this view to every 1 day. Downstream views daily_revenue, mrr refresh more often and will read older data from it.',
         ],
-    ])('disables a blocked cadence and names what blocks it %s', (_case, canPin, consumerReason, consumerTooltip) => {
-        const options = buildOptions(bounds(), { canPin })
+        [
+            'with pinning, a too-slow cadence falls back to the view that caps it',
+            { canPin: true },
+            undefined,
+            'Pin this view to every 1 day. Downstream view daily_revenue refreshes more often and will read older data from it.',
+        ],
+        [
+            'with pinning, a pin that strands a downstream view stays off',
+            { canPin: true, pinBlockedBy: { '24hour': blocker('maps') } },
+            "Can't pin: downstream view maps reads fresh data only through this view",
+            'Every 1 day',
+        ],
+    ])(
+        'disables a blocked cadence and names what blocks it %s',
+        (_case, pinOptions, consumerReason, consumerTooltip) => {
+            const options = buildOptions(bounds(), pinOptions)
 
-        const bySource = options.find((option) => option.value === '15min')
-        const byConsumer = options.find((option) => option.value === '24hour')
-        expect(bySource?.disabledReason).toBe('More often than upstream source stripe_invoices syncs')
-        expect(byConsumer?.disabledReason).toBe(consumerReason)
-        expect(byConsumer?.tooltip).toBe(consumerTooltip)
-        expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
-    })
+            const bySource = options.find((option) => option.value === '15min')
+            const byConsumer = options.find((option) => option.value === '24hour')
+            expect(bySource?.disabledReason).toBe('More often than upstream source stripe_invoices syncs')
+            expect(byConsumer?.disabledReason).toBe(consumerReason)
+            expect(byConsumer?.tooltip).toBe(consumerTooltip)
+            expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
+        }
+    )
 
     describe('pinNote', () => {
         it.each([

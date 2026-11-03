@@ -673,3 +673,74 @@ def find_invalid_targets(
                 )
             )
     return invalid
+
+
+def descendants_broken_by_pin(
+    *,
+    node_id: str,
+    target: timedelta,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+) -> list[InvalidTarget]:
+    """The downstream targets that pinning `node_id` to `target` would put out of reach.
+
+    A pin raises its children's source floor. A child with another, fresher parent keeps that
+    parent's floor, but a child that reads fresh data only through this node can no longer meet
+    its own target. Targets that were already out of reach without the pin don't count against it.
+    """
+    targets = {**declared_targets, node_id: target}
+    others = set(pinned) - {node_id}
+    before = {
+        invalid.node_id
+        for invalid in find_invalid_targets(
+            edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others
+        )
+    }
+    descendants = descendants_of(node_id, edges)
+    return sorted(
+        (
+            invalid
+            for invalid in find_invalid_targets(
+                edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=others | {node_id}
+            )
+            if invalid.node_id in descendants and invalid.node_id not in before
+        ),
+        key=lambda invalid: invalid.node_id,
+    )
+
+
+def validate_pin(
+    *,
+    node_id: str,
+    target: timedelta,
+    edges: list[tuple[str, str]],
+    declared_targets: Mapping[str, timedelta],
+    source_intervals: dict[str, timedelta],
+    pinned: Collection[str],
+    names: Mapping[str, str] | None = None,
+) -> None:
+    """Raise UnsatisfiableFrequencyError when pinning `node_id` to `target` strands a downstream view.
+
+    The message names the first stranded view the caller may see, and generic prose otherwise.
+    """
+    broken = descendants_broken_by_pin(
+        node_id=node_id,
+        target=target,
+        edges=edges,
+        declared_targets=declared_targets,
+        source_intervals=source_intervals,
+        pinned=pinned,
+    )
+    if not broken:
+        return
+    named = [invalid for invalid in broken if (names or {}).get(invalid.node_id)]
+    stranded = (named or broken)[0]
+    view = _describe(stranded.node_id, names, "")
+    subject, fix = (f"downstream view {view}", view) if view else ("a downstream view", "that view")
+    raise UnsatisfiableFrequencyError(
+        f"Can't pin this view to {humanize_cadence(target)}: {subject} refreshes every "
+        f"{humanize_cadence(stranded.declared)} and has no fresher input than this view. "
+        f"Slow down {fix} first, or pin a faster cadence."
+    )

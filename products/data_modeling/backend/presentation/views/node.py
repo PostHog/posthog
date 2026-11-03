@@ -127,6 +127,12 @@ class NodeFrequencyOptionSerializer(serializers.Serializer):
         help_text="Downstream views and endpoints that refresh more often than this cadence. If this view "
         "were pinned to it, they would read data older than their own cadence.",
     )
+    pin_blocked_by = NodePinDelaySerializer(
+        allow_null=True,
+        help_text="The downstream view that stops a pin at this cadence. It reads fresh data only through "
+        "this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null "
+        "when this cadence can be pinned.",
+    )
 
 
 class NodeFrequencyBoundsSerializer(serializers.Serializer):
@@ -525,6 +531,15 @@ class NodeViewSet(
         if resolved is None:
             return response.Response({"pinned": False, "options": []})
         names = self._visible_names_around(node)
+
+        def pin_blocker(cadence: timedelta) -> dict[str, str] | None:
+            stranded = sorted(resolved.pin_blocked_by.get(cadence, ()))
+            if not stranded:
+                return None
+            # name a view the caller can see when there is one
+            node_id = next((node_id for node_id in stranded if node_id in names), stranded[0])
+            return {"id": node_id, "name": names.get(node_id, "a downstream view")}
+
         options = [
             {
                 "cadence": sync_frequency_interval_to_sync_frequency(option.value),
@@ -533,6 +548,7 @@ class NodeViewSet(
                     for node_id in sorted(resolved.delays_if_pinned.get(option.value, ()))
                     if node_id in names
                 ],
+                "pin_blocked_by": pin_blocker(option.value),
             }
             for option in resolved.bounds.options
         ]

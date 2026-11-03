@@ -24,6 +24,7 @@ from products.data_modeling.backend.logic.freshness import (
     clamp_to_source_floor,
     compute_effective_cadences,
     compute_target_bounds,
+    descendants_broken_by_pin,
     descendants_of,
     intersect_target_bounds,
     max_data_age,
@@ -337,6 +338,8 @@ class SavedQueryFrequencyBounds:
     pinned: bool
     # cadence -> downstream nodes that would read data older than their own cadence if this were pinned to it
     delays_if_pinned: dict[timedelta, set[str]]
+    # cadence -> downstream nodes whose own target a pin at that cadence would put out of reach
+    pin_blocked_by: dict[timedelta, set[str]]
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -358,6 +361,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
     delays_if_pinned: dict[timedelta, set[str]] = {}
+    pin_blocked_by: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
@@ -385,6 +389,16 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
             speeds_up.setdefault(cadence, set()).update(sped_up)
         for cadence, delayed in _delays_if_pinned_by_cadence(str(node.id), graph, per_dag[-1]).items():
             delays_if_pinned.setdefault(cadence, set()).update(delayed)
+        for option in per_dag[-1].options:
+            stranded = descendants_broken_by_pin(
+                node_id=str(node.id),
+                target=option.value,
+                edges=graph.edges,
+                declared_targets=graph.declared_targets,
+                source_intervals=graph.source_intervals,
+                pinned=graph.pinned,
+            )
+            pin_blocked_by.setdefault(option.value, set()).update(invalid.node_id for invalid in stranded)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
@@ -396,6 +410,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         speeds_up=speeds_up,
         pinned=any(get_declared_pin(node) for node in nodes),
         delays_if_pinned=delays_if_pinned,
+        pin_blocked_by=pin_blocked_by,
     )
 
 

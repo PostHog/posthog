@@ -57,6 +57,7 @@ from products.data_modeling.backend.logic.freshness import (
     find_invalid_targets,
     format_cadence,
     validate_declared_target,
+    validate_pin,
 )
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
@@ -211,6 +212,16 @@ def apply_saved_query_frequency_target(
                         names=visible_names or {},
                         pinned=(graph.pinned - {node_id}) | ({node_id} if pin else set()),
                     )
+                    if pin:
+                        validate_pin(
+                            node_id=node_id,
+                            target=target,
+                            edges=graph.edges,
+                            declared_targets=graph.declared_targets,
+                            source_intervals=graph.source_intervals,
+                            pinned=graph.pinned,
+                            names=visible_names or {},
+                        )
                 set_declared_target(node, target)
                 if pinned is not None:
                     set_declared_pin(node, pinned)

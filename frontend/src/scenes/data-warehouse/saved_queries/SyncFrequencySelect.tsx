@@ -70,6 +70,10 @@ export interface CadencePin {
     pending: boolean
     /** Downstream views that refresh more often than the pinned cadence. */
     delayed: NodePinDelayApi[]
+    /** Per cadence, the downstream view a pin that slow would leave unable to meet its own cadence. */
+    blockedBy: Partial<Record<string, NodePinDelayApi>>
+    /** Per cadence, the downstream views that would read older data if this view were pinned to it. */
+    delaysBy: Partial<Record<string, NodePinDelayApi[]>>
 }
 
 export interface SyncFrequencySelectProps {
@@ -113,7 +117,7 @@ export function SyncFrequencySelect({
     const selected = inherited?.cadence ?? (value && value !== 'never' ? value : undefined)
     const selectedSpeedUp = value && value !== 'never' ? speedUpWarning(bounds, value) : null
     const upstreamToKeep = onKeepUpstream && value && value !== 'never' ? speedUpViews(bounds, value) : []
-    const options = buildOptions(bounds, { canPin: !!pin })
+    const options = buildOptions(bounds, { canPin: !!pin, pinBlockedBy: pin?.blockedBy, pinDelays: pin?.delaysBy })
     // The inherited note already names the downstream view, so the ceiling sentence would repeat it.
     // With a pin on offer, a downstream view no longer caps how slow this view can go.
     const explanation = buildExplanation(bounds, { omitCeiling: !!inherited || !!pin })
@@ -322,7 +326,15 @@ export function inheritedCadence(
 
 export function buildOptions(
     bounds?: SyncFrequencyBoundsApi | null,
-    { canPin = false }: { canPin?: boolean } = {}
+    {
+        canPin = false,
+        pinBlockedBy = {},
+        pinDelays = {},
+    }: {
+        canPin?: boolean
+        pinBlockedBy?: Partial<Record<string, { name: string }>>
+        pinDelays?: Partial<Record<string, { name: string }[]>>
+    } = {}
 ): LemonSegmentedButtonOption<DataModelingSyncInterval>[] {
     if (!bounds?.options.length) {
         return ORDERED_CADENCES.map((cadence) => segment(cadence))
@@ -330,11 +342,25 @@ export function buildOptions(
 
     return bounds.options.map((option) => {
         const cadence = option.cadence as DataModelingSyncInterval
-        if (canPin && needsPin(bounds, cadence)) {
-            const consumer = option.blocker?.name
+        const stranded = pinBlockedBy[cadence]
+        if (canPin && stranded && needsPin(bounds, cadence)) {
             return {
                 ...segment(cadence),
-                tooltip: `Pin to every ${CADENCE_LABELS[cadence]}. ${consumer ? `Downstream view ${consumer} needs` : 'A downstream view needs'} fresher data.`,
+                disabledReason: `Can't pin: downstream view ${stranded.name} reads fresh data only through this view`,
+            }
+        }
+        if (canPin && needsPin(bounds, cadence)) {
+            const delayed = pinDelays[cadence]?.map((view) => view.name) ?? []
+            const names = delayed.length ? delayed : option.blocker ? [option.blocker.name] : []
+            const who =
+                names.length > 1
+                    ? `Downstream views ${names.join(', ')} refresh`
+                    : names.length === 1
+                      ? `Downstream view ${names[0]} refreshes`
+                      : 'A downstream view refreshes'
+            return {
+                ...segment(cadence),
+                tooltip: `Pin this view to every ${CADENCE_LABELS[cadence]}. ${who} more often and will read older data from it.`,
             }
         }
         return {
