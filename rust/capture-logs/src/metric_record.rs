@@ -61,8 +61,11 @@ pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
         + size_of::<f64>() * row.histogram_bounds.len()
         + size_of::<i64>() * row.histogram_counts.len()
         + row.metric_name.len();
-    if row.instrumentation_scope.len() > 50 {
-        total += row.instrumentation_scope.len();
+    // Scope and unit are short and compress well, so they count only when a sender inflates them.
+    for field in [&row.instrumentation_scope, &row.unit] {
+        if field.len() > 50 {
+            total += field.len();
+        }
     }
     for (k, v) in row.resource_attributes.iter().chain(&row.attributes) {
         total += k.len() + v.len();
@@ -621,9 +624,10 @@ mod tests {
 
         // The second row's overridden timestamp adds a 43-byte `$originalTimestamp` label.
         row.instrumentation_scope = "s".repeat(51);
+        row.unit = "u".repeat(60);
         assert_eq!(
             sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
-            8 + 16 + 24 + 11 + 9 + 9 + 51 + (8 + "test.metric".len() as u64 + 43)
+            8 + 16 + 24 + 11 + 9 + 9 + 51 + 60 + (8 + "test.metric".len() as u64 + 43)
         );
     }
 
