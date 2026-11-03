@@ -1069,6 +1069,19 @@ class TurnLogState:
     refused: bool
 
 
+def _is_subagent_update(update: dict[str, object]) -> bool:
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in ("posthog", "claudeCode"):
+        metadata = meta.get(channel)
+        if isinstance(metadata, dict):
+            parent = metadata.get("parentToolCallId")
+            if isinstance(parent, str) and parent:
+                return True
+    return False
+
+
 def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
@@ -1135,6 +1148,10 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         update = params.get("update") if isinstance(params, dict) else None
         if not isinstance(update, dict):
             continue
+        # Child activity can interleave with a parent's streamed answer without ending it.
+        # Child text must not become part of the response the caller validates either.
+        if _is_subagent_update(update):
+            continue
         parsed_updates.append(update)
     # Walk backwards from the end to find the final agent response.
     # First, skip non-agent entries (e.g. usage_update) to find the last
@@ -1145,13 +1162,11 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     found_agent_msg = False
     for update in reversed(parsed_updates):
         is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
-            break
+        if not is_agent_msg:
+            if found_agent_msg:
+                break
+            continue
+        found_agent_msg = True
         text = _extract_text(update)
         if text:
             trailing_parts.append(text)
