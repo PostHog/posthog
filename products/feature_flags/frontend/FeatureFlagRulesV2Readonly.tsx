@@ -1,15 +1,14 @@
 import { useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconPause } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import 'lib/components/PropertyFilters/PropertyFilters.scss'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { rulesV2CatchAllRule, rulesV2ShadowingRules } from 'scenes/feature-flags/featureFlagRulesV2Draft'
+import { rulesV2ShadowingRules } from 'scenes/feature-flags/featureFlagRulesV2Draft'
 
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { FeatureFlagRulesV2Config, FeatureFlagRulesV2ExperimentRule, FeatureFlagRulesV2Rule } from '~/types'
 
 import { isRulesV2EditableConfig } from './featureFlagConfigFormat'
@@ -20,21 +19,20 @@ import {
     RulesV2Connector,
     RulesV2DefaultStep,
     RulesV2MatchCountText,
+    RulesV2PausedRow,
+    RulesV2PausedTag,
     RulesV2RuleNumber,
     RulesV2RuleRow,
     RulesV2RuleTypeLabel,
+    RulesV2RulesHeading,
     RulesV2ShadowedWarning,
     RulesV2Value,
     rulesV2ExperimentSegments,
+    rulesV2ReachedPercentage,
     rulesV2RolloutMissText,
     rulesV2VariantColor,
     useRulesV2MatchCount,
 } from './RulesV2Flow'
-
-interface Subjects {
-    singular: string
-    plural: string
-}
 
 function ExperimentRows({
     rule,
@@ -42,11 +40,12 @@ function ExperimentRows({
     count,
 }: {
     rule: FeatureFlagRulesV2ExperimentRule
-    subjects: Subjects
+    subjects: Noun
     count: ReturnType<typeof useRulesV2MatchCount>
 }): JSX.Element {
     const enrolled = rule.rollout_percentage
     const heldOut = rule.holdout?.exclusion_percentage ?? 0
+    const reached = rulesV2ReachedPercentage(rule)
     return (
         <>
             {rule.holdout && (
@@ -60,13 +59,12 @@ function ExperimentRows({
             <RulesV2RuleRow
                 label="Rollout"
                 aside={
-                    // A paused experiment enrolls no one, so it has no reach to estimate.
-                    rule.paused ? null : (
+                    reached === null ? null : (
                         <RulesV2MatchCountText
                             count={count}
                             properties={rule.targeting.properties}
                             subjects={subjects}
-                            rolloutPercentage={(enrolled * (100 - heldOut)) / 100}
+                            rolloutPercentage={reached}
                         />
                     )
                 }
@@ -127,7 +125,7 @@ function RuleCardReadonly({
     rule: FeatureFlagRulesV2Rule
     index: number
     config: FeatureFlagRulesV2Config
-    subjects: Subjects
+    subjects: Noun
     shadowedBy: number | null
 }): JSX.Element {
     const properties = rule.targeting.properties
@@ -141,14 +139,10 @@ function RuleCardReadonly({
                 <RulesV2RuleTypeLabel ruleType={rule.rule_type} />
                 {rule.description && <span className="text-secondary truncate min-w-0">{rule.description}</span>}
                 <div className="flex-1" />
-                {paused && (
-                    <LemonTag type="warning" icon={<IconPause />}>
-                        Paused
-                    </LemonTag>
-                )}
+                {paused && <RulesV2PausedTag />}
             </div>
             <div className="px-3 py-2.5 flex flex-col gap-1.5">
-                <RulesV2ShadowedWarning shadowedBy={shadowedBy} subjects={subjects.singular} />
+                <RulesV2ShadowedWarning shadowedBy={shadowedBy} subjects={subjects} />
                 <RulesV2RuleRow
                     label="If"
                     aside={<RulesV2MatchCountText count={count} properties={properties} subjects={subjects} />}
@@ -172,13 +166,11 @@ function RuleCardReadonly({
                     )}
                 </RulesV2RuleRow>
                 {paused && (
-                    <RulesV2RuleRow label="Paused">
-                        <span className="leading-7">
-                            Matching {subjects.plural} get the default value{' '}
-                            <RulesV2Value value={config.default_value} /> until the experiment resumes. Nobody is
-                            enrolled meanwhile.
-                        </span>
-                    </RulesV2RuleRow>
+                    <RulesV2PausedRow
+                        subjects={subjects}
+                        defaultValue={config.default_value}
+                        until="the experiment resumes"
+                    />
                 )}
                 {rule.rule_type === 'percentage_rollout' && (
                     <RulesV2RuleRow
@@ -248,12 +240,7 @@ export function FeatureFlagRulesV2Readonly({
         <div className="flex flex-col gap-3" data-attr="feature-flag-rules-v2-readonly">
             {!editable && <FeatureFlagConfigReadonlyNotice filters={config} />}
             <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="flex flex-col">
-                    <span className="font-semibold">Rules</span>
-                    <span className="text-xs text-secondary">
-                        Checked from top to bottom. The first rule that serves a {subjects.singular} decides the value.
-                    </span>
-                </div>
+                <RulesV2RulesHeading subjects={subjects} />
                 <div className="flex items-center gap-2">
                     <LemonTag type="default" data-attr="rules-v2-return-type">
                         Returns {config.return_type}
@@ -268,7 +255,7 @@ export function FeatureFlagRulesV2Readonly({
             )}
             <div className="flex flex-col">
                 {config.rules.map((rule, index) => (
-                    <div key={rule.id ?? index}>
+                    <Fragment key={rule.id ?? index}>
                         <RuleCardReadonly
                             rule={rule}
                             index={index}
@@ -277,13 +264,9 @@ export function FeatureFlagRulesV2Readonly({
                             shadowedBy={shadowingRules[index]}
                         />
                         <RulesV2Connector />
-                    </div>
+                    </Fragment>
                 ))}
-                <RulesV2DefaultStep
-                    subjects={subjects}
-                    hasRules={config.rules.length > 0}
-                    catchAllRule={rulesV2CatchAllRule(config.rules)}
-                >
+                <RulesV2DefaultStep subjects={subjects} rules={config.rules}>
                     <RulesV2Value value={config.default_value} />
                 </RulesV2DefaultStep>
             </div>

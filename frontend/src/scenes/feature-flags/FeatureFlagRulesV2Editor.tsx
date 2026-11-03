@@ -14,7 +14,7 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Fragment, useId } from 'react'
+import { Fragment, useId, useMemo } from 'react'
 
 import { IconCheckCircle, IconLetter, IconPlusSmall, IconToggle } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
@@ -27,7 +27,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { FeatureFlagRulesV2ReturnType } from '~/types'
 
@@ -39,10 +39,11 @@ import {
     RulesV2DefaultStep,
     RulesV2FieldError,
     RulesV2RuleType,
+    RulesV2RulesHeading,
+    rulesV2RuleTypeMenuLabel,
 } from 'products/feature_flags/frontend/RulesV2Flow'
 
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
-import { rulesV2CatchAllRule, rulesV2ShadowingRules } from './featureFlagRulesV2Draft'
 import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { RulesV2RuleEditor } from './RulesV2RuleEditor'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
@@ -135,7 +136,7 @@ function AddRule({
 }: {
     onAdd: (ruleType: RulesV2RuleType) => void
     empty: boolean
-    subjects: string
+    subjects: Noun
 }): JSX.Element {
     if (empty) {
         return (
@@ -143,7 +144,7 @@ function AddRule({
                 <div className="flex flex-col">
                     <span className="font-semibold">Add your first rule</span>
                     <span className="text-xs text-secondary">
-                        Until you add a rule, all {subjects} get the default value below.
+                        Until you add a rule, all {subjects.plural} get the default value below.
                     </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -172,20 +173,12 @@ function AddRule({
     return (
         <LemonMenu
             placement="bottom-start"
-            items={RULES_V2_RULE_TYPES.map((ruleType) => {
-                const meta = RULES_V2_RULE_TYPE_META[ruleType]
-                return {
-                    label: (
-                        <div className="flex flex-col py-0.5">
-                            <span className="font-semibold">{meta.label}</span>
-                            <span className="text-xs text-secondary font-normal">{meta.description}</span>
-                        </div>
-                    ),
-                    icon: meta.icon,
-                    onClick: () => onAdd(ruleType),
-                    'data-attr': `rules-v2-add-rule-${ruleType}`,
-                }
-            })}
+            items={RULES_V2_RULE_TYPES.map((ruleType) => ({
+                label: rulesV2RuleTypeMenuLabel(ruleType),
+                icon: RULES_V2_RULE_TYPE_META[ruleType].icon,
+                onClick: () => onAdd(ruleType),
+                'data-attr': `rules-v2-add-rule-${ruleType}`,
+            }))}
         >
             <LemonButton
                 type="secondary"
@@ -203,8 +196,18 @@ function AddRule({
 
 export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Element {
     const logic = featureFlagRulesV2EditorLogic({ id })
-    const { draft, ruleKeys, featureFlag, saving, saveError, saveDisabledReason, fieldError, hasUnsavedChanges } =
-        useValues(logic)
+    const {
+        draft,
+        rules,
+        ruleKeys,
+        shadowingRules,
+        featureFlag,
+        saving,
+        saveError,
+        saveDisabledReason,
+        fieldError,
+        hasUnsavedChanges,
+    } = useValues(logic)
     const { setDraft, setConfig, setReturnType, addRule, moveRule, saveRulesV2Flag, editFeatureFlag } =
         useActions(logic)
     const { tags } = useValues(tagsModel)
@@ -214,9 +217,9 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     const keyInputId = useId()
     const descriptionInputId = useId()
     const returnType = draft.config.return_type
-    const rules = draft.config.rules
-    const subjects = aggregationLabel(draft.config.aggregation_group_type_index, true)
-    const shadowingRules = rulesV2ShadowingRules(rules)
+    const groupTypeIndex = draft.config.aggregation_group_type_index
+    // A stable object, so the memoized rule cards skip re-rendering when another field changes.
+    const subjects = useMemo(() => aggregationLabel(groupTypeIndex, true), [aggregationLabel, groupTypeIndex])
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -254,7 +257,6 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
             editFeatureFlag(false)
         }
     }
-    const saveReason = saveDisabledReason ?? (!isNew && !hasUnsavedChanges ? 'Nothing to save yet.' : null)
 
     return (
         <div className="flex flex-col gap-4 pb-16" data-attr="feature-flag-rules-v2-editor">
@@ -271,7 +273,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                 variant="primary"
                                 data-attr="save-rules-v2-flag"
                                 loading={saving}
-                                disabledReason={saveReason}
+                                disabledReason={saveDisabledReason}
                                 onClick={saveRulesV2Flag}
                             >
                                 {isNew ? 'Create flag' : 'Save'}
@@ -292,7 +294,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                 size="small"
                                 data-attr="save-rules-v2-flag"
                                 loading={saving}
-                                disabledReason={saveReason}
+                                disabledReason={saveDisabledReason}
                                 onClick={saveRulesV2Flag}
                             >
                                 {isNew ? 'Create flag' : 'Save'}
@@ -394,13 +396,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                         </div>
                     </div>
                     <div className="flex-[2] min-w-[30rem] flex flex-col" data-attr="rules-v2-rules">
-                        <div className="flex flex-col mb-2">
-                            <span className="font-semibold">Rules</span>
-                            <span className="text-xs text-secondary">
-                                Checked from top to bottom. The first rule that serves a {subjects.singular} decides the
-                                value.
-                            </span>
-                        </div>
+                        <RulesV2RulesHeading subjects={subjects} className="mb-2" />
                         <DndContext
                             accessibility={{ announcements: dragAnnouncements }}
                             sensors={sensors}
@@ -429,13 +425,9 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                 </div>
                             </SortableContext>
                         </DndContext>
-                        <AddRule onAdd={addRule} empty={rules.length === 0} subjects={subjects.plural} />
+                        <AddRule onAdd={addRule} empty={rules.length === 0} subjects={subjects} />
                         <RulesV2Connector />
-                        <RulesV2DefaultStep
-                            subjects={subjects}
-                            hasRules={rules.length > 0}
-                            catchAllRule={rulesV2CatchAllRule(rules)}
-                        >
+                        <RulesV2DefaultStep subjects={subjects} rules={rules}>
                             <div className="flex flex-col gap-1">
                                 <RulesV2ValueInput
                                     aria-label="Default value"

@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagRulesV2Config } from '~/types'
+import { FeatureFlagRulesV2Config, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
 
@@ -209,6 +209,44 @@ describe('FeatureFlagRulesV2Readonly', () => {
         const rule = container.querySelector('[data-attr="rules-v2-rule-readonly"]')
         await waitFor(() => expect(rule).toHaveTextContent('≈ 200 users'))
         expect(rule).not.toHaveTextContent('≈ 100 users')
+    })
+
+    it.each([
+        { status: 500, retry: true },
+        { status: 400, retry: false },
+    ])('offers a retry after a failed estimate only when one can help (status $status)', async ({ status, retry }) => {
+        useMocks({
+            post: { '/api/projects/:team/feature_flags/user_blast_radius': () => [status, { detail: 'Failed.' }] },
+        })
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly
+                    config={{
+                        ...CONFIG,
+                        rules: [
+                            {
+                                ...CONFIG.rules[0],
+                                // Targeting no other test uses, so no earlier estimate is reused.
+                                targeting: {
+                                    properties: [
+                                        {
+                                            key: 'email',
+                                            type: PropertyFilterType.Person,
+                                            operator: PropertyOperator.IContains,
+                                            value: `@failure-${status}.example.com`,
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    }}
+                />
+            </Provider>
+        )
+
+        const rule = container.querySelector('[data-attr="rules-v2-rule-readonly"]')
+        await waitFor(() => expect(rule).toHaveTextContent("Couldn't estimate"))
+        expect(rule?.textContent?.includes('Retry')).toBe(retry)
     })
 
     it('shows a rule type it does not know instead of failing', () => {

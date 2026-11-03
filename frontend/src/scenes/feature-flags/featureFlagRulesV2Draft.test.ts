@@ -10,6 +10,7 @@ const EMAIL = {
 }
 const COUNTRY = { key: 'country', type: PropertyFilterType.Person, value: ['NO'], operator: PropertyOperator.Exact }
 const INCOMPLETE = { key: 'plan', type: PropertyFilterType.Person, value: null, operator: PropertyOperator.Exact }
+const PLAN_IS_SET = { key: 'plan', type: PropertyFilterType.Person, value: null, operator: PropertyOperator.IsSet }
 
 const release = (properties: any[] = []): FeatureFlagRulesV2DraftRule => ({
     rule_type: 'targeted_release',
@@ -60,6 +61,11 @@ describe('rulesV2ShadowingRules', () => {
             'an incomplete condition matches no one, so it hides nothing',
             [release([INCOMPLETE]), release()],
             [null, null],
+        ],
+        [
+            'a set check takes no value, so it is complete and hides',
+            [release([PLAN_IS_SET]), release([PLAN_IS_SET, EMAIL])],
+            [null, 0],
         ],
         ['the first hiding rule is named', [release(), release(), release()], [null, 0, 0]],
     ])('%s', (_, rules, expected) => {

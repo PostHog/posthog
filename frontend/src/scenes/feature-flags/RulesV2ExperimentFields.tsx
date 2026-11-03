@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useId } from 'react'
 
 import { IconBalance, IconCheckCircle, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
@@ -7,6 +6,7 @@ import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { Noun } from '~/models/groupsModel'
 import { FeatureFlagRulesV2DraftExperimentRule, FeatureFlagRulesV2ReturnType, FeatureFlagRulesV2Variant } from '~/types'
 
 import {
@@ -24,6 +24,7 @@ import {
     NEW_HOLDOUT,
     moved,
     newVariant,
+    rulesV2VariantWeightTotal,
     withEqualWeights,
     withVariantKey,
 } from './featureFlagRulesV2Draft'
@@ -34,15 +35,18 @@ import { RulesV2ValueInput } from './RulesV2ValueInput'
 interface ExperimentFieldsProps extends FeatureFlagLogicProps {
     index: number
     rule: FeatureFlagRulesV2DraftExperimentRule
-    subjects: string
 }
 
 /** The holdout, which an experiment rule checks before its rollout. Seeds are server-owned and never shown. */
-export function RulesV2HoldoutRow({ id, index, rule, subjects }: ExperimentFieldsProps): JSX.Element {
+export function RulesV2HoldoutRow({
+    id,
+    index,
+    rule,
+    subjects,
+}: ExperimentFieldsProps & { subjects: Noun }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
     const path = `filters.rules[${index}]`
-    const holdoutInputId = useId()
     const { holdout, ...withoutHoldout } = rule
     const holdoutSeedError = fieldError(`${path}.holdout.seed`)
     const error =
@@ -65,7 +69,6 @@ export function RulesV2HoldoutRow({ id, index, rule, subjects }: ExperimentField
                         <span>Hold out</span>
                         <div className="w-24">
                             <PercentageInput
-                                id={holdoutInputId}
                                 aria-label="Holdout excludes"
                                 value={holdout.exclusion_percentage}
                                 onChange={(exclusion_percentage) =>
@@ -75,12 +78,12 @@ export function RulesV2HoldoutRow({ id, index, rule, subjects }: ExperimentField
                             />
                         </div>
                         <span className="text-secondary">
-                            of matching {subjects}. They get the default value and no variant.
+                            of matching {subjects.plural}. They get the default value and no variant.
                         </span>
                     </>
                 ) : (
                     <span className="text-secondary">
-                        No holdout. Turn it on to keep a share of {subjects} out of every variant.
+                        No holdout. Turn it on to keep a share of {subjects.plural} out of every variant.
                     </span>
                 )}
             </div>
@@ -90,8 +93,7 @@ export function RulesV2HoldoutRow({ id, index, rule, subjects }: ExperimentField
 }
 
 function WeightTotal({ variants }: { variants: FeatureFlagRulesV2Variant[] }): JSX.Element {
-    // Two decimals each, so a total in hundredths is exact where a float sum is not.
-    const total = variants.reduce((sum, variant) => sum + Math.round(variant.weight * 100), 0) / 100
+    const total = rulesV2VariantWeightTotal(variants)
     const ok = total === 100
     return (
         <span

@@ -2,6 +2,8 @@ import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { FeatureFlagRulesV2ReturnType, JsonType } from '~/types'
 
+import { RULES_V2_NO_VALUE_TOOLTIP } from 'products/feature_flags/frontend/RulesV2Flow'
+
 const BOOLEAN_OPTIONS = [
     { value: 'true', label: 'true' },
     { value: 'false', label: 'false' },
@@ -10,7 +12,7 @@ const BOOLEAN_OPTIONS = [
 const NO_VALUE_OPTION = {
     value: 'null',
     label: 'No value',
-    tooltip: 'The flag returns no value, so the SDK uses the fallback passed in code.',
+    tooltip: RULES_V2_NO_VALUE_TOOLTIP,
 }
 
 /** A value of the flag's return type. A nullable string value is null while its input is empty. */
@@ -20,7 +22,6 @@ export function RulesV2ValueInput({
     onChange,
     nullable = false,
     id,
-    placeholder,
     className,
     'aria-label': ariaLabel,
     'data-attr': dataAttr,
@@ -30,7 +31,6 @@ export function RulesV2ValueInput({
     onChange: (value: JsonType | null) => void
     nullable?: boolean
     id?: string
-    placeholder?: string
     className?: string
     'aria-label'?: string
     'data-attr'?: string
@@ -42,7 +42,7 @@ export function RulesV2ValueInput({
                 aria-label={ariaLabel}
                 value={typeof value === 'string' ? value : ''}
                 onChange={(text) => onChange(nullable && text === '' ? null : text)}
-                placeholder={placeholder ?? (nullable ? 'No value' : 'Value to serve')}
+                placeholder={nullable ? 'No value' : 'Value to serve'}
                 className={`ph-ignore-input font-mono ${className ?? ''}`}
                 size="small"
                 autoComplete="off"

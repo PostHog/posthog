@@ -1,20 +1,25 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconCornerDownRight, IconFlask, IconPieChart, IconTarget } from '@posthog/icons'
+import { IconCornerDownRight, IconFlask, IconPause, IconPieChart, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { BlastRadiusErrorMessage } from 'scenes/feature-flags/BlastRadiusErrorMessage'
+import { BlastRadiusError, isBlastRadiusErrorRetryable } from 'scenes/feature-flags/featureFlagReleaseConditionsLogic'
+import { rulesV2CatchAllRule } from 'scenes/feature-flags/featureFlagRulesV2Draft'
 import { MatchingActorsLink } from 'scenes/feature-flags/MatchingActorsLink'
 
+import { Noun } from '~/models/groupsModel'
 import { AnyPropertyFilter, FeatureFlagRulesV2DraftRule, FeatureFlagRulesV2Variant, JsonType } from '~/types'
 
 import { formatPercentage } from './FractionalRolloutWarning'
-import { canCountRulesV2Matches, rulesV2MatchCountLogic } from './rulesV2MatchCountLogic'
+import { rulesV2MatchCountLogic } from './rulesV2MatchCountLogic'
 
 export type RulesV2RuleType = FeatureFlagRulesV2DraftRule['rule_type']
 
@@ -41,11 +46,24 @@ export const RULES_V2_RULE_TYPE_META: Record<
     },
 }
 
+/** A menu entry's label for a rule type: its name over a one-line description. */
+export function rulesV2RuleTypeMenuLabel(ruleType: RulesV2RuleType): JSX.Element {
+    const meta = RULES_V2_RULE_TYPE_META[ruleType]
+    return (
+        <div className="flex flex-col py-0.5">
+            <span className="font-semibold">{meta.label}</span>
+            <span className="text-xs text-secondary font-normal">{meta.description}</span>
+        </div>
+    )
+}
+
+export const RULES_V2_NO_VALUE_TOOLTIP = 'The flag returns no value, so the SDK uses the fallback passed in code.'
+
 /** A value a flag can serve, styled by kind so true, false and strings read apart at a glance. */
 export function RulesV2Value({ value, className }: { value: JsonType | null; className?: string }): JSX.Element {
     if (value === null) {
         return (
-            <Tooltip title="The flag returns no value, so the SDK uses the fallback passed in code.">
+            <Tooltip title={RULES_V2_NO_VALUE_TOOLTIP}>
                 <span className={clsx('italic text-secondary whitespace-nowrap', className)}>no value</span>
             </Tooltip>
         )
@@ -65,22 +83,12 @@ export function RulesV2Value({ value, className }: { value: JsonType | null; cla
 }
 
 /** A stored document can hold a rule type this page does not know, such as one from an older pilot. */
-export function rulesV2RuleTypeMeta(ruleType: string): { label: string; description: string; icon: JSX.Element } {
-    return (
-        RULES_V2_RULE_TYPE_META[ruleType as RulesV2RuleType] ?? {
-            label: ruleType,
-            description: 'A rule type this page cannot show.',
-            icon: <IconTarget />,
-        }
-    )
-}
-
-export function RulesV2RuleTypeLabel({ ruleType }: { ruleType: RulesV2RuleType }): JSX.Element {
-    const meta = rulesV2RuleTypeMeta(ruleType)
+export function RulesV2RuleTypeLabel({ ruleType }: { ruleType: string }): JSX.Element {
+    const meta: { label: string; icon: JSX.Element } | undefined = RULES_V2_RULE_TYPE_META[ruleType as RulesV2RuleType]
     return (
         <span className="inline-flex items-center gap-1 font-semibold whitespace-nowrap">
-            <span className="text-base text-secondary flex">{meta.icon}</span>
-            {meta.label}
+            <span className="text-base text-secondary flex">{meta?.icon ?? <IconTarget />}</span>
+            {meta?.label ?? ruleType}
         </span>
     )
 }
@@ -89,8 +97,8 @@ export function RulesV2RuleNumber({ index, muted }: { index: number; muted?: boo
     return (
         <span
             className={clsx(
-                'inline-flex items-center justify-center shrink-0 size-6 rounded-full text-xs font-semibold tabular-nums border',
-                muted ? 'text-muted bg-surface-secondary' : 'bg-surface-secondary'
+                'inline-flex items-center justify-center shrink-0 size-6 rounded-full text-xs font-semibold tabular-nums border bg-surface-secondary',
+                muted && 'text-muted'
             )}
         >
             <span className="sr-only">Rule </span>
@@ -181,14 +189,28 @@ export function rulesV2VariantColor(index: number): string {
     return getSeriesColor(index)
 }
 
-/** Each variant's share of the rule's matching users, after the holdout and the rollout. */
-export function rulesV2ExperimentSegments(rule: {
+interface RulesV2RolloutShape {
     rollout_percentage: number
-    variants: FeatureFlagRulesV2Variant[]
     holdout?: { exclusion_percentage: number }
-}): RulesV2AllocationSegment[] {
+    paused?: boolean
+}
+
+/** The share of a rule's matching users that its rollout enrolls, after any holdout. */
+function enrolledPercentage(rule: RulesV2RolloutShape): number {
+    return ((100 - (rule.holdout?.exclusion_percentage ?? 0)) * rule.rollout_percentage) / 100
+}
+
+/** The share of a rule's matching users that it reaches, or null for a paused experiment, which enrolls no one. */
+export function rulesV2ReachedPercentage(rule: RulesV2RolloutShape): number | null {
+    return rule.paused ? null : enrolledPercentage(rule)
+}
+
+/** Each variant's share of the rule's matching users, after the holdout and the rollout. */
+export function rulesV2ExperimentSegments(
+    rule: RulesV2RolloutShape & { variants: FeatureFlagRulesV2Variant[] }
+): RulesV2AllocationSegment[] {
     const heldOut = rule.holdout?.exclusion_percentage ?? 0
-    const enrolled = ((100 - heldOut) * rule.rollout_percentage) / 100
+    const enrolled = enrolledPercentage(rule)
     return [
         ...(heldOut > 0 ? [{ key: 'holdout', label: 'Holdout', percentage: heldOut, hatched: true }] : []),
         ...rule.variants.map((variant, index) => ({
@@ -209,19 +231,21 @@ export function useRulesV2MatchCount(properties: AnyPropertyFilter[]): {
     countable: boolean
     affected: number | null
     total: number | null
-    failed: boolean
+    error: BlastRadiusError | null
     retry: () => void
 } {
-    const propertiesKey = useDebouncedValue(JSON.stringify(properties), 400)
-    const countable = canCountRulesV2Matches(JSON.parse(propertiesKey))
+    const propertiesKey = useDebouncedValue(
+        useMemo(() => JSON.stringify(properties), [properties]),
+        400
+    )
     const logic = rulesV2MatchCountLogic({ propertiesKey })
-    const { matchCount, matchCountFailed } = useValues(logic)
+    const { matchCount, matchCountError, countable } = useValues(logic)
     const { loadMatchCount } = useActions(logic)
     return {
         countable,
         affected: matchCount?.affected ?? null,
         total: matchCount?.total ?? null,
-        failed: matchCountFailed,
+        error: matchCountError,
         retry: loadMatchCount,
     }
 }
@@ -234,20 +258,27 @@ export function RulesV2MatchCountText({
 }: {
     count: ReturnType<typeof useRulesV2MatchCount>
     properties: AnyPropertyFilter[]
-    subjects: { singular: string; plural: string }
+    subjects: Noun
     /** Shows the share the rollout reaches instead of the targeting match. */
     rolloutPercentage?: number
 }): JSX.Element | null {
     if (!count.countable) {
         return null
     }
-    if (count.failed) {
+    if (count.error) {
         return (
             <span className="inline-flex items-center gap-1">
-                Couldn't estimate
-                <LemonButton size="xsmall" type="tertiary" onClick={count.retry}>
-                    Retry
-                </LemonButton>
+                <Tooltip title={<BlastRadiusErrorMessage error={count.error} pluralName={subjects.plural} />}>
+                    <span tabIndex={0} className="cursor-help">
+                        Couldn't estimate
+                    </span>
+                </Tooltip>
+                {/* A too-slow estimate or a bad condition fails the same way again. */}
+                {isBlastRadiusErrorRetryable(count.error) && (
+                    <LemonButton size="xsmall" type="tertiary" onClick={count.retry}>
+                        Retry
+                    </LemonButton>
+                )}
             </span>
         )
     }
@@ -256,13 +287,9 @@ export function RulesV2MatchCountText({
     }
     const reached =
         rolloutPercentage === undefined ? count.affected : Math.floor((count.affected * rolloutPercentage) / 100)
-    const noun = reached === 1 ? subjects.singular : subjects.plural
+    const reachedText = `≈ ${pluralize(reached, subjects.singular, subjects.plural)}`
     if (rolloutPercentage !== undefined) {
-        return (
-            <span className="tabular-nums">
-                ≈ {humanFriendlyNumber(reached)} {noun}
-            </span>
-        )
+        return <span className="tabular-nums">{reachedText}</span>
     }
     return (
         <Tooltip
@@ -286,7 +313,7 @@ export function RulesV2MatchCountText({
                 tabIndex={0}
                 className="tabular-nums underline decoration-dotted underline-offset-2 cursor-help"
             >
-                ≈ {humanFriendlyNumber(reached)} {noun}
+                {reachedText}
             </span>
         </Tooltip>
     )
@@ -296,15 +323,15 @@ export function RulesV2MatchCountText({
 export function RulesV2DefaultStep({
     children,
     subjects,
-    hasRules,
-    catchAllRule = null,
+    rules,
 }: {
     children: React.ReactNode
-    subjects: { singular: string; plural: string }
-    hasRules: boolean
-    /** A rule that claims every user, so nobody falls through to this step. */
-    catchAllRule?: number | null
+    subjects: Noun
+    rules: Parameters<typeof rulesV2CatchAllRule>[0]
 }): JSX.Element {
+    const hasRules = rules.length > 0
+    // A rule that claims every user, so nobody falls through to this step.
+    const catchAllRule = rulesV2CatchAllRule(rules)
     return (
         <div
             className="rounded border border-dashed bg-surface-secondary px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2"
@@ -344,8 +371,7 @@ export function RulesV2ShadowedWarning({
     subjects,
 }: {
     shadowedBy: number | null
-    /** Singular, as in "every user". */
-    subjects: string
+    subjects: Noun
 }): JSX.Element | null {
     if (shadowedBy === null) {
         return null
@@ -353,9 +379,52 @@ export function RulesV2ShadowedWarning({
     return (
         <div data-attr="rules-v2-rule-unreachable">
             <LemonBanner type="warning" className="text-sm">
-                This rule is never reached: rule {shadowedBy + 1} already decides the value for every {subjects} this
-                rule matches. Move this rule above rule {shadowedBy + 1}, or narrow rule {shadowedBy + 1}'s conditions.
+                This rule is never reached: rule {shadowedBy + 1} already decides the value for every{' '}
+                {subjects.singular} this rule matches. Move this rule above rule {shadowedBy + 1}, or narrow rule{' '}
+                {shadowedBy + 1}'s conditions.
             </LemonBanner>
         </div>
+    )
+}
+
+export function RulesV2RulesHeading({ subjects, className }: { subjects: Noun; className?: string }): JSX.Element {
+    return (
+        <div className={clsx('flex flex-col', className)}>
+            <span className="font-semibold">Rules</span>
+            <span className="text-xs text-secondary">
+                Checked from top to bottom. The first rule that serves a {subjects.singular} decides the value.
+            </span>
+        </div>
+    )
+}
+
+export function RulesV2PausedTag(): JSX.Element {
+    return (
+        <LemonTag type="warning" icon={<IconPause />}>
+            Paused
+        </LemonTag>
+    )
+}
+
+/** The row a paused experiment shows instead of enrolling anyone. */
+export function RulesV2PausedRow({
+    subjects,
+    defaultValue,
+    until,
+    className,
+}: {
+    subjects: Noun
+    defaultValue: JsonType | null
+    /** When the pause ends, as in "until you resume". */
+    until: string
+    className?: string
+}): JSX.Element {
+    return (
+        <RulesV2RuleRow label="Paused" className={className}>
+            <span className="leading-7">
+                Matching {subjects.plural} get the default value <RulesV2Value value={defaultValue} /> until {until}.
+                Nobody is enrolled meanwhile.
+            </span>
+        </RulesV2RuleRow>
     )
 }

@@ -2,27 +2,34 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useId, useRef } from 'react'
+import { memo, useRef } from 'react'
 
 import { IconCopy, IconEllipsis, IconPause, IconPlay, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonMenu, LemonSelect } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import { Noun } from '~/models/groupsModel'
 import { FeatureFlagRulesV2DraftRule, FeatureFlagRulesV2ReturnType, JsonType } from '~/types'
 
+import { formatPercentage } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 import {
     RULES_V2_RULE_TYPES,
     RULES_V2_RULE_TYPE_META,
-    RulesV2MatchCountText,
     RulesV2FieldError,
+    RulesV2MatchCountText,
+    RulesV2PausedRow,
+    RulesV2PausedTag,
     RulesV2RuleNumber,
     RulesV2RuleRow,
     RulesV2ShadowedWarning,
-    RulesV2Value,
+    rulesV2ReachedPercentage,
+    rulesV2RolloutMissText,
+    rulesV2RuleTypeMenuLabel,
     useRulesV2MatchCount,
 } from 'products/feature_flags/frontend/RulesV2Flow'
 
@@ -33,25 +40,26 @@ import { PercentageInput } from './PercentageInput'
 import { RulesV2HoldoutRow, RulesV2VariantsRow } from './RulesV2ExperimentFields'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
 
-export interface RulesV2Subjects {
-    singular: string
-    plural: string
-}
+const RULE_TYPE_OPTIONS = RULES_V2_RULE_TYPES.map((ruleType) => ({
+    value: ruleType,
+    label: RULES_V2_RULE_TYPE_META[ruleType].label,
+    icon: RULES_V2_RULE_TYPE_META[ruleType].icon,
+    labelInMenu: rulesV2RuleTypeMenuLabel(ruleType),
+}))
 
-const RULE_TYPE_OPTIONS = RULES_V2_RULE_TYPES.map((ruleType) => {
-    const meta = RULES_V2_RULE_TYPE_META[ruleType]
-    return {
-        value: ruleType,
-        label: meta.label,
-        icon: meta.icon,
-        labelInMenu: (
-            <div className="flex flex-col py-0.5">
-                <span className="font-semibold">{meta.label}</span>
-                <span className="text-xs text-secondary font-normal">{meta.description}</span>
-            </div>
-        ),
-    }
-})
+const ROLLOUT_MISS_OPTIONS = [
+    { value: 'continue' as const, description: 'Later rules, or the default value, decide.' },
+    { value: 'return_default' as const, description: 'Later rules never see them.' },
+].map(({ value, description }) => ({
+    value,
+    label: rulesV2RolloutMissText(value),
+    labelInMenu: (
+        <div className="flex flex-col py-0.5">
+            <span>{capitalizeFirstLetter(rulesV2RolloutMissText(value))}</span>
+            <span className="text-xs text-secondary">{description}</span>
+        </div>
+    ),
+}))
 
 function RolloutRow({
     id,
@@ -62,28 +70,26 @@ function RolloutRow({
 }: FeatureFlagLogicProps & {
     index: number
     rule: Extract<FeatureFlagRulesV2DraftRule, { rollout_percentage: number }>
-    subjects: RulesV2Subjects
+    subjects: Noun
     count: ReturnType<typeof useRulesV2MatchCount>
 }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
-    const rolloutInputId = useId()
     const path = `filters.rules[${index}]`
     const heldOut = rule.rule_type === 'experiment' ? (rule.holdout?.exclusion_percentage ?? 0) : 0
-    const rest = Math.round((100 - rule.rollout_percentage) * 100) / 100
+    const reached = rulesV2ReachedPercentage(rule)
     const error = fieldError(`${path}.rollout_percentage`) ?? fieldError(`${path}.on_rollout_miss`)
 
     return (
         <RulesV2RuleRow
             label="Rollout"
             aside={
-                // A paused experiment enrolls no one, so it has no reach to estimate.
-                rule.rule_type === 'experiment' && rule.paused ? null : (
+                reached === null ? null : (
                     <RulesV2MatchCountText
                         count={count}
                         properties={rule.targeting.properties}
                         subjects={subjects}
-                        rolloutPercentage={(rule.rollout_percentage * (100 - heldOut)) / 100}
+                        rolloutPercentage={reached}
                     />
                 )
             }
@@ -99,7 +105,6 @@ function RolloutRow({
                 />
                 <div className="w-24">
                     <PercentageInput
-                        id={rolloutInputId}
                         aria-label="Rollout percentage"
                         value={rule.rollout_percentage}
                         onChange={(rollout_percentage) => updateRule(index, { ...rule, rollout_percentage })}
@@ -112,37 +117,14 @@ function RolloutRow({
                     {rule.rule_type === 'experiment' ? ' are enrolled' : ''}
                 </span>
             </div>
-            {rest > 0 && (
+            {rule.rollout_percentage < 100 && (
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-secondary">The other {rest}%</span>
+                    <span className="text-secondary">The other {formatPercentage(100 - rule.rollout_percentage)}</span>
                     <LemonSelect
                         size="small"
                         value={rule.on_rollout_miss}
                         onChange={(on_rollout_miss) => updateRule(index, { ...rule, on_rollout_miss })}
-                        options={[
-                            {
-                                value: 'continue',
-                                label: 'continue to the next rule',
-                                labelInMenu: (
-                                    <div className="flex flex-col py-0.5">
-                                        <span>Continue to the next rule</span>
-                                        <span className="text-xs text-secondary">
-                                            Later rules, or the default value, decide.
-                                        </span>
-                                    </div>
-                                ),
-                            },
-                            {
-                                value: 'return_default',
-                                label: 'get the default value',
-                                labelInMenu: (
-                                    <div className="flex flex-col py-0.5">
-                                        <span>Get the default value</span>
-                                        <span className="text-xs text-secondary">Later rules never see them.</span>
-                                    </div>
-                                ),
-                            },
-                        ]}
+                        options={ROLLOUT_MISS_OPTIONS}
                         data-attr="rules-v2-rollout-miss"
                     />
                 </div>
@@ -152,7 +134,8 @@ function RolloutRow({
     )
 }
 
-export function RulesV2RuleEditor({
+// Memoized, so an edit to one rule re-renders only that rule's card.
+export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
     id,
     index,
     rule,
@@ -169,7 +152,7 @@ export function RulesV2RuleEditor({
     ruleKey: number
     returnType: FeatureFlagRulesV2ReturnType
     defaultValue: JsonType | null
-    subjects: RulesV2Subjects
+    subjects: Noun
     shadowedBy: number | null
 }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
@@ -178,24 +161,20 @@ export function RulesV2RuleEditor({
         id: ruleKey,
     })
     const path = `filters.rules[${index}]`
-    const valueInputId = useId()
     const seedError = fieldError(`${path}.seed`)
     const properties = rule.targeting.properties
     const count = useRulesV2MatchCount(properties)
     const paused = rule.rule_type === 'experiment' && rule.paused
     const ruleError = fieldError(path)
-    const cardRef = useRef<HTMLDivElement | null>(null)
+    const menuButtonRef = useRef<HTMLButtonElement | null>(null)
     // The menu closes without restoring focus, and a move re-inserts the card, so focus goes back to its menu button.
     const refocusMenu = (): void => {
-        setTimeout(() => cardRef.current?.querySelector<HTMLElement>('[data-attr="rules-v2-rule-menu"]')?.focus())
+        setTimeout(() => menuButtonRef.current?.focus())
     }
 
     return (
         <div
-            ref={(element) => {
-                setNodeRef(element)
-                cardRef.current = element
-            }}
+            ref={setNodeRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ transform: CSS.Translate.toString(transform), transition }}
             className={clsx(
@@ -235,11 +214,7 @@ export function RulesV2RuleEditor({
                     onChange={(description) => updateRule(index, { ...rule, description: description || undefined })}
                     data-attr="rules-v2-rule-description"
                 />
-                {paused && (
-                    <LemonTag type="warning" icon={<IconPause />}>
-                        Paused
-                    </LemonTag>
-                )}
+                {paused && <RulesV2PausedTag />}
                 {rule.rule_type === 'experiment' && (
                     <LemonButton
                         size="small"
@@ -297,6 +272,7 @@ export function RulesV2RuleEditor({
                     ]}
                 >
                     <LemonButton
+                        ref={menuButtonRef}
                         size="small"
                         icon={<IconEllipsis />}
                         aria-label={`Rule ${index + 1} actions`}
@@ -315,7 +291,7 @@ export function RulesV2RuleEditor({
                         Assignment seed: {seedError}
                     </LemonBanner>
                 )}
-                <RulesV2ShadowedWarning shadowedBy={shadowedBy} subjects={subjects.singular} />
+                <RulesV2ShadowedWarning shadowedBy={shadowedBy} subjects={subjects} />
                 <RulesV2RuleRow
                     label="If"
                     aside={<RulesV2MatchCountText count={count} properties={properties} subjects={subjects} />}
@@ -337,32 +313,25 @@ export function RulesV2RuleEditor({
                     <RulesV2FieldError error={fieldError(`${path}.targeting`)} />
                 </RulesV2RuleRow>
                 {paused && (
-                    <RulesV2RuleRow label="Paused" className="text-warning-dark">
-                        <span className="leading-7">
-                            Matching {subjects.plural} get the default value <RulesV2Value value={defaultValue} /> until
-                            you resume. Nobody is enrolled meanwhile.
-                        </span>
-                    </RulesV2RuleRow>
+                    <RulesV2PausedRow
+                        subjects={subjects}
+                        defaultValue={defaultValue}
+                        until="you resume"
+                        className="text-warning-dark"
+                    />
                 )}
                 {rule.rule_type === 'experiment' && (
-                    <RulesV2HoldoutRow id={id} index={index} rule={rule} subjects={subjects.plural} />
+                    <RulesV2HoldoutRow id={id} index={index} rule={rule} subjects={subjects} />
                 )}
                 {rule.rule_type !== 'targeted_release' && (
                     <RolloutRow id={id} index={index} rule={rule} subjects={subjects} count={count} />
                 )}
                 {rule.rule_type === 'experiment' ? (
-                    <RulesV2VariantsRow
-                        id={id}
-                        index={index}
-                        rule={rule}
-                        returnType={returnType}
-                        subjects={subjects.plural}
-                    />
+                    <RulesV2VariantsRow id={id} index={index} rule={rule} returnType={returnType} />
                 ) : (
                     <RulesV2RuleRow label="Serve">
                         <div className="flex flex-col gap-1 max-w-80">
                             <RulesV2ValueInput
-                                id={valueInputId}
                                 aria-label="Value"
                                 returnType={returnType}
                                 value={rule.value}
@@ -376,4 +345,4 @@ export function RulesV2RuleEditor({
             </div>
         </div>
     )
-}
+})

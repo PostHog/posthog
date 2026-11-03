@@ -1,7 +1,8 @@
-import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
+import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { objectsEqual } from 'lib/utils/objects'
 
 import {
+    AnyPropertyFilter,
     FeatureFlagRulesV2DraftConfig,
     FeatureFlagRulesV2DraftExperimentRule,
     FeatureFlagRulesV2DraftHoldout,
@@ -9,6 +10,7 @@ import {
     FeatureFlagRulesV2ReturnType,
     FeatureFlagRulesV2Variant,
     JsonType,
+    PropertyOperator,
 } from '~/types'
 
 import { isRulesV2Value } from 'products/feature_flags/frontend/featureFlagConfigFormat'
@@ -25,6 +27,24 @@ export function moved<T>(items: T[], from: number, to: number): T[] {
     return result
 }
 
+export function insertedAfter<T>(items: T[], index: number, item: T): T[] {
+    return [...items.slice(0, index + 1), item, ...items.slice(index + 1)]
+}
+
+/**
+ * A condition with no value: the server accepts it, but it never matches. Set and not-set conditions take no value,
+ * so they are complete.
+ */
+export function isIncompleteRulesV2Condition(property: AnyPropertyFilter): boolean {
+    return (
+        isEmptyProperty(property) &&
+        !(
+            isPropertyFilterWithOperator(property) &&
+            [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(property.operator)
+        )
+    )
+}
+
 /** The value a new rule starts with. A string has no sensible default, so the user must enter one. */
 export function rulesV2InitialValue(returnType: FeatureFlagRulesV2ReturnType): JsonType {
     return returnType === 'boolean' ? true : ''
@@ -39,7 +59,7 @@ function initialVariantValue(returnType: FeatureFlagRulesV2ReturnType, key: stri
     return returnType === 'boolean' ? index > 0 : key
 }
 
-export const NEW_TARGETED_RELEASE_RULE: FeatureFlagRulesV2DraftRule = {
+export const NEW_TARGETED_RELEASE_RULE: Extract<FeatureFlagRulesV2DraftRule, { rule_type: 'targeted_release' }> = {
     rule_type: 'targeted_release',
     targeting: { properties: [] },
     value: true,
@@ -54,6 +74,13 @@ const NEW_ROLLOUT_FIELDS = {
 } as const
 
 const NEW_EXPERIMENT_ROLLOUT_FIELDS = { ...NEW_ROLLOUT_FIELDS, rollout_percentage: 100 } as const
+
+export function newRulesV2Rule(
+    ruleType: FeatureFlagRulesV2DraftRule['rule_type'],
+    returnType: FeatureFlagRulesV2ReturnType
+): FeatureFlagRulesV2DraftRule {
+    return withRuleType({ ...NEW_TARGETED_RELEASE_RULE, value: rulesV2InitialValue(returnType) }, ruleType, returnType)
+}
 
 /**
  * Keeps the rule's identity and shared fields; type-specific fields come and go with the type. A rollout keeps its
@@ -130,6 +157,11 @@ export function withVariantKey(
 ): FeatureFlagRulesV2Variant {
     const followsKey = returnType === 'string' && variant.value === variant.key
     return { ...variant, key, ...(followsKey ? { value: key } : {}) }
+}
+
+/** The variants' total weight. Two decimals each, so a total in hundredths is exact where a float sum is not. */
+export function rulesV2VariantWeightTotal(variants: FeatureFlagRulesV2Variant[]): number {
+    return variants.reduce((sum, variant) => sum + Math.round(variant.weight * 100), 0) / 100
 }
 
 /** Equal weights in hundredths; the first variants absorb the remainder, so the total is exactly 100. */
@@ -209,8 +241,7 @@ function experimentErrors(
         addError(errors, `${variantPath}.weight`, weightError)
         addError(errors, `${variantPath}.value`, valueError(variant.value, returnType))
     })
-    // Two decimals each, so a total in hundredths is exact where a float sum is not.
-    const total = rule.variants.reduce((sum, variant) => sum + Math.round(variant.weight * 100), 0)
+    const total = rulesV2VariantWeightTotal(rule.variants)
     addError(
         errors,
         `${path}.variants`,
@@ -218,8 +249,8 @@ function experimentErrors(
             ? `Add at least ${MIN_VARIANTS} variants.`
             : rule.variants.length > MAX_VARIANTS
               ? `At most ${MAX_VARIANTS} variants are allowed.`
-              : weightsValid && total !== 10000
-                ? `Variant weights must total 100% (now ${total / 100}%).`
+              : weightsValid && total !== 100
+                ? `Variant weights must total 100% (now ${total}%).`
                 : null
     )
     if (rule.holdout) {
@@ -267,12 +298,7 @@ function claimsEveryMatch(rule: RulesV2ReachabilityRule): boolean {
 
 /** Whether `earlier` matches every user `later` matches: its conditions are a subset of the later rule's. */
 function matchesEveryoneOf(earlier: RulesV2ReachabilityRule, later: RulesV2ReachabilityRule): boolean {
-    const earlierProperties = earlier.targeting.properties
-    // A condition without a value never matches, so a rule that has one claims no one.
-    if (earlierProperties.some(isEmptyProperty)) {
-        return false
-    }
-    return earlierProperties.every((property) =>
+    return earlier.targeting.properties.every((property) =>
         later.targeting.properties.some((candidate) => objectsEqual(property, candidate))
     )
 }
@@ -282,10 +308,14 @@ function matchesEveryoneOf(earlier: RulesV2ReachabilityRule, later: RulesV2Reach
  * someone. It only spots shadowing it can prove from the conditions; overlapping conditions are not compared.
  */
 export function rulesV2ShadowingRules(rules: RulesV2ReachabilityRule[]): (number | null)[] {
+    // An incomplete condition never matches, so a rule that has one claims no one.
+    const claims = rules.map(
+        (rule) => claimsEveryMatch(rule) && !rule.targeting.properties.some(isIncompleteRulesV2Condition)
+    )
     return rules.map((rule, index) => {
-        const shadowing = rules
-            .slice(0, index)
-            .findIndex((earlier) => claimsEveryMatch(earlier) && matchesEveryoneOf(earlier, rule))
+        const shadowing = rules.findIndex(
+            (earlier, earlierIndex) => earlierIndex < index && claims[earlierIndex] && matchesEveryoneOf(earlier, rule)
+        )
         return shadowing >= 0 ? shadowing : null
     })
 }

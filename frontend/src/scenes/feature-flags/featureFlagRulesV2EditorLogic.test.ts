@@ -913,7 +913,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 error: 'Must be between 0 and 100.',
             },
         ])('flags $check against its field and blocks the save', ({ edit, field, error }) => {
-            expect(logic.values.saveDisabledReason).toBeNull()
+            expect(logic.values.saveDisabledReason).toBe('Nothing to save yet.')
             edit()
             expect(logic.values.fieldError(field)).toBe(error)
             expect(logic.values.saveDisabledReason).toBe(`Rule 2: ${error}`)
