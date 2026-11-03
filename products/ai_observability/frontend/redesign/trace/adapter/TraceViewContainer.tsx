@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
 
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
@@ -129,7 +130,12 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
 }
 
-export function TraceViewContainer({ hostId, traceId, timestampHint, backLink }: TraceViewContainerProps): JSX.Element {
+export const TraceViewContainer = memo(function TraceViewContainer({
+    hostId,
+    traceId,
+    timestampHint,
+    backLink,
+}: TraceViewContainerProps): JSX.Element {
     const logic = traceViewModelLogic({ hostId, traceId, timestampHint })
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
@@ -215,4 +221,4 @@ export function TraceViewContainer({ hostId, traceId, timestampHint, backLink }:
           : { status: 'loading' }
 
     return <TraceView {...props} />
-}
+})

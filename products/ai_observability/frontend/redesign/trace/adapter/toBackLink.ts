@@ -12,6 +12,11 @@ function listParams(searchParams: SearchParams): SearchParams {
     return sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
 }
 
+export function toFullPageListParams(searchParams: SearchParams): SearchParams {
+    const { trace: _trace, ts: _ts, step: _step, ...params } = listParams(searchParams)
+    return params
+}
+
 // Matches the legacy scene: a link opened from a review queue returns to that queue, other links to the reviews tab.
 function reviewsBackHref(searchParams: SearchParams): string {
     const inQueue = typeof searchParams.queue_id === 'string' && searchParams.queue_id !== ''

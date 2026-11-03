@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { toBackLink } from './adapter/toBackLink'
+import { rawSearchParam } from './rawSearchParam'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import type { LabeledLink } from './types'
 
@@ -28,11 +29,8 @@ const EXCEPTION_LOOKUP_WINDOW_MINUTES = 20
 
 const LAYOUT_NAV_OVERRIDE_OWNER = 'ai-trace-page'
 
-// kea-router reads a numeric param as a number, which turns a typed `1.50` into `1.5`. It also pads a value shaped like
-// a JSON array or object with one space, so it reads that value back as a string.
 function searchParamFromUrl(): string {
-    const value = new URLSearchParams(router.values.location.search).get('search') ?? ''
-    return /^(\[.*\]|\{.*\}) +$/.test(value) ? value.slice(0, -1) : value
+    return rawSearchParam(router.values.location.search, 'search') ?? ''
 }
 
 function replaceUrlParams(changes: Record<string, string | undefined>): void {
