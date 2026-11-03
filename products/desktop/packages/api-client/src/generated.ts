@@ -6476,6 +6476,25 @@ export namespace Schemas {
         > | null;
     }>;
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum =
+        | "second"
+        | "minute"
+        | "hour"
+        | "day"
+        | "week"
+        | "month"
+        | "quarter"
+        | "year";
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -6486,6 +6505,10 @@ export namespace Schemas {
         date_from: string | null;
         date_to: string | null;
         properties: unknown;
+        breakdown_filter: BreakdownFilter | null;
+        interval: IntervalTypeEnum | NullEnum;
+        compareFilter: CompareFilter | null;
+        filterTestAccounts: boolean | null;
     }>;
     export type _DashboardPatchTileLayoutBoxOpenApi = {
         /**
@@ -6525,7 +6548,6 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
-     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -6539,7 +6561,6 @@ export namespace Schemas {
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
-        | "metrics"
         | "metrics_table"
         | "notebook_widget"
         | "session_replay_list"
@@ -6722,105 +6743,6 @@ export namespace Schemas {
         orderDirection: "ASC" | "DESC";
         limit: number;
     }>;
-    export type MetricsAggregation =
-        | "sum"
-        | "avg"
-        | "count"
-        | "min"
-        | "max"
-        | "quantile"
-        | "rate"
-        | "increase"
-        | "histogram_quantile";
-    export type MetricsQueryGroupBy = {
-        key: string;
-        scope?: (MetricsAttributeScope | null) | undefined;
-    };
-    export type MetricsOtelType =
-        | "gauge"
-        | "sum"
-        | "histogram"
-        | "exponential_histogram"
-        | "summary";
-    export type MetricsRangeFunction = "rate" | "increase";
-    export type MetricsQueryClause = {
-        aggregation?: (MetricsAggregation | null) | undefined;
-        filters?: (Array<MetricsQueryFilter> | null) | undefined;
-        groupBy?: (Array<MetricsQueryGroupBy> | null) | undefined;
-        metricName: string;
-        metricType?: (MetricsOtelType | null) | undefined;
-        /**
-         * Alias a formula refers to (e.g. "a"); must be unique within the query
-         */
-        name: string;
-        quantile?: (number | null) | undefined;
-        rangeFunction?: (MetricsRangeFunction | null) | undefined;
-    };
-    export type MetricsReducer =
-        | "last"
-        | "mean"
-        | "min"
-        | "max"
-        | "sum"
-        | "delta";
-    export type MetricsNullMode = "gap" | "zero" | "connect";
-    export type MetricsStatSummary = "latest" | "average" | "total";
-    export type MetricsThreshold = {
-        /**
-         * A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work.
-         */
-        color: string;
-        /**
-         * Lower bound of this band. The lowest step is the base color below every other step.
-         */
-        value: number;
-    };
-    export type MetricsDisplayType =
-        | "line"
-        | "area"
-        | "bar"
-        | "stat"
-        | "gauge"
-        | "bargauge"
-        | "table"
-        | "heatmap";
-    export type MetricsAxisScale = "linear" | "log";
-    export type MetricsYAxisSettings = Partial<{
-        max: number | null;
-        min: number | null;
-        scale: MetricsAxisScale | null;
-        startAtZero: boolean | null;
-    }>;
-    export type MetricsDisplaySettings = Partial<{
-        goalLines: Array<GoalLine> | null;
-        legendCalcs: Array<MetricsReducer> | null;
-        nullMode: MetricsNullMode | null;
-        reduce: MetricsReducer | null;
-        statSummary: MetricsStatSummary | null;
-        thresholds: Array<MetricsThreshold> | null;
-        type: MetricsDisplayType | null;
-        unit: string | null;
-        yAxis: MetricsYAxisSettings | null;
-    }>;
-    export type MetricsQueryLanguage = "builder" | "promql" | "sql";
-    /**
-     * A `MetricsQuery` as a metrics widget stores it.
-     *
-     * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
-     */
-    export type MetricsWidgetQuery = Partial<{
-        clauses: Array<MetricsQueryClause>;
-        dateRange: DateRange | null;
-        display: MetricsDisplaySettings | null;
-        formula: string | null;
-        interval: string | null;
-        kind: string;
-        language: MetricsQueryLanguage | null;
-        promql: string | null;
-        sql: string | null;
-        version: number | null;
-    }>;
-    export type MetricsWidgetConfig = Partial<{ query: MetricsWidgetQuery }>;
     export type DashboardWidgetConfig =
         | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
@@ -6832,8 +6754,7 @@ export namespace Schemas {
         | LogsListWidgetConfig
         | ConversationsRecentTicketsWidgetConfig
         | CanvasAppWidgetConfig
-        | MetricsTableWidgetConfig
-        | MetricsWidgetConfig;
+        | MetricsTableWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
         widget_type: DashboardWidgetTypeEnum;
@@ -6850,7 +6771,13 @@ export namespace Schemas {
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
+        /**
+         * ID of the dashboard tile.
+         */
         id: number;
+        /**
+         * ID of the dashboard the tile sits on.
+         */
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
@@ -10066,7 +9993,6 @@ export namespace Schemas {
      * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -10093,7 +10019,6 @@ export namespace Schemas {
         | "metric_all_zero"
         | "exposure_criteria_cannot_match"
         | "exposure_filter_on_dynamic_cohort"
-        | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
@@ -10150,7 +10075,6 @@ export namespace Schemas {
          * * `metric_all_zero` - Metric All Zero
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -16648,114 +16572,14 @@ export namespace Schemas {
      */
     export type IntegrationAuthTypeEnum = "oauth" | "token" | "credentials";
     /**
-     * * `anthropic` - Anthropic
-     * * `apple-ads` - Apple Ads
-     * * `apns` - Apple Push
-     * * `aws-redshift` - Aws Redshift
-     * * `aws-s3` - Aws S3
-     * * `azure-blob` - Azure Blob
-     * * `bing-ads` - Bing Ads
-     * * `clickup` - Clickup
-     * * `customerio-app` - Customerio App
-     * * `customerio-track` - Customerio Track
-     * * `customerio-webhook` - Customerio Webhook
-     * * `databricks` - Databricks
-     * * `email` - Email
-     * * `firebase` - Firebase
-     * * `github` - Github
-     * * `gitlab` - Gitlab
-     * * `google-ads` - Google Ads
-     * * `google-analytics` - Google Analytics
-     * * `google-calendar` - Google Calendar
-     * * `google-cloud-service-account` - Google Cloud Service Account
-     * * `google-cloud-storage` - Google Cloud Storage
-     * * `google-pubsub` - Google Pubsub
-     * * `google-search-console` - Google Search Console
-     * * `google-sheets` - Google Sheets
-     * * `helpscout` - Helpscout
-     * * `hubspot` - Hubspot
-     * * `instagram` - Instagram
-     * * `intercom` - Intercom
-     * * `jira` - Jira
-     * * `linear` - Linear
-     * * `linkedin-ads` - Linkedin Ads
-     * * `meta-ads` - Meta Ads
-     * * `pardot` - Pardot
-     * * `pinterest-ads` - Pinterest Ads
-     * * `postgresql` - Postgresql
-     * * `posthog` - Posthog
-     * * `reddit-ads` - Reddit Ads
-     * * `twitter-ads` - Twitter Ads
-     * * `resend` - Resend
-     * * `s3-compatible` - S3 Compatible
-     * * `salesforce` - Salesforce
-     * * `slack` - Slack
-     * * `slack-posthog-code` - Slack Posthog Code
-     * * `snapchat` - Snapchat
-     * * `snowflake` - Snowflake
-     * * `stripe` - Stripe
-     * * `tiktok-ads` - Tiktok Ads
-     * * `twilio` - Twilio
-     * * `vercel` - Vercel
-     * * `youtube-analytics` - Youtube Analytics
-     */
-    export type IntegrationKindEnum =
-        | "anthropic"
-        | "apple-ads"
-        | "apns"
-        | "aws-redshift"
-        | "aws-s3"
-        | "azure-blob"
-        | "bing-ads"
-        | "clickup"
-        | "customerio-app"
-        | "customerio-track"
-        | "customerio-webhook"
-        | "databricks"
-        | "email"
-        | "firebase"
-        | "github"
-        | "gitlab"
-        | "google-ads"
-        | "google-analytics"
-        | "google-calendar"
-        | "google-cloud-service-account"
-        | "google-cloud-storage"
-        | "google-pubsub"
-        | "google-search-console"
-        | "google-sheets"
-        | "helpscout"
-        | "hubspot"
-        | "instagram"
-        | "intercom"
-        | "jira"
-        | "linear"
-        | "linkedin-ads"
-        | "meta-ads"
-        | "pardot"
-        | "pinterest-ads"
-        | "postgresql"
-        | "posthog"
-        | "reddit-ads"
-        | "twitter-ads"
-        | "resend"
-        | "s3-compatible"
-        | "salesforce"
-        | "slack"
-        | "slack-posthog-code"
-        | "snapchat"
-        | "snowflake"
-        | "stripe"
-        | "tiktok-ads"
-        | "twilio"
-        | "vercel"
-        | "youtube-analytics";
-    /**
      * Standard Integration serializer.
      */
     export type IntegrationConfig = {
         id: number;
-        kind: IntegrationKindEnum;
+        /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         */
+        kind: string;
         /**
          * How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
          *
@@ -17427,6 +17251,7 @@ export namespace Schemas {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -18025,6 +17850,7 @@ export namespace Schemas {
         | "America/Coral_Harbour"
         | "America/Cordoba"
         | "America/Costa_Rica"
+        | "America/Coyhaique"
         | "America/Creston"
         | "America/Cuiaba"
         | "America/Curacao"
@@ -18715,6 +18541,7 @@ export namespace Schemas {
         locked_value: boolean;
     };
     export type PaginatedCommentList = {
+        count: number;
         next?: (string | null) | undefined;
         previous?: (string | null) | undefined;
         results: Array<Comment>;
@@ -22834,6 +22661,7 @@ export namespace Endpoints {
                 active: "STALE" | "false" | "true";
                 archived: "false" | "true";
                 created_by_id: string;
+                deleted: "false" | "true";
                 eligible_for_experiment: "true";
                 evaluation_runtime: "all" | "client" | "server";
                 excluded_properties: string;

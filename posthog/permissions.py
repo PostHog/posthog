@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -751,6 +752,15 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def scopes_caller_lacks(request: Request | None, scopes: Iterable[str]) -> list[str]:
+    """The given scopes that the request's token does not cover, sorted. Empty for session auth and
+    `*` keys, which carry the user's full authority."""
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return []
+    return sorted(scopes_not_covered(caller_scopes, scopes))
 
 
 CLIENT_ID_POSTHOG = "posthog"

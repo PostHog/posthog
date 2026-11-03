@@ -2,7 +2,8 @@
 
 The call goes through `build_openai_client`, as the activity summary does. Any failure of the call or
 of its answer gives the list in model order with a `fallback_reason`, so a build never raises because
-of the model.
+of the model. A person with no ready activity summary gets the list in model order with no call, because
+the model has nothing to personalize it with.
 """
 
 import json
@@ -64,6 +65,7 @@ FALLBACK_MALFORMED = "malformed_output"
 FALLBACK_TRUNCATED = "truncated_output"
 FALLBACK_NO_CANDIDATES = "no_candidates"
 FALLBACK_AI_NOT_APPROVED = "ai_not_approved"
+FALLBACK_NO_ACTIVITY_SUMMARY = "no_activity_summary"
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 
@@ -97,6 +99,7 @@ class PersonalRankingBuild:
     input_hash: str | None
     activity_summary_version: int | None
     model: str
+    model_called: bool = False
     tokens_in: int | None = None
     tokens_out: int | None = None
     latency_ms: int | None = None
@@ -135,6 +138,14 @@ class PersonalRankingBuild:
 
 def model_order_reason(candidate: Candidate) -> str:
     return next((_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you), _MODEL_ORDER_REASON)
+
+
+def may_call_model(team: Team, *, summary_ready: bool) -> bool:
+    """Whether a build with candidates calls the model, as `build_personal_ranking` decides it.
+
+    Only such a build spends the shared daily limit.
+    """
+    return summary_ready and team.organization.is_ai_data_processing_approved is True
 
 
 def normalize_focus(focus: str | None, max_chars: int) -> str | None:
@@ -268,6 +279,7 @@ def _capture(
                     "status": build.status,
                     "personalized": build.personalized,
                     "fallback_reason": build.fallback_reason,
+                    "model_called": build.model_called,
                     "model": build.model,
                     "prompt_version": PROMPT_VERSION,
                     "activity_summary_version": build.activity_summary_version,
@@ -350,8 +362,8 @@ def build_personal_ranking(
     now = timezone.now()
     focus = normalize_focus(focus, config.focus_max_chars)
     summary = get_summary(team, user.id)
-    summary_ready = summary is not None and summary.status == ActivitySummaryStatus.READY
-    summary_version = summary.version if summary is not None and summary_ready else None
+    ready_summary = summary if summary is not None and summary.status == ActivitySummaryStatus.READY else None
+    summary_version = ready_summary.version if ready_summary is not None else None
     candidates = gather_candidates(team, user, config, now=now)
     refs = [candidate.ref for candidate in candidates]
     model_reasons = {candidate.ref: model_order_reason(candidate) for candidate in candidates}
@@ -363,13 +375,16 @@ def build_personal_ranking(
     if candidates and team.organization.is_ai_data_processing_approved is not True:
         # Report text never goes to the model without the organization's approval, so the list stays in model order.
         status, fallback_reason = "fallback", FALLBACK_AI_NOT_APPROVED
-    elif candidates:
+    elif candidates and ready_summary is None:
+        # With no summary the model cannot personalize the list, so the build skips the paid call.
+        status, fallback_reason = "fallback", FALLBACK_NO_ACTIVITY_SUMMARY
+    elif candidates and ready_summary is not None:
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": system_prompt(config, limit)},
             {
                 "role": "user",
                 "content": user_message(
-                    render_person(summary, config),
+                    render_person(ready_summary, config),
                     candidates,
                     focus=focus,
                     now=now,
@@ -402,7 +417,7 @@ def build_personal_ranking(
 
     build = PersonalRankingBuild(
         status=status,
-        personalized=validated is not None and summary_ready,
+        personalized=validated is not None,
         fallback_reason=fallback_reason,
         entries=validated.entries
         if validated is not None
@@ -414,6 +429,7 @@ def build_personal_ranking(
         input_hash=input_hash(candidates, activity_summary_version=summary_version, focus=focus),
         activity_summary_version=summary_version,
         model=config.model,
+        model_called=call is not None,
         tokens_in=call.tokens_in if call is not None else None,
         tokens_out=call.tokens_out if call is not None else None,
         latency_ms=call.latency_ms if call is not None else None,
