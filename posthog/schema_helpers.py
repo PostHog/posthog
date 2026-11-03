@@ -126,6 +126,7 @@ def to_dict(query: BaseModel) -> dict:
                         "breakdownSorting",
                         "legendPosition",
                         "chartStyle",
+                        "showGridLines",
                     ]
                 }
 

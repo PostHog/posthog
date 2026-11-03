@@ -316,6 +316,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             yAxisStartAtZero: undefined,
             yAxisMin: undefined,
             yAxisMax: undefined,
+            showGridLines: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,

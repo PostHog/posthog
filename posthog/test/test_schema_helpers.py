@@ -123,6 +123,7 @@ class TestSchemaHelpers(SimpleTestCase):
             ({"yAxisStartAtZero": False},),
             ({"yAxisMin": 50},),
             ({"yAxisMax": 70},),
+            ({"showGridLines": False},),
         ]
     )
     def test_serializes_insight_filter_without_frontend_only_props(self, trends_filter):
