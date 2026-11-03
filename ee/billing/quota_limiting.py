@@ -106,7 +106,7 @@ class QuotaLimitingCaches(Enum):
 
 def self_driving_quota_resource(organization: Organization) -> QuotaResource:
     summary = (organization.usage or {}).get("signals_spend_credits") or {}
-    cutoff = summary.get("billing_start_date")
+    cutoff = summary.get("billing_cutover_date") or summary.get("billing_start_date")
     if cutoff is not None and date.fromisoformat(cutoff) <= timezone.now().date():
         return QuotaResource.SIGNALS_SPEND_CREDITS
     return QuotaResource.SIGNALS_CREDITS

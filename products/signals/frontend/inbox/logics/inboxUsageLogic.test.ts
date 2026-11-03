@@ -99,14 +99,16 @@ const mountWithUsage = async (
     return logic
 }
 
-const mockSpendBilling = (cutoff: string | undefined): void => {
+const mockSpendBilling = (cutoff: string | undefined, retainedCutover?: string): void => {
     useMocks({
         get: {
             '/api/billing': () => [
                 200,
                 {
                     products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: '12.34' }],
-                    usage_summary: { signals_spend_credits: { billing_start_date: cutoff } },
+                    usage_summary: {
+                        signals_spend_credits: { billing_start_date: cutoff, billing_cutover_date: retainedCutover },
+                    },
                 },
             ],
         },
@@ -132,6 +134,17 @@ describe('inboxUsageLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.spendProduct?.type ?? null).toBe(cutoff === '2020-01-01' ? 'inbox_usage' : null)
             expect(logic.values.product?.type).toBe('inbox')
+        }
+    )
+
+    it.each([undefined, '2099-01-01', '2020-01-01'])(
+        'keeps the spend product after plan cleanup changes the start date (%s)',
+        async (cutoff) => {
+            mockSpendBilling(cutoff, '2020-06-10')
+            logic = inboxUsageLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.spendProduct?.type).toBe('inbox_usage')
         }
     )
 

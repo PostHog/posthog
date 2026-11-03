@@ -450,6 +450,12 @@ class BillingManager:
                 if todays_usage is not None:
                     usage["todays_usage"] = todays_usage
 
+            # Keep UI meter selection aligned with the cutover retained during plan cleanup.
+            spend_usage = organization.usage.get("signals_spend_credits") or {}
+            if cutoff := spend_usage.get("billing_cutover_date") or spend_usage.get("billing_start_date"):
+                usage_summary.setdefault("signals_spend_credits", {})["billing_cutover_date"] = cutoff
+                response["usage_summary"] = usage_summary
+
         # Extend the products with accurate usage_limit info
         for product in response["products"]:
             usage_key = product.get("usage_key")

@@ -2450,7 +2450,13 @@ export interface BillingType {
     products: BillingProductV2Type[]
     usage_summary?: Record<
         string,
-        { usage?: number | null; limit?: number | null; todays_usage?: number | null; billing_start_date?: string }
+        {
+            usage?: number | null
+            limit?: number | null
+            todays_usage?: number | null
+            billing_start_date?: string
+            billing_cutover_date?: string
+        }
     >
 
     custom_limits_usd?: {

@@ -16,7 +16,12 @@ from products.signals.backend.models import SignalSpend
 from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
 from products.signals.backend.test.test_billing import _at, _make_pr_run, _make_report
 
-from ee.billing.quota_limiting import QuotaResource, self_driving_quota_resource, set_org_usage_summary
+from ee.billing.quota_limiting import (
+    QuotaResource,
+    org_quota_limited_until,
+    self_driving_quota_resource,
+    set_org_usage_summary,
+)
 
 
 class TestSpendBillingContract(BaseTest):
@@ -89,6 +94,36 @@ class TestSpendBillingContract(BaseTest):
             assert dict(get_signals_billing_credits_by_team(_at(9, 0), _at(11, 0))) == {self.team.id: 1500}
             assert dict(get_signals_spend_billing_credits_by_team(_at(9, 0), _at(11, 0))) == {self.team.id: 25}
             assert dict(get_signals_billing_credits_by_team(_at(10, 0), _at(11, 0))) == {}
+
+    @parameterized.expand(
+        [
+            ("default_plan", {"usage": 0, "limit": 0}),
+            ("later_start", {"billing_start_date": "2026-06-20", "usage": 25, "limit": 20}),
+            ("earlier_start", {"billing_start_date": "2026-06-01", "usage": 25, "limit": 20}),
+        ]
+    )
+    @time_machine.travel(_at(11), tick=False)
+    def test_plan_cleanup_keeps_the_spend_quota_enforced(self, _name: str, replacement: dict) -> None:
+        self.organization.usage = {"signals_spend_credits": {"billing_start_date": "2026-06-10", "limit": 20}}
+        set_org_usage_summary(
+            self.organization,
+            cast(
+                OrganizationUsageInfo,
+                {
+                    "signals_spend_credits": replacement,
+                    "signals_credits": {"usage": 0, "limit": 4500},
+                    "period": [_at(1, 0).isoformat(), _at(30, 0).isoformat()],
+                },
+            ),
+        )
+        self.organization.save(update_fields=["usage"])
+
+        assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_SPEND_CREDITS
+        assert org_quota_limited_until(self.organization, QuotaResource.SIGNALS_SPEND_CREDITS, []) == {
+            "quota_limited_until": int(_at(30, 0).timestamp()),
+            "quota_limiting_suspended_until": None,
+        }
+        assert org_quota_limited_until(self.organization, QuotaResource.SIGNALS_CREDITS, []) is None
 
     @parameterized.expand([("missing", {}), ("default_plan", {"usage": 0, "limit": 0})])
     def test_unenrolled_org_reports_only_legacy_usage(self, _name: str, spend_usage: dict) -> None:

@@ -191,7 +191,7 @@ export interface inboxUsageLogicMeta {
         refundsFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         quotaEnforcementFlagEnabled: (featureFlags: FeatureFlagsSet) => boolean
         summaryFlagEnabled: (refundsFlagEnabled: boolean, quotaEnforcementFlagEnabled: boolean) => boolean
-        spendProduct: (billing: BillingType | null, billingDate: any) => BillingProductV2Type | null
+        spendProduct: (billing: BillingType | null, billingDate: string) => BillingProductV2Type | null
         product: (billing: BillingType | null) => BillingProductV2Type | null
         isLoading: (
             billing: BillingType | null,
@@ -371,7 +371,8 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         spendProduct: [
             (s) => [s.billing, s.billingDate],
             (billing: BillingType | null, billingDate: string): BillingProductV2Type | null => {
-                const cutoff = billing?.usage_summary?.signals_spend_credits?.billing_start_date
+                const summary = billing?.usage_summary?.signals_spend_credits
+                const cutoff = summary?.billing_cutover_date || summary?.billing_start_date
                 return cutoff && cutoff <= billingDate
                     ? (billing?.products?.find((product) => product.type === 'inbox_usage') ?? null)
                     : null

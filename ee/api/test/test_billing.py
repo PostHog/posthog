@@ -336,6 +336,43 @@ class TestUnlicensedBillingAPI(APIBaseTest):
 
 
 class TestBillingAPI(APILicensedTest):
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("default_plan", {"usage": 0, "limit": 0}),
+            ("later_start", {"billing_start_date": "2026-06-20", "usage": 25, "limit": 20}),
+        ]
+    )
+    @time_machine.travel("2026-06-11", tick=False)
+    @patch("ee.billing.billing_manager.BillingManager._get_billing")
+    def test_billing_returns_retained_signals_cutover(
+        self, _name: str, incoming_spend: dict | None, mock_get_billing: MagicMock
+    ) -> None:
+        self.organization.usage = create_usage_summary(
+            signals_spend_credits={"billing_start_date": "2026-06-10", "usage": 25, "limit": 20}
+        )
+        self.organization.save(update_fields=["usage"])
+        usage_summary = create_usage_summary()
+        if incoming_spend is not None:
+            usage_summary["signals_spend_credits"] = incoming_spend
+        mock_get_billing.return_value = create_billing_response(
+            customer=create_billing_customer(
+                usage_summary=usage_summary,
+                billing_period=BillingPeriod(
+                    current_period_start="2026-06-01T00:00:00Z",
+                    current_period_end="2026-07-01T00:00:00Z",
+                    interval="month",
+                ),
+            )
+        )
+
+        response = self.client.get("/api/billing/")
+
+        assert response.status_code == 200
+        spend = response.json()["usage_summary"]["signals_spend_credits"]
+        assert spend["billing_cutover_date"] == "2026-06-10"
+        assert spend.get("billing_start_date") == (incoming_spend or {}).get("billing_start_date")
+
     def test_billing_fails_for_old_license_type(self):
         self.license.key = "test_key"
         self.license.save()
