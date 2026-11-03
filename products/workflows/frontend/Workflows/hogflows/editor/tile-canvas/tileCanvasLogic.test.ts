@@ -314,6 +314,25 @@ describe('tileCanvasLogic', () => {
                 source: 'drag',
                 step_type: 'delay',
             })
+            expect(capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')).toEqual([
+                ['workflows tile canvas step drag ended', { outcome: 'moved', step_type: 'delay' }],
+            ])
+        })
+
+        it('records a drag let go away from every + with the drop effect the browser reported', async () => {
+            const before = edgePairs()
+            const capture = jest.spyOn(posthog, 'capture')
+
+            logic.actions.startDraggingStep('b2')
+            logic.actions.endDraggingStep('none')
+
+            expect(edgePairs()).toEqual(before)
+            expect(logic.values.isMovingNode).toBe(false)
+            expect(capture).toHaveBeenCalledWith('workflows tile canvas step drag ended', {
+                outcome: 'let_go_elsewhere',
+                step_type: 'delay',
+                drop_effect: 'none',
+            })
         })
 
         it.each(['trigger_node', 'split', 'exit_node'])('does not let %s be dragged', async (actionId) => {
@@ -371,6 +390,9 @@ describe('tileCanvasLogic', () => {
 
             expect(edgePairs()).toEqual(before)
             expect(capture).not.toHaveBeenCalledWith('workflows tile canvas step moved', expect.anything())
+            expect(capture.mock.calls.filter(([event]) => event === 'workflows tile canvas step drag ended')).toEqual([
+                ['workflows tile canvas step drag ended', { outcome: 'no_matching_spot', step_type: 'delay' }],
+            ])
         })
     })
 
