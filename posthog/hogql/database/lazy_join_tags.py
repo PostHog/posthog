@@ -26,6 +26,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = "error_tracking_issue_fingerprint_o
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE = "error_tracking_fingerprint_issue_state"
 TICKET_TAGS = "ticket_tags"
 DEFINITION_TAGS = "definition_tags"
+DEFINITION_METADATA = "definition_metadata"
 TICKET_ASSIGNMENT = "ticket_assignment"
 ACCOUNT_TAGS = "account_tags"
 ACCOUNT_NOTEBOOKS = "account_notebooks"

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
@@ -5,15 +6,17 @@ from typing import TYPE_CHECKING, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import DEFINITION_TAGS, TICKET_ASSIGNMENT, TICKET_TAGS
+from posthog.hogql.database.lazy_join_tags import DEFINITION_METADATA, DEFINITION_TAGS, TICKET_ASSIGNMENT, TICKET_TAGS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FieldTraverser,
     FloatDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -31,10 +34,11 @@ from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.constants import AvailableFeature
+from posthog.ph_client import feature_enabled_or_false
 from posthog.scopes import APIScopeObject
 
 if TYPE_CHECKING:
@@ -3938,6 +3942,215 @@ def _definition_tags_lazy_join(tagged_items_table: TaggedItemsTable) -> LazyJoin
     )
 
 
+DEFINITION_METADATA_FLAG = "hogql-definition-metadata"
+
+
+def _definition_metadata_columns(subject: str, *, with_owner: bool) -> dict[str, DatabaseField]:
+    """The metadata columns as the definition tables show them."""
+    columns: dict[str, DatabaseField] = {
+        "description": StringDatabaseField(
+            name="description",
+            nullable=True,
+            description=f"Description of the {subject}, written by a person; NULL if nobody described it.",
+        ),
+        "verified": IntegerDatabaseField(
+            name="verified", description=f"1 if a person marked the {subject} as verified, 0 otherwise."
+        ),
+        "verified_at": DateTimeDatabaseField(
+            name="verified_at", nullable=True, description=f"When a person marked the {subject} as verified."
+        ),
+        "verified_by_id": IntegerDatabaseField(
+            name="verified_by_id", nullable=True, description=f"User who marked the {subject} as verified."
+        ),
+        "hidden": IntegerDatabaseField(
+            name="hidden", description=f"1 if a person hid the {subject} from the lists in PostHog, 0 otherwise."
+        ),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at",
+            nullable=True,
+            description=f"When a person last edited the {subject}'s metadata; NULL if nobody edited it.",
+        ),
+        "updated_by_id": IntegerDatabaseField(
+            name="updated_by_id", nullable=True, description=f"User who last edited the {subject}'s metadata."
+        ),
+    }
+    if with_owner:
+        columns["owner_id"] = IntegerDatabaseField(
+            name="owner_id", nullable=True, description=f"User who owns the {subject}; NULL if it has no owner."
+        )
+    return columns
+
+
+_EVENT_DEFINITION_METADATA_COLUMNS = _definition_metadata_columns("event", with_owner=True)
+_PROPERTY_DEFINITION_METADATA_COLUMNS = _definition_metadata_columns("property", with_owner=False)
+# Nullable booleans in Postgres. The joined select coalesces them, see _definition_metadata_select.
+_DEFINITION_METADATA_FLAGS = ("verified", "hidden")
+
+
+class _PropertyDefinitionMetadataTable(PostgresTable):
+    """Hides the metadata of the properties that property-level access control hides.
+
+    The check reads `system.property_definitions` again, so it applies only when the caller has
+    restrictions.
+    """
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        if context is None or not context.restricted_properties:
+            return []
+        return [parse_expr("definition_id IN (SELECT id FROM system.property_definitions)")]
+
+
+def _definition_metadata_table(
+    table_class: type[PostgresTable],
+    *,
+    kind: str,
+    access_scope: APIScopeObject,
+    definition_column: str,
+    columns: dict[str, DatabaseField],
+    **kwargs,
+) -> PostgresTable:
+    postgres_table_name = f"event_definitions_{kind}definitionmetadata"
+    return table_class(
+        name=f"_{kind}_definition_metadata",
+        postgres_table_name=postgres_table_name,
+        access_scope=access_scope,
+        # Object-level access control applies to the definition, not to its metadata row.
+        access_control_id_field="definition_id",
+        description=f"Internal table (PostgreSQL `{postgres_table_name}`) of the metadata people edit on {kind} definitions; not for direct querying — use the columns of `system.{kind}_definitions`.",
+        fields={
+            "definition_id": UUIDDatabaseField(
+                name=definition_column,
+                description=f"Definition this metadata belongs to; join to `system.{kind}_definitions.id`.",
+            ),
+            "team_id": IntegerDatabaseField(name="team_id", hidden=True),
+            **columns,
+            **{name: BooleanDatabaseField(name=name, nullable=True) for name in _DEFINITION_METADATA_FLAGS},
+        },
+        **kwargs,
+    )
+
+
+event_definition_metadata: PostgresTable = _definition_metadata_table(
+    PostgresTable,
+    kind="event",
+    access_scope="event_definition",
+    definition_column="event_definition_id",
+    columns=_EVENT_DEFINITION_METADATA_COLUMNS,
+)
+property_definition_metadata: PostgresTable = _definition_metadata_table(
+    _PropertyDefinitionMetadataTable,
+    kind="property",
+    access_scope="property_definition",
+    definition_column="property_definition_id",
+    columns=_PROPERTY_DEFINITION_METADATA_COLUMNS,
+    # Keeps the team guard in the Postgres read when the restriction predicate applies.
+    push_team_guard_with_predicates=True,
+)
+
+
+def _definition_metadata_select(metadata_table: str, fields: Iterable[str]) -> ast.SelectQuery:
+    # A flag column must not be Nullable, so that a definition without a metadata row reads 0 through
+    # the LEFT JOIN: HogQL keeps ClickHouse's join_use_nulls = 0, which fills in the type default.
+    # toInt is no use here, because HogQL prints it as accurateCastOrNull.
+    columns: list[ast.Expr] = [
+        ast.Alias(
+            alias=field,
+            expr=ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="ifNull", args=[ast.Field(chain=[field]), ast.Constant(value=False)]),
+                    ast.Constant(value=1),
+                    ast.Constant(value=0),
+                ],
+            )
+            if field in _DEFINITION_METADATA_FLAGS
+            else ast.Field(chain=[field]),
+        )
+        for field in sorted(fields)
+        if field != "definition_id"
+    ]
+    return ast.SelectQuery(
+        select=[ast.Field(chain=["definition_id"]), *columns],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["system", metadata_table])),
+    )
+
+
+def _definition_metadata_enabled(context: HogQLContext) -> bool:
+    # Evaluated only when a query reads the metadata columns, so other queries never pay for it.
+    team = context.team
+    if team is None:
+        return False
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        DEFINITION_METADATA_FLAG,
+        str(team.uuid),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+class _DefinitionMetadataTable(LazyTable):
+    metadata_table: str
+    description: str = "Internal table backing the metadata columns of the definition tables: one row per definition that a person opened or edited in PostHog."
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _definition_metadata_select(self.metadata_table, table_to_add.fields_accessed)
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "definition_metadata"
+
+    def to_printed_hogql(self) -> str:
+        return "definition_metadata"
+
+
+def definition_metadata_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError(f"No fields requested from `{join_to_add.to_table}`")
+    if not _definition_metadata_enabled(context):
+        raise QueryError("The definition metadata columns are not available for this project yet.")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_definition_metadata_select(
+            join_to_add.lazy_join.resolver_params["metadata_table"], join_to_add.fields_accessed
+        ),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "definition_id"]),
+            ),
+        ),
+    )
+
+
+def _definition_metadata_fields(
+    metadata_table: PostgresTable, columns: dict[str, DatabaseField]
+) -> dict[str, FieldOrTable]:
+    return {
+        # Read through the columns below, which name what a query may select
+        "metadata": LazyJoin(
+            from_field=["id"],
+            join_table=_DefinitionMetadataTable(
+                metadata_table=metadata_table.name,
+                fields={"definition_id": metadata_table.fields["definition_id"], **columns},
+            ),
+            resolver=DEFINITION_METADATA,
+            resolver_params={"metadata_table": metadata_table.name},
+            hidden=True,
+        ),
+        **{
+            name: FieldTraverser(chain=["metadata", name], description=column.description)
+            for name, column in columns.items()
+        },
+    }
+
+
 event_definitions: PostgresTable = PostgresTable(
     name="event_definitions",
     postgres_table_name="posthog_eventdefinition",
@@ -3958,6 +4171,7 @@ event_definitions: PostgresTable = PostgresTable(
             description="When the event was last ingested; NULL if it has not been seen since this was tracked.",
         ),
         "tags": _definition_tags_lazy_join(event_definition_tagged_items),
+        **_definition_metadata_fields(event_definition_metadata, _EVENT_DEFINITION_METADATA_COLUMNS),
     },
 )
 
@@ -4039,6 +4253,7 @@ property_definitions: _PropertyDefinitionsTable = _PropertyDefinitionsTable(
             description="1 if the property's values can be used in numeric aggregations, 0 otherwise.",
         ),
         "tags": _definition_tags_lazy_join(property_definition_tagged_items),
+        **_definition_metadata_fields(property_definition_metadata, _PROPERTY_DEFINITION_METADATA_COLUMNS),
     },
 )
 
@@ -4116,6 +4331,9 @@ class SystemTables(TableNode):
         "_event_definition_tagged_items": TableNode(
             name="_event_definition_tagged_items", table=event_definition_tagged_items, hidden=True
         ),
+        "_event_definition_metadata": TableNode(
+            name="_event_definition_metadata", table=event_definition_metadata, hidden=True
+        ),
         "error_tracking_assignment_rules": TableNode(
             name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
         ),
@@ -4189,6 +4407,9 @@ class SystemTables(TableNode):
         "property_definitions": TableNode(name="property_definitions", table=property_definitions),
         "_property_definition_tagged_items": TableNode(
             name="_property_definition_tagged_items", table=property_definition_tagged_items, hidden=True
+        ),
+        "_property_definition_metadata": TableNode(
+            name="_property_definition_metadata", table=property_definition_metadata, hidden=True
         ),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "revenue_analytics_config": TableNode(name="revenue_analytics_config", table=revenue_analytics_config),

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -101,7 +102,12 @@ from products.error_tracking.backend.facade.testing import (
     create_suppression_rule,
     create_symbol_set,
 )
-from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.event_definitions.backend.models import (
+    EventDefinition,
+    EventDefinitionMetadata,
+    PropertyDefinition,
+    PropertyDefinitionMetadata,
+)
 from products.experiments.backend.facade.testing import create_experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -201,9 +207,11 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_custom_property_values_history",
             # Hidden junction backing system.support_tickets.tags; covered by TestSystemTicketTagsLazyJoin.
             "_ticket_tagged_items",
-            # Hidden junctions backing the definition tables' tags; covered by TestSystemDefinitionTables.
+            # Hidden tables backing the definition tables' tags and metadata; covered by TestSystemDefinitionTables.
             "_event_definition_tagged_items",
             "_property_definition_tagged_items",
+            "_event_definition_metadata",
+            "_property_definition_metadata",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
             # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
@@ -1963,6 +1971,73 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
             str(untagged.pk): [],
         }
 
+    def _add_metadata(self, definition: EventDefinition | PropertyDefinition, team: Team, **fields) -> None:
+        if isinstance(definition, EventDefinition):
+            EventDefinitionMetadata.objects.for_team(team.pk, canonical=True).create(
+                event_definition=definition, team=team, **fields
+            )
+        else:
+            PropertyDefinitionMetadata.objects.for_team(team.pk, canonical=True).create(
+                property_definition=definition, team=team, **fields
+            )
+
+    @parameterized.expand(
+        [("event_definitions", _create_event_definition), ("property_definitions", _create_property_definition)]
+    )
+    def test_metadata_columns_read_own_team_metadata(self, table_name, factory):
+        verified_at = datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC)
+        edited = factory(self.team, "edited")
+        self._add_metadata(
+            edited,
+            self.team,
+            description="Billing plan",
+            verified=True,
+            verified_at=verified_at,
+            verified_by=self.user,
+            hidden=True,
+            updated_by=self.user,
+        )
+        unedited = factory(self.team, "unedited")
+        theirs = factory(self.other_team, "theirs")
+        self._add_metadata(theirs, self.other_team, description="Their plan", verified=True)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            joined = execute_hogql_query(
+                f"SELECT id, description, verified, verified_at, verified_by_id, hidden, updated_by_id FROM system.{table_name}",
+                team=self.team,
+                user=self.user,
+            )
+            direct = execute_hogql_query(
+                f"SELECT definition_id FROM system._{table_name[:-1]}_metadata", team=self.team, user=self.user
+            )
+
+        assert {str(row[0]): row[1:] for row in joined.results} == {
+            str(edited.pk): ("Billing plan", 1, verified_at, self.user.pk, 1, self.user.pk),
+            str(unedited.pk): (None, 0, None, None, 0, None),
+        }
+        assert [str(row[0]) for row in direct.results] == [str(edited.pk)]
+
+    def test_event_metadata_includes_the_owner(self):
+        definition = _create_event_definition(self.team, "owned")
+        self._add_metadata(definition, self.team, owner=self.user)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = execute_hogql_query(
+                "SELECT owner_id FROM system.event_definitions", team=self.team, user=self.user
+            )
+
+        assert response.results == [(self.user.pk,)]
+
+    def test_metadata_columns_are_off_without_the_flag(self):
+        _create_event_definition(self.team, "any")
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            assert execute_hogql_query(
+                "SELECT name FROM system.event_definitions", team=self.team, user=self.user
+            ).results == [("event_any",)]
+            with self.assertRaisesRegex(QueryError, "metadata columns are not available"):
+                execute_hogql_query("SELECT description FROM system.event_definitions", team=self.team, user=self.user)
+
     def test_property_definitions_hide_restricted_properties(self):
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -1981,6 +2056,7 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
                 type=prop_type,
                 group_type_index=group_type_index,
             )
+            self._add_metadata(definition, self.team, description="Restricted" if restricted else "Readable")
             if restricted:
                 PropertyAccessControl.objects.create(
                     team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
@@ -1989,8 +2065,12 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
         response = execute_hogql_query(
             "SELECT name, type, group_type_index FROM system.property_definitions", team=self.team, user=self.user
         )
+        metadata = execute_hogql_query(
+            "SELECT description FROM system._property_definition_metadata", team=self.team, user=self.user
+        )
 
         assert sorted(response.results, key=str) == [("plan", "person", None), ("tier", "group", 0)]
+        assert metadata.results == [("Readable",), ("Readable",)]
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
