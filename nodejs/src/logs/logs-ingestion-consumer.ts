@@ -1264,8 +1264,7 @@ export class LogsIngestionConsumer {
                                             team_id: message.teamId.toString(),
                                             'json-parse': jsonParse.toString(),
                                             'retention-days': retentionDays.toString(),
-                                            // The ingestion lag checkpoint needs the source partition, because
-                                            // both topics use random partitioning.
+                                            // Both topics use random partitioning, so the ingestion lag checkpoint needs the source partition.
                                             source_topic: message.message.topic,
                                             source_partition: message.message.partition.toString(),
                                             ...(bytesUncompressedHeaderOverride !== undefined
