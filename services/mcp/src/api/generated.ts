@@ -11013,6 +11013,7 @@ export namespace Schemas {
 
     export interface ChartSettingsDisplay {
       color?: string | null;
+      description?: string | null;
       displayType?: DisplayType | null;
       /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
       excludeFromTotal?: boolean | null;
@@ -13590,7 +13591,6 @@ export namespace Schemas {
     export interface AnalyticsAnomalyInvestigationSignalExtra {
       alert_id: string;
       alert_name: string;
-      alert_check_id: string;
       insight_id: string;
       detector_type: string;
       verdict: InvestigationVerdictEnum;
@@ -13599,6 +13599,9 @@ export namespace Schemas {
       insight_short_id?: string | null;
       triggered_dates?: string[] | null;
       notebook_short_id?: string | null;
+      alert_check_id?: string | null;
+      investigation_id?: string | null;
+      evaluation_key?: string | null;
     }
 
     /**
@@ -34003,7 +34006,7 @@ export namespace Schemas {
      * Typed view over the Subscription.delivery_config JSON blob.
      */
     export interface DeliveryConfig {
-      /** Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message. */
+      /** Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message. */
       post_all_insights_in_main_message?: boolean;
       /** Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that. */
       include_images?: boolean;
@@ -53789,6 +53792,8 @@ export namespace Schemas {
       customerTable?: string | null;
       /** Google Ads search term table for Performance Max campaigns. */
       performanceMaxSearchTermTable?: string | null;
+      /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+      queryPageTable?: string | null;
       /** Google Search Console table with one row per query, or per query and page. */
       queryTable?: string | null;
       /** Google Ads search term table split by the keyword that matched each term. */
@@ -58438,6 +58443,11 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect: boolean | null;
     }
 
     /**
@@ -58518,6 +58528,11 @@ export namespace Schemas {
       readonly installation_shared: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect: boolean | null;
     }
 
     export interface RecommendedAction {
@@ -82183,6 +82198,11 @@ export namespace Schemas {
       readonly installation_shared?: boolean | null;
       /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
       readonly installation_status?: InstallationStatusEnum | null;
+      /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         * @nullable
+         */
+      readonly needs_webhook_reconnect?: boolean | null;
     }
 
     export interface PatchedJsSnippetVersion {
