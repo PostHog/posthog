@@ -182,8 +182,6 @@ class MonthlyCleanupConfig(dagster.Config):
     )
 
 
-# Raise in small steps: each team admitted with events past its window gets its first deletion three months after
-# this run.
 PLAN_DELETION_TEAMS_PER_RUN = 0
 _ADMISSION_CHUNK_SIZE = 1000
 
@@ -1620,7 +1618,6 @@ def delete_team_product_documents_job():
 def teams_losing_events_at_first_pass(
     cluster: ClickhouseCluster, window_months_by_team: dict[int, int], first_pass_on: date
 ) -> set[int]:
-    """The teams that hold events older than their window at a first pass on this date."""
     first_pass = datetime.combine(first_pass_on, datetime.min.time())
     cutoffs = {team_id: whole_month_cutoff(first_pass, months) for team_id, months in window_months_by_team.items()}
     parameters = {"team_ids": sorted(cutoffs), "cutoff": max(cutoffs.values())}
@@ -1641,10 +1638,6 @@ def teams_losing_events_at_first_pass(
 
 
 def _enforced_plans(team_ids: list[int]) -> list[TeamPlan]:
-    """Every team whose window the cleanup enforces.
-
-    A team without enforcement gets no pass, so the plan never caps its set window. That window still deletes monthly.
-    """
     teams = Team.objects.filter(id__in=team_ids) if team_ids else Team.objects.all()
     return [
         team_plan(team)
@@ -1656,7 +1649,6 @@ def _enforced_plans(team_ids: list[int]) -> list[TeamPlan]:
 
 
 def _admit(cluster: ClickhouseCluster, queue: list[TeamPlan], cap: int, today: date) -> _Admissions:
-    """Walk the queue in order. A team that loses events at its first pass uses the cap, and any other team is free."""
     admissions = _Admissions(losing_events=[], losing_nothing=[])
     if cap <= 0:
         return admissions
@@ -1690,7 +1682,6 @@ def update_plan_deletions(
     queue = [plan for plan in plans if plan.team_id not in admitted_team_ids]
     admissions = _admit(cluster, queue, config.max_new_plan_deletion_teams, today)
 
-    # Last, so a failure anywhere above admits no team and moves no pass.
     with transaction.atomic():
         states = reschedule_plan_deletions(plans, today, admit={*admissions.losing_events, *admissions.losing_nothing})
     due_team_ids = sorted(team_id for team_id, state in states.items() if state.next_deletion_on <= today)
@@ -1707,11 +1698,6 @@ def update_plan_deletions(
 
 
 def _still_due_pass_months(passes: PlanDeletionPasses) -> dict[int, int]:
-    """The window of each pass found due when the run started, read again from its row.
-
-    Settings can change while the run waits. A longer window raises the row's months, and a shorter one moves the
-    row's next deletion past this run, so neither deletes more than the saved policy allows.
-    """
     rows = TeamEventsPlanDeletion.objects.filter(team_id__in=passes.due_team_ids, next_deletion_on__lte=passes.run_on)
     return dict(rows.values_list("team_id", "months"))
 
@@ -1864,10 +1850,7 @@ def plan_old_sessions_cleanup(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     events_plan: OldEventsCleanupPlan,
 ) -> OldSessionsCleanupPlan:
-    """For each month, find the teams whose sessions in it are all past the window their events were cleaned up by.
-
-    A pass completes only when this plan also covers the team and every month, so its sessions are deleted too.
-    """
+    """For each month, find the teams whose sessions in it are all past the window their events were cleaned up by."""
     window_months = events_plan.window_months_by_team
     completed_pass_team_ids = [] if config.partitions else events_plan.completed_pass_team_ids
     if config.team_ids:
@@ -1971,7 +1954,6 @@ def advance_plan_deletion_passes(
 ) -> None:
     """Move the next pass of each team whose pass this run completed three months out, once its sessions are deleted."""
     with transaction.atomic():
-        # Lock the rows so that a settings save during the update can't be overwritten with an earlier date.
         rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=plan.completed_pass_team_ids))
         for row in rows:
             row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
