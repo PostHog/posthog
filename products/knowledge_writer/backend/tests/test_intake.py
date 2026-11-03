@@ -344,8 +344,10 @@ def test_a_section_stays_busy_after_its_run_finishes_until_its_publication_settl
         assert started.task_id is not None
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
         while_publishing = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        writer = writer_settings()
+        assert writer is not None
         with time_machine.travel(timezone.now() + PUBLICATION_LEASE, tick=False):
-            busy_after_lease = caps.in_flight_writer_runs(writer_settings()).busy_sections
+            busy_after_lease = caps.in_flight_writer_runs(writer).busy_sections
         settle_publication(TaskRun.objects.get(task_id=started.task_id).id, team_id=team.id, has_failed=True)
         after_settling = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
 
