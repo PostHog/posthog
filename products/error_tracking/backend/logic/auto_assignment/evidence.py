@@ -31,6 +31,7 @@ NEAREST_ASSIGNED_FINGERPRINTS_QUERY = """
     AND rendering = {rendering}
     AND team_id = {team_id}
     AND timestamp >= {min_timestamp}
+    AND timestamp < {max_timestamp}
     AND document_id IN {fingerprints}
     ORDER BY distance ASC
     LIMIT {limit}
@@ -91,16 +92,18 @@ class IssueEvidence:
 
     @property
     def similar_issue_lookup_ms(self) -> float | None:
+        # Read the cache, not the property, so that asking for the timing never runs the lookup.
         lookup = self.__dict__.get("similar_assigned_issues")
         return lookup.duration_ms if lookup is not None else None
 
     def _assigned_fingerprints(self) -> dict[str, tuple[str, Assignee]]:
-        # The assignment and the issue must both predate this issue, so a backtest over past issues
+        # The fingerprint, its issue and the assignment must all predate this issue, so a backtest over past issues
         # sees only what was known at the time.
         rows = (
             ErrorTrackingIssueFingerprintV2.objects.filter(
                 team_id=self.team.id,
                 first_seen__gte=self.created_at - EMBEDDING_RETENTION,
+                first_seen__lt=self.created_at,
                 issue__created_at__lt=self.created_at,
                 issue__assignment__created_at__lt=self.created_at,
             )
@@ -131,6 +134,7 @@ class IssueEvidence:
                 "rendering": ast.Constant(value=embedding.rendering),
                 "team_id": ast.Constant(value=self.team.id),
                 "min_timestamp": ast.Constant(value=self.created_at - EMBEDDING_RETENTION),
+                "max_timestamp": ast.Constant(value=self.created_at),
                 "fingerprints": ast.Constant(value=fingerprints),
                 "limit": ast.Constant(value=MAX_NEAREST_FINGERPRINTS),
             },

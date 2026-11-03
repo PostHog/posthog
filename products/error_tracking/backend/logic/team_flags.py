@@ -45,6 +45,7 @@ def team_flag_explicitly_off(flag: str, team_id: int) -> bool:
 
 
 def team_flag_payload(flag: str, team_id: int) -> object:
+    """Return the project flag payload, or None when the lookup fails or the SDK is disabled in local dev."""
     try:
         return posthoganalytics.get_feature_flag_payload(flag, str(team_id), **_project_flag_options(team_id))
     except Exception:

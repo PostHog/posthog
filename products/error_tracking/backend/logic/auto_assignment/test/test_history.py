@@ -1,5 +1,8 @@
+import math
 from datetime import timedelta
+from uuid import UUID
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock
 
@@ -10,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
+from products.access_control.backend.facade.testing import create_role
 from products.error_tracking.backend.logic.auto_assignment.base import Assignee
 from products.error_tracking.backend.logic.auto_assignment.evidence import (
     IssueEmbedding,
@@ -100,11 +104,19 @@ def _vector(*values: float) -> list[float]:
 
 
 class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
-    def _issue(self, fingerprint: str, vector: list[float], *, assigned: bool = True) -> ErrorTrackingIssue:
+    def _issue(
+        self, fingerprint: str, vector: list[float], *, assigned: bool = True, role_id: UUID | None = None
+    ) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name=fingerprint)
-        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
-        if assigned:
+        self._fingerprint(issue, fingerprint, vector)
+        if role_id is not None:
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=role_id)
+        elif assigned:
             ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+        return issue
+
+    def _fingerprint(self, issue: ErrorTrackingIssue, fingerprint: str, vector: list[float]) -> None:
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         now = timezone.now()
         sync_execute(
             """
@@ -117,16 +129,22 @@ class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
             flush=True,
             team_id=self.team.pk,
         )
-        return issue
 
     def test_returns_assigned_past_issues_nearest_first(self) -> None:
         near = self._issue("near", _vector(1.0, 0.1))
+        self._fingerprint(near, "near-2", _vector(1.0, 0.05))
         far = self._issue("far", _vector(1.0, 1.0))
+        role_id = create_role(organization_id=self.organization.id, name="Backend")
+        by_role = self._issue("by-role", _vector(1.0, 2.0), role_id=role_id)
         self._issue("unassigned", _vector(1.0), assigned=False)
         late = self._issue("assigned-later", _vector(1.0))
+        seen_later = self._issue("seen-later", _vector(1.0))
         target = self._issue("target", _vector(1.0))
         created_at = timezone.now() + timedelta(minutes=1)
         ErrorTrackingIssueAssignment.objects.filter(issue=late).update(created_at=created_at + timedelta(hours=1))
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue=seen_later).update(
+            first_seen=created_at + timedelta(hours=1)
+        )
 
         evidence = IssueEvidence(
             team=self.team,
@@ -137,6 +155,8 @@ class TestSimilarAssignedIssues(ClickhouseTestMixin, BaseTest):
         lookup = evidence.similar_assigned_issues
 
         assert lookup is not None
-        assert [issue.issue_id for issue in lookup.issues] == [str(near.id), str(far.id)]
+        assert [issue.issue_id for issue in lookup.issues] == [str(near.id), str(far.id), str(by_role.id)]
+        assert lookup.issues[0].distance == pytest.approx(1 - 1 / math.sqrt(1 + 0.05**2), abs=1e-5)
         assert lookup.issues[0].assignee == Assignee(type="user", id=str(self.user.id))
+        assert lookup.issues[2].assignee == Assignee(type="role", id=str(role_id))
         assert evidence.similar_issue_lookup_ms == lookup.duration_ms

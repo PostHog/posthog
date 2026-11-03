@@ -101,6 +101,7 @@ class TestPipeline(SimpleTestCase):
         result = run(_evidence(), processors=[broken, working], config=CONFIG)
 
         assert [o.status for o in result.outcomes] == [ProcessorStatus.FAILED, ProcessorStatus.ACCEPTED]
+        _capture.assert_called_once()
 
     def test_gate_off_runs_nothing(self, enabled: MagicMock) -> None:
         enabled.return_value = False
