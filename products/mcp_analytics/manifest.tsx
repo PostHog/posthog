@@ -92,7 +92,6 @@ export const manifest: ProductManifest = {
                     flag: FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING,
                 },
             ],
-            tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },
     ],
