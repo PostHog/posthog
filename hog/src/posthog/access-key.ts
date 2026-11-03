@@ -56,6 +56,8 @@ export interface AccessKey {
     record(store: StoreChoice): LoginRecord
 }
 
+const KEY_CHECK_TIMEOUT_MS = 30_000
+
 export class PersonalAPIKey implements AccessKey {
     readonly host: string
     readonly projectId: string
@@ -96,11 +98,16 @@ export class PersonalAPIKey implements AccessKey {
     }
 
     // A key someone deleted, or one pasted only in part, would otherwise fail only at the first
-    // command that uses it.
+    // command that uses it. A key PostHog just issued already came with its scopes, so it skips the
+    // check: its approval is short-lived and a slow check could lose it.
     async verify(runtime: Runtime): Promise<PersonalAPIKey> {
+        if (this.scopes !== null) {
+            return this
+        }
         const response = await sendRequest(runtime.fetch, hostUrl(this.host, 'api/personal_api_keys/@current/'), {
             method: 'GET',
             token: this.apiKey,
+            timeoutMs: KEY_CHECK_TIMEOUT_MS,
         })
         if (response.status === 401) {
             throw new HogError(
