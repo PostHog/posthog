@@ -155,9 +155,9 @@ export interface trendsDataLogicValues {
     resultCustomizationByRaw: ResultCustomizationBy | null | undefined // insightVizDataLogic
     series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined // insightVizDataLogic
     showAnnotations: boolean | null | undefined // insightVizDataLogic
+    showGridLines: boolean | null | undefined // insightVizDataLogic
     showLabelOnSeries: boolean | null | undefined // insightVizDataLogic
     showLegend: boolean | null | undefined // insightVizDataLogic
-    showGridLines: boolean | null | undefined // insightVizDataLogic
     showMultipleYAxes: boolean | null | undefined // insightVizDataLogic
     showPercentStackView: boolean | null | undefined // insightVizDataLogic
     showPercentagesOnSeries: boolean | null | undefined // insightVizDataLogic

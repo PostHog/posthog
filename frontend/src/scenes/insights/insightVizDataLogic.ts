@@ -308,9 +308,9 @@ export interface insightVizDataLogicValues {
     shouldShowSessionAnalysisWarning: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
+    showGridLines: boolean | null | undefined
     showLabelOnSeries: boolean | null | undefined
     showLegend: boolean | null | undefined
-    showGridLines: boolean | null | undefined
     showMultipleYAxes: boolean | null | undefined
     showPercentStackView: boolean | null | undefined
     showPercentagesOnSeries: boolean | null | undefined
@@ -1016,7 +1016,7 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => string | null | undefined
-        showGridLines: (
+        showMultipleYAxes: (
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
@@ -1029,7 +1029,7 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean | null | undefined
-        showMultipleYAxes: (
+        showGridLines: (
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
