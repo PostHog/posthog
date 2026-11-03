@@ -19,10 +19,6 @@
         "chromium": 10.087,
         "webkit": 3.018
     },
-    "frontend/src/layout/InternalFeedback/InternalFeedbackWidget.stories.tsx": {
-        "chromium": 5.5,
-        "webkit": 2.9
-    },
     "frontend/src/layout/SceneLoadError.stories.tsx": {
         "chromium": 5.832,
         "webkit": 2.732
