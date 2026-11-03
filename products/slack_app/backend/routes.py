@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.slack_app.backend.views import SlackAppWorkspaceSetupViewSet
+from products.slack_app.backend.presentation.views import SlackAppWorkspaceSetupViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
