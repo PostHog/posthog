@@ -165,6 +165,21 @@ export interface teamLogicActions {
         destination: string | undefined
         teamId: number | string
     } // userLogic
+    addFullStageTeamFields: (fields: Partial<TeamType>) => Partial<TeamType>
+    addFullStageTeamFieldsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addFullStageTeamFieldsSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: Partial<TeamType>
+    }
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties
     addProductIntentFailure: (
         error: string,
@@ -233,21 +248,6 @@ export interface teamLogicActions {
     ) => {
         currentTeam: TeamPublicType | TeamType | null
         payload?: any
-    }
-    addFullStageTeamFields: (fields: Partial<TeamType>) => Partial<TeamType>
-    addFullStageTeamFieldsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    addFullStageTeamFieldsSuccess: (
-        currentTeam: TeamPublicType | TeamType | null,
-        payload?: Partial<TeamType>
-    ) => {
-        currentTeam: TeamPublicType | TeamType | null
-        payload?: Partial<TeamType>
     }
     deleteTeam: (team: TeamType) => {
         team: TeamType
@@ -428,8 +428,8 @@ export const teamLogic = kea<teamLogicType>([
                     }
                 },
                 // No listeners, so the late fields do not rerun what a team load triggers.
-                addFullStageTeamFields: (fields: Partial<TeamType>) =>
-                    values.currentTeam ? { ...values.currentTeam, ...fields } : null,
+                addFullStageTeamFields: (fields: Partial<TeamType>): TeamType | TeamPublicType | null =>
+                    values.currentTeam ? ({ ...values.currentTeam, ...fields } as TeamType | TeamPublicType) : null,
                 refreshCurrentTeam: async () => {
                     const projectId = values.currentTeam?.project_id
                     if (!projectId) {
