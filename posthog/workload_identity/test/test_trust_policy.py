@@ -161,6 +161,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             ("null_condition_value", {"conditions": {"ref": None}}, "conditions"),
             ("wildcard_condition_value", {"conditions": {"ref": "refs/heads/*"}}, "conditions"),
             ("padded_condition_value", {"conditions": {"ref": " refs/heads/main"}}, "conditions"),
+            ("null_character_in_condition_value", {"conditions": {"ref": "refs/heads/main\x00"}}, "conditions"),
             ("overlong_condition_value", {"conditions": {"ref": "r" * 201}}, "conditions"),
             ("no_scopes", {"scopes": []}, "scopes"),
             ("unknown_scope", {"scopes": ["not_a_thing:read"]}, "scopes"),
