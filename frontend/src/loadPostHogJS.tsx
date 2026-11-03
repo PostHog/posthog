@@ -58,6 +58,17 @@ export function withLastSeenFeatureFlags(
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
 
+const dropExceptions: BeforeSendFn = (event) => (event?.event === '$exception' ? null : event)
+
+/**
+ * Local development without self-capture sends its events to PostHog Cloud. Its crashes come from
+ * dev-only state, for example a stale Vite prebundle, and file issues that no user can hit.
+ * This reads the raw context because getAppContext() hides it in OAuth mode, which also runs locally.
+ */
+function sendsLocalDevelopmentToCloud(): boolean {
+    return window.POSTHOG_APP_CONTEXT?.run_mode === 'LOCAL' && !window.JS_POSTHOG_SELF_CAPTURE
+}
+
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
         const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
@@ -141,6 +152,7 @@ export function loadPostHogJS(): void {
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
                 ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
+                ...(sendsLocalDevelopmentToCloud() ? [dropExceptions] : []),
             ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
