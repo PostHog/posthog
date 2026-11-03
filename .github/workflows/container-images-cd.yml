@@ -404,6 +404,7 @@ jobs:
             # fixed-name files (SDK bundles, the toolbar, index.html) are fetched by name, so the Argo
             # upload hook keeps writing those as the pods roll, never ahead of them.
             - name: Extract the frontend build from the image
+              if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != '' || vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
               env:
                   IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
               run: |
@@ -415,15 +416,20 @@ jobs:
                   mkdir -p "$staging"
                   cd "$RUNNER_TEMP/frontend-dist"
                   find . -type f -regextype posix-extended \
-                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-[A-Z0-9]{6,}\.[a-z0-9]+(\.map)?$' > "$RUNNER_TEMP/hashed.txt"
+                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-[A-Z0-9]{6,}\.[a-z0-9]+$' > "$RUNNER_TEMP/hashed.txt"
                   while IFS= read -r f; do
                       rel="${f#./}"
                       mkdir -p "$staging/$(dirname "$rel")"
                       cp "$f" "$staging/$rel"
                   done < "$RUNNER_TEMP/hashed.txt"
-                  echo "$(wc -l < "$RUNNER_TEMP/hashed.txt") content-hashed files"
+                  count=$(wc -l < "$RUNNER_TEMP/hashed.txt")
+                  echo "$count content-hashed files"
+                  if [ "$count" -eq 0 ]; then
+                      echo "::error::No content-hashed files found in the image's frontend/dist, so nothing can be published."
+                      exit 1
+                  fi
 
-            # The image keeps its .map files when the sourcemap upload fails, and they must not be public.
+            # Sourcemaps never match the pattern (they end in .map), so a retained .map file stays private.
             # The build marker is written last: a pod-start gate reads it as proof that every file above
             # is in the bucket.
             #
@@ -438,12 +444,12 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to dev
               if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 10
+              timeout-minutes: 5
               env:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
@@ -454,12 +460,12 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to prod-us
               if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 10
+              timeout-minutes: 5
               env:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
@@ -470,12 +476,12 @@ jobs:
                   aws-region: eu-central-1
             - name: Publish frontend assets to prod-eu
               if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 10
+              timeout-minutes: 5
               env:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: get deployer token
