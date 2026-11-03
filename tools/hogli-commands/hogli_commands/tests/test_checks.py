@@ -1614,24 +1614,22 @@ class TestImportSurfaceCheck:
                 0,
                 id="unsealed_consumer_reaching_facade",
             ),
-            # An unsealed product has no routes/presentation contract, so that layout stays
-            # its own business.
-            pytest.param(
-                {
-                    "webhook_consumers.py": "from .facade.api import f\n",
-                    "facade/api.py": "",
-                    "routes.py": "from .api.views import V\n",
-                    "api/views.py": "",
-                },
-                True,
-                0,
-                id="unsealed_routes_stay_unchecked",
-            ),
+            # The routes and presentation contracts name every product, so an unsealed product
+            # without a consumer is held to them too.
             pytest.param(
                 {"routes.py": "from .api.views import V\n", "api/views.py": ""},
-                False,
-                0,
-                id="unsealed_without_consumer_does_not_run",
+                True,
+                1,
+                id="unsealed_routes_from_unmarked_package",
+            ),
+            pytest.param(
+                {
+                    "presentation/views.py": "from products.p.backend.summary.read import LIMIT\n",
+                    "summary/read.py": "",
+                },
+                True,
+                1,
+                id="unsealed_presentation_from_unmarked_package",
             ),
         ],
     )
