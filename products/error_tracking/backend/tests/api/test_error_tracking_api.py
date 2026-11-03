@@ -22,6 +22,7 @@ from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.parsers import FileUploadParser
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -1278,21 +1279,15 @@ class TestErrorTracking(APIBaseTest):
         assert response.json()["code"] == "file_too_large"
         assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
 
-    def test_deprecated_create_rejects_oversized_declared_length(self) -> None:
-        # A header-authenticated request reaches the view with the body unparsed, so the
-        # declared length is checked before anything reads the stream.
-        self.client.logout()
-        api_key = self.create_personal_api_key_with_scopes(["error_tracking:write"])
-        response = self._post_deprecated_upload(
-            "raw",
-            b"{}",
-            HTTP_AUTHORIZATION=f"Bearer {api_key}",
-            CONTENT_LENGTH=str(symbol_sets_logic.ONE_HUNDRED_MEGABYTES * 2),
-        )
+    def test_deprecated_create_rejects_oversized_declared_length_without_parsing(self) -> None:
+        with patch.object(FileUploadParser, "parse") as parse:
+            response = self._post_deprecated_upload(
+                "raw", b"{}", CONTENT_LENGTH=str(symbol_sets_logic.ONE_HUNDRED_MEGABYTES * 2)
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "file_too_large"
-        assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
+        parse.assert_not_called()
 
     def test_deprecated_create_requires_file(self) -> None:
         url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}&multipart=true"

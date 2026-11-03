@@ -228,6 +228,17 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         "create",
     ]
 
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        # Authentication and permission checks read the request body, which makes DRF parse a raw upload, so check
+        # the declared length before them. Middleware has already parsed a multipart body by this point.
+        if self.action == "create":
+            try:
+                declared_size = int(request.META.get("CONTENT_LENGTH") or 0)
+            except ValueError:
+                declared_size = 0
+            symbol_sets_facade.check_upload_size(declared_size - MULTIPART_OVERHEAD_BYTES)
+        super().initial(request, *args, **kwargs)
+
     @extend_schema(parameters=[ErrorTrackingSymbolSetListQuerySerializer])
     def list(self, request: Request, *args, **kwargs) -> Response:
         query = ErrorTrackingSymbolSetListQuerySerializer(data=request.query_params)
@@ -314,13 +325,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # A header-authenticated request reaches here unparsed, so reject on the declared length before request.FILES parses it.
-        try:
-            declared_size = int(request.META.get("CONTENT_LENGTH") or 0)
-        except ValueError:
-            declared_size = 0
-        symbol_sets_facade.check_upload_size(declared_size - MULTIPART_OVERHEAD_BYTES)
 
         # MultiPartParser and the legacy FileUploadParser both put the upload in request.FILES.
         upload = request.FILES.get("file")
