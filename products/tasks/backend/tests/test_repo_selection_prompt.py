@@ -121,6 +121,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
         )
 
     assert selected.repository == "acme/b"
+    assert start.call_args.kwargs["mcp_tool_allowlist"] == ["execute-sql"]
     prompt = start.call_args.kwargs["prompt"]
     assert "Team routing rules" in prompt
     assert "1. Support app asks → `acme/b`" in prompt

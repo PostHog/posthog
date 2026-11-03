@@ -792,6 +792,7 @@ async def select_repository(
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             internal=True,
+            mcp_tool_allowlist=["execute-sql"],
             # An unreadable end turn used to fail the whole selection, and the caller then dropped the
             # user into a manual repository picker. Read the pick out of the raw reply instead.
             fallback_from_text=_salvage,

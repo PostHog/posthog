@@ -162,6 +162,12 @@ import {
   type GatewayEnvInput,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import {
+  isRepositorySelection,
+  REPOSITORY_SELECTION_SYSTEM_PROMPT,
+  repositorySelectionClaudeOptions,
+  repositorySelectionCodexConfig,
+} from "./launch/repository-selection";
 import { readProductLaunch, readRunLaunch } from "./launch/run-launch";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
@@ -2262,16 +2268,21 @@ export class AgentServer {
     const prUrl = this.detectedPrUrl;
 
     // Before the prompt: its skills-store section counts the stubs on disk.
-    await this.installStoreSkills(
-      payload.task_id,
-      payload.run_id,
-      launch.runState,
-    );
+    const repositorySelection = isRepositorySelection(launch);
+    if (!repositorySelection) {
+      await this.installStoreSkills(
+        payload.task_id,
+        payload.run_id,
+        launch.runState,
+      );
+    }
     // Before the adapter starts: Claude and Codex read these files when the session opens.
-    this.agentInstructions = await new AgentInstructionFiles(this.logger).sync(
-      launch.runState,
-      { taskId: payload.task_id, runId: payload.run_id },
-    );
+    this.agentInstructions = repositorySelection
+      ? null
+      : await new AgentInstructionFiles(this.logger).sync(launch.runState, {
+          taskId: payload.task_id,
+          runId: payload.run_id,
+        });
 
     if (
       launch.originProduct === POSTHOG_AI_ORIGIN_PRODUCT &&
@@ -2283,13 +2294,14 @@ export class AgentServer {
       });
     }
 
-    const sessionSystemPrompt = this.buildSessionSystemPrompt(
-      prUrl,
-      launch.systemPrompt,
-    );
+    const sessionSystemPrompt = repositorySelection
+      ? REPOSITORY_SELECTION_SYSTEM_PROMPT
+      : this.buildSessionSystemPrompt(prUrl, launch.systemPrompt);
     const codexInstructions =
       runtimeAdapter === "codex"
-        ? this.buildCodexInstructions(sessionSystemPrompt)
+        ? repositorySelection
+          ? REPOSITORY_SELECTION_SYSTEM_PROMPT
+          : this.buildCodexInstructions(sessionSystemPrompt)
         : undefined;
 
     const posthogAPI = new PostHogAPIClient({
@@ -2411,6 +2423,9 @@ export class AgentServer {
                     launch.codexMaxSubagents,
                 },
               }),
+              ...(repositorySelection && {
+                configOverrides: repositorySelectionCodexConfig(),
+              }),
               developerInstructions: codexInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined
@@ -2486,7 +2501,9 @@ export class AgentServer {
       }),
       ...(launch.endRunWhenDone && { endRunWhenDone: true }),
       ...(launch.callerEndsRun && { callerEndsRun: true }),
-      ...(launch.disableRepoHooks && { disableRepoHooks: true }),
+      ...((launch.disableRepoHooks || repositorySelection) && {
+        disableRepoHooks: true,
+      }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2497,6 +2514,16 @@ export class AgentServer {
           fastMode: this.config.fastMode,
         }),
       ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
+      ...(repositorySelection &&
+        runtimeAdapter === "claude" && {
+          claudeCode: {
+            options: {
+              ...this.buildClaudeCodeSessionMeta(runtimeAdapter)?.claudeCode
+                .options,
+              ...repositorySelectionClaudeOptions(),
+            },
+          },
+        }),
     };
 
     await this.measureInitialization("repository_ready", () =>

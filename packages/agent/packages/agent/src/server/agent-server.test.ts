@@ -46,6 +46,7 @@ import type { ProductLaunchConfiguration, TaskSource } from "../sdk/product";
 import { SessionLogWriter } from "../session-log-writer";
 import {
   createMockApiClient,
+  createTask,
   createTaskRun,
   createTestRepo,
   type TestRepo,
@@ -1007,6 +1008,55 @@ describe("AgentServer HTTP Mode", () => {
         }
       },
       30000,
+    );
+
+    it.each([
+      [true, "repo_selection", true],
+      [false, "repo_selection", false],
+      [true, "research", false],
+    ])(
+      "scopes internal repository selection (%s, %s)",
+      async (internal, aiStage, restricted) => {
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+            () =>
+              HttpResponse.json(createTask({ id: "test-task-id", internal })),
+          ),
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
+            () =>
+              HttpResponse.json(
+                createTaskRun({
+                  id: "test-run-id",
+                  state: { ai_stage: aiStage },
+                }),
+              ),
+          ),
+        );
+        mockedClaudeSdk.query.mockClear();
+        const s = createServer({ runtimeAdapter: "claude" });
+        await s.start();
+        const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
+          options: {
+            tools: unknown;
+            settingSources: string[];
+            systemPrompt: unknown;
+          };
+        };
+        if (restricted) {
+          expect(request.options.tools).toEqual(["Bash", "Read", "ToolSearch"]);
+          expect(request.options.settingSources).toEqual([]);
+          expect(request.options.systemPrompt).not.toContain(
+            "Operate as an expert product engineer",
+          );
+        } else {
+          expect(request.options.tools).toEqual({
+            type: "preset",
+            preset: "claude_code",
+          });
+        }
+      },
     );
 
     it("keeps the run-state system prompt after a transient run fetch failure", async () => {
