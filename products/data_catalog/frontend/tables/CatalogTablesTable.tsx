@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { MouseEvent, useRef } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -34,11 +34,13 @@ import { CertificationStatusTag, certificationStatusTag } from '../certification
 import { CatalogTableRefresh } from './CatalogTableRefresh'
 import { CatalogTableRowMenu } from './CatalogTableRowMenu'
 import { CatalogTablesPagination } from './CatalogTablesPagination'
+import { MutedCellText } from './MutedCellText'
 import { TableChecksPanel } from './TableChecksPanel'
 
 const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const COLUMN_COUNT = 7
+const INTERACTIVE_SELECTOR = 'a, button, input'
 
 const TRUST_BADGE_VARIANTS: Record<CertificationStatusTag['type'], 'success' | 'warning' | 'default'> = {
     success: 'success',
@@ -72,8 +74,16 @@ function TrustBadge({ row }: { row: CatalogTableRow }): JSX.Element | null {
     return <Badge variant={TRUST_BADGE_VARIANTS[tag.type]}>{tag.label}</Badge>
 }
 
-function StatusBadges({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    return row.problems.length > 0 ? <ModelsOverviewProblemBadges subject={row.health} /> : null
+function StatusBadges({ row }: { row: CatalogTableRow }): JSX.Element {
+    if (row.problems.length > 0) {
+        return <ModelsOverviewProblemBadges subject={row.health} />
+    }
+    return (
+        <Badge variant="success">
+            <IconCheckCircle aria-hidden />
+            Healthy
+        </Badge>
+    )
 }
 
 function NameCell({ row }: { row: CatalogTableRow }): JSX.Element {
@@ -128,10 +138,21 @@ function ExpandButton({ row, expanded }: { row: CatalogTableRow; expanded: boole
     )
 }
 
+function isPlainRowClick(event: MouseEvent<HTMLTableRowElement>): boolean {
+    const target = event.target
+    return target instanceof Element && event.currentTarget.contains(target) && !target.closest(INTERACTIVE_SELECTOR)
+}
+
 function TableRows({ row, expanded }: { row: CatalogTableRow; expanded: boolean }): JSX.Element {
+    const { toggleRowExpanded } = useActions(catalogTablesLogic)
+    const toggleUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
+        if (isPlainRowClick(event)) {
+            toggleRowExpanded(row.key)
+        }
+    }
     return (
         <>
-            <TableRow data-attr="data-catalog-tables-row">
+            <TableRow className="cursor-pointer" onClick={toggleUnlessInteractive} data-attr="data-catalog-tables-row">
                 <TableCell valign="top" className="w-0 pr-0">
                     <ExpandButton row={row} expanded={expanded} />
                 </TableCell>
@@ -142,10 +163,10 @@ function TableRows({ row, expanded }: { row: CatalogTableRow; expanded: boolean 
                     <StatusBadges row={row} />
                 </TableCell>
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <ChecksSummary row={row} />
+                    {row.checkGroup ? <ChecksSummary row={row} /> : <MutedCellText>No checks</MutedCellText>}
                 </TableCell>
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                    <TrustBadge row={row} />
+                    {row.certification ? <TrustBadge row={row} /> : <MutedCellText>Not certified</MutedCellText>}
                 </TableCell>
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
                     <CatalogTableRefresh row={row} />

@@ -1,4 +1,4 @@
-import { Dot, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Dot, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -7,9 +7,17 @@ import { DataModelingJobStatus } from '~/types'
 
 import { subjectSince } from 'products/data_modeling/frontend/overviewIssueCopy'
 
-import { CatalogTableRow } from '../catalogTableRows'
+import { CatalogTableRow, TableKind } from '../catalogTableRows'
+import { MutedCellText } from './MutedCellText'
 
 const RUN_HISTORY_LENGTH = 5
+
+const NO_REFRESH_LABELS: Record<TableKind, string> = {
+    posthog: 'Managed by PostHog',
+    source: 'Not synced yet',
+    view: 'Runs on read',
+    materialized_view: 'Never run',
+}
 
 const RUN_DOT_VARIANTS: Record<DataModelingJobStatus, 'success' | 'destructive' | 'warning' | 'default'> = {
     Completed: 'success',
@@ -43,31 +51,21 @@ function RunDots({ row }: { row: CatalogTableRow }): JSX.Element | null {
 function RefreshTime({ row }: { row: CatalogTableRow }): JSX.Element {
     const since = row.health.materialization?.kind === 'behind' ? subjectSince(row.health) : null
     return (
-        <Text size="xs" variant="muted" className="whitespace-nowrap">
+        <MutedCellText>
             {since?.kind === 'overdue' ? (
                 since.label
             ) : row.refreshedAt ? (
                 <TZLabel time={row.refreshedAt} />
             ) : (
-                'Never run'
+                NO_REFRESH_LABELS[row.kind]
             )}
-        </Text>
+        </MutedCellText>
     )
 }
 
-export function CatalogTableRefresh({ row }: { row: CatalogTableRow }): JSX.Element | null {
-    if (row.kind === 'posthog') {
-        return null
-    }
-    if (row.kind === 'view') {
-        return (
-            <Text size="xs" variant="muted" className="whitespace-nowrap">
-                Runs on read
-            </Text>
-        )
-    }
-    if (row.kind === 'source' && !row.refreshedAt) {
-        return null
+export function CatalogTableRefresh({ row }: { row: CatalogTableRow }): JSX.Element {
+    if (row.kind === 'posthog' || row.kind === 'view') {
+        return <MutedCellText>{NO_REFRESH_LABELS[row.kind]}</MutedCellText>
     }
     return (
         <div className="flex flex-col gap-1">

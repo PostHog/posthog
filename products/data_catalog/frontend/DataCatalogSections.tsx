@@ -144,7 +144,7 @@ export function DataCatalogSections(): JSX.Element {
                     }
                     const keepMounted = tab === 'lineage' && lineageVisited
                     return (
-                        <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4">
+                        <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4 pb-8">
                             {(tab === activeTab || keepMounted) &&
                                 (WAREHOUSE_SECTIONS.includes(tab) ? (
                                     <WarehouseAccessGate>
