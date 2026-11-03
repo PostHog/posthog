@@ -41,21 +41,11 @@ import {
 } from './logs-pipelines'
 import { type LogsProcessingPass, type MetricTalliesByTeam } from './process-log-message-step'
 
-/**
- * Kafka entrypoint for logs ingestion on the ingestion framework, with the same public API as
- * `LogsIngestionConsumer`. The work runs in three pipelines (see `logs-pipelines.ts`): parse and
- * admission run before the batch returns, and processing runs in the background task, so it
- * overlaps the next batch's fetch.
- */
 export class LogsIngestionFrameworkConsumer {
     protected name = 'LogsIngestionConsumer'
-    // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
     protected quotaResource: QuotaResource = 'logs_mb_ingested'
     protected appSource: 'logs' | 'traces' = 'logs'
-    // Record source this consumer tallies metric rules for. `appSource` is the billing/telemetry
-    // identity ('logs' | 'traces'); metric rules use the record source ('logs' | 'spans').
     protected metricRuleSource: MetricRuleSource = 'logs'
-    // Record source this consumer evaluates retention rules for, in the record vocabulary.
     protected retentionRuleSource: RetentionRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private readonly appMetricsAggregator: AppMetricsAggregator
@@ -65,8 +55,7 @@ export class LogsIngestionFrameworkConsumer {
     private readonly samplingService: LogsSamplingService
     private readonly metricSeriesAdmission = new MetricSeriesAdmission()
     private readonly gates: LogsFeatureGates
-    // Subclass field initializers run after this constructor, so the identity they override is read
-    // when the first batch builds the context, not here.
+    // Built lazily, because subclass field initializers run after this constructor.
     private pipelineContext?: LogsPipelineContext
 
     protected groupId: string
@@ -76,21 +65,16 @@ export class LogsIngestionFrameworkConsumer {
         config: LogsIngestionConsumerConfig,
         private deps: LogsIngestionConsumerDeps,
         overrides: Partial<LogsIngestionConsumerConfig> = {},
-        // Redis key namespace for the token-bucket rate limiter. Subclasses (e.g. traces) pass
-        // their own so their per-team buckets don't share state with logs. Defaults to logs.
         rateLimiterName: string = 'logs-rate-limiter'
     ) {
-        // Merge overrides once so every downstream consumer reads the same effective config.
         const mergedConfig = { ...config, ...overrides }
 
-        // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = mergedConfig.LOGS_INGESTION_CONSUMER_GROUP_ID
         this.topic = mergedConfig.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
 
         this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
         this.kafkaConsumer = createKafkaConsumer({ groupId: this.groupId, topic: this.topic })
-        // Logs ingestion uses its own Redis instance with TLS support
         this.redis = createRedisV2PoolFromConfig({
             connection: mergedConfig.LOGS_REDIS_HOST
                 ? {
@@ -130,18 +114,11 @@ export class LogsIngestionFrameworkConsumer {
         }
     }
 
-    /**
-     * The team's default retention period, applied to records no rule matches and sent as the
-     * batch `retention-days` Kafka header. Traces override this to read their own setting.
-     */
     protected defaultRetentionDays(_teamId: number, logsSettings: LogsSettings): Promise<number> {
         return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
-    /**
-     * Long-lived state the steps share. The pipelines themselves are built per batch: they are cheap,
-     * and a chunk pipeline instance shared by overlapping calls would mix their messages.
-     */
+    // Pipelines are built per batch, because overlapping calls that share a chunk pipeline mix their messages.
     private getPipelineContext(): LogsPipelineContext {
         if (!this.pipelineContext) {
             const identity: LogsConsumerIdentity = {
@@ -182,11 +159,6 @@ export class LogsIngestionFrameworkConsumer {
         )
     }
 
-    /**
-     * Runs the gates over parsed messages. Returns the messages to process (billed first, then
-     * unbilled internal) and a background task that processes them, emits the batch's metric
-     * tallies and usage, and rejects if the batch must be replayed.
-     */
     public async processBatch(
         messages: LogsIngestionMessage[]
     ): Promise<{ backgroundTask?: Promise<any>; messages: LogsIngestionMessage[] }> {
@@ -208,7 +180,6 @@ export class LogsIngestionFrameworkConsumer {
             ;(isUnbilledInternal(message) ? internal : billed).push(message)
         }
 
-        // One transformation time budget shared by all messages of this batch.
         const transformationBudget = this.deps.logsTransformer?.startBatch()
 
         return {
@@ -224,23 +195,20 @@ export class LogsIngestionFrameworkConsumer {
         usageStats: UsageStatsByTeam,
         transformationBudget?: TransformationBatchBudget
     ): Promise<void> {
-        // Produce first, so PII replacement counts are in the usage rows before they are emitted.
+        // Billed messages run first, so PII replacement counts reach the usage rows before they are emitted.
         const billedPass: LogsProcessingPass = { usage: usageStats, metricTallies: new Map(), transformationBudget }
         await this.runProcessingPass(context, billed, billedPass)
-        // Rows that are never emitted keep internal stats off the team's billed usage. Internal
-        // messages run after the billed ones, so the per-batch concurrency limit still holds.
+        // Internal usage rows are never emitted, so they stay off billed usage. A second pass keeps the concurrency limit.
         await this.runProcessingPass(context, internal, {
             usage: new Map(),
             metricTallies: new Map() as MetricTalliesByTeam,
             transformationBudget,
         })
-        // Metric rules and internal usage emit deltas, so they wait until no pass can fail the
-        // batch into a replay.
+        // Metric rules and internal usage emit deltas, so they wait until no pass can fail the batch into a replay.
         queueInternalLogsUsage(context, internal)
         await emitMetricRuleTallies(context, billedPass.metricTallies)
         await this.deps.teamManager.setTeamsIngestedData(billed.map((message) => message.teamId))
         await emitUsageMetrics(context, usageStats)
-        // Best-effort flush of transformation app metrics + function logs; never block the data path.
         if (this.deps.logsTransformer) {
             await this.deps.logsTransformer.flush().catch((error) => {
                 logger.error('Failed to flush logs transformer monitoring', { error: String(error) })
@@ -266,11 +234,7 @@ export class LogsIngestionFrameworkConsumer {
             const events = await this._parseKafkaBatch(messages)
             return await this.processBatch(events)
         } catch (error) {
-            // Rethrow: the consumer deliberately lets a batch failure crash the process, which is
-            // what preserves at-least-once. We do not DLQ here — everything on this path (quota
-            // lookups, the rate limiter) is infrastructure-scoped, and quarantining a whole batch
-            // over a Redis blip would drop good data. Name the records first so the restart loop
-            // that follows points somewhere.
+            // Rethrow without a DLQ: the failures here are infrastructure-scoped, and the crash keeps at-least-once delivery.
             logger.error('🔴', `${this.name} - batch failed`, {
                 error: String(error),
                 stack: error instanceof Error ? error.stack : undefined,

@@ -42,11 +42,6 @@ import { resolveLogBuffer } from './resolve-log-buffer'
 export type MetricRuleBatchState = { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
 export type MetricTalliesByTeam = Map<number, MetricRuleBatchState>
 
-/**
- * State one processing pass shares across its messages. Billed messages share the batch usage
- * rows; unbilled internal messages get rows that are never emitted, which keeps them off the
- * team's billed usage.
- */
 export type LogsProcessingPass = {
     usage: UsageStatsByTeam
     metricTallies: MetricTalliesByTeam
@@ -55,21 +50,13 @@ export type LogsProcessingPass = {
 
 export type LogsProcessingInput = LogsIngestionMessage & { pass: LogsProcessingPass }
 
-/**
- * Per-message outcome. A message never fails its pass on its own: a dependency outage or a failed
- * quarantine is carried in `failure`, and the pass fails once every message has settled.
- */
+/** A message never fails its pass on its own: `failure` fails the pass once every message has settled. */
 export type LogsProcessingOutcome = LogsProcessingInput & { quarantined: boolean; failure?: unknown }
 
 function canEmitMetricRules(context: LogsPipelineContext): boolean {
     return !context.gates.metricRulesKillswitch && !!context.deps.metricRulesCache && !!context.deps.metricsEmitter
 }
 
-/**
- * Per-team metric-rule tally state for one pass. Rules are fetched once per team per pass
- * (30s-cached); tallies accumulate across the pass's messages and are emitted as one OTLP payload
- * per team after produce.
- */
 async function getMetricRuleBatchState(
     context: LogsPipelineContext,
     byTeam: MetricTalliesByTeam,
@@ -91,12 +78,10 @@ async function getMetricRuleBatchState(
         try {
             if (teamRulesEnabled) {
                 const all = await context.deps.metricRulesCache!.getCompiledRules(message.teamId)
-                // Each consumer tallies only its own record source.
                 rules = all.filter((r) => r.source === context.identity.metricRuleSource)
             }
         } catch (error) {
-            // Fail open: metric rules are a purely additive side feature, so a rules-fetch
-            // failure must never DLQ or block the log records.
+            // Fail open, because metric rules are additive and a rules-fetch failure must never DLQ or block the log records.
             logger.warn('[logs-metric-rules] rules fetch failed — skipping metric rules for batch', {
                 teamId: message.teamId,
                 error: String(error),
@@ -106,8 +91,7 @@ async function getMetricRuleBatchState(
         if (defaultRulesEnabled) {
             rules = withDefaultMetricRules(rules, context.identity.metricRuleSource)
         }
-        // Re-check after the await: concurrent messages for the same team race here,
-        // and replacing an existing state would silently drop its accumulated tallies.
+        // Re-check after the await, because replacing a concurrent message's state drops its accumulated tallies.
         state = byTeam.get(message.teamId)
         if (!state) {
             state = { token: message.token, rules, tallies: createBatchTallies() }
@@ -132,7 +116,6 @@ function addPiiStatsIntoUsage(
     usage.set(teamId, row)
 }
 
-/** Header overrides for the drop-rule billing credit. All are absent unless prorate is enabled. */
 type HeaderOverrides = { bytesUncompressed?: number; bytesCompressed?: number; recordCount?: number }
 
 async function processLogMessage(context: LogsPipelineContext, input: LogsProcessingInput): Promise<void> {
@@ -145,7 +128,6 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
         context.defaultRetentionDays(input.teamId, logsSettings)
     )
 
-    // Retention is uniform per team; stash it for the retention usage metrics.
     const teamStats = pass.usage.get(input.teamId)
     if (teamStats) {
         teamStats.retentionDays = retentionDays
@@ -208,9 +190,7 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
 
     const overrides: HeaderOverrides = {}
 
-    // Drop rules removed rows from this message — credit billing by the dropped content fraction.
-    // `bytesReceived` stays gross (what was sent); `bytesAllowed` (→ bytes_ingested) and
-    // `recordsAllowed` reflect only what survived the drops.
+    // `bytesReceived` stays gross, while `bytesAllowed` and `recordsAllowed` count only the rows that survive drop rules.
     if (resolved.recordsDropped > 0) {
         const header = input.bytesUncompressed
         const contentCredit = billingByteReductionForDrops(
@@ -218,9 +198,7 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
             resolved.contentBytesDropped,
             resolved.contentBytesTotal
         )
-        // Second estimator (record-weighted) for the accuracy-confidence signal: when content- and
-        // record-weighted credits diverge, the batch is size-skewed and the content-weighted
-        // pro-rate we bill on is less trustworthy.
+        // A record-weighted credit that diverges from the content-weighted one shows a size-skewed batch.
         const recordCredit = billingByteReductionForDrops(header, resolved.recordsDropped, input.recordCount)
 
         if (!isUnbilledInternal(input)) {
@@ -240,8 +218,6 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
             logsBillingProrateDivergenceHistogram.observe(Math.abs(contentCredit - recordCredit) / header)
         }
 
-        // Shadow mode unless LOGS_BILLING_PRORATE_ENABLED: the credit above is computed and counted
-        // (observability) but billed usage is untouched.
         if (gates.billingProrateEnabled) {
             const billingRow = pass.usage.get(input.teamId)
             if (billingRow) {
@@ -249,9 +225,6 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
                 billingRow.recordsAllowed = Math.max(0, billingRow.recordsAllowed - resolved.recordsDropped)
             }
 
-            // Scale both size headers down by the same dropped content fraction, and reduce the
-            // record count by the exact number of rows dropped, so downstream accounting sees only
-            // the surviving rows and bytes.
             const compressedCredit = billingByteReductionForDrops(
                 input.bytesCompressed,
                 resolved.contentBytesDropped,
@@ -273,7 +246,6 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
         return
     }
 
-    // Await so a rejection here reaches the caller and routes to the DLQ.
     await retryOnDependencyUnavailable(context, () =>
         deps.outputs
             .queueMessages(LOGS_OUTPUT, [
@@ -289,8 +261,7 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
                         team_id: input.teamId.toString(),
                         'json-parse': jsonParse.toString(),
                         'retention-days': retentionDays.toString(),
-                        // The ingestion lag checkpoint needs the source partition, because both topics
-                        // use random partitioning.
+                        // Both topics use random partitioning, so the ingestion lag checkpoint needs the source partition.
                         source_topic: input.message.topic,
                         source_partition: input.message.partition.toString(),
                         ...(overrides.bytesUncompressed !== undefined
@@ -309,11 +280,6 @@ async function processLogMessage(context: LogsPipelineContext, input: LogsProces
     )
 }
 
-/**
- * Decodes, transforms and produces one message. A message-scoped failure quarantines the message.
- * A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped: the message is fine and
- * processes once the dependency is back, so it is carried as a failure that fails the pass instead.
- */
 export function createProcessLogMessageStep<T extends LogsProcessingInput>(
     context: LogsPipelineContext
 ): ProcessingStep<T, T & { quarantined: boolean; failure?: unknown }> {
@@ -326,8 +292,7 @@ export function createProcessLogMessageStep<T extends LogsProcessingInput>(
                 return ok({ ...input, quarantined: false, failure: error })
             }
             try {
-                // Quarantine succeeded: the DLQ copy is the record of this failure, so the message
-                // resolves and the batch can commit past it.
+                // The DLQ copy records this failure, so the batch can commit past the message.
                 await quarantineLogMessage(context, input.message, error, { token: input.token, teamId: input.teamId })
                 return ok({ ...input, quarantined: true })
             } catch (dlqError) {

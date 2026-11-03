@@ -25,11 +25,7 @@ function countDropped(reason: string): void {
     recordLogMessageDropped(reason, 'unknown')
 }
 
-/**
- * Reads the capture-logs headers and resolves the team. An unknown token, a missing token and a
- * failed team lookup drop the message. Size headers we cannot use and any unexpected failure
- * quarantine it, because those fail the same way on every redelivery.
- */
+/** Unusable size headers quarantine the message, because they fail the same way on every redelivery. */
 export function createParseLogsMessageStep<T extends LogsPipelineInput>(
     context: LogsPipelineContext
 ): ProcessingStep<T, LogsIngestionMessage> {
@@ -49,7 +45,6 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             let team: Team | null
             try {
                 if (isDevEnv() && token === 'phc_local') {
-                    // phc_local is a special token used in dev to refer to team 1
                     team = await deps.teamManager.getTeam(1)
                 } else {
                     team = await deps.teamManager.getTeamByToken(token)
@@ -61,9 +56,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             }
 
             if (!team) {
-                // A well-formed but unknown or rotated token is a client-input problem, not a
-                // service fault. capture-logs accepts any well-formed token shape and defers team
-                // resolution to here because it has no Postgres access.
+                // capture-logs has no Postgres access, so an unknown token is a client-input drop found only here.
                 logger.warn('team_not_found', { token_with_no_team: token })
                 countDropped('team_not_found')
                 return drop('team_not_found')
@@ -93,8 +86,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
             }
 
             if (bytesUncompressedRecords > bytesUncompressed) {
-                // Billing can only switch from payload-based to records-based bytes if the
-                // records sum never exceeds the payload size — flag any violation.
+                // Billing can switch to records-based bytes only if the records sum never exceeds the payload size.
                 logsRecordsBytesExceedPayloadCounter.inc({ team_id: team.id.toString() })
             }
 
@@ -111,8 +103,7 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 internalLogs: internalLogsVerifier.verify(headers[INTERNAL_LOGS_HEADER], team.id, headers.created_at),
             })
         } catch (e) {
-            // Includes a failed quarantine of bad size headers: the second attempt below names the
-            // DLQ error, and a second failure rejects and fails the batch.
+            // A failed quarantine of bad size headers lands here, and a second DLQ failure fails the batch.
             logger.error('🔴', 'logs_ingestion_parse_error', {
                 error: String(e),
                 partition: message.partition,

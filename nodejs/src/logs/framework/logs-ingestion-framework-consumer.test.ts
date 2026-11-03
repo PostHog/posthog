@@ -103,7 +103,6 @@ function producedTo(topic: string): { headers?: Record<string, string>; value: u
 
 const kafkaDeliveryError = (code: number): Error => LibrdKafkaError.create(new Error(err2str(code)))
 
-/** Fails every produce to the logs topic with `makeError`, and passes the other topics through. */
 function failLogsProduce(makeError: () => unknown, times = Infinity): () => void {
     const original = mockProducer.queueMessages
     const passthrough = original.bind(mockProducer)
@@ -147,7 +146,6 @@ describe('LogsIngestionFrameworkConsumer', () => {
         dependencyRetry: { retryCount: 2, initialRetryDelayMs: 1 },
     })
 
-    // Kafka is never contacted: these tests call processKafkaBatch directly.
     const withoutKafka = <T extends { start(): Promise<void> }>(instance: T): T => {
         ;(instance as any)['kafkaConsumer'] = {
             connect: jest.fn(),

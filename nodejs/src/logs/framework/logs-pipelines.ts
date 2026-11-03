@@ -24,10 +24,7 @@ type LogsItemContext = Record<string, never>
 
 type ParseOutcome = { parsed?: LogsIngestionMessage; failure?: unknown }
 
-/**
- * A failed quarantine during parse is carried as a result. A thrown step would latch the
- * concurrent stage, and every later message's rejection would go unawaited.
- */
+/** Carry a failed quarantine as a result, because a thrown step latches the concurrent stage and later rejections go unawaited. */
 function createSettledParseStep(context: LogsPipelineContext): ProcessingStep<LogsPipelineInput, ParseOutcome> {
     const parse = createParseLogsMessageStep(context)
     return async function parseLogsMessageStep(input) {
@@ -40,7 +37,6 @@ function createSettledParseStep(context: LogsPipelineContext): ProcessingStep<Lo
     }
 }
 
-/** Fails the batch with the first failure in input order, once every message has settled. */
 function createFailParseOnErrorStep(): ChunkProcessingStep<ParseOutcome, LogsIngestionMessage> {
     return function failParseOnErrorStep(values) {
         const failed = values.find((value) => value.failure !== undefined)
@@ -51,12 +47,7 @@ function createFailParseOnErrorStep(): ChunkProcessingStep<ParseOutcome, LogsIng
     }
 }
 
-/**
- * Header parse and team lookup, emitted in input order. Unbounded concurrency: a lookup is a cache
- * hit in the common case. `perElement`, not `concurrently`: per-element instrumentation costs more
- * than the parse. Built once per batch, like every logs pipeline, because a chunk pipeline
- * instance must not be shared between concurrent callers.
- */
+/** `perElement`, not `concurrently`, because per-element instrumentation costs more than the parse. */
 export function createLogsParsePipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsPipelineInput, LogsIngestionMessage, LogsItemContext> {
@@ -66,7 +57,7 @@ export function createLogsParsePipeline(
         .build()
 }
 
-/** Gates that decide which parsed messages a batch processes, in the order billing depends on. Built once per batch. */
+/** The gates run in the order that billing depends on. */
 export function createLogsAdmissionPipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsAdmissionInput, LogsAdmissionInput, LogsItemContext> {
@@ -79,10 +70,7 @@ export function createLogsAdmissionPipeline(
         .build()
 }
 
-/**
- * Fails the pass with the first carried failure once every message has settled. A replay counts
- * the produced messages twice, so the usage and tallies of a failed pass must never be emitted.
- */
+/** A replay counts the produced messages twice, so a failed pass must never emit its usage or tallies. */
 function createFailPassOnErrorStep<T extends LogsProcessingOutcome>(): ChunkProcessingStep<T, T> {
     return function failPassOnErrorStep(values) {
         const failures = values.filter((value) => value.failure !== undefined)
@@ -101,7 +89,6 @@ function createFailPassOnErrorStep<T extends LogsProcessingOutcome>(): ChunkProc
     }
 }
 
-/** Decode, transform and produce. Built once per pass: background passes of consecutive batches overlap. */
 export function createLogsProcessingPipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsProcessingInput, LogsProcessingOutcome, LogsItemContext> {
@@ -113,7 +100,6 @@ export function createLogsProcessingPipeline(
         .build()
 }
 
-/** Feeds every element as one batch and returns the values that came out OK, in output order. */
 export async function runChunkPipeline<TIn, TOut, C extends LogsItemContext>(
     pipeline: ChunkPipeline<TIn, TOut, C>,
     values: TIn[]

@@ -7,7 +7,7 @@ import { DEFAULT_TRACES_RETENTION_DAYS, TracingConfigCache } from '../retention/
 import type { TracesIngestionConsumerDeps } from '../traces-ingestion-consumer'
 import { LogsIngestionFrameworkConsumer } from './logs-ingestion-framework-consumer'
 
-/** `TracesIngestionConsumer` on the ingestion framework. Keep its config overrides in step with that class. */
+/** Keep the config overrides in step with `TracesIngestionConsumer`. */
 export class TracesIngestionFrameworkConsumer extends LogsIngestionFrameworkConsumer {
     protected override name = 'TracesIngestionConsumer'
     // Traces bill against the shared logs bucket, so the inherited quota resource stays.

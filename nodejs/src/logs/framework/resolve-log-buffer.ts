@@ -42,7 +42,6 @@ type ResolvedDrops = {
     contentBytesTotal: number
 }
 
-/** `all_dropped` means do not produce: every record was dropped, or the batch decoded to none. */
 export type ResolvedLogBuffer =
     | ({ outcome: 'produce'; processedValue: Buffer } & ResolvedDrops)
     | ({ outcome: 'all_dropped'; reason: string } & ResolvedDrops)
@@ -62,19 +61,11 @@ function isTransformationsEnabledForTeam(context: LogsPipelineContext, teamId: n
     return teamIdMatchesCsv(context.gates.transformationsEnabledTeams, teamId)
 }
 
-/**
- * Logs only. A trace record has no `body` field, so masking one measures nothing and would mix
- * trace shapes into the log-body split these metrics exist to produce.
- */
+/** Logs only, because a trace record has no `body` field and would skew the log-body metrics. */
 export function isPatternMaskingEnabledForTeam(context: LogsPipelineContext, teamId: number): boolean {
     return context.identity.appSource === 'logs' && teamIdMatchesCsv(context.gates.patternMaskingEnabledTeams, teamId)
 }
 
-/**
- * The hog log transformation hook for a message, or undefined when the team is not gated in or has
- * no enabled transformation_log functions. The existence check is an in-process cache hit, which
- * keeps the no-decode passthrough.
- */
 async function buildRecordsTransform(
     context: LogsPipelineContext,
     message: LogsIngestionMessage,
@@ -90,11 +81,6 @@ async function buildRecordsTransform(
     return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
 }
 
-/**
- * Decodes the message when any feature needs the records, runs the stages in order (sampling drop
- * rules and rate limits, hog transformations, per-row retention, expired-row drops, pattern
- * masking), and encodes the survivors. With no feature active the buffer passes through undecoded.
- */
 export async function resolveLogBuffer(
     context: LogsPipelineContext,
     message: LogsIngestionMessage,
@@ -113,9 +99,7 @@ export async function resolveLogBuffer(
     const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
     const recordsTransform = await buildRecordsTransform(context, message, batchBudget)
 
-    // Per-row retention stamps `retention_days` on each surviving record (falling back to the team
-    // default), which ClickHouse reads in place of the batch `retention-days` header. With no rules
-    // the header — still emitted — carries the team default, keeping this a no-decode passthrough.
+    // With no rules, the batch `retention-days` header carries the team default and the buffer skips the decode.
     const retentionCache = deps.retentionRulesCache
     const retentionEvalEnabled = isRetentionEvalEnabledForTeam(context, message.teamId)
     let retentionRuleSet: CompiledRetentionRuleSet | null = null
@@ -124,8 +108,7 @@ export async function resolveLogBuffer(
     }
     const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
 
-    // Sampling first, hog transformations next, per-row retention stamping last so it only stamps
-    // survivors. An empty list with no visitor keeps the buffer a no-decode passthrough.
+    // Retention stamping runs after sampling and transformations, so it only stamps survivors.
     const stages: PipelineStage[] = []
     if (useSamplingPipeline && ruleSet) {
         stages.push(context.samplingService.makeSamplingStage(ruleSet, message.teamId, message.bytesUncompressed))
@@ -143,17 +126,13 @@ export async function resolveLogBuffer(
         )
     }
 
-    // Checking rows for expiry needs a decode, which every message would otherwise pay to find rows
-    // that only backdated imports produce. The stage runs after the retention stage, so it reads the
-    // per-row retention that ClickHouse will use.
+    // Only a message that can hold an expired row pays the decode. The stage runs after retention to read the per-row value.
     const nowMicros = Date.now() * 1000
     if (canHoldExpiredRow(message.minTimestampMicros, shortestRetentionDays, nowMicros)) {
         stages.push(makeRetentionExpiredStage(message.teamId, defaultRetentionDays, nowMicros))
     }
 
-    // Runs last so it only sees survivors. Adding any stage forces the full decode and re-encode,
-    // so a batch that would have passed through pays both, and one already decoded for a visitor
-    // pays the encode. The counter prices each.
+    // Masking runs last and forces a full decode and re-encode, so the counter prices each forced decode.
     if (isPatternMaskingEnabledForTeam(context, message.teamId)) {
         const modeWithoutMasking = bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded))
         if (modeWithoutMasking !== 'decode_and_reencode') {
@@ -208,8 +187,6 @@ export async function resolveLogBuffer(
         contentBytesTotal: drops.contentBytesTotal,
     }
     if (value === null) {
-        // `droppedBy` names the filter that emptied the batch; its absence means the batch decoded
-        // to zero records to begin with, so attribute it to an empty batch rather than sampling.
         const reason = drops.droppedBy ? `${drops.droppedBy}_all_dropped` : 'empty_batch'
         return { outcome: 'all_dropped', reason, ...resolvedDrops }
     }

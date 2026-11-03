@@ -30,7 +30,6 @@ export function queueInternalLogsUsage(context: LogsPipelineContext, internalMes
     }
 }
 
-/** One OTLP payload per team. Emission is best effort and never fails log ingestion. */
 export async function emitMetricRuleTallies(context: LogsPipelineContext, byTeam: MetricTalliesByTeam): Promise<void> {
     for (const [teamId, { token, rules, tallies }] of byTeam) {
         const teamIdLabel = teamId.toString()
@@ -69,18 +68,13 @@ export async function emitMetricRuleTallies(context: LogsPipelineContext, byTeam
     }
 }
 
-/**
- * Queues the batch's usage rows and flushes every queued app metric and usage record. Both flushes
- * are best effort and independent: neither failing may block ingestion or skip the other.
- */
 export async function emitUsageMetrics(context: LogsPipelineContext, usageStats: UsageStatsByTeam): Promise<void> {
     const { usageMetrics, identity, deps } = context
     for (const [teamId, stats] of usageStats) {
         usageMetrics.queueUsageMetric(teamId, 'bytes_received', stats.bytesReceived)
         usageMetrics.queueUsageMetric(teamId, 'records_received', stats.recordsReceived)
         usageMetrics.queueUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed)
-        // Records-based counterpart to `bytes_ingested`, emitted in parallel so the two can be
-        // compared before billing switches to it; not yet read by usage reports.
+        // Emitted beside `bytes_ingested` so the two compare before billing switches to records-based bytes.
         usageMetrics.queueUsageMetric(teamId, 'bytes_ingested_records', stats.bytesAllowedRecords)
         usageMetrics.queueUsageMetric(teamId, 'records_ingested', stats.recordsAllowed)
         usageMetrics.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
@@ -91,14 +85,11 @@ export async function emitUsageMetrics(context: LogsPipelineContext, usageStats:
         if (retentionMetric) {
             usageMetrics.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
         }
-        // Byte-days only for teams that chose a retention other than the default, which
-        // `bytes_ingested` already covers. Uses credit-adjusted `bytesAllowed` to reconcile with it.
         if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
             usageMetrics.queueRetentionByteDays(teamId, stats.bytesAllowed, stats.retentionDays)
         }
         const source = identity.appSource === 'traces' ? 'apm_traces' : 'logs'
-        // Per-flush aggregates have no stable identity. A fresh ID per flush keeps two pods
-        // flushing the same team from colliding and collapsing one flush's quantity away.
+        // A fresh ID per flush stops two pods that flush the same team from collapsing one quantity away.
         const flushId = new UUID7().toString()
         deps.usageBatch.add(teamId, `${source}_bytes`, flushId, stats.bytesAllowed, 'bytes')
         deps.usageBatch.add(

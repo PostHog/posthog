@@ -23,11 +23,7 @@ import type { LogsIngestionMessage } from '../types'
 
 export { teamIdMatchesCsv }
 
-/**
- * What differs between the logs and traces consumers. Traces bill against the logs quota bucket, so
- * `quotaResource` is the same for both. The two rule sources use the record vocabulary (`spans`),
- * not the billing vocabulary (`traces`).
- */
+/** Traces bill against the logs quota bucket, and both rule sources use the record vocabulary (`spans`), not `traces`. */
 export type LogsConsumerIdentity = {
     name: string
     appSource: 'logs' | 'traces'
@@ -36,7 +32,6 @@ export type LogsConsumerIdentity = {
     retentionRuleSource: RetentionRuleSource
 }
 
-/** Feature gates read once from the merged consumer config. */
 export type LogsFeatureGates = {
     backfillEnabledTeams: string
     samplingEnabledTeams: string
@@ -54,10 +49,7 @@ export type LogsFeatureGates = {
     jsonAttributeExtractionEnabledTeams: string
 }
 
-/**
- * Queues app_metrics2 usage rows. One instance lives as long as the consumer: rows that a failed
- * batch queued are flushed with the next batch that succeeds, which is the behavior billing relies on.
- */
+/** Lives as long as the consumer, so rows a failed batch queued flush with the next good batch, as billing relies on. */
 export class LogsUsageMetricsQueue {
     constructor(
         private readonly aggregator: AppMetricsAggregator,
@@ -80,12 +72,7 @@ export class LogsUsageMetricsQueue {
         })
     }
 
-    /**
-     * Writes one `retention_byte_days` row per 30-day month of retention, each dated at the start of
-     * its month, so each month of storage bills when it starts instead of the whole period billing
-     * on the ingest day. The usage report sums these rows by timestamp, and the `app_metrics2` TTL
-     * counts from each row's own timestamp, so future rows stay until they are billed.
-     */
+    /** One row per 30-day month, dated at its start, so each month bills when it begins and the TTL keeps future rows until billed. */
     queueRetentionByteDays(teamId: number, bytes: number, retentionDays: number): void {
         const now = DateTime.utc()
         for (let offsetDays = 0; offsetDays < retentionDays; offsetDays += RETENTION_MONTH_DAYS) {
@@ -94,11 +81,6 @@ export class LogsUsageMetricsQueue {
         }
     }
 
-    /**
-     * Per-rule counts in app_metrics2, keyed by rule id in `instance_id`. Used for
-     * `sampling_records_dropped_by_rule` (team sampling volume is `sum(count)` over those rows) and
-     * `bytes_dropped_by_rule` (summed from per-row `bytes_uncompressed`).
-     */
     queueByRule(teamId: number, metricName: string, byRule: Map<string, number>): void {
         for (const [ruleId, count] of byRule) {
             if (count <= 0) {
@@ -121,10 +103,6 @@ export class LogsUsageMetricsQueue {
     }
 }
 
-/**
- * Long-lived services and settings that the logs pipeline steps share. The consumer builds one
- * instance at construction; each step factory closes over the parts it needs.
- */
 export type LogsPipelineContext = {
     identity: LogsConsumerIdentity
     gates: LogsFeatureGates
@@ -146,23 +124,12 @@ export function isUnbilledInternal(message: LogsIngestionMessage): boolean {
     return message.internalLogs !== undefined && !message.internalLogs.billed
 }
 
-/**
- * Absorb a dependency blip in place. A batch that fails after some of its messages were
- * produced is replayed in full, and the logs table has no dedupe, so every retry here is a
- * duplicate avoided. Only an outage that outlasts the backoff reaches the caller.
- */
+/** A failed batch replays in full and the logs table has no dedupe, so each retry here avoids duplicates. */
 export function retryOnDependencyUnavailable<T>(context: LogsPipelineContext, fn: () => Promise<T>): Promise<T> {
     return retryOnDependencyUnavailableError(fn, context.deps.dependencyRetry)
 }
 
-/**
- * Quarantine a raw Kafka message. Takes the message rather than a `LogsIngestionMessage` so
- * failures from before the team is resolved can reach the DLQ too. The DLQ headers are the replay
- * contract, which is why this does not use the framework's generic DLQ output.
- *
- * A failed DLQ write rejects: quarantine is what lets the batch move past the record, and
- * swallowing the failure would commit the source offset with no copy anywhere.
- */
+/** The DLQ headers are the replay contract, and a failed write rejects so the offset never commits without a copy. */
 export async function quarantineLogMessage(
     context: LogsPipelineContext,
     message: Message,
@@ -189,8 +156,6 @@ export async function quarantineLogMessage(
                         error_message: errorMessage,
                         error_name: errorName,
                         failed_at: new Date().toISOString(),
-                        // Where the message came from, so a quarantined record can be read back
-                        // from the source partition and replayed against the consumer.
                         source_topic: message.topic,
                         source_partition: message.partition.toString(),
                         source_offset: message.offset.toString(),

@@ -94,7 +94,6 @@ export type LogsIngestionConsumerConfig = {
      * (shadow mode) — billing is unchanged.
      */
     LOGS_BILLING_PRORATE_ENABLED: boolean
-    /** When `true`, the logs server runs `LogsIngestionFrameworkConsumer` instead of `LogsIngestionConsumer`. */
     LOGS_INGESTION_USE_FRAMEWORK: boolean
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable hog log transformations entirely. */
     LOGS_TRANSFORMATIONS_ENABLED_TEAMS: string
@@ -199,7 +198,6 @@ export type TracesIngestionConsumerConfig = {
     TRACES_RETENTION_ENABLED_TEAMS: string
     /** When `true`, span retention rules are never evaluated (spans keep the team default via the batch header). */
     TRACES_RETENTION_KILLSWITCH: boolean
-    /** When `true`, the traces server runs `TracesIngestionFrameworkConsumer` instead of `TracesIngestionConsumer`. */
     TRACES_INGESTION_USE_FRAMEWORK: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number

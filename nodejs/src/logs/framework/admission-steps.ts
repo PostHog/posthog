@@ -23,10 +23,6 @@ import {
 import type { LogsIngestionMessage } from '../types'
 import { LogsPipelineContext, isUnbilledInternal, teamIdMatchesCsv } from './logs-pipeline-context'
 
-/**
- * Usage for one Kafka batch. The gates record what they drop, and the last admission step records
- * what they allowed. Only billed messages reach it.
- */
 export class LogsBatchUsage {
     readonly byTeam: UsageStatsByTeam = new Map()
 
@@ -85,10 +81,7 @@ export function createTrackIncomingTrafficStep<T extends LogsAdmissionInput>(): 
     }
 }
 
-/**
- * Clamping backfilled rows to the ingest time would write the import onto today, so a team that is
- * not enabled for backfill loses the whole message.
- */
+/** Clamping backfilled rows to the ingest time would write the import onto today, so the gate drops the whole message. */
 export function createBackfillGateStep<T extends LogsAdmissionInput>(
     context: LogsPipelineContext
 ): ChunkProcessingStep<T, T> {
@@ -123,7 +116,6 @@ export function createBackfillGateStep<T extends LogsAdmissionInput>(
     }
 }
 
-/** Looks each distinct token up once. Unbilled internal messages skip the quota. */
 export function createQuotaLimitStep<T extends LogsAdmissionInput>(
     context: LogsPipelineContext
 ): ChunkProcessingStep<T, T> {
@@ -159,7 +151,6 @@ export function createQuotaLimitStep<T extends LogsAdmissionInput>(
     }
 }
 
-/** Per-team token buckets in Redis. Unbilled internal messages skip the limiter. */
 export function createRateLimitStep<T extends LogsAdmissionInput>(
     context: LogsPipelineContext
 ): ChunkProcessingStep<T, T> {
@@ -182,10 +173,7 @@ export function createRateLimitStep<T extends LogsAdmissionInput>(
     }
 }
 
-/**
- * Records the billed messages that passed every gate. Allowed is gross here: the drop-rule billing
- * credit comes off during processing.
- */
+/** Allowed is gross here, because processing takes off the drop-rule billing credit. */
 export function createRecordAllowedUsageStep<T extends LogsAdmissionInput>(): ChunkProcessingStep<T, T> {
     return function recordAllowedUsageStep(values) {
         let bytesAllowed = 0
