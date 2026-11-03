@@ -307,6 +307,10 @@ def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     internal_source_column = (
         ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
     )
+    attributes = "mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)"
+    if internal_source:
+        # Shows the verified source as an ordinary attribute, so the logs UI can filter and facet on it.
+        attributes = f"mapUpdate({attributes}, mapFilter((k, v) -> v != '', map('posthog.internal_source__str', internal_source)))"
     return f"""SELECT
     uuid,
     trace_id,
@@ -320,7 +324,7 @@ def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     service_name,
     instrumentation_scope,
     event_name,
-    mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+    mapSort({attributes}) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
     timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,

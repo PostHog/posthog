@@ -21671,7 +21671,12 @@ SELECT
   service_name,
   instrumentation_scope,
   event_name,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
+  mapSort(
+    mapUpdate(
+      mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes),
+      mapFilter((k, v) -> v != '', map('posthog.internal_source__str', internal_source))
+    )
+  ) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   timestamp
