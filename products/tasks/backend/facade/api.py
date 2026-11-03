@@ -84,6 +84,7 @@ from products.tasks.backend.constants import (
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    FINAL_MESSAGE_MAX_CHARS,
     GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
@@ -165,6 +166,7 @@ from products.tasks.backend.models import (
     PRIOR_RUN_SUMMARY_STATE_KEY,
     PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
+    TASK_RUN_FINISH_REPORT_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
     TASK_RUN_TAGS_STATE_KEY,
     Channel,
@@ -279,7 +281,6 @@ __all__ = [
     "own_subscription_cloud_enabled",
     "can_bill_plan_unattended",
     "unattended_model_access_state",
-    "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
     "MAX_SANDBOX_TTL_SECONDS",
@@ -577,6 +578,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "context_window",
         "custom_image_id",
         "disable_repo_hooks",
+        "disable_skills",
         "fast_mode",
         # An imported transcript's provenance and mirror cursor: the viewer marks the run as
         # imported, and the legacy mirror reads its own cursor back through this DTO.
@@ -618,7 +620,14 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
 # `agent_instructions` can carry a member's personal instructions, so the same applies.
 _TASK_RUN_AGENT_STATE_KEYS = frozenset(
-    {"agent_instructions", "end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"}
+    {
+        "agent_instructions",
+        "caller_ends_run",
+        "end_run_when_done",
+        "initial_prompt_override",
+        "store_skills",
+        "systemPrompt",
+    }
 )
 
 
@@ -3021,6 +3030,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "scout_trial_judge",
         "scout_trial_private",
         "include_live_context",
+        "disable_skills",
         "analytics_query_context",
         "sandbox_oauth_token_ids",
         # Sandbox run-start lineage and fan-out count. A child sandbox that removed its parent keys
@@ -3175,6 +3185,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "slack_actor_slack_user_id",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
+        # Set only when the agent's `finish` call saves its report. A forged marker would stop the
+        # relay from saving the run's final message and make readers trust a caller-written one.
+        TASK_RUN_FINISH_REPORT_STATE_KEY,
     }
 )
 
@@ -3206,6 +3219,18 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
 # PR merged, resolve the report, and refund it while keeping the work — so every output writer has to
 # go through `_merge_caller_output`, not merge caller output directly.
 _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
+
+
+def _carries_final_message(validated_data: dict) -> bool:
+    output = validated_data.get("output")
+    return isinstance(output, dict) and isinstance(output.get("final_message"), str) and bool(output["final_message"])
+
+
+def is_finish_report_output(output: object) -> bool:
+    if not isinstance(output, dict) or set(output) != {"final_message"}:
+        return False
+    report = output["final_message"]
+    return isinstance(report, str) and 0 < len(report) <= FINAL_MESSAGE_MAX_CHARS
 
 
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
@@ -3574,7 +3599,7 @@ def enforce_self_driving_free_trial(
 
     Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
-    from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
+    from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
         capture_signal_report_free_trial_paused,
         self_driving_free_trial_enabled,
@@ -3589,7 +3614,7 @@ def enforce_self_driving_free_trial(
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
-    from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
+    from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         capture_signal_report_quota_paused,
         self_driving_quota_gate,
     )
@@ -3614,6 +3639,7 @@ def update_task_run(
     only_if_not_started: bool = False,
     caller_is_agent: bool = False,
     user_id: int | None = None,
+    include_log_url: bool = True,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -3689,7 +3715,7 @@ def update_task_run(
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
-            return _task_run_detail_to_dto(run, user_id=user_id)
+            return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
         old_status = run.status
         old_output = run.output
         old_branch = run.branch
@@ -3748,6 +3774,16 @@ def update_task_run(
             run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
             update_fields.add("state")
         if (
+            caller_is_agent
+            and new_status in {TaskRun.Status.COMPLETED, TaskRun.Status.FAILED}
+            and old_status != new_status
+            and _carries_final_message(validated_data)
+        ):
+            output = run.output if isinstance(run.output, dict) else {}
+            run.output = {**output, "final_message": output["final_message"][:FINAL_MESSAGE_MAX_CHARS]}
+            run.state = {**(run.state or {}), TASK_RUN_FINISH_REPORT_STATE_KEY: True}
+            update_fields.update({"output", "state"})
+        elif (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
             and old_status != new_status
@@ -3839,7 +3875,7 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES:
         resume_workflow_step_for_run(run)
 
-    return _task_run_detail_to_dto(run, user_id=user_id)
+    return _task_run_detail_to_dto(run, user_id=user_id, include_log_url=include_log_url)
 
 
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
@@ -4001,11 +4037,13 @@ def attach_task_run_input_files(*, team_id: int, run_id: UUID, files: Sequence[c
     run.save(update_fields=["artifacts", "updated_at"])
 
 
-def get_task_by_origin_key(team_id: int, origin_key: str) -> contracts.TaskDetailDTO | None:
+def get_task_by_origin_key(
+    team_id: int, origin_key: str, *, include_latest_run: bool = True
+) -> contracts.TaskDetailDTO | None:
     """The live task carrying ``origin_key`` in ``team_id``, or None. Bypasses visibility: an
     origin key is an idempotency handle for a system writer, not a user-facing lookup."""
     task = Task.objects.filter(team_id=team_id, origin_key=origin_key, deleted=False).first()
-    return _task_detail_to_dto(task) if task is not None else None
+    return _task_detail_to_dto(task, include_latest_run=include_latest_run) if task is not None else None
 
 
 def get_imported_task_run(task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
@@ -4223,12 +4261,6 @@ def get_run_plan(state: dict[str, Any] | None) -> contracts.RunPlan | None:
     if access.adapter is None:
         return None
     return contracts.RunPlan(plan_name=SUBSCRIPTION_PLAN_NAMES[access.adapter], owner_user_id=access.owner_id)
-
-
-def uses_own_subscription(state: dict[str, Any] | None) -> bool:
-    """Whether a run bills to its owner's plan rather than to PostHog credits."""
-    run_state = state or {}
-    return any(run_state.get(f"{adapter}_model_access") == "own-subscription" for adapter in SUBSCRIPTION_PLAN_NAMES)
 
 
 def ensure_subscription_owner(state: dict[str, Any] | None, actor_user_id: int | None) -> None:
@@ -7922,11 +7954,9 @@ def create_task(
     """
     from posthog.models import Team  # noqa: PLC0415
 
-    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        is_pull_request_run_request,
-    )
-    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
+        is_pull_request_run_request,
         record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
@@ -7980,6 +8010,8 @@ def create_task(
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
+    created_by = validated_data.get("created_by")
+    title_distinct_id = created_by.distinct_id if created_by else None
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
         default_integration = IntegrationManager.github.oauth.find(team.id)
@@ -8099,7 +8131,7 @@ def create_task(
                 warm_task.title_manually_set = True
                 update_fields += ["title", "title_manually_set"]
             elif description and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(naming_source or description)
+                warm_task.title = generate_task_title(naming_source or description, distinct_id=title_distinct_id)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
             if description and not (warm_task.description or "").strip():
@@ -8130,7 +8162,11 @@ def create_task(
                 )
             except Exception:
                 if report_reservation is not None:
-                    report_reservation.delete()
+                    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+                        delete_report_task_artefact,
+                    )
+
+                    delete_report_task_artefact(team_id=warm_task.team_id, artefact_id=report_reservation)
                 raise
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -8229,7 +8265,9 @@ def create_task(
 
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
-        validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
+        validated_data["title"] = generate_task_title(
+            naming_source or validated_data["description"], distinct_id=title_distinct_id
+        )
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
@@ -8316,7 +8354,9 @@ def create_task(
         )
 
     if signal_report_id and signal_report_task_relationship in (None, "implementation") and task.repository:
-        from products.signals.backend.tracker_issues import create_tracker_issue_for_report
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            create_tracker_issue_for_report,
+        )
 
         create_tracker_issue_for_report(
             team_id=team_id,
@@ -9113,12 +9153,10 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
 
 def _reserve_report_warm_activation(
     team: Team, task: Task, *, relationship: str | None, description: str | None = None
-) -> Model:
-    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        is_pull_request_run_request,
-    )
-    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+) -> str:
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
+        is_pull_request_run_request,
         record_report_task,
     )
 
@@ -9143,12 +9181,11 @@ def _is_unlinked_report_warm_task(task: Task) -> bool:
         return False
     if not task.runs.filter(team_id=task.team_id, state__has_key="prewarmed").exists():
         return False
-    from products.signals.backend.models import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        SignalReport,
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        report_task_ids,
     )
 
-    linked = SignalReport.associated_task_runs(report_id=str(task.signal_report_id), team_id=task.team_id)
-    return not any(str(entry.task_id) == str(task.id) for entry in linked)
+    return str(task.id) not in report_task_ids(team_id=task.team_id, report_id=str(task.signal_report_id))
 
 
 def task_run_awaits_report_activation(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
@@ -9545,7 +9582,7 @@ def run_task(
 
     The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
     """
-    from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
+    from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
         is_report_implementation_task,
     )
@@ -11326,7 +11363,7 @@ def start_space_setup(
     ):
         raise SpaceSetupUnavailableError(
             "Goal setup is not available because the Create AI task workflow action is unavailable. "
-            "Ask an administrator to sync workflow templates and enable the action, then retry setup."
+            "Ask an administrator to sync workflow templates, then retry setup."
         )
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team.id, user_id)

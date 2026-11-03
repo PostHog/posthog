@@ -19,6 +19,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.integrations import IntegrationManager
+from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -81,6 +82,7 @@ def masked_secret_input_keys(stored_inputs: object) -> list[str]:
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
@@ -97,9 +99,17 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if IntegrationManager.posthog.any.get_many(get_team().id, integration_ids):
+    # Warehouse source rows must be read too, so the guard below can reject them.
+    rows = IntegrationManager.any.with_source_rows().get_many(get_team().id, integration_ids).values()
+    if any(row.kind == POSTHOG_CONNECT_KIND for row in rows):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
+    # A row that a data warehouse source created holds the source's typed-in credentials (passwords,
+    # keys). The runtime passes an input's secrets to the function code, so no function may use it.
+    if any(WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in (row.config or {}) for row in rows):
+        raise serializers.ValidationError(
+            {"input": "This integration can't be used as a function input. Choose a different integration."}
         )
 
 
@@ -135,6 +145,14 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
         # No request context (internal re-saves, direct construction); the send path still
         # enforces the domain.
         return
+
+    if len(override) > MAX_FROM_OVERRIDE_EMAIL_LENGTH:
+        raise serializers.ValidationError(
+            {
+                "input": "The custom sender address is too long. "
+                f"Use an address with {MAX_FROM_OVERRIDE_EMAIL_LENGTH} characters or fewer."
+            }
+        )
 
     if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
         raise serializers.ValidationError(
@@ -648,6 +666,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_repository",
             "task_mcp_installations",
             "signals_scout",
+            "posthog_survey",
             "task_skills",
             "replay_vision_scan",
         ]
@@ -850,6 +869,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "posthog_survey":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a survey ID."})
         elif item_type == "replay_vision_scan":
             if not isinstance(value, dict) or not isinstance(value.get("type"), str):
                 raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
