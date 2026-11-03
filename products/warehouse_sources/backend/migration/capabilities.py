@@ -29,6 +29,7 @@ def source_capabilities(source_type: ExternalDataSourceType) -> SourceCapabiliti
         # Apply can only exclude columns that discovery lists, and only these sources list them.
         supports_column_selection=source.supports_column_selection and not source.has_managed_hogql_schema,
         supports_row_filters=source.supports_row_filters,
+        fixed_columns=source.has_managed_hogql_schema,
         row_filter_columns=row_filter_columns,
         toggle_groups=frozenset(
             field.name

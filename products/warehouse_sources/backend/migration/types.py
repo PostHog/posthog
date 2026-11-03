@@ -200,6 +200,8 @@ class SourceCapabilities:
     unreleased: bool
     supports_column_selection: bool
     supports_row_filters: bool
+    # The source's tables have a fixed column layout, so their columns can never be turned off.
+    fixed_columns: bool = False
     # Table name to the only columns a row filter on it may use. A table not here accepts any column.
     row_filter_columns: Mapping[str, frozenset[str]] = field(default_factory=dict)
     # Config fields that hold a group of settings behind an on/off switch, like `ssh_tunnel`.
