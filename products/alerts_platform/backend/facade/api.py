@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
+    HeldDeliveryRelease,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -82,6 +83,14 @@ def record_hold_delivery_started(address: HeldDeliveryAddress, *, now: datetime)
 def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
     """Moves an unreleased hold's safety-net deadline. Returns False when nothing was held."""
     return delivery_holds.reschedule_hold(address, release_after=release_after)
+
+
+def released_holds_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> dict[str, HeldDeliveryRelease]:
+    """How each named evaluation's held delivery was released, keyed by evaluation key, for an alert
+    the platform owns. An evaluation with no hold, or one still held, is left out."""
+    return delivery_holds.released_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
 
 
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:

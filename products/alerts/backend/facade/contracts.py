@@ -182,6 +182,12 @@ class MovedAlertCheck:
     triggered_dates: tuple[str, ...] = ()
     interval: str | None = None
     triggered_metadata: dict[str, Any] | None = None
+    # The investigation agent's run for this check, as `InvestigationStatus` and `InvestigationVerdict` values.
+    investigation_status: str | None = None
+    investigation_verdict: str | None = None
+    investigation_summary: str | None = None
+    investigation_notebook_short_id: str | None = None
+    notification_suppressed_by_agent: bool = False
 
 
 @frozen

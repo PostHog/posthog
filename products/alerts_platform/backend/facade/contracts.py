@@ -17,7 +17,13 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    DeliveryPath,
+    HoldRelease,
+    HoldReleasedBy,
+    PlatformAlertCheckStatus,
+    PlatformAlertState,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -886,6 +892,14 @@ class HeldDeliveryAddress:
     team_id: int
     configuration_id: str
     evaluation_key: str
+
+
+@frozen
+class HeldDeliveryRelease:
+    """How a held delivery was released."""
+
+    action: HoldRelease
+    released_by: HoldReleasedBy
 
 
 @frozen

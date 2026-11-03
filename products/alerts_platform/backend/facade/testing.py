@@ -22,11 +22,13 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
     PlatformAlert,
     PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
     PlatformAlertDeliveryPath,
     PlatformAlertThread,
 )
@@ -179,6 +181,29 @@ def record_check(
                 source_detail=source_detail or {},
             )
         ],
+    )
+
+
+def released_hold(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+) -> None:
+    """Write a hold on the check `record_check` wrote at `at`, already released."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=f"slot:{at.isoformat()}",
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=action,
+        released_by=released_by,
     )
 
 

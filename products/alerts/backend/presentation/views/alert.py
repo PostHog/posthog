@@ -592,6 +592,9 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
+        moved_short_id = getattr(instance, "moved_notebook_short_id", None)
+        if moved_short_id is not None:
+            return moved_short_id
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
 
@@ -1495,7 +1498,7 @@ MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
 
 def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
     # Never saved. It carries what the check serializer shows.
-    return AlertCheck(
+    alert_check = AlertCheck(
         id=check.id,
         alert_configuration=alert,
         created_at=check.checked_at,
@@ -1511,7 +1514,14 @@ def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertC
         triggered_dates=list(check.triggered_dates) or None,
         interval=check.interval,
         triggered_metadata=check.triggered_metadata,
+        investigation_status=check.investigation_status,
+        investigation_verdict=check.investigation_verdict,
+        investigation_summary=check.investigation_summary,
+        notification_suppressed_by_agent=check.notification_suppressed_by_agent,
     )
+    # The platform's investigation names its notebook by short id, not by a row the check can link.
+    alert_check.moved_notebook_short_id = check.investigation_notebook_short_id  # type: ignore[attr-defined]
+    return alert_check
 
 
 @extend_schema_view(

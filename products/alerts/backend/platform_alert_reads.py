@@ -23,16 +23,23 @@ from products.alerts.backend.facade.contracts import (
     MovedAlertStatus,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import insight_state_of_platform
-from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY
+from products.alerts.backend.platform_source_cycle import ERROR_CODE_KEY, SUPPRESSED_BY_AGENT_KEY
 from products.alerts_platform.backend.facade.api import (
     check_page_by_legacy_id,
     checks_with_detail_by_legacy_id,
     last_check_by_legacy_id,
+    released_holds_by_legacy_id,
     runtime_by_legacy_id,
 )
 from products.alerts_platform.backend.facade.contracts import PlatformCheckEntry
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    HoldRelease,
+    HoldReleasedBy,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
 
 # The detail key a detector check that fired on a point stores its dates under.
 FIRED_DATES_KEY: Final = "triggered_dates"
@@ -94,8 +101,9 @@ def moved_alert_check_page(
 ) -> MovedAlertCheckPage | None:
     """A page of a moved alert's checks in `[since, until]`, newest first, with how many the window holds.
 
-    None when the alert's own checks are the ones to show: the platform does not own it, or its
-    history could not be read.
+    Each check carries its investigation and whether the agent suppressed its notification. None
+    when the alert's own checks are the ones to show: the platform does not own it, or its history
+    could not be read.
     """
     if not AlertConfiguration.objects.filter(team_id=team_id, id=alert_id, owner=PlatformAlertOwner.PLATFORM).exists():
         return None
@@ -114,7 +122,32 @@ def moved_alert_check_page(
         return None
     if page is None:
         return None
-    return MovedAlertCheckPage(total=page.total, checks=tuple(_as_check(alert_id, check) for check in page.checks))
+    keys = [check.evaluation_key for check in page.checks]
+    investigations = {
+        investigation.evaluation_key: investigation
+        for investigation in InsightAlertInvestigation.objects.for_team(team_id)
+        .filter(alert_configuration_id=alert_id, evaluation_key__in=keys)
+        .select_related("notebook")
+    }
+    releases = released_holds_by_legacy_id(team_id=team_id, legacy_configuration_id=alert_id, evaluation_keys=keys)
+    suppressed_holds = {
+        key
+        for key, release in releases.items()
+        # The safety net suppresses only the hold of an alert turned off, which is no verdict of the agent's.
+        if release.action == HoldRelease.SUPPRESS and release.released_by != HoldReleasedBy.SAFETY_NET
+    }
+    return MovedAlertCheckPage(
+        total=page.total,
+        checks=tuple(
+            _as_check(
+                alert_id,
+                check,
+                investigation=investigations.get(check.evaluation_key),
+                suppressed_by_hold=check.evaluation_key in suppressed_holds,
+            )
+            for check in page.checks
+        ),
+    )
 
 
 def moved_alert_fired_checks(
@@ -155,7 +188,13 @@ def moved_alert_fired_checks(
     }
 
 
-def _as_check(alert_id: UUID, check: PlatformCheckEntry) -> MovedAlertCheck:
+def _as_check(
+    alert_id: UUID,
+    check: PlatformCheckEntry,
+    *,
+    investigation: InsightAlertInvestigation | None = None,
+    suppressed_by_hold: bool = False,
+) -> MovedAlertCheck:
     detail = check.source_detail
     metadata = detail.get("triggered_metadata")
     interval = detail.get("interval")
@@ -175,6 +214,13 @@ def _as_check(alert_id: UUID, check: PlatformCheckEntry) -> MovedAlertCheck:
         triggered_dates=tuple(_listed(detail, FIRED_DATES_KEY, (str,))),
         interval=interval if isinstance(interval, str) else None,
         triggered_metadata=metadata if isinstance(metadata, dict) else None,
+        investigation_status=investigation.status if investigation else None,
+        investigation_verdict=investigation.verdict if investigation else None,
+        investigation_summary=investigation.summary if investigation else None,
+        investigation_notebook_short_id=investigation.notebook.short_id
+        if investigation and investigation.notebook
+        else None,
+        notification_suppressed_by_agent=suppressed_by_hold or detail.get(SUPPRESSED_BY_AGENT_KEY) is True,
     )
 
 

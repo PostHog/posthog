@@ -6,9 +6,10 @@ request, hands it back to whoever releases it with a send, and sends it itself o
 deadline passes, so a source that never answers still delivers.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from django.db import transaction
 
@@ -17,9 +18,10 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     HeldDeliveryAddress,
+    HeldDeliveryRelease,
     PlatformAlertOutcome,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
@@ -161,6 +163,33 @@ def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) ->
         .exclude(release_action=HoldRelease.SEND)
         .exists()
     )
+
+
+def released_holds_by_legacy_id(
+    team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> dict[str, HeldDeliveryRelease]:
+    """How each named evaluation's hold was released, keyed by evaluation key, for an alert the platform owns.
+
+    An evaluation with no hold, or one still held, is left out.
+    """
+    if not evaluation_keys:
+        return {}
+    rows = (
+        PlatformAlertDeliveryHold.objects.for_team(team_id)
+        .filter(
+            configuration__legacy_configuration_id=legacy_configuration_id,
+            configuration__owner=PlatformAlertOwner.PLATFORM,
+            evaluation_key__in=evaluation_keys,
+            released_at__isnull=False,
+        )
+        .values_list("evaluation_key", "release_action", "released_by")
+    )
+    return {
+        key: HeldDeliveryRelease(action=HoldRelease(action), released_by=HoldReleasedBy(released_by))
+        for key, action, released_by in rows
+        # A release always writes both, so a released hold never lacks either.
+        if action is not None and released_by is not None
+    }
 
 
 def prune_holds(now: datetime, *, limit: int) -> int:
