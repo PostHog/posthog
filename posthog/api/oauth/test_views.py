@@ -85,8 +85,7 @@ def private_pem_to_public_pem(private_key_pem: str) -> str:
 class TestOAuthAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # A stale CIMD cache entry queues a metadata refresh, which Celery runs inline in tests and
-        # which fetches the partner URL over the real network. No test here checks that refresh.
+        # Celery runs the stale-cache CIMD refresh inline, and it would fetch the partner URL over the network.
         self.enterContext(patch.object(refresh_cimd_metadata_task, "delay"))
 
         self.confidential_application = OAuthApplication.objects.create(
