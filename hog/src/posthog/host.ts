@@ -11,6 +11,12 @@ export function trimHost(host: string): string {
     return host.replace(/\/+$/, '')
 }
 
+// The same origin and the same path, however each is written.
+export function sameHost(a: string, b: string): boolean {
+    const path = (host: string): string => (URL.canParse(host) ? new URL(host).pathname.replace(/\/+$/, '') : '')
+    return hostKey(a) === hostKey(b) && path(a) === path(b)
+}
+
 // Keeps the path a self-hosted PostHog can sit under, such as https://example.com/posthog.
 export function hostUrl(host: string, path: string): URL {
     return new URL(path, `${trimHost(host)}/`)
