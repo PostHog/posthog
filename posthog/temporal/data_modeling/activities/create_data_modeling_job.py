@@ -1,3 +1,4 @@
+import datetime as dt
 import dataclasses
 
 from django.db import transaction
@@ -43,6 +44,7 @@ class SkippedDataModelingNode:
     failed_upstream_total: int = 0
     suspended_upstream_node_ids: list[str] = dataclasses.field(default_factory=list)
     suspended_upstream_total: int = 0
+    built_by_another_run: bool = False
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -51,6 +53,8 @@ class RecordSkippedDataModelingJobsInputs:
     dag_id: str
     engine: str
     skipped_nodes: list[SkippedDataModelingNode]
+    # Trino shadows reuse one parent workflow id across runs, so jobs from earlier runs must not count as already recorded.
+    run_started_at: str | None = None
 
 
 @database_sync_to_async_pool
@@ -114,7 +118,11 @@ def _subject(names: list[str], total: int) -> str:
     return f"{noun} {shown[0]}"
 
 
-def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
+def _skip_reason(
+    *, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int, built_by_another_run: bool
+) -> str:
+    if built_by_another_run:
+        return "Skipped because another run is already building this view."
     if failed_total and suspended_total:
         subject = _subject(failed + suspended, failed_total + suspended_total)
         return f"Skipped because {subject} are failing or suspended."
@@ -144,14 +152,15 @@ def _record_skipped_data_modeling_jobs(
     }
     skipped_nodes = [nodes[skipped.node_id] for skipped in inputs.skipped_nodes if skipped.node_id in nodes]
     saved_query_ids = {node.saved_query_id for node in skipped_nodes if node.saved_query_id is not None}
-    existing_saved_query_ids = set(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            engine=inputs.engine,
-            parent_workflow_id=workflow_id,
-            saved_query_id__in=saved_query_ids,
-        ).values_list("saved_query_id", flat=True)
+    existing_jobs = DataModelingJob.objects.filter(
+        team_id=inputs.team_id,
+        engine=inputs.engine,
+        parent_workflow_id=workflow_id,
+        saved_query_id__in=saved_query_ids,
     )
+    if inputs.run_started_at:
+        existing_jobs = existing_jobs.filter(created_at__gte=dt.datetime.fromisoformat(inputs.run_started_at))
+    existing_saved_query_ids = set(existing_jobs.values_list("saved_query_id", flat=True))
 
     jobs = []
     for skipped in inputs.skipped_nodes:
@@ -170,6 +179,7 @@ def _record_skipped_data_modeling_jobs(
                     failed_total=skipped.failed_upstream_total,
                     suspended=[nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
                     suspended_total=skipped.suspended_upstream_total,
+                    built_by_another_run=skipped.built_by_another_run,
                 ),
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,

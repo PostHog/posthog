@@ -2557,10 +2557,11 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
-            "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
-            "only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), "
-            "then the priority as a tiebreak. The priority ranker uses the priority only. "
-            "Reports without a usable score sort after scored ones. Null for every other sort."
+            "Sort key from the ranker named by the list response's ranker field, for sort=recommended only. "
+            "Lower keys rank first, so rows from several requests merge in the order of one request. "
+            "For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, "
+            "and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the "
+            "priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort."
         ),
     )
 
@@ -2568,12 +2569,12 @@ class SignalReportListSerializer(SignalReportSerializer):
         fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
         read_only_fields = fields
 
-    def get_inbox_merge_key(self, obj: SignalReport) -> int | None:
+    def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        decile = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score_decile", None)
-        return inbox_merge_key(decile, getattr(obj, "priority_sort_rank", None))
+        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
+        return inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):
@@ -3251,6 +3252,27 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
         } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if (
+            obj.type == SignalReportArtefact.ArtefactType.NOTE
+            and isinstance(parsed, dict)
+            and "analytics_query_context" in parsed
+        ):
+            queries = parsed.pop("analytics_query_context")
+            acting_user_id = parsed.pop("restricted_to_user_id", None)
+            request = self.context.get("request")
+            viewer_id = getattr(getattr(request, "user", None), "id", None)
+            policy = report_metric_access_policy(self.context)
+            if (
+                viewer_id is None
+                or acting_user_id != viewer_id
+                or not isinstance(queries, list)
+                or not all(
+                    isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
+                )
+            ):
+                parsed["note"] = "You don't have access to this assessment's evidence."
+            return parsed
 
         if (
             obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE

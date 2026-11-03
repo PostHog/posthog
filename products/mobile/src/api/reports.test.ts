@@ -1,3 +1,5 @@
+import { reportFixture } from '@/model/adapters/testFixtures'
+
 import { setAuthProvider } from './client'
 import { dismissReport, fetchInboxPage, fetchLatestReviewerArtefact, INBOX_PAGE_SIZE, resolveReport } from './reports'
 
@@ -41,19 +43,69 @@ describe('reports api', () => {
         })
     })
 
-    test.each([undefined, [], { count: 1 }, { results: [null] }, { results: [{}] }])(
-        'rejects an invalid inbox page: %p',
-        async (body) => {
-            globalThis.fetch = jest.fn(async () => ({
-                ok: true,
-                status: 200,
-                headers: { get: () => null },
-                text: async () => JSON.stringify(body) ?? '',
-            })) as unknown as typeof fetch
+    test.each([
+        undefined,
+        [],
+        { count: 1 },
+        { results: [null] },
+        { results: [{}] },
+        { count: 1, next: null, results: [{ id: 'synthetic-report' }] },
+        ...[
+            { id: '' },
+            { title: {} },
+            { status: null },
+            { source_products: null },
+            { source_products: [42] },
+            { created_at: 'invalid' },
+            { updated_at: null },
+            { signal_count: -1 },
+            { is_suggested_reviewer: 'yes' },
+            { implementation_pr_url: {} },
+            { pull_requests: null },
+            { pull_requests: [null] },
+            { pull_requests: [{ url: 42 }] },
+            { assignee: [] },
+            { assignee: { kind: {} } },
+            { ranking: { scores: { pr_merged: 'high' } } },
+        ].map((fields) => ({ count: 1, next: null, results: [{ ...reportFixture(), ...fields }] })),
+        { count: '1', results: [reportFixture()] },
+        { count: 1, next: {}, results: [reportFixture()] },
+    ])('rejects an invalid inbox page: %p', async (body) => {
+        globalThis.fetch = jest.fn(async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () => JSON.stringify(body) ?? '',
+        })) as unknown as typeof fetch
 
-            await expect(fetchInboxPage(0)).rejects.toThrow("Couldn't load your inbox. Try again.")
+        await expect(fetchInboxPage(0)).rejects.toThrow("Couldn't load your inbox. Try again.")
+    })
+
+    test.each([
+        null,
+        { status: 'not_available', model: null, scored_at: null, predictions: [] },
+        { status: 'unscored', model: null, scored_at: null, predictions: [] },
+        {
+            status: 'scored',
+            model: 'example-model',
+            scored_at: '2026-10-01T00:00:00Z',
+            predictions: [{ outcome: 'pr_merged', probability: 0.5, lift: null, readable: true }],
+        },
+        { scores: { pr_merged: 0.5 } },
+    ])('accepts current and legacy rankings with nullable titles and unknown sources: %p', async (ranking) => {
+        const report = {
+            ...reportFixture({ title: null, source_products: ['future_source'], assignee: null }),
+            ranking,
         }
-    )
+        const page = { count: 1, next: null, results: [report] }
+        globalThis.fetch = jest.fn(async () => ({
+            ok: true,
+            status: 200,
+            headers: { get: () => null },
+            text: async () => JSON.stringify(page),
+        })) as unknown as typeof fetch
+        await expect(fetchInboxPage(0)).resolves.toEqual(page)
+    })
 
     test('finds the newest reviewer assignment beyond the first artefact page', async () => {
         const assignment = { id: 'assignment', type: 'suggested_reviewers', content: [{ github_login: 'reviewer' }] }
