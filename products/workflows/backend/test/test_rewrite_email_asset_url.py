@@ -1,3 +1,4 @@
+import io
 import json
 from uuid import UUID
 
@@ -264,3 +265,47 @@ class TestRewriteEmailAssetUrl(BaseTest):
 
         actions = json.dumps(HogFlow.objects.get(id=workflow_id).actions)
         assert (OLD in actions, NEW in actions) == (False, True)
+
+    def test_keeps_a_workflow_on_its_template_when_a_save_puts_the_old_url_back_mid_run(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        old_content = {"email": {"subject": "Welcome", "html": f'<img src="{OLD}?w=960px" />'}}
+        template_id = create_message_template_for_test(team_id=self.team.id, name="Welcome", content=old_content)
+        workflow_id = make_transactional(self.team.id, template_id, user_id=self.user.id, from_integration_id=None)
+        HogFlow.objects.filter(id=workflow_id).update(draft={"actions": _actions(OLD)})
+        team_id = self.team.id
+
+        class SaveWhenWorkflowPassStarts(io.StringIO):
+            saved = False
+
+            def write(self, text: str) -> int:
+                if text.startswith("hog_flows:") and not self.saved:
+                    self.saved = True
+                    save_template_fields(
+                        team_id,
+                        template_id,
+                        {"content": old_content},
+                        user_id=None,
+                        require_workflow_editor=lambda _: None,
+                    )
+                return super().write(text)
+
+        call_command(
+            "rewrite_email_asset_url",
+            "--from-url",
+            OLD,
+            "--to-url",
+            NEW,
+            "--team-id",
+            str(self.team.id),
+            stdout=SaveWhenWorkflowPassStarts(),
+        )
+
+        workflow = HogFlow.objects.get(id=workflow_id)
+        assert (workflow.version, OLD in json.dumps(workflow.actions), NEW in json.dumps(workflow.actions)) == (
+            3,
+            True,
+            False,
+        )

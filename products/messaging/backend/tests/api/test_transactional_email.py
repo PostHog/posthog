@@ -35,6 +35,29 @@ def _stage_counts() -> dict[str, float]:
     }
 
 
+_DESIGN = {
+    "body": {
+        "id": "body1",
+        "rows": [
+            {
+                "id": "row1",
+                "cells": [1],
+                "columns": [
+                    {
+                        "id": "col1",
+                        "contents": [{"id": "txt1", "type": "text", "values": {"text": "<p>Old</p>"}}],
+                        "values": {},
+                    }
+                ],
+                "values": {},
+            }
+        ],
+        "values": {},
+    }
+}
+_DESIGN_EDIT = {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]}
+
+
 def _replace(blob: Any, old: str, new: str) -> tuple[Any, int]:
     serialized = json.dumps(blob)
     return json.loads(serialized.replace(old, new)), serialized.count(old)
@@ -268,11 +291,7 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("update", "", {"name": "Reset"}),
-            (
-                "design",
-                "design/",
-                {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": "<p>New</p>"}}}]},
-            ),
+            ("design", "design/", _DESIGN_EDIT),
         ]
     )
     @patch(
@@ -282,28 +301,8 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_deleted_workflow_unlinks_the_template_until_it_is_made_transactional_again(
         self, _name, suffix, body, _render, mock_post, _flag, _capture
     ):
-        design = {
-            "body": {
-                "id": "body1",
-                "rows": [
-                    {
-                        "id": "row1",
-                        "cells": [1],
-                        "columns": [
-                            {
-                                "id": "col1",
-                                "contents": [{"id": "txt1", "type": "text", "values": {"text": "<p>Old</p>"}}],
-                                "values": {},
-                            }
-                        ],
-                        "values": {},
-                    }
-                ],
-                "values": {},
-            }
-        }
         MessageTemplate.objects.filter(id=self.template.id).update(
-            content={"email": {**self.template.content["email"], "design": design}}
+            content={"email": {**self.template.content["email"], "design": _DESIGN}}
         )
         deleted = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}")
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
@@ -577,6 +576,7 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("marketing_category", "marketing_template"),
+            ("design_edit_after_the_category_became_marketing", "marketing_template"),
             ("unverified_sender", "sender_unavailable"),
             ("another_projects_sender", "invalid_input"),
             ("custom_address_off_the_senders_domain", "invalid_input"),
@@ -585,15 +585,30 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_without_an_id", "invalid_input"),
         ]
     )
+    @patch(
+        "products.messaging.backend.presentation.views.message_templates.render_design_html",
+        return_value="<p>New</p>",
+    )
     def test_rejects_an_update_that_would_stop_a_transactional_template_sending(
-        self, mock_post, _flag, _capture, case, expected_code
+        self, case, expected_code, _render, mock_post, _flag, _capture
     ):
         before = MessageTemplate.objects.get(id=self.template.id)
-        if case == "marketing_category":
+        suffix = ""
+        if case == "design_edit_after_the_category_became_marketing":
             category = MessageCategory.objects.create(
                 team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
             )
-            body: dict[str, Any] = {"message_category": str(category.id)}
+            MessageTemplate.objects.filter(id=self.template.id).update(
+                message_category_id=category.id, content={"email": {**before.content["email"], "design": _DESIGN}}
+            )
+            before = MessageTemplate.objects.get(id=self.template.id)
+            suffix = "design/"
+            body: dict[str, Any] = _DESIGN_EDIT
+        elif case == "marketing_category":
+            category = MessageCategory.objects.create(
+                team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+            )
+            body = {"message_category": str(category.id)}
         elif case == "sender_without_an_id":
             body = {"content": {"email": {**before.content["email"], "from": {"name": "Security"}}}}
         elif case.startswith("custom_address"):
@@ -617,13 +632,13 @@ class TestTransactionalEmail(APIBaseTest):
             body = {"content": {"email": email}}
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", body, format="json"
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}", body, format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
         after = MessageTemplate.objects.get(id=self.template.id)
-        assert (after.message_category_id, after.content) == (None, before.content)
+        assert (after.message_category_id, after.content) == (before.message_category_id, before.content)
         assert self._workflow(self.hog_flow_id)["version"] == 1
 
 

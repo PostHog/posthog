@@ -12,11 +12,8 @@ from django.utils import timezone
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.messaging.backend.facade.api import (
-    find_template_ids_containing,
-    find_workflow_ids_synced_from_content_containing,
-)
-from products.messaging.backend.facade.templates import rewrite_template_content
+from products.messaging.backend.facade.api import find_template_ids_containing
+from products.messaging.backend.facade.templates import rewrite_template_content, synced_content_contains
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 
@@ -24,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 WorkerReload = Callable[[int, str], None]
 RowRewrite = Callable[[Any], int]
+OwnedByTemplate = Callable[[Any, bool], bool]
 
 # Only executed config has a worker-side cache to invalidate; templates are copied at creation time
 # and never read by a worker, so they need no reload.
@@ -166,14 +164,16 @@ class Command(BaseCommand):
         if target == MESSAGE_TEMPLATES:
             row_ids, rewrite_row = self._message_template_rows(from_url, to_url, options)
         else:
-            template_owned = (
-                find_workflow_ids_synced_from_content_containing(
-                    from_url, team_ids=options.get("team_id"), template_id=options.get("row_id")
-                )
-                if target == "hog_flows" and rewrites_templates
-                else set()
+            owned_by_template: OwnedByTemplate | None = None
+            if target == "hog_flows" and rewrites_templates:
+                team_ids: list[int] | None = options.get("team_id")
+
+                def owned_by_template(row_id: Any, lock: bool) -> bool:
+                    return synced_content_contains(row_id, from_url, team_ids=team_ids, lock=lock)
+
+            row_ids, rewrite_row = self._model_rows(
+                target, from_url, to_url, options, owned_by_template=owned_by_template
             )
-            row_ids, rewrite_row = self._model_rows(target, from_url, to_url, options, template_owned=template_owned)
 
         self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
         if not row_ids:
@@ -216,7 +216,13 @@ class Command(BaseCommand):
         return row_ids, rewrite_row
 
     def _model_rows(
-        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, template_owned: set[Any]
+        self,
+        target: str,
+        from_url: str,
+        to_url: str,
+        options: dict[str, Any],
+        *,
+        owned_by_template: OwnedByTemplate | None,
     ) -> tuple[list[Any], RowRewrite]:
         model, field_timestamps = MODEL_TARGETS[target]
         fields = tuple(field_timestamps)
@@ -246,7 +252,8 @@ class Command(BaseCommand):
             return self._rewrite_row(
                 base_queryset,
                 row_id,
-                {"draft": field_timestamps["draft"]} if row_id in template_owned else field_timestamps,
+                field_timestamps,
+                owned_by_template,
                 WORKER_RELOADS.get(target),
                 from_url,
                 to_url,
@@ -260,12 +267,15 @@ class Command(BaseCommand):
         base_queryset: models.QuerySet,
         row_id: Any,
         field_timestamps: dict[str, str],
+        owned_by_template: OwnedByTemplate | None,
         publish_reload: WorkerReload | None,
         from_url: str,
         to_url: str,
         dry_run: bool,
     ) -> int:
         if dry_run:
+            if owned_by_template is not None and owned_by_template(row_id, False):
+                field_timestamps = {"draft": field_timestamps["draft"]}
             row = base_queryset.get(pk=row_id)
             return sum(rewrite_blob(getattr(row, field), from_url, to_url)[1] for field in field_timestamps)
 
@@ -274,6 +284,11 @@ class Command(BaseCommand):
         # by the stale blob this command is holding - the same lost write the API path guards against
         # with select_for_update plus its staleness fence.
         with transaction.atomic():
+            # Decided per row under the template's lock, not once per pass: a save between the template
+            # pass and this row can put from_url back into the template and sync it into a new workflow
+            # version. Rewriting that version in place would leave the template and the workflow apart.
+            if owned_by_template is not None and owned_by_template(row_id, True):
+                field_timestamps = {"draft": field_timestamps["draft"]}
             row = base_queryset.select_for_update().get(pk=row_id)
 
             changed_fields: list[str] = []

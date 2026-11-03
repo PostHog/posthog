@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -85,3 +86,11 @@ def rewrite_content(
             # updated_at is auto_now, so listing it bumps it. The editor's stale-write check reads it.
             template.save(update_fields=["draft_content", "updated_at"])
     return content_occurrences + draft_occurrences
+
+
+def synced_content_contains(hog_flow_id: UUID, text: str, *, team_ids: list[int] | None, lock: bool) -> bool:
+    templates = templates_of(team_ids).filter(transactional_hog_flow_id=hog_flow_id, deleted=False)
+    if lock:
+        templates = templates.select_for_update()
+    contents = templates.order_by("id").values_list("content", flat=True)
+    return any(text in json.dumps(content) for content in contents)

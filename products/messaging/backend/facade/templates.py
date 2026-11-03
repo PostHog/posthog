@@ -146,3 +146,12 @@ def rewrite_template_content(
 ) -> int:
     """Apply `rewrite` to a template's content and draft under a row lock. Returns the number of occurrences it replaced."""
     return template_saves.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)
+
+
+def synced_content_contains(hog_flow_id: UUID, text: str, *, team_ids: list[int] | None, lock: bool) -> bool:
+    """Whether the published content of a live template that syncs into this workflow contains `text`.
+
+    With `lock`, the call locks those templates until the caller's transaction ends. Make the call
+    before you lock the workflow, which is the lock order a template save uses.
+    """
+    return template_saves.synced_content_contains(hog_flow_id, text, team_ids=team_ids, lock=lock)
