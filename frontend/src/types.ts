@@ -356,6 +356,7 @@ export enum AccessControlResourceType {
     WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
     MarketingAnalytics = 'marketing_analytics',
+    Activity = 'activity',
     ActivityLog = 'activity_log',
     BusinessKnowledge = 'business_knowledge',
     ErrorTracking = 'error_tracking',

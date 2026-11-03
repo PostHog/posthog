@@ -250,6 +250,8 @@ export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
 // whose personal API key carries it (plus `user:read` for the staff lookup);
 // `*` does not match. The web app's scope pickers never show these objects.
 export const OAUTH_SCOPES_HIDDEN = [
+    'activity:read',
+    'activity:write',
     'batch_import_support:read',
     'batch_import_support:write',
     'query_performance:read',

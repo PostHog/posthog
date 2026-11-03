@@ -103,6 +103,7 @@ class ResourceType(StrEnum):
     SURVEY = "survey"
     TICKET = "ticket"
     WEB_ANALYTICS = "web_analytics"
+    ACTIVITY = "activity"
     ACTIVITY_LOG = "activity_log"
     BUSINESS_KNOWLEDGE = "business_knowledge"
     ERROR_TRACKING = "error_tracking"

@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActivityTab } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityTab } from '~/types'
 
 import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
@@ -67,6 +67,24 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values.pinnedItems[0]).toEqual(
             expect.objectContaining({ path: 'Welcome', href: urls.onboardingWelcome() })
         )
+    })
+
+    it('hides the pinned Activity page when the member has no access to activity', () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = {
+            ...appContext!,
+            effective_resource_access_control: {
+                ...appContext?.effective_resource_access_control,
+                [AccessControlResourceType.Activity]: AccessControlLevel.None,
+            } as Record<AccessControlResourceType, AccessControlLevel>,
+        }
+        try {
+            const pinnedPaths = navProductsTabLogic.values.pinnedItems.map((item) => item.path)
+            expect(pinnedPaths).toContain('Home')
+            expect(pinnedPaths).not.toContain('Activity')
+        } finally {
+            window.POSTHOG_APP_CONTEXT = appContext
+        }
     })
 
     it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {
