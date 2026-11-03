@@ -75,7 +75,7 @@ describe('InternalLogsProducer', () => {
 
     it.each([
         { source: 'hog_flow', serviceName: 'posthog-internal-workflows' },
-        { source: 'hog_function', serviceName: 'posthog-internal-destinations' },
+        { source: 'hog_function', serviceName: 'posthog-internal-hog-functions' },
     ])('sends a $source batch the logs consumer verifies as internal', async ({ source, serviceName }) => {
         await send(new InternalLogsProducer(config(), teamManager), [entry()], source)
 

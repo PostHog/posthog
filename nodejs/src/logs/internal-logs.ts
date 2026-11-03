@@ -38,7 +38,7 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 // a free source. Moving a source to billing changes its entry here, not the producer or the header.
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
     hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
-    hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-destinations' },
+    hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-hog-functions' },
 }
 
 type NotInternalReason =
