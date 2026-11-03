@@ -50,7 +50,7 @@ class TestTitleGenerator:
         assert kwargs["model"] == "claude-haiku-4-5-20251001"
         assert kwargs["max_tokens"] == 50
         assert kwargs["temperature"] == 0.2
-        assert kwargs["extra_headers"] == {"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"}
+        assert kwargs["extra_headers"] == {"X-PostHog-Billable": "false"}
 
     @pytest.mark.parametrize("failure", ["build", "create"])
     @patch(BUILDER)

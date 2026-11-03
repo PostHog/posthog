@@ -73,7 +73,7 @@ Output the title now:"""
                 messages=[{"role": "user", "content": user_prompt}],
                 temperature=TITLE_TEMPERATURE,
                 max_tokens=TITLE_MAX_TOKENS,
-                extra_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"},
+                extra_headers={"X-PostHog-Billable": "false"},
             )
         response_text = "".join(block.text for block in response.content if block.type == "text")
 
