@@ -281,8 +281,10 @@ class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serialize
 
 class WorkloadClaimSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="The claim's name in the provider's OIDC token.")
-    label = serializers.CharField(help_text="What to call the claim in the UI.")
-    help_text = serializers.CharField(allow_blank=True, help_text="A hint that says where to find the claim's value.")
+    label = serializers.CharField(help_text="What to call the claim in the UI.")  # type: ignore[assignment]
+    help_text = serializers.CharField(  # type: ignore[assignment]
+        allow_blank=True, help_text="A hint that says where to find the claim's value."
+    )
 
 
 class WorkloadProviderSerializer(serializers.Serializer):
