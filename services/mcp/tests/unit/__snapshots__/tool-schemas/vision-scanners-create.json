@@ -40,18 +40,6 @@
             "description": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
             "type": "boolean"
         },
-        "entry_point": {
-            "anyOf": [
-                {
-                    "pattern": "^[a-z0-9_]{1,64}$",
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update."
-        },
         "experiment_targeting": {
             "anyOf": [
                 {

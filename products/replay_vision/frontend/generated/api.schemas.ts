@@ -1361,7 +1361,7 @@ export interface ReplayScannerApi {
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
     /**
-     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update.
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
      * @nullable
      * @pattern ^[a-z0-9_]{1,64}$
      */
@@ -1520,7 +1520,7 @@ export interface PatchedReplayScannerApi {
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
     /**
-     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update.
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
      * @nullable
      * @pattern ^[a-z0-9_]{1,64}$
      */

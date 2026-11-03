@@ -1685,12 +1685,12 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("app", {}, "ai", "ai"),
-            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard"),
+            ("app", {}, "ai", "ai", "replay_filters"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard", "wizard"),
         ]
     )
     def test_create_reports_how_the_scanner_was_built(
-        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str, expected_entry_point: str
     ) -> None:
         # A metric comparing AI-built against hand-built scanners needs to know how the form was filled.
         #
@@ -1717,8 +1717,9 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
         ]
         self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
-        # An entry point experiment compares creation by the surface the person started from.
-        self.assertEqual(created[0].kwargs["properties"]["entry_point"], "replay_filters")
+        # An entry point experiment compares creation by the surface the person started from, so only
+        # the app can claim one: any other caller reports itself, whatever it sends.
+        self.assertEqual(created[0].kwargs["properties"]["entry_point"], expected_entry_point)
         # Telemetry only: it must not reach the model, whose constructor would reject it.
         scanner = ReplayScanner.objects.get(id=resp.json()["id"])
         self.assertFalse(hasattr(scanner, "creation_method"))

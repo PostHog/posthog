@@ -222,6 +222,11 @@ class ScannerCreationMethod(models.TextChoices):
     SCRATCH = "scratch", "From scratch"
 
 
+def _event_source(context: dict[str, Any]) -> EventSource | None:
+    request = context.get("request")
+    return get_event_source(request) if request is not None else context.get("event_source")
+
+
 def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> str | None:
     """What `creation_method` says on the created event.
 
@@ -238,11 +243,22 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     context the same way it passes `user`. Without that it would fall through as unattributed, which
     is the one gap a request-derived source cannot close.
     """
-    request = context.get("request")
-    source = get_event_source(request) if request is not None else context.get("event_source")
+    source = _event_source(context)
     if source is None:
         return claimed
     return claimed if source == EventSource.WEB else source.value
+
+
+def _reported_entry_point(context: dict[str, Any], claimed: str | None) -> str | None:
+    """What `entry_point` says on the created event: the in-app surface, or the caller for anything else.
+
+    Only the app has in-app surfaces, so any other caller reports its own source, whatever it
+    sends. Otherwise an agent could claim `replay_filters` and count toward that surface.
+    """
+    source = _event_source(context)
+    if source is None or source == EventSource.WEB:
+        return claimed
+    return source.value
 
 
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
@@ -531,7 +547,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         help_text=(
             "The app surface the creator started from, such as `replay_filters`. Reported to product "
             "analytics at creation so a scanner can be attributed to its entry point, and not stored "
-            "on the scanner. Ignored on update."
+            "on the scanner. Only the app's value is kept: any other caller is reported as its own "
+            "source, such as `mcp`. Ignored on update."
         ),
     )
     scanner_config = serializers.JSONField(
@@ -1228,7 +1245,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             {
                 **scanner_lifecycle_properties(scanner),
                 "creation_method": _reported_creation_method(self.context, creation_method),
-                "entry_point": entry_point,
+                "entry_point": _reported_entry_point(self.context, entry_point),
             },
             team=team,
             **analytics_source_kwargs(self.context),

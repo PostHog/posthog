@@ -662,7 +662,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .regex(visionScannersCreateBodyEntryPointRegExp)
             .nullish()
             .describe(
-                'The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update.'
+                "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update."
             ),
         take_over_as_creator: zod
             .boolean()
@@ -833,7 +833,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .regex(visionScannersPartialUpdateBodyEntryPointRegExp)
             .nullish()
             .describe(
-                'The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Ignored on update.'
+                "The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update."
             ),
         take_over_as_creator: zod
             .boolean()
