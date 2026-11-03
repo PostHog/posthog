@@ -68,11 +68,15 @@ from posthog.models.activity_logging.utils import (
 from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
-from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import find_action_team_id
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -533,14 +537,11 @@ class AutoProjectMiddleware:
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        user_access_control = UserAccessControl(user=user, team=new_team)
 
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if (
-            not user_access_control.check_access_level_for_object(new_team, "member")
-            and user_permissions.team(new_team).effective_membership_level is None
+        if not authorization.check(
+            resource=Resource(type=ResourceType.PROJECT, id=str(new_team.pk)),
+            action=AuthorizationAction.VIEW,
+            subject=Subject(user_id=user.pk),
         ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
