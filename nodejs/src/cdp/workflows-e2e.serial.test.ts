@@ -13,7 +13,7 @@
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { DecodedKafkaMessage, KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import jsonwebtoken from 'jsonwebtoken'
 import { DateTime } from 'luxon'
@@ -22,7 +22,9 @@ import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { RawJobRow } from '~/cdp/services/cyclotron-v2/worker'
 import { template as createTaskTemplate } from '~/cdp/templates/_destinations/posthog_tasks/posthog-create-task.template'
 import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { setupExpressApp } from '~/common/api/router'
@@ -3004,8 +3006,49 @@ describe('Workflows E2E (email queue)', () => {
         mockProducerObserver.resetKafkaProducer()
     })
 
-    async function queryCyclotronJobs(): Promise<any[]> {
-        const result = await cyclotronPool.query(`SELECT *, status AS status FROM cyclotron_jobs ORDER BY created ASC`)
+    function emailAction(
+        subject: string,
+        overrides: Partial<CyclotronInvocationQueueParametersEmailType> = {}
+    ): Pick<HogFlowAction, 'type' | 'config'> & { type: 'function_email' } {
+        return {
+            type: 'function_email',
+            config: {
+                template_id: 'template-workflows-e2e-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                            subject,
+                            text: subject,
+                            html: `<p>${subject}</p>`,
+                            ...overrides,
+                        },
+                    },
+                },
+            },
+        }
+    }
+
+    // AppMetricsAggregator dedupes in memory, so sum `count` because counting messages would hide a double emit.
+    function sumCounts(filter: (message: DecodedKafkaMessage) => boolean): number {
+        return mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            .filter((message) => message.value.app_source === 'hog_flow')
+            .filter(filter)
+            .reduce((sum, message) => {
+                const count = message.value.count
+                if (typeof count !== 'number') {
+                    throw new Error('Workflow metric count must be a number')
+                }
+                return sum + count
+            }, 0)
+    }
+
+    async function queryCyclotronJobs(): Promise<(RawJobRow & { status: string })[]> {
+        const result = await cyclotronPool.query<RawJobRow & { status: string }>(
+            `SELECT *, status AS status FROM cyclotron_jobs ORDER BY created ASC`
+        )
         return result.rows
     }
 
@@ -3027,6 +3070,66 @@ describe('Workflows E2E (email queue)', () => {
         })
     }
 
+    async function runEmailFetchEmailWorkflow(subjects: [string, string], fetchUrl: string): Promise<void> {
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-fetch',
+            name: 'Workflows E2E Fetch',
+            code: `
+            let res := fetch(inputs.url, {'method': inputs.method});
+            print('Fetch result:', res.status);
+            `,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'method', type: 'string', required: false },
+            ],
+        })
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+            json: () => Promise.resolve({ success: true }),
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+            dump: () => Promise.resolve(),
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction(subjects[0]),
+                    fetch_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: {
+                                url: { value: fetchUrl },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    email_2: emailAction(subjects[1]),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
+                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+    }
+
     // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
     // equality check on the `event` global. The matcher fails closed without bytecode.
     const eventNameFilter = (eventName: string) => ({
@@ -3044,23 +3147,7 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Test Email',
-                                        text: 'Test text',
-                                        html: '<p>Test html</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Test Email', { text: 'Test text', html: '<p>Test html</p>' }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -3082,13 +3169,6 @@ describe('Workflows E2E (email queue)', () => {
         // all messages rather than counting messages: one push at count=1 looks
         // identical to two pushes at count=1 unless we sum.
         await waitForExpect(() => {
-            const sumCounts = (filter: (m: any) => boolean) =>
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    .filter((m: any) => m.value.app_source === 'hog_flow')
-                    .filter(filter)
-                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
-
             expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(1)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
             // The exit action's 'succeeded' metric has nothing to do with the email
@@ -3101,7 +3181,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
             const terminal = jobs.filter(
-                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
@@ -3123,23 +3203,11 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@dead.invalid', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Predicted bounce',
-                                        text: 'Should never send',
-                                        html: '<p>Should never send</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Predicted bounce', {
+                        to: { email: 'recipient@dead.invalid', name: 'Recipient' },
+                        text: 'Should never send',
+                        html: '<p>Should never send</p>',
+                    }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -3154,13 +3222,6 @@ describe('Workflows E2E (email queue)', () => {
         await backgroundTask
 
         await waitForExpect(() => {
-            const sumCounts = (filter: (m: any) => boolean) =>
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    .filter((m: any) => m.value.app_source === 'hog_flow')
-                    .filter(filter)
-                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
-
             // Wait for the two positive signals first — once the exit 'succeeded' metric
             // has flushed, the absence of email metrics below is meaningful, since
             // email_queued would have been emitted earlier in the pipeline.
@@ -3175,8 +3236,8 @@ describe('Workflows E2E (email queue)', () => {
 
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
-            expect(jobs.filter((j: any) => j.status === 'completed').length).toBeGreaterThanOrEqual(1)
-            expect(jobs.filter((j: any) => j.status === 'failed').length).toBe(0)
+            expect(jobs.filter((j) => j.status === 'completed').length).toBeGreaterThanOrEqual(1)
+            expect(jobs.filter((j) => j.status === 'failed').length).toBe(0)
         }, 10000)
     })
 
@@ -3243,23 +3304,7 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Frequency cap',
-                                        text: 'Test text',
-                                        html: '<p>Test html</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Frequency cap', { text: 'Test text', html: '<p>Test html</p>' }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -3277,13 +3322,6 @@ describe('Workflows E2E (email queue)', () => {
         await backgroundTask
 
         await waitForExpect(() => {
-            const sumCounts = (filter: (m: any) => boolean) =>
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    .filter((m: any) => m.value.app_source === 'hog_flow')
-                    .filter(filter)
-                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
-
             expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(2)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
             expect(sumCounts((m) => m.value.metric_name === 'message_frequency_capped')).toBe(1)
@@ -3316,23 +3354,10 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Routing-reschedule log test',
-                                        text: 'Test text',
-                                        html: '<p>Test html</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Routing-reschedule log test', {
+                        text: 'Test text',
+                        html: '<p>Test html</p>',
+                    }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -3350,7 +3375,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
             const terminal = jobs.filter(
-                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 15000)
@@ -3391,81 +3416,7 @@ describe('Workflows E2E (email queue)', () => {
         //   hogflow worker → email queue (email_1) → email worker sends → routes back to hogflow
         //   → hogflow worker does fetch → email queue (email_2) → email worker sends → exits
         // Proves queueMetadata.originQueue is honored on the return trip from the email worker.
-        await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-workflows-e2e-fetch',
-            name: 'Workflows E2E Fetch',
-            code: `
-            let res := fetch(inputs.url, {'method': inputs.method});
-            print('Fetch result:', res.status);
-            `,
-            inputs_schema: [
-                { key: 'url', type: 'string', required: true },
-                { key: 'method', type: 'string', required: false },
-            ],
-        })
-
-        mockFetch.mockResolvedValue({
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-            json: () => Promise.resolve({ success: true }),
-            text: () => Promise.resolve(JSON.stringify({ success: true })),
-            dump: () => Promise.resolve(),
-        })
-
-        const emailAction = (label: string) => ({
-            type: 'function_email' as const,
-            config: {
-                template_id: 'template-workflows-e2e-email',
-                inputs: {
-                    email: {
-                        value: {
-                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                            from: { integrationId: 1, email: 'sender@posthog.com' },
-                            subject: label,
-                            text: label,
-                            html: `<p>${label}</p>`,
-                        },
-                    },
-                },
-            },
-        })
-
-        const hogFlow = new FixtureHogFlowBuilder()
-            .withTeamId(team.id)
-            .withStatus('active')
-            .withExitCondition('exit_only_at_end')
-            .withWorkflow({
-                actions: {
-                    trigger: {
-                        type: 'trigger',
-                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
-                    },
-                    email_1: emailAction('First email'),
-                    fetch_1: {
-                        type: 'function',
-                        config: {
-                            template_id: 'template-workflows-e2e-fetch',
-                            inputs: {
-                                url: { value: 'https://example.com/between-emails' },
-                                method: { value: 'POST' },
-                            },
-                        },
-                    },
-                    email_2: emailAction('Second email'),
-                    exit: { type: 'exit', config: {} },
-                },
-                edges: [
-                    { from: 'trigger', to: 'email_1', type: 'continue' },
-                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
-                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
-                    { from: 'email_2', to: 'exit', type: 'continue' },
-                ],
-            })
-            .build()
-        await insertHogFlow(hub.postgres, hogFlow)
-
-        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
-        await backgroundTask
+        await runEmailFetchEmailWorkflow(['First email', 'Second email'], 'https://example.com/between-emails')
 
         // The fetch must fire exactly once — happens on the hogflow worker between
         // the two email queue hops. If it never fires, the email worker is failing
@@ -3482,13 +3433,6 @@ describe('Workflows E2E (email queue)', () => {
         // Sum `count` across all messages: with aggregator in-memory dedup we'd
         // miss a 2× per-send bug by only counting messages, not their counts.
         await waitForExpect(() => {
-            const sumCounts = (filter: (m: any) => boolean) =>
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    .filter((m: any) => m.value.app_source === 'hog_flow')
-                    .filter(filter)
-                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
-
             expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(2)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(2)
         }, 15000)
@@ -3496,7 +3440,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
             const terminal = jobs.filter(
-                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
@@ -3512,99 +3456,21 @@ describe('Workflows E2E (email queue)', () => {
         // the logs. This test asserts that on a four-action workflow with two emails and
         // a fetch between them, we still see exactly one Executing line per action and
         // zero Resuming-at-email/fetch lines.
-        await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-workflows-e2e-fetch',
-            name: 'Workflows E2E Fetch',
-            code: `
-            let res := fetch(inputs.url, {'method': inputs.method});
-            print('Fetch result:', res.status);
-            `,
-            inputs_schema: [
-                { key: 'url', type: 'string', required: true },
-                { key: 'method', type: 'string', required: false },
-            ],
-        })
-
-        mockFetch.mockResolvedValue({
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-            json: () => Promise.resolve({ success: true }),
-            text: () => Promise.resolve(JSON.stringify({ success: true })),
-            dump: () => Promise.resolve(),
-        })
-
-        const emailAction = (label: string) => ({
-            type: 'function_email' as const,
-            config: {
-                template_id: 'template-workflows-e2e-email',
-                inputs: {
-                    email: {
-                        value: {
-                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                            from: { integrationId: 1, email: 'sender@posthog.com' },
-                            subject: label,
-                            text: label,
-                            html: `<p>${label}</p>`,
-                        },
-                    },
-                },
-            },
-        })
-
-        const hogFlow = new FixtureHogFlowBuilder()
-            .withTeamId(team.id)
-            .withStatus('active')
-            .withExitCondition('exit_only_at_end')
-            .withWorkflow({
-                actions: {
-                    trigger: {
-                        type: 'trigger',
-                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
-                    },
-                    email_1: emailAction('Ping-pong email 1'),
-                    fetch_1: {
-                        type: 'function',
-                        config: {
-                            template_id: 'template-workflows-e2e-fetch',
-                            inputs: {
-                                url: { value: 'https://example.com/ping-pong-fetch' },
-                                method: { value: 'POST' },
-                            },
-                        },
-                    },
-                    email_2: emailAction('Ping-pong email 2'),
-                    exit: { type: 'exit', config: {} },
-                },
-                edges: [
-                    { from: 'trigger', to: 'email_1', type: 'continue' },
-                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
-                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
-                    { from: 'email_2', to: 'exit', type: 'continue' },
-                ],
-            })
-            .build()
-        await insertHogFlow(hub.postgres, hogFlow)
-
-        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
-        await backgroundTask
+        await runEmailFetchEmailWorkflow(
+            ['Ping-pong email 1', 'Ping-pong email 2'],
+            'https://example.com/ping-pong-fetch'
+        )
 
         // Wait for both emails sent + the workflow terminated, so all four routing
         // reschedules have happened and all their logs are in Kafka.
         await waitForExpect(() => {
-            const sumCounts = (filter: (m: any) => boolean) =>
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    .filter((m: any) => m.value.app_source === 'hog_flow')
-                    .filter(filter)
-                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
-
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(2)
         }, 15000)
 
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
             const terminal = jobs.filter(
-                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
@@ -3671,23 +3537,7 @@ describe('Workflows E2E (email queue)', () => {
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
                     delay_1: { type: 'delay', config: { delay_duration: '0.5s' } },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'After-delay email',
-                                        text: 'After-delay email',
-                                        html: '<p>After-delay email</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('After-delay email', { html: '<p>After-delay email</p>' }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -3703,19 +3553,13 @@ describe('Workflows E2E (email queue)', () => {
         await backgroundTask
 
         await waitForExpect(() => {
-            const sumCounts = (filter: (m: any) => boolean) =>
-                mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                    .filter((m: any) => m.value.app_source === 'hog_flow')
-                    .filter(filter)
-                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
         }, 15000)
 
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
             const terminal = jobs.filter(
-                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
@@ -3742,24 +3586,6 @@ describe('Workflows E2E (email queue)', () => {
         // following wait_until_condition parks on the email queue (not hogflow). The matcher must
         // still find and wake it there — otherwise a matching event never wakes the job and the
         // post-wait email is never sent.
-        const emailAction = (label: string) => ({
-            type: 'function_email' as const,
-            config: {
-                template_id: 'template-workflows-e2e-email',
-                inputs: {
-                    email: {
-                        value: {
-                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                            from: { integrationId: 1, email: 'sender@posthog.com' },
-                            subject: label,
-                            text: label,
-                            html: `<p>${label}</p>`,
-                        },
-                    },
-                },
-            },
-        })
-
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
@@ -3796,12 +3622,7 @@ describe('Workflows E2E (email queue)', () => {
             .build()
         await insertHogFlow(hub.postgres, hogFlow)
 
-        const emailsSent = () =>
-            mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.app_source === 'hog_flow')
-                .filter((m: any) => m.value.metric_name === 'email_sent')
-                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+        const emailsSent = () => sumCounts((m) => m.value.metric_name === 'email_sent')
 
         // Trigger: email_1 routes to the email queue, the email worker sends it and continues the
         // flow to the wait step, which parks.
@@ -3812,13 +3633,13 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(async () => {
             expect(emailsSent()).toBe(1)
             const jobs = await queryCyclotronJobs()
-            expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(jobs.some((j) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
         }, 15000)
 
         // The wait parks on the email queue (carried over from email_1). The matcher has to find
         // it there regardless of queue — that's exactly the scenario that was broken.
         const parked = (await queryCyclotronJobs()).find(
-            (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+            (j) => j.status === 'available' && new Date(j.scheduled) > new Date()
         )
         expect(parked).toBeDefined()
         expect(parked?.queue_name).toBe('email')
@@ -3854,23 +3675,11 @@ describe('Workflows E2E (email queue)', () => {
                             type: 'trigger',
                             config: { type: 'event', ...eventNameFilter(triggerEvent) },
                         },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-workflows-e2e-email',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: recipient, name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'sender@posthog.com' },
-                                            subject: `To ${recipient}`,
-                                            text: 'Test text',
-                                            html: '<p>Test html</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
+                        email_1: emailAction(`To ${recipient}`, {
+                            to: { email: recipient, name: 'Recipient' },
+                            text: 'Test text',
+                            html: '<p>Test html</p>',
+                        }),
                         exit: { type: 'exit', config: {} },
                     },
                     edges: [
@@ -3907,15 +3716,11 @@ describe('Workflows E2E (email queue)', () => {
         // B's 3 runs finish end to end, and A gets its one in-budget send out: 4 sends total.
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
-            const bJobs = jobs.filter((j: any) => j.function_id === flowB.id)
+            const bJobs = jobs.filter((j) => j.function_id === flowB.id)
             expect(bJobs.length).toBe(3)
-            expect(bJobs.every((j: any) => j.status === 'completed')).toBe(true)
+            expect(bJobs.every((j) => j.status === 'completed')).toBe(true)
 
-            const sent = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.app_source === 'hog_flow')
-                .filter((m: any) => m.value.metric_name === 'email_sent')
-                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            const sent = sumCounts((m) => m.value.metric_name === 'email_sent')
             expect(sent).toBe(4)
         }, 15000)
 
@@ -3923,10 +3728,10 @@ describe('Workflows E2E (email queue)', () => {
         // future slot, each dequeued exactly once on the email queue.
         const jobs = await queryCyclotronJobs()
         const parkedA = jobs.filter(
-            (j: any) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
+            (j) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
         )
         expect(parkedA.length).toBe(7)
-        const slots = parkedA.map((j: any) => new Date(j.scheduled).getTime())
+        const slots = parkedA.map((j) => new Date(j.scheduled).getTime())
         expect(new Set(slots).size).toBe(7)
         for (const slot of slots) {
             expect(slot).toBeGreaterThan(Date.now() + 20_000)
@@ -4005,23 +3810,12 @@ describe('Workflows E2E (email queue)', () => {
                             type: 'trigger',
                             config: { type: 'event', ...eventNameFilter(triggerEvent) },
                         },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-workflows-e2e-email',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: recipient, name: 'Recipient' },
-                                            from: { integrationId, email: 'sender@posthog.com' },
-                                            subject: `To ${recipient}`,
-                                            text: 'Test text',
-                                            html: '<p>Test html</p>',
-                                        },
-                                    },
-                                },
-                            },
-                        },
+                        email_1: emailAction(`To ${recipient}`, {
+                            to: { email: recipient, name: 'Recipient' },
+                            from: { integrationId, email: 'sender@posthog.com' },
+                            text: 'Test text',
+                            html: '<p>Test html</p>',
+                        }),
                         exit: { type: 'exit', config: {} },
                     },
                     edges: [
@@ -4063,15 +3857,11 @@ describe('Workflows E2E (email queue)', () => {
         // Team B's 3 runs finish end to end; team A gets its 2 in-budget sends out.
         await waitForExpect(async () => {
             const jobs = await queryCyclotronJobs()
-            const bJobs = jobs.filter((j: any) => j.function_id === flowB.id)
+            const bJobs = jobs.filter((j) => j.function_id === flowB.id)
             expect(bJobs.length).toBe(3)
-            expect(bJobs.every((j: any) => j.status === 'completed')).toBe(true)
+            expect(bJobs.every((j) => j.status === 'completed')).toBe(true)
 
-            const sent = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.app_source === 'hog_flow')
-                .filter((m: any) => m.value.metric_name === 'email_sent')
-                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            const sent = sumCounts((m) => m.value.metric_name === 'email_sent')
             expect(sent).toBe(5)
         }, 15000)
 
@@ -4079,7 +3869,7 @@ describe('Workflows E2E (email queue)', () => {
         // token per 30 minutes), each dequeued once on the email queue.
         const jobs = await queryCyclotronJobs()
         const parkedA = jobs.filter(
-            (j: any) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
+            (j) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'
         )
         expect(parkedA.length).toBe(4)
         for (const job of parkedA) {
@@ -4128,23 +3918,7 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Rate-limited email',
-                                        text: 'Test text',
-                                        html: '<p>Test html</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Rate-limited email', { text: 'Test text', html: '<p>Test html</p>' }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -4160,11 +3934,7 @@ describe('Workflows E2E (email queue)', () => {
 
         // The email is sent — the rate-limited queue gated, dequeued, and processed the job.
         await waitForExpect(() => {
-            const emailSentCount = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.app_source === 'hog_flow')
-                .filter((m: any) => m.value.metric_name === 'email_sent')
-                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            const emailSentCount = sumCounts((m) => m.value.metric_name === 'email_sent')
             expect(emailSentCount).toBe(1)
         }, 15000)
 
@@ -4229,23 +3999,7 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Throttled email',
-                                        text: 'Test text',
-                                        html: '<p>Test html</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Throttled email', { text: 'Test text', html: '<p>Test html</p>' }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -4264,11 +4018,7 @@ describe('Workflows E2E (email queue)', () => {
         // All three eventually send — generous timeout because the bucket only
         // refills 5 tokens/sec.
         await waitForExpect(() => {
-            const emailSentCount = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.app_source === 'hog_flow')
-                .filter((m: any) => m.value.metric_name === 'email_sent')
-                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            const emailSentCount = sumCounts((m) => m.value.metric_name === 'email_sent')
             expect(emailSentCount).toBe(3)
         }, 20000)
 
@@ -4326,23 +4076,7 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    email_1: {
-                        type: 'function_email',
-                        config: {
-                            template_id: 'template-workflows-e2e-email',
-                            inputs: {
-                                email: {
-                                    value: {
-                                        to: { email: 'recipient@example.com', name: 'Recipient' },
-                                        from: { integrationId: 1, email: 'sender@posthog.com' },
-                                        subject: 'Sparse-traffic email',
-                                        text: 'Test text',
-                                        html: '<p>Test html</p>',
-                                    },
-                                },
-                            },
-                        },
-                    },
+                    email_1: emailAction('Sparse-traffic email', { text: 'Test text', html: '<p>Test html</p>' }),
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [
@@ -4358,11 +4092,7 @@ describe('Workflows E2E (email queue)', () => {
         await backgroundTask
 
         await waitForExpect(() => {
-            const emailSentCount = mockProducerObserver
-                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                .filter((m: any) => m.value.app_source === 'hog_flow')
-                .filter((m: any) => m.value.metric_name === 'email_sent')
-                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            const emailSentCount = sumCounts((m) => m.value.metric_name === 'email_sent')
             expect(emailSentCount).toBe(1)
         }, 15000)
 
@@ -4395,23 +4125,7 @@ describe('Workflows E2E (email queue)', () => {
                             type: 'trigger',
                             config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                         },
-                        email_1: {
-                            type: 'function_email',
-                            config: {
-                                template_id: 'template-workflows-e2e-email',
-                                inputs: {
-                                    email: {
-                                        value: {
-                                            to: { email: 'recipient@example.com', name: 'Recipient' },
-                                            from: { integrationId: 1, email: 'sender@posthog.com' },
-                                            subject,
-                                            text: 'plain text body',
-                                            html: `<p>${subject}</p>`,
-                                        },
-                                    },
-                                },
-                            },
-                        },
+                        email_1: emailAction(subject, { text: 'plain text body' }),
                         exit: { type: 'exit', config: {} },
                     },
                     edges: [
@@ -4436,7 +4150,7 @@ describe('Workflows E2E (email queue)', () => {
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const terminal = jobs.filter(
-                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                    (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(1)
             }, 15000)
@@ -4479,7 +4193,7 @@ describe('Workflows E2E (email queue)', () => {
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const terminal = jobs.filter(
-                    (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+                    (j) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(3)
             }, 20000)
