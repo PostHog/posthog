@@ -17,7 +17,7 @@ import temporalio
 from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -40,6 +40,12 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
 )
 from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_INPUT_KEY,
+    SharedCredentialsEdit,
+    SharedCredentialsError,
+    UnusableCredentialsReferenceError,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -73,7 +79,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
-    known_source_key,
     new_history_names_taken,
     new_history_naming,
     new_source_requires_ssl,
@@ -83,7 +88,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, SourceKey
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
@@ -97,13 +102,12 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
-from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
 
-from . import base, connection_options, credential_store, helpers, webhook_setup
+from . import base, connection_options, credential_store, helpers, shared_credentials, webhook_setup
 
 
 def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
@@ -205,7 +209,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "`auto_sync_new_schemas` is true."
         ),
     )
-    source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
     api_version = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -300,7 +303,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # Derive allowed keys dynamically from source config field definitions
         try:
-            source_type_model = known_source_key(instance.source_type)
+            source_type_model = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
             split = helpers.get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
@@ -339,7 +342,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
         try:
-            source = SourceRegistry.get_source(instance.source_type)
+            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
             return isinstance(source, WebhookSource)
         except Exception as e:
             capture_exception(e)
@@ -348,7 +351,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_name(self, instance: ExternalDataSource) -> str | None:
         try:
-            return SourceRegistry.get_source(instance.source_type).uploaded_file_name(instance)
+            return SourceRegistry.get_source(ExternalDataSourceType(instance.source_type)).uploaded_file_name(instance)
         except Exception as e:
             capture_exception(e)
             return None
@@ -454,7 +457,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
-        source_type_model = known_source_key(instance.source_type)
+        source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
@@ -595,6 +598,32 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
             )
 
+        # A client may point the source at another credentials row only when the source can use that row.
+        # The check runs for every team, also while the dual-write flag is off, because it keeps a client
+        # from attaching credentials of another team. The source then uses the credentials of that row.
+        try:
+            requested_reference = SourceInputsStore.requested_credentials_reference(instance, incoming_job_inputs)
+            if requested_reference is not None:
+                # Object access controls on the sources that use the row also apply to its credentials.
+                if helpers.denied_source_usages(
+                    self.user_access_control,
+                    instance.team_id,
+                    SourceInputsStore.credentials_usages(instance, requested_reference),
+                    "editor",
+                ):
+                    raise UnusableCredentialsReferenceError(
+                        f"Source {instance.id} cannot use credentials {requested_reference}"
+                    )
+                new_job_inputs = SourceInputsStore.with_credentials_of(instance, new_job_inputs, requested_reference)
+        except UnusableCredentialsReferenceError:
+            raise ValidationError(
+                {
+                    "job_inputs": {
+                        CREDENTIALS_REFERENCE_INPUT_KEY: "These credentials don't exist or this source can't use them."
+                    }
+                }
+            )
+
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
             raise ValidationError(f"Invalid source config: {', '.join(errors)}")
@@ -702,9 +731,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
-        if "job_inputs" in validated_data:
-            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
-        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        # A confirmation changes the row for its other users too, so it needs edit access to each of them. Without
+        # it, the edit fails as an unconfirmed one does, and the view answers with a 403.
+        confirmed_shared_edit = helpers.update_shared_credentials_confirmed(request) and not (
+            "job_inputs" in validated_data
+            and helpers.denied_source_usages(
+                self.user_access_control,
+                instance.team_id,
+                SourceInputsStore.credentials_usages(instance, requested_reference),
+                "editor",
+            )
+        )
+
+        # One transaction for the credentials row and the source, so a failed source save also undoes the
+        # row write, and the source lock of the copy holds until the source save commits.
+        with transaction.atomic():
+            if "job_inputs" in validated_data:
+                # An edit of credentials that other sources or products use raises `SharedCredentialsError`
+                # (a 409) unless the request confirms it.
+                SourceInputsStore.assign(
+                    instance,
+                    validated_data.pop("job_inputs"),
+                    shared_credentials=SharedCredentialsEdit.CONFIRMED
+                    if confirmed_shared_edit
+                    else SharedCredentialsEdit.REFUSE,
+                    credentials_reference=requested_reference,
+                )
+            updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -763,7 +816,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
-    source_type = SourceTypeField(
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
     )
     payload = serializers.DictField(
@@ -835,7 +889,8 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
 
 
 class SourceSetupSerializer(serializers.Serializer):
-    source_type = SourceTypeField(
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
         help_text="The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').",
     )
     payload = serializers.DictField(
@@ -897,7 +952,8 @@ class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
 
 
 class SourcePreviewRequestSerializer(serializers.Serializer):
-    source_type = SourceTypeField(
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
         help_text="The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.",
     )
     payload = serializers.DictField(
@@ -999,8 +1055,6 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
-    source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
-
     class Meta:
         model = ExternalDataSource
         fields = [
@@ -1095,6 +1149,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
             resolved.credential.delete()
         return response
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Runs for both PUT and PATCH.
+        try:
+            return super().update(request, *args, **kwargs)
+        except SharedCredentialsError as error:
+            if helpers.update_shared_credentials_confirmed(request):
+                # The serializer drops a confirmation from a user who cannot edit every other user of the row.
+                raise PermissionDenied(
+                    "You need edit access to every source that uses these credentials to change them."
+                )
+            hidden = helpers.denied_source_usages(self.user_access_control, self.team_id, error.usages, "viewer")
+            return shared_credentials.shared_credentials_conflict_response(error, hidden_usage_ids=hidden)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
@@ -1209,14 +1276,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-        source_type_model = known_source_key(source_type)
+        source_type_model = ExternalDataSourceType(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
         if not is_direct_query and not source.supports_scheduled_sync:
             return Response(
                 ExternalDataSourceErrorResponseSerializer(
-                    {
-                        "message": f"{source.get_source_config.label or source_type_model} is available only as a direct connection."
-                    }
+                    {"message": f"{source_type_model.label} is available only as a direct connection."}
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -2004,7 +2069,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             instance.soft_delete()
 
         # Best-effort webhook cleanup — soft-deletes are already committed
-        source_type = known_source_key(instance.source_type)
+        source_type = ExternalDataSourceType(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
         if isinstance(source, WebhookSource):
             try:
@@ -2128,7 +2193,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Mutable local: the CustomSource branch below rewrites payload keys before source creation.
         payload = resolved.payload
 
-        source_type_model = known_source_key(source_type)
+        source_type_model = ExternalDataSourceType(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
         if helpers.source_feature_flag_missing(source, self.team):
             return Response(
@@ -2241,7 +2306,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         serializer.is_valid(raise_exception=True)
 
         source_type = serializer.validated_data["source_type"]
-        source = base.SourceRegistry.get_source(source_type)
+        source = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
         if not isinstance(source, CustomSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2378,7 +2443,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
     def _validate_source_config_and_credentials(
         self,
         source: AnySource,
-        source_type_model: SourceKey,
+        source_type_model: ExternalDataSourceType,
         payload: dict,
         access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
     ) -> tuple[Response | None, Config | None]:
