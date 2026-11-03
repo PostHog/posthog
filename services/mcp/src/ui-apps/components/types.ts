@@ -27,6 +27,7 @@ export interface TrendsFilter {
     showLegend?: boolean
     showValuesOnSeries?: boolean
     showTrendLines?: boolean
+    showGridLines?: boolean
     showMovingAverage?: boolean
     movingAverageIntervals?: number
     showConfidenceIntervals?: boolean
@@ -72,6 +73,7 @@ export interface LifecycleQuery {
         toggledLifecycles?: LifecycleStatus[]
         showLegend?: boolean
         showValuesOnSeries?: boolean
+        showGridLines?: boolean
         stacked?: boolean
     }
 }
@@ -88,6 +90,7 @@ export interface StickinessQuery {
     stickinessFilter?: {
         display?: string
         showValuesOnSeries?: boolean
+        showGridLines?: boolean
     }
 }
 
@@ -167,6 +170,7 @@ export interface RetentionFilter {
     period?: RetentionPeriod | null
     retentionReference?: RetentionReference | null
     showTrendLines?: boolean | null
+    showGridLines?: boolean | null
     totalIntervals?: number | null
 }
 

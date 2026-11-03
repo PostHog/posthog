@@ -67,7 +67,7 @@ export function StickinessVisualizer({ query, results }: StickinessVisualizerPro
 
     const config: TimeSeriesLineChartConfig = {
         // No xAxis date config — labels are interval-count buckets, rendered verbatim.
-        yAxis: { tickFormatter: formatPercent, showGrid: true },
+        yAxis: { tickFormatter: formatPercent, showGrid: query?.stickinessFilter?.showGridLines !== false },
         showCrosshair: true,
         tooltip: STICKINESS_TOOLTIP_CONFIG,
         legend: { show: series.length > 1, position: 'bottom' },

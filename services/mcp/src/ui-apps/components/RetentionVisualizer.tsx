@@ -36,6 +36,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
                 reference: query?.retentionFilter?.retentionReference ?? 'total',
                 period: query?.retentionFilter?.period ?? 'Day',
                 showTrendLines: query?.retentionFilter?.showTrendLines ?? false,
+                showGrid: query?.retentionFilter?.showGridLines !== false,
                 getColor: colorAt,
                 tooltip: TOOLTIP_CONFIG,
             }),
@@ -45,6 +46,7 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
             query?.retentionFilter?.retentionReference,
             query?.retentionFilter?.period,
             query?.retentionFilter?.showTrendLines,
+            query?.retentionFilter?.showGridLines,
         ]
     )
 

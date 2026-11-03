@@ -292,6 +292,7 @@ export interface BuildRetentionChartModelOpts {
     reference: string
     period: string
     showTrendLines?: boolean
+    showGrid?: boolean
     getColor: (index: number) => string
     tooltip?: TooltipConfig
     /** Cohorts beyond this are dropped so each line keeps a distinct palette color.
@@ -339,10 +340,16 @@ export function buildRetentionChartModel<C extends RetentionCohortLike>(
     const lineBase = buildRetentionLineChartConfig({
         isPercentage,
         showTrendLines: opts.showTrendLines,
+        showGrid: opts.showGrid,
         series,
         tooltip: opts.tooltip,
     })
-    const barBase = buildRetentionBarChartConfig({ isPercentage, series, tooltip: opts.tooltip })
+    const barBase = buildRetentionBarChartConfig({
+        isPercentage,
+        showGrid: opts.showGrid,
+        series,
+        tooltip: opts.tooltip,
+    })
 
     return {
         series,

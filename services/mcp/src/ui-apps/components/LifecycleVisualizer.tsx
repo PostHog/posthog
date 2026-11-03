@@ -33,11 +33,17 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
                     getColor: lifecycleColor,
                     labels: (results?.[0]?.days ?? results?.[0]?.labels ?? []).map(formatDate),
                     isStacked: query?.lifecycleFilter?.stacked ?? true,
+                    showGrid: query?.lifecycleFilter?.showGridLines !== false,
                     toggledLifecycles: query?.lifecycleFilter?.toggledLifecycles,
                     tooltip: LIFECYCLE_TOOLTIP_CONFIG,
                 }
             ),
-        [results, query?.lifecycleFilter?.stacked, query?.lifecycleFilter?.toggledLifecycles]
+        [
+            results,
+            query?.lifecycleFilter?.stacked,
+            query?.lifecycleFilter?.showGridLines,
+            query?.lifecycleFilter?.toggledLifecycles,
+        ]
     )
 
     const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
