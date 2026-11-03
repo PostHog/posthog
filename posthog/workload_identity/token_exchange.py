@@ -200,12 +200,13 @@ def _provider_for(subject_token: str) -> WorkloadProvider:
 
 def _claim_string(value: Any) -> str | None:
     """A claim value as the string a policy compares it with, or None when it can't equal any condition.
-    Policies store only non-empty strings, so an empty, null, list or object claim matches nothing."""
+    Policies store only non-empty strings, so an empty, null, list or object claim matches nothing. Postgres
+    refuses a NUL character in text and jsonb, so a value holding one is treated as absent too."""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
-    if isinstance(value, str) and value:
+    if isinstance(value, str) and value and "\x00" not in value:
         return value
     return None
 
