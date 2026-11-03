@@ -19,7 +19,7 @@ same set of checks.
 import json
 import time
 import asyncio
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -28,11 +28,13 @@ from typing import Any, Final
 from django.conf import settings
 
 import structlog
+from temporalio import activity
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
+from posthog.query_cache.single_flight import skip_query_single_flight
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
 from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insight_chart, skip_because_of_weekend
@@ -43,6 +45,7 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
+from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -52,6 +55,7 @@ from products.alerts.backend.judge.contract import (
 )
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
+from products.alerts.backend.logic.destinations import configured_destination_template_ids
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
@@ -61,6 +65,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     GroupingMode,
+    IncidentAction,
     InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -88,6 +93,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     apply_snooze,
     apply_unsnooze,
     decide_firing_episode,
+    decide_incident_action,
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.platform_metrics import (
@@ -356,6 +362,59 @@ class _ClickHouseSlot:
                     logger.exception("Could not release a ClickHouse slot", holder=self.holder)
 
 
+def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, query_slot: _ClickHouseSlot) -> T:
+    """Runs a check's query, and runs it again after a ClickHouse refusal for load, on the retry
+    policy production evaluates the alert's cadence with.
+
+    Production raises the refusal and Temporal retries its activity. A parallel-run check has one
+    attempt, so it retries inside that attempt instead, and keeps its evaluation slot between tries.
+    The wait between tries counts as slot wait, so the recorded query duration leaves it out.
+    """
+    policy = alert_timeouts(alert.calculation_interval).evaluate_retry_policy
+    delay = policy.initial_interval.total_seconds()
+    # Temporal caps an unset maximum interval at 100 times the initial one.
+    longest = (policy.maximum_interval or 100 * policy.initial_interval).total_seconds()
+    tries = policy.maximum_attempts
+    for tried in range(1, tries + 1):
+        try:
+            return run()
+        except Exception as error:
+            if (
+                tried == tries
+                or classify_query_error(error) != QueryErrorCategory.RATE_LIMITED
+                or not _attempt_outlasts(delay)
+            ):
+                raise
+            time.sleep(delay)
+            query_slot.waited_ms += int(delay * 1000)
+            if not _attempt_outlasts(0):
+                raise
+        delay = min(delay * policy.backoff_coefficient, longest)
+    raise AssertionError("The retry loop returns or raises on its last try")
+
+
+def _attempt_outlasts(seconds: float) -> bool:
+    """Whether the Temporal attempt running this check is live and has `seconds` of its budget left.
+
+    An attempt that timed out or was cancelled keeps its thread, and the failed-check cleanup has
+    already stopped its queries, so a query it started after that would hold a ClickHouse slot that
+    nothing frees. Outside an activity there is no budget to outlast.
+    """
+    if not activity.in_activity():
+        return True
+    if activity.is_cancelled():
+        return False
+    info = activity.info()
+    # The attempt starts after it is scheduled, so its scheduled time gives a deadline no later than
+    # the real one. Schedule-to-close counts from the first attempt, so it can end a retry sooner.
+    deadlines = []
+    if info.start_to_close_timeout is not None:
+        deadlines.append(info.current_attempt_scheduled_time + info.start_to_close_timeout)
+    if info.schedule_to_close_timeout is not None:
+        deadlines.append(info.scheduled_time + info.schedule_to_close_timeout)
+    return not deadlines or datetime.now(UTC) + timedelta(seconds=seconds) < min(deadlines)
+
+
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
     # Imported here: at module level it changes how many queries the access-control tests count.
     from posthog.clickhouse.cancel import cancel_query_on_cluster  # noqa: PLC0415
@@ -420,14 +479,17 @@ def evaluate_insight_check(
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
         try:
-            outcome = _decide(
-                checks[0],
-                cutoff,
-                evaluation_id=evaluation_id,
-                attempt=attempt,
-                final_attempt=final_attempt,
-                uses_llm_detector=uses_llm_detector,
-            )
+            # Other ClickHouse users, production's included, run this query in flights of their own but write
+            # the same cache entry, so a platform follower can find their entry in place of its leader's.
+            with skip_query_single_flight():
+                outcome = _decide(
+                    checks[0],
+                    cutoff,
+                    evaluation_id=evaluation_id,
+                    attempt=attempt,
+                    final_attempt=final_attempt,
+                    uses_llm_detector=uses_llm_detector,
+                )
         except LLMDetectorUnavailableError:
             retrying = True
             raise
@@ -493,16 +555,30 @@ def _evaluation(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
+    """The delivery for a recorded outcome, or None when it neither announces nor moves a firing.
+
+    A firing that opens or closes needs a delivery even though no resolve is announced, because a
+    paging destination needs one resolve for every trigger. An alert with no such destination gets
+    no incident action, so its edges start no delivery.
+    """
     kinds = [group.kind for group in outcome.groups]
     if outcome.failure is not None:
         kinds.append(outcome.failure.kind)
-    if not any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds):
-        return None
+    sends_messages = any(kind.value in _EVENT_IDS_BY_KIND for kind in kinds)
     # Destinations are matched on the legacy alert's id, so a copy without one has nobody to send to.
     if check.legacy_configuration_id is None:
         return None
     legacy_id = str(check.legacy_configuration_id)
     if not check.owned_by_platform and legacy_id not in LIVE_DELIVERY_INSIGHT_ALERT_IDS:
+        return None
+    actions = _incident_actions(check, outcome)
+    if actions and not configured_destination_template_ids(
+        team_id=check.team_id,
+        alert_id=legacy_id,
+        allowed_event_ids=tuple(INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+    ):
+        actions = {}
+    if not sends_messages and not actions:
         return None
     return AlertDeliveryRequest(
         source=SourceKind.INSIGHT,
@@ -512,12 +588,34 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        event_ids_by_incident_action=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
+        incident_actions=actions,
+        sends_messages=sends_messages,
         source_alert_url=_alert_url(check, legacy_id),
         owned_by_platform=check.owned_by_platform,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
-        parts=delivery_parts(outcome),
+        parts=delivery_parts(outcome, actions),
     )
+
+
+def _incident_actions(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> dict[str, IncidentAction]:
+    """Whether each group's firing opened or closed, read from the states rather than the announcement.
+
+    A failed check moves no instance, so its incident stays open with its firing. Closing it would
+    leave a re-enabled alert that still breaches firing with no incident.
+    """
+    policy = INSIGHT_ALERT_POLICY if check.grouping.mode == GroupingMode.SINGLE else GROUPED_INSIGHT_ALERT_POLICY
+    return {
+        group.grouping_key: action
+        for group in outcome.groups
+        if (
+            action := decide_incident_action(
+                AlertState(check.instance(group.grouping_key).state), AlertState(group.new_state), policy=policy
+            )
+        )
+        is not None
+    }
 
 
 def _alert_url(check: PlatformAlertCheckInput, legacy_id: str) -> str | None:
@@ -641,7 +739,11 @@ def _decide(
         return _decide_grouped(check, snapshot, alert, now=now, query_slot=query_slot)
     started_at = time.monotonic()
     try:
-        result = check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
+        result = _with_capacity_retries(
+            lambda: check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot),
+            alert,
+            query_slot,
+        )
     except ClickHouseBudgetFull:
         return None
     except LLMDetectorUnavailableError:
@@ -809,7 +911,9 @@ def _decide_grouped(
         )
     started_at = time.monotonic()
     try:
-        evaluated = check_alert_per_series(alert, query_slot=query_slot)
+        evaluated = _with_capacity_retries(
+            lambda: check_alert_per_series(alert, query_slot=query_slot), alert, query_slot
+        )
     except ClickHouseBudgetFull:
         return None
     except AlertExtractionError as error:

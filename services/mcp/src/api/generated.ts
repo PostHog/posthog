@@ -17820,6 +17820,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -32562,6 +32563,10 @@ export namespace Schemas {
       blocked_by: SyncFrequencyBlockedByEnum | null;
       /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
       blocker: SyncFrequencyBlocker | null;
+      /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
+      speeds_up: SyncFrequencyBlocker[];
+      /** True when at least one view this cadence speeds up sits outside the caller's access grants, so `speeds_up` is incomplete. */
+      speeds_up_withheld: boolean;
     }
 
     export interface SyncFrequencyBound {
@@ -61993,6 +61998,16 @@ export namespace Schemas {
       StrikingDistance: 'striking_distance',
     } as const;
 
+    export interface MarketingAnalyticsRecommendationStep {
+      /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+      copyValue?: string | null;
+      /** The words in `text` that link to `url`, usually the section name. */
+      linkText?: string | null;
+      text: string;
+      /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+      url?: string | null;
+    }
+
     export interface MarketingAnalyticsRecommendation {
       action: string;
       /** The campaign a search term recommendation applies to, when it applies to one. */
@@ -62005,6 +62020,8 @@ export namespace Schemas {
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
       rule: MarketingAnalyticsRecommendationRule;
+      /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+      steps?: MarketingAnalyticsRecommendationStep[] | null;
       /** The campaign name or the search term the recommendation is about. */
       subject: string;
     }
@@ -66676,6 +66693,90 @@ export namespace Schemas {
      */
     export interface IntegrationConfig {
       readonly id: number;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind: string;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
+      config?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly errors: string;
+      readonly display_name: string;
+      /** Slack only: whether reconnecting can request the files:write scope. */
+      readonly files_write_requestable: boolean;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status: InstallationStatusEnum | null;
+    }
+
+    /**
+     * The request schema of a create. A create accepts only the public kinds, so the schema lists them.
+     */
+    export interface IntegrationConfigCreate {
+      readonly id: number;
+      /** The provider of the integration, for example 'slack' or 'github'.
+       *
+       * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
+       * * `apns` - Apple Push
+       * * `aws-redshift` - Aws Redshift
+       * * `aws-s3` - Aws S3
+       * * `azure-blob` - Azure Blob
+       * * `bing-ads` - Bing Ads
+       * * `clickup` - Clickup
+       * * `customerio-app` - Customerio App
+       * * `customerio-track` - Customerio Track
+       * * `customerio-webhook` - Customerio Webhook
+       * * `databricks` - Databricks
+       * * `email` - Email
+       * * `firebase` - Firebase
+       * * `github` - Github
+       * * `gitlab` - Gitlab
+       * * `google-ads` - Google Ads
+       * * `google-analytics` - Google Analytics
+       * * `google-calendar` - Google Calendar
+       * * `google-cloud-service-account` - Google Cloud Service Account
+       * * `google-cloud-storage` - Google Cloud Storage
+       * * `google-pubsub` - Google Pubsub
+       * * `google-search-console` - Google Search Console
+       * * `google-sheets` - Google Sheets
+       * * `helpscout` - Helpscout
+       * * `hubspot` - Hubspot
+       * * `instagram` - Instagram
+       * * `intercom` - Intercom
+       * * `jira` - Jira
+       * * `linear` - Linear
+       * * `linkedin-ads` - Linkedin Ads
+       * * `meta-ads` - Meta Ads
+       * * `pardot` - Pardot
+       * * `pinterest-ads` - Pinterest Ads
+       * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
+       * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
+       * * `resend` - Resend
+       * * `s3-compatible` - S3 Compatible
+       * * `salesforce` - Salesforce
+       * * `slack` - Slack
+       * * `slack-posthog-code` - Slack Posthog Code
+       * * `snapchat` - Snapchat
+       * * `snowflake` - Snowflake
+       * * `stripe` - Stripe
+       * * `tiktok-ads` - Tiktok Ads
+       * * `twilio` - Twilio
+       * * `vercel` - Vercel
+       * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
@@ -80721,7 +80822,8 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: IntegrationKindEnum;
+      /** The provider of the integration, for example 'github'. */
+      readonly kind: string;
       readonly display_name: string;
     }
 
@@ -81907,7 +82009,7 @@ export namespace Schemas {
       /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
-         * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+         * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
          * @nullable
          */
       readonly inbox_merge_key: number | null;
@@ -81925,6 +82027,11 @@ export namespace Schemas {
          * @nullable
          */
       ranker?: string | null;
+      /**
+         * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+         * @nullable
+         */
+      ranking_pill?: boolean | null;
     }
 
     export type SignalSourceSyncStatusEnum = typeof SignalSourceSyncStatusEnum[keyof typeof SignalSourceSyncStatusEnum];
@@ -90219,7 +90326,11 @@ export namespace Schemas {
      */
     export interface PatchedIntegrationConfig {
       readonly id?: number;
-      kind?: IntegrationKindEnum;
+      /**
+         * The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds that PostHog connects here. Data warehouse sources also store their typed-in credentials as integrations, under a kind per source type.
+         * @maxLength 32
+         */
+      kind?: string;
       /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
        *
        * * `oauth` - OAuth
@@ -91957,6 +92068,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -97957,6 +98069,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -98828,6 +98941,7 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
+       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -130234,6 +130348,10 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
     detail_filters?: string;
@@ -131352,6 +131470,10 @@ export namespace Schemas {
 
     export type ActivityLogListParams = {
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
@@ -131823,6 +131945,10 @@ export namespace Schemas {
      */
     clients?: string[];
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
     detail_filters?: string;
@@ -131927,6 +132053,7 @@ export namespace Schemas {
     include_archived?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -131949,6 +132076,7 @@ export namespace Schemas {
     engine?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -132425,6 +132553,7 @@ export namespace Schemas {
     export type AnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133614,6 +133743,7 @@ export namespace Schemas {
     emails?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -133699,6 +133829,7 @@ export namespace Schemas {
     export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -134539,6 +134670,7 @@ export namespace Schemas {
     engine?: DataModelingJobsListEngine;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -137599,6 +137731,10 @@ export namespace Schemas {
      */
     created_by_id?: string;
     /**
+     * Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.
+     */
+    deleted?: FeatureFlagsListDeleted;
+    /**
      * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment;
@@ -137654,6 +137790,14 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListArchived = {
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListDeleted = typeof FeatureFlagsListDeleted[keyof typeof FeatureFlagsListDeleted];
+
+
+    export const FeatureFlagsListDeleted = {
       False: 'false',
       True: 'true',
     } as const;
@@ -138137,6 +138281,7 @@ export namespace Schemas {
     kind?: string;
     /**
      * Number of results to return per page.
+     * @maximum 250
      */
     limit?: number;
     /**
@@ -141189,6 +141334,7 @@ export namespace Schemas {
     export type McpRegistryServersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number;
     /**
@@ -141601,6 +141747,7 @@ export namespace Schemas {
     created_before?: string;
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -141660,6 +141807,7 @@ export namespace Schemas {
     include_matched_fields?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -141914,6 +142062,7 @@ export namespace Schemas {
     format?: PersonsDeletionStatusListFormat;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142002,6 +142151,7 @@ export namespace Schemas {
     legacy_configuration_id?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -142156,6 +142306,7 @@ export namespace Schemas {
     is_numerical?: boolean | null;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -143102,7 +143253,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
      */
     sort?: string;
     /**
@@ -144993,6 +145144,7 @@ export namespace Schemas {
     export type UptimeMonitorsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -146078,6 +146230,7 @@ export namespace Schemas {
     include_quarantined?: boolean;
     /**
      * Number of results to return per page.
+     * @maximum 10000
      */
     limit?: number;
     /**
@@ -146173,6 +146326,7 @@ export namespace Schemas {
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

@@ -8589,6 +8589,16 @@ export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 
 
 export type MarketingAnalyticsRecommendationImpactType = 'measured' | 'estimated'
 
+export interface MarketingAnalyticsRecommendationStep {
+    text: string
+    /** Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax. */
+    copyValue?: string | null
+    /** Google Ads page for this step. It opens the section for the whole account, because links cannot filter to one campaign. */
+    url?: string | null
+    /** The words in `text` that link to `url`, usually the section name. */
+    linkText?: string | null
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8603,6 +8613,8 @@ export interface MarketingAnalyticsRecommendation {
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
     currency?: string | null
+    /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
+    steps?: MarketingAnalyticsRecommendationStep[]
 }
 
 export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {

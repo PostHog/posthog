@@ -420,7 +420,7 @@ function mergeVisibleEdges(workflow: FlowGraph, collapsed: Collapsed): VisibleEd
     return [...edgesById.values()]
 }
 
-/** Each arrow leaves its step from its own port, in path order, so the arrows of a split never cross. */
+/** Numbers the arrows of a step in path order. The layout places them by where they go, and uses this order for ties. */
 function assignSourcePorts(workflow: FlowGraph, edges: VisibleEdge[]): VisibleEdge[] {
     const bySource = new Map<string, VisibleEdge[]>()
     edges.forEach((edge) => bySource.set(edge.source, [...(bySource.get(edge.source) ?? []), edge]))

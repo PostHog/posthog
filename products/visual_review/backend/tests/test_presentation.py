@@ -1058,20 +1058,20 @@ class TestMalformedUuid(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("run_retrieve", "get", "runs/{bad}/"),
-            ("run_snapshots", "get", "runs/{bad}/snapshots/"),
-            ("repo_retrieve", "get", "repos/{bad}/"),
+            ("run_retrieve", "get", "runs/{bad}/", status.HTTP_404_NOT_FOUND),
+            ("run_snapshots", "get", "runs/{bad}/snapshots/", status.HTTP_404_NOT_FOUND),
+            ("repo_retrieve", "get", "repos/{bad}/", status.HTTP_404_NOT_FOUND),
             # A second path capture, declared in path_parameters next to pk.
-            ("cancel_lift", "post", "runs/{run}/quarantine_lifts/{bad}/cancel/"),
+            ("cancel_lift", "post", "runs/{run}/quarantine_lifts/{bad}/cancel/", status.HTTP_404_NOT_FOUND),
             # A parent path segment, declared in path_parameters by its bare name.
-            ("repo_nested_runs", "get", "repos/{bad}/runs/"),
+            ("repo_nested_runs", "get", "repos/{bad}/runs/", status.HTTP_404_NOT_FOUND),
         ]
     )
-    def test_malformed_uuid_is_a_404(self, _name: str, method: str, path: str) -> None:
+    def test_malformed_uuid_is_a_404(self, _name: str, method: str, path: str, expected_status: int) -> None:
         suffix = path.format(bad=self.BAD_UUID, run=self.RUN_ID)
         response = getattr(self.client, method)(f"/api/projects/{self.team.id}/visual_review/{suffix}")
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert response.status_code == expected_status, response.json()
 
 
 class TestSnapshotLookupRequiresIdentifier(VisualReviewTeamScopedTestMixin, APIBaseTest):
