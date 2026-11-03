@@ -39,7 +39,12 @@ function isInTextField(event: React.SyntheticEvent): boolean {
 }
 
 function isCodeLineMoveOrCopy(event: React.KeyboardEvent): boolean {
-    return event.altKey && CODE_LINE_MOVE_KEYS.has(event.key)
+    return (
+        event.altKey &&
+        CODE_LINE_MOVE_KEYS.has(event.key) &&
+        event.target instanceof Element &&
+        event.target.closest('.monaco-editor') !== null
+    )
 }
 
 function isCursorMove(event: React.KeyboardEvent): boolean {
