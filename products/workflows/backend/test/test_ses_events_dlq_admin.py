@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
+from parameterized import parameterized
+
 from posthog.admin import register_all_admin
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -74,14 +76,25 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
         super().setUp()
         clear_runs()
 
-    def test_a_finished_run_keeps_its_report_and_frees_the_queue(self) -> None:
+    @parameterized.expand(
+        [
+            ("ran_to_the_end", 1000, {"would_replay": 2}, ["did not release 1"]),
+            ("stopped_early", 1, {}, ["stopped after keeping", "did not release 1"]),
+        ]
+    )
+    def test_a_finished_run_keeps_its_report_and_frees_the_queue(
+        self, _name: str, max_held: int, totals: dict[str, int], notes: list[str]
+    ) -> None:
         options = ReplayOptions(dry_run=True, limit=10, max_per_second=5)
         run_id = start_run(QUEUE, options, "staff@example.com")
         assert run_id is not None
 
-        with patch(
-            "products.workflows.backend.tasks.ses_events_dlq.sqs_client",
-            return_value=FakeSqs([sns_message("a", "Bounce"), sns_message("b", "Click")], refuse_release={"b"}),
+        with (
+            patch(
+                "products.workflows.backend.tasks.ses_events_dlq.sqs_client",
+                return_value=FakeSqs([sns_message("a", "Bounce"), sns_message("b", "Click")], refuse_release={"b"}),
+            ),
+            patch("products.workflows.backend.services.ses_events_dlq.MAX_HELD_MESSAGES", max_held),
         ):
             replay_ses_events_dlq_task(
                 run_id=run_id,
@@ -93,12 +106,8 @@ class TestReplaySesEventsDlqTask(SimpleTestCase):
             )
 
         [run] = recent_runs()
-        assert (run["status"], run["report"]["totals"], run["report"]["unreleased"]) == (
-            "finished",
-            {"would_replay": 2},
-            1,
-        )
-        assert "did not release 1" in run["error"]
+        assert (run["status"], run["report"]["totals"], run["report"]["unreleased"]) == ("finished", totals, 1)
+        assert all(note in run["error"] for note in notes)
         assert start_run(DlqQueue(url=QUEUE.url), options, "staff@example.com") is not None
 
     def test_a_task_that_starts_after_another_run_took_its_queue_reads_nothing(self) -> None:

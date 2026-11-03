@@ -4,8 +4,10 @@ from structlog import get_logger
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.services.ses_events_dlq import (
+    MAX_HELD_MESSAGES,
     ReplayOptions,
     ReplayReport,
+    StopReason,
     find_queue,
     replay_queue,
     sqs_client,
@@ -13,6 +15,12 @@ from products.workflows.backend.services.ses_events_dlq import (
 from products.workflows.backend.services.ses_events_dlq_runs import QueueLockLost, finish_run, hold_lock, update_run
 
 logger = get_logger(__name__)
+
+STOP_NOTES: dict[StopReason, str] = {
+    "run_limit": "The run stopped after 11 hours. Start another run for the rest.",
+    "held_limit": f"The run stopped after keeping {MAX_HELD_MESSAGES:,} events. Fix why they fail, then start another run.",
+    "lease_lost": "The run stopped because SQS did not extend its hold on the kept events. Start another run.",
+}
 
 
 # No autoretry: a retry would post the messages the first attempt already left in the queue, and the
@@ -42,11 +50,13 @@ def replay_ses_events_dlq_task(
         logger.exception("ses_events_dlq.replay_failed", run_id=run_id, queue=queue_name)
         finish_run(run_id, queue, status="failed", error=f"{type(error).__name__}: {error}")
         return
-    hidden_error = None
+    notes = []
+    if report.stopped_reason is not None:
+        notes.append(STOP_NOTES[report.stopped_reason])
     if report.unreleased:
         logger.error("ses_events_dlq.messages_not_released", run_id=run_id, queue=queue_name, count=report.unreleased)
-        hidden_error = (
+        notes.append(
             f"SQS did not release {report.unreleased} kept messages. "
             "They return to the queue when their visibility timeout ends."
         )
-    finish_run(run_id, queue, status="finished", report=report, error=hidden_error)
+    finish_run(run_id, queue, status="finished", report=report, error=" ".join(notes) or None)
