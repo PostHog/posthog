@@ -2,13 +2,15 @@
 
 An Isolated product skips the full Django suite when a change touches only files outside its
 `backend:contract-check` inputs (products/architecture.md § What makes the skip sound). tach and
-import-linter prove that no outside code imports past the facade. Two channels run a product module
+import-linter prove that no outside code imports past the facade. Three channels run a product module
 in an outside suite with no import, so those checks cannot see them:
 
 - A signal receiver on a sender the product does not own. It runs inside the save and delete paths
   of every suite that writes the sender.
 - A test outside the product that names a product module by its dotted path, which is how a patch
   target is written. The test depends on the names in that module and runs the code around them.
+- A module that core loads by name through `load_product_modules(...)`, such as
+  `integration_usages` or `data_freshness`. Core imports it for every product that has one.
 
 This module finds the module files each channel reaches. It reads source and never imports it.
 isolation.py accepts these files as contract-check inputs, and the lint fails while one is unwatched.
@@ -45,6 +47,7 @@ _ARCHITECTURE_SECTION = "products/architecture.md § What makes the skip sound"
 class ChannelKind(StrEnum):
     FOREIGN_RECEIVER = "foreign-receiver"
     OUTSIDE_TEST = "outside-test"
+    DISCOVERED_BY_NAME = "discovered-by-name"
 
 
 @frozen
@@ -345,8 +348,110 @@ def outside_named_modules(product: str, repo_root: Path) -> list[ChannelModule]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Channel 3: product modules that core loads by name
+# ---------------------------------------------------------------------------
+
+_LOADER = "load_product_modules"
+UNRESOLVED_SUBMODULE_PREFIX = "<unresolved load_product_modules name at "
+
+
+@frozen
+class _LoadedName:
+    submodule: str | None  # None when the call passes a name the scan cannot read
+    caller: str  # repo path and line of the load_product_modules call
+
+
+def _module_string_constants(tree: ast.Module) -> Mapping[str, str]:
+    constants: dict[str, str] = {}
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)):
+            continue
+        if not isinstance(node.value.value, str):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = node.value.value
+    return constants
+
+
+def _loaded_submodule(argument: ast.expr, constants: Mapping[str, str]) -> str | None:
+    if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+        return argument.value
+    if isinstance(argument, ast.Name):
+        return constants.get(argument.id)
+    return None
+
+
+def _iter_source_files(repo_root: Path) -> Iterator[tuple[tuple[str, ...], Path]]:
+    for root in FIRST_PARTY_ROOTS:
+        top = repo_root / root
+        if not top.is_dir():
+            continue
+        for directory, dirnames, filenames in top.walk():
+            dirnames[:] = [d for d in dirnames if d not in _SKIPPED_DIRS]
+            directory_parts = directory.relative_to(repo_root).parts
+            for filename in filenames:
+                parts = (*directory_parts, filename)
+                if filename.endswith(".py") and not _is_test_path(parts):
+                    yield parts, directory / filename
+
+
+@functools.cache
+def _loaded_names(repo_root: Path) -> tuple[_LoadedName, ...]:
+    """Every submodule name that production code passes to load_product_modules.
+
+    core imports `<product app>.<name>` for every product that has one, so no import edge names
+    the product module. Scans the repository once per process."""
+    found: set[_LoadedName] = set()
+    loader = _LOADER.encode()
+    for parts, path in _iter_source_files(repo_root):
+        if loader not in path.read_bytes():
+            continue
+        tree = ast_parse_safe(path)
+        if tree is None:
+            continue
+        constants = _module_string_constants(tree)
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and decorator_name(node) == _LOADER and node.args):
+                continue
+            caller = f"{'/'.join(parts)}:{node.lineno}"
+            found.add(_LoadedName(submodule=_loaded_submodule(node.args[0], constants), caller=caller))
+    return tuple(sorted(found, key=lambda n: n.caller))
+
+
+def _exact_module_file(root: Path, parts: Sequence[str]) -> str | None:
+    """The module file for exactly this dotted path under `root`, or None. Unlike _module_file it
+    never falls back to a parent package: load_product_modules skips a product without the module."""
+    stem = "/".join(parts)
+    if (root / f"{stem}.py").is_file():
+        return f"{stem}.py"
+    if (root / stem / "__init__.py").is_file():
+        return f"{stem}/__init__.py"
+    return None
+
+
+def discovered_modules(product_dir: Path, repo_root: Path) -> list[ChannelModule]:
+    """The product modules core loads by name. A name the scan cannot read fails closed: it
+    becomes a placeholder module that no input can watch, so the lint asks for a readable name."""
+    found: list[ChannelModule] = []
+    for loaded in _loaded_names(repo_root):
+        if loaded.submodule is None:
+            path = f"{UNRESOLVED_SUBMODULE_PREFIX}{loaded.caller}>"
+            found.append(ChannelModule(path=path, kind=ChannelKind.DISCOVERED_BY_NAME, source=loaded.caller))
+            continue
+        module = _exact_module_file(product_dir, ["backend", *loaded.submodule.split(".")])
+        if module is not None:
+            found.append(ChannelModule(path=module, kind=ChannelKind.DISCOVERED_BY_NAME, source=loaded.caller))
+    return found
+
+
 def find_channel_modules(product_dir: Path, repo_root: Path) -> tuple[ChannelModule, ...]:
-    found = set(foreign_receiver_modules(product_dir)) | set(outside_named_modules(product_dir.name, repo_root))
+    found = (
+        set(foreign_receiver_modules(product_dir))
+        | set(outside_named_modules(product_dir.name, repo_root))
+        | set(discovered_modules(product_dir, repo_root))
+    )
     return tuple(sorted(found, key=lambda c: (c.path, c.kind, c.source)))
 
 
@@ -358,8 +463,15 @@ def _first_few(values: Sequence[str], limit: int = 3) -> str:
 
 def unwatched_channel_issue(path: str, channels: Sequence[ChannelModule]) -> str:
     """The lint issue for one module file the contract-check inputs do not watch."""
+    if path.startswith(UNRESOLVED_SUBMODULE_PREFIX):
+        return (
+            f"{channels[0].source} passes load_product_modules a name the lint cannot read, so it cannot tell "
+            "which product modules core loads. Pass a string literal or a module-level string constant "
+            f"({_ARCHITECTURE_SECTION})"
+        )
     senders = sorted({c.source for c in channels if c.kind is ChannelKind.FOREIGN_RECEIVER})
     tests = sorted({c.source for c in channels if c.kind is ChannelKind.OUTSIDE_TEST})
+    loaders = sorted({c.source for c in channels if c.kind is ChannelKind.DISCOVERED_BY_NAME})
     reasons: list[str] = []
     moves: list[str] = []
     if senders:
@@ -368,8 +480,11 @@ def unwatched_channel_issue(path: str, channels: Sequence[ChannelModule]) -> str
     if tests:
         reasons.append(f"tests outside the product name it by dotted path, as patch targets do ({_first_few(tests)})")
         moves.append("move the test into the owning product")
+    if loaders:
+        reasons.append(f"core loads it by name through load_product_modules ({_first_few(loaders)})")
+    remedy = f" or {' and '.join(moves)}" if moves else ""
     return (
         f"{path} runs in other suites without an import edge: {'; '.join(reasons)}. The "
         "backend:contract-check inputs do not watch it, so a change to it skips those suites. "
-        f'Add "{path}" to the inputs in turbo.json, or {" and ".join(moves)} ({_ARCHITECTURE_SECTION})'
+        f'Add "{path}" to the inputs in turbo.json{remedy} ({_ARCHITECTURE_SECTION})'
     )

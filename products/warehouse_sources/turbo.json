@@ -6,6 +6,8 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/data_freshness.py",
+                "backend/integration_usages.py",
                 "backend/models/**",
                 "backend/migrations/**",
                 "backend/tasks/**",

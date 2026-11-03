@@ -7,7 +7,12 @@ import pytest
 
 from hogli_commands.product.checks import CheckContext, WatchedChannelsCheck
 from hogli_commands.product.isolation import compute_isolation_status
-from hogli_commands.product.watched_channels import foreign_receiver_modules, outside_named_modules
+from hogli_commands.product.watched_channels import (
+    UNRESOLVED_SUBMODULE_PREFIX,
+    discovered_modules,
+    foreign_receiver_modules,
+    outside_named_modules,
+)
 
 _SIGNAL_IMPORTS = "from django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\n"
 
@@ -205,3 +210,28 @@ class TestWatchedChannelsCheck:
 
         assert status.has_narrowed_turbo is narrowed
         assert [issue.split(" ", 1)[0] for issue in result.issues] == unwatched
+
+
+class TestDiscoveredByName:
+    @pytest.mark.parametrize(
+        "loader_source, expected",
+        [
+            ('load_product_modules("data_freshness")\n', {"backend/data_freshness.py"}),
+            ('NAME = "data_freshness"\n\nload_product_modules(NAME)\n', {"backend/data_freshness.py"}),
+            ('load_product_modules("facade.highlights")\n', {"backend/facade/highlights.py"}),
+            ('load_product_modules("missing_here")\n', set()),
+        ],
+        ids=["literal-name", "module-constant", "dotted-name", "product-without-the-module"],
+    )
+    def test_names_resolve_to_product_modules(self, tmp_path: Path, loader_source: str, expected: set[str]) -> None:
+        product_dir = _write_products(tmp_path, {"data_freshness.py": "", "facade/highlights.py": ""})
+        _write(
+            tmp_path / "posthog", {"loader.py": "from posthog.products import load_product_modules\n\n" + loader_source}
+        )
+        assert {c.path for c in discovered_modules(product_dir, tmp_path)} == expected
+
+    def test_unreadable_name_fails_closed(self, tmp_path: Path) -> None:
+        product_dir = _write_products(tmp_path, {})
+        _write(tmp_path / "posthog", {"loader.py": "def load(name):\n    return load_product_modules(name)\n"})
+        paths = [c.path for c in discovered_modules(product_dir, tmp_path)]
+        assert len(paths) == 1 and paths[0].startswith(UNRESOLVED_SUBMODULE_PREFIX)
