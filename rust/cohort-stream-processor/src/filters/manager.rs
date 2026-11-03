@@ -45,6 +45,8 @@ pub enum CatalogRefreshError {
     Access(#[from] PollError),
     #[error(transparent)]
     Load(#[from] FilterError),
+    #[error("loading posthog_cohort timed out")]
+    LoadTimedOut(#[from] tokio::time::error::Elapsed),
     #[error("filter catalog build worker failed: {0}")]
     Build(#[from] JoinError),
 }
@@ -256,6 +258,12 @@ fn now_unix_seconds() -> f64 {
         .unwrap_or(0.0)
 }
 
+/// Bounds the cohort load on the client. The statement timeout stops only the server, so a socket
+/// that dies after the pool hands it out would otherwise hang the refresher, and with it every grant
+/// and revoke. Keep it longer than `PG_ACQUIRE_TIMEOUT_SECS` plus `PG_STATEMENT_TIMEOUT_MS`, so the
+/// pool and the server end a slow load first.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(30);
+
 async fn load_processing(
     pool: &PgPool,
     teams: &ProcessingTeams,
@@ -309,15 +317,15 @@ fn catalog_signature(catalog: &FilterCatalog) -> u64 {
 enum RefreshReason {
     /// No refresh has published, so a failed boot load retries on every access poll.
     NeverPublished,
-    /// Team access lets through other teams than the last refresh read.
+    /// Team access lets through other teams than the published catalog covers.
     AccessChanged,
     /// `interval ± jitter` has passed since the last refresh.
     Due,
 }
 
-/// A refresh that read team access, whether or not it published.
+/// The teams of the published catalog, and when the next periodic refresh is due.
 #[derive(Debug)]
-struct Attempt {
+struct Published {
     teams: Arc<ProcessingTeams>,
     due: Instant,
 }
@@ -334,10 +342,10 @@ pub struct CatalogRefresher {
     interval: Duration,
     jitter: Duration,
     cascade_enabled: bool,
-    /// `None` until a refresh publishes. After that every refresh that reads team access replaces
-    /// it, also one that fails, so a cohort load that keeps failing waits for `due` instead of
-    /// retrying on every access poll.
-    last: Option<Attempt>,
+    /// `None` until a refresh publishes. A failed refresh after that moves only `due`. So a cohort
+    /// load that keeps failing waits for `due`, but a grant or a revoke that no refresh has published
+    /// retries on every access poll.
+    last: Option<Published>,
 }
 
 impl CatalogRefresher {
@@ -386,11 +394,11 @@ impl CatalogRefresher {
         let polled = poll(&mut self.poller).await;
         let teams = self.current_teams(polled)?;
         let refreshed = self.load_and_store(seq, &teams, load).await;
-        if self.catalog.is_loaded() {
-            self.last = Some(Attempt {
-                teams,
-                due: Instant::now() + next_interval(self.interval, self.jitter),
-            });
+        let due = Instant::now() + next_interval(self.interval, self.jitter);
+        if refreshed.is_ok() {
+            self.last = Some(Published { teams, due });
+        } else if let Some(last) = &mut self.last {
+            last.due = due;
         }
         refreshed
     }
@@ -401,7 +409,7 @@ impl CatalogRefresher {
         teams: &ProcessingTeams,
         load: impl AsyncFnOnce(&ProcessingTeams) -> Result<Vec<CohortRow>, FilterError>,
     ) -> Result<CatalogStats, CatalogRefreshError> {
-        let mut rows = load(teams).await?;
+        let mut rows = tokio::time::timeout(LOAD_TIMEOUT, load(teams)).await??;
         let fetched_rows = rows.len();
         retain_processing(&mut rows, teams);
         if rows.len() != fetched_rows {
@@ -773,6 +781,20 @@ mod tests {
             refresher.refresh_reason(&granted, past_due),
             Some(RefreshReason::Due)
         );
+        // A failed refresh that moves `due` puts it after `past_due`.
+        refresher.interval = Duration::from_secs(7200);
+        refresher
+            .refresh_from(
+                async |poller| poller.accept_granted([5]),
+                async |_| cohort_load_failed(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            refresher.refresh_reason(&granted, past_due),
+            None,
+            "a cohort load that keeps failing waits for the period, not for the next tick",
+        );
 
         let polled = refresher.poller.accept_granted([5, 6]);
         let regranted = refresher.current_teams(polled).unwrap();
@@ -798,8 +820,8 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             refresher.refresh_reason(&regranted, now),
-            None,
-            "a failing cohort load after a grant waits for the period, not for the next tick",
+            Some(RefreshReason::AccessChanged),
+            "a grant that a failed cohort load did not publish retries on the next tick",
         );
     }
 

@@ -51,7 +51,7 @@ An event passes the gate when it has a person id and its team passes two checks.
    So when a read lacks a row the shuffler holds, or grants one of its `off` rows again, the shuffler keeps its previous row for that team, because that read comes from a lagging replica or the wrong database.
    The read's other rows still take effect, so a revoke always gets through.
    After a failed read, it keeps all the previous rows.
-   A row deleted or granted again by hand keeps its old state in every running shuffler, so restart both shuffler deployments after one.
+   A row deleted or granted again by hand keeps its old state in every running shuffler and processor, so restart both shuffler deployments and the processor after one.
 
 Apart from the person id check, the gate looks at the team only.
 It cannot filter by event name: person-property criteria are re-evaluated from every event that carries person properties, whatever the event is called.
