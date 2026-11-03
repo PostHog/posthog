@@ -138,6 +138,7 @@ APIScopeObject = Literal[
     "today",
     "toolbar",
     "tracing",
+    "transactional_email",
     "field_note",
     "uploaded_media",
     "usage_metric",
@@ -285,6 +286,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     ("hog_flow", "read"),
     ("hog_flow", "write"),
     ("messaging_preference", "write"),
+    ("transactional_email", "read"),
+    ("transactional_email", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -496,6 +499,8 @@ LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
     "inbox": "task",
     # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
     "messaging_preference": "hog_flow",
+    # Permanent: `hog_flow` stays a supported way to send transactional email and read a send's status.
+    "transactional_email": "hog_flow",
 }
 
 

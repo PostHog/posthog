@@ -312,6 +312,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
+    {
+        key: 'transactional_email',
+        objectName: 'Transactional email',
+        objectPlural: 'transactional emails',
+        info: "Write sends transactional email from a template. Read gets a sent email's status. This scope can't change templates or workflows.",
+    },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
@@ -391,6 +397,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'hog_flow:read',
     'hog_flow:write',
     'messaging_preference:write',
+    'transactional_email:read',
+    'transactional_email:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -506,6 +514,7 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
     { value: 'recipient_preferences', label: 'Set recipient preferences', scopes: ['messaging_preference:write'] },
+    { value: 'transactional_email', label: 'Send transactional email', scopes: ['transactional_email:write'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each scope object
@@ -611,6 +620,10 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'webhook',
             'plugin',
         ],
+    },
+    {
+        label: 'Messaging',
+        objects: ['transactional_email'],
     },
     {
         label: 'AI & context management tools',
