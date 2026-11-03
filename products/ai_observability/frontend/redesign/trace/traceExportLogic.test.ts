@@ -18,7 +18,7 @@ const EXPORT_STATUS_URL = '/api/projects/:team_id/ai_observability/traces/:id/ex
 const EXPORT_CONTENT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/:export_id/content/'
 const EXPORT_FILE = { trace: { id: 'trace-1' }, truncated: false, nodes: [] }
 const EXPORT_FILE_TEXT = JSON.stringify(EXPORT_FILE)
-const OVERSIZED_FILE = { padding: 'x'.repeat(5_000_000) }
+const TOO_LARGE_MESSAGE = "This trace is larger than 5 MB, so it can't be copied. Download it as a JSON file instead."
 
 class FakeClipboardItem {
     constructor(readonly items: Record<string, Promise<Blob>>) {}
@@ -28,6 +28,8 @@ function makeTraceExport(overrides: Partial<TraceExportApi> = {}): TraceExportAp
     return {
         id: 7,
         status: 'pending',
+        purpose: 'download',
+        tooLarge: false,
         filename: 'trace-1-2026-09-01-101500.json',
         createdAt: '2026-09-01T10:20:00Z',
         expiresAfter: '2026-09-08T10:20:00Z',
@@ -41,8 +43,6 @@ describe('traceExportLogic', () => {
     let createdExport: TraceExportApi = makeTraceExport()
     let exportBodies: unknown[] = []
     let statusRequests = 0
-    let exportFile: object = EXPORT_FILE
-    let contentPurposes: (string | null)[] = []
     let clipboardText: string | null = null
     const clipboardWrite = jest.fn(async ([item]: FakeClipboardItem[]): Promise<void> => {
         clipboardText = await (await item.items['text/plain']).text()
@@ -52,8 +52,6 @@ describe('traceExportLogic', () => {
         createdExport = makeTraceExport()
         exportBodies = []
         statusRequests = 0
-        exportFile = EXPORT_FILE
-        contentPurposes = []
         clipboardText = null
         clipboardWrite.mockClear()
         Object.defineProperty(globalThis, 'ClipboardItem', { value: FakeClipboardItem, configurable: true })
@@ -66,10 +64,7 @@ describe('traceExportLogic', () => {
                     statusRequests += 1
                     return [200, makeTraceExport({ status: 'complete' })]
                 },
-                [EXPORT_CONTENT_URL]: ({ request }) => {
-                    contentPurposes.push(new URL(request.url).searchParams.get('purpose'))
-                    return [200, exportFile]
-                },
+                [EXPORT_CONTENT_URL]: () => [200, EXPORT_FILE],
             },
             post: {
                 [EXPORT_URL]: async ({ request }) => {
@@ -168,7 +163,7 @@ describe('traceExportLogic', () => {
 
         expect(clipboardText).toEqual(EXPORT_FILE_TEXT)
         expect(statusRequests).toBe(1)
-        expect(contentPurposes).toEqual(['copy'])
+        expect(exportBodies).toEqual([{ purpose: 'copy', timestamp_hint: '2026-09-01T10:15:00Z' }])
         expect(logic.values.traceCopying).toBe(false)
         expect(posthog.capture).toHaveBeenCalledWith('llma trace export copied', {
             size_bytes: EXPORT_FILE_TEXT.length,
@@ -189,13 +184,12 @@ describe('traceExportLogic', () => {
             event: null,
         },
         {
-            name: 'an oversized trace offers to download the same export',
+            name: 'a trace over the copy cap offers a download',
             setup: (): void => {
-                createdExport = makeTraceExport({ status: 'complete' })
-                exportFile = OVERSIZED_FILE
+                createdExport = makeTraceExport({ status: 'failed', tooLarge: true, exception: TOO_LARGE_MESSAGE })
             },
             toast: 'info' as const,
-            message: "This trace is larger than 5 MB, so it can't be copied. Download it as a JSON file instead.",
+            message: TOO_LARGE_MESSAGE,
             button: 'Download',
             event: 'too_large',
         },
@@ -224,16 +218,14 @@ describe('traceExportLogic', () => {
         }
     })
 
-    test('the download button on the oversized toast downloads the export the copy wrote', async () => {
-        createdExport = makeTraceExport({ status: 'complete' })
-        exportFile = OVERSIZED_FILE
+    test('the download button on the too large toast starts a download export', async () => {
+        createdExport = makeTraceExport({ status: 'failed', tooLarge: true, exception: TOO_LARGE_MESSAGE })
         const logic = await mountForCopy()
         await expectLogic(logic, () => logic.actions.copyTrace()).toDispatchActions(['copyTraceFinished'])
         const options = jest.mocked(lemonToast.info).mock.calls[0][1] as { button: { action: () => void } }
 
-        await expectLogic(exportsLogic, () => options.button.action()).toDispatchActions([
-            exportsLogic.actionCreators.downloadExport(toExportedAsset(createdExport)),
-        ])
+        await expectLogic(logic, () => options.button.action()).toDispatchActions(['exportTrace', 'exportTraceSuccess'])
+        expect(exportBodies.at(-1)).toEqual({ timestamp_hint: '2026-09-01T10:15:00Z' })
     })
 
     test('a browser without clipboard writes shows a failed export without an unhandled rejection', async () => {

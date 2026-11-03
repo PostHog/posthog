@@ -751,6 +751,7 @@ SPECTACULAR_SETTINGS = {
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
             # ai_observability's dataset and trace exports report the same states.
             "ExportStatusEnum": "products.ai_observability.backend.facade.contracts.TRACE_EXPORT_STATUSES",
+            "TraceExportPurposeEnum": "products.ai_observability.backend.facade.contracts.TRACE_EXPORT_PURPOSES",
             "FeatureFlagRequestTypeEnum": ["remote_evaluation", "local_evaluation"],
             "PropertyFilterTypeEnum": [
                 "event",

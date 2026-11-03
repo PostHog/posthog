@@ -21,7 +21,11 @@ from posthog.tasks import exporter
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.facade import api, contracts
-from products.ai_observability.backend.logic.traces import trace_queries
+from products.ai_observability.backend.facade.contracts import TraceExportPurpose
+from products.ai_observability.backend.logic.traces import (
+    trace_export as trace_export_logic,
+    trace_queries,
+)
 from products.ai_observability.backend.logic.traces.summary import (
     FailedSummary,
     PendingSummary,
@@ -625,11 +629,13 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    def _export(self, trace_id: str = "trace-1", created_by: User | None = None) -> ExportedAsset:
+    def _export(
+        self, trace_id: str = "trace-1", created_by: User | None = None, purpose: TraceExportPurpose = "download"
+    ) -> ExportedAsset:
         asset = ExportedAsset.objects.create(
             team=self.team,
             export_format="application/json",
-            export_context=TraceExportRequest(trace_id=trace_id, timestamp_hint=T0).to_context(),
+            export_context=TraceExportRequest(trace_id=trace_id, timestamp_hint=T0, purpose=purpose).to_context(),
             created_by=created_by or self.user,
         )
         with suppress(InvalidExportContext):
@@ -702,23 +708,38 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a missing trace", "trace-2", None, "This trace is no longer available."),
-            ("a file over the cap", "trace-1", 10, "This trace is larger than 250 MB, so it can't be exported."),
+            ("a missing trace", "trace-2", "download", "This trace is no longer available.", False),
+            (
+                "a download over its cap",
+                "trace-1",
+                "download",
+                "This trace is larger than 250 MB, so it can't be exported.",
+                True,
+            ),
+            (
+                "a copy over its cap",
+                "trace-1",
+                "copy",
+                "This trace is larger than 5 MB, so it can't be copied. Download it as a JSON file instead.",
+                True,
+            ),
         ]
     )
     def test_fails_as_a_user_error_and_leaves_no_file(
-        self, _name: str, trace_id: str, max_bytes: int | None, message: str
+        self, _name: str, trace_id: str, purpose: TraceExportPurpose, message: str, too_large: bool
     ) -> None:
+        cap = "MAX_TRACE_COPY_BYTES" if purpose == "copy" else "MAX_TRACE_EXPORT_BYTES"
         with (
             tempfile.TemporaryDirectory() as temporary_directory,
-            patch.object(api, "MAX_TRACE_EXPORT_BYTES", max_bytes or api.MAX_TRACE_EXPORT_BYTES),
+            patch.object(trace_export_logic, cap, 10),
             patch.object(tempfile, "tempdir", temporary_directory),
         ):
-            asset = self._export(trace_id)
+            asset = self._export(trace_id, purpose=purpose)
             leftover_files = list(Path(temporary_directory).iterdir())
 
         assert (asset.exception, asset.failure_type) == (message, "user")
         assert leftover_files == []
+        assert api.get_trace_export(self.team, self.user, trace_id, asset.id).too_large is too_large
 
 
 class TestGetTraceExport(BaseTest):

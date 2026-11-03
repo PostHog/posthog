@@ -67,7 +67,6 @@ from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs,
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
 from ..logic.traces.trace_export import (
-    MAX_TRACE_EXPORT_BYTES,
     TRACE_EXPORT_FORMAT,
     TRACE_EXPORT_KIND,
     TRACE_EXPORT_NODE_BATCH_SIZE,
@@ -605,10 +604,16 @@ _TRACE_EXPORT_STUCK_AFTER = EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=30)
 
 
 def create_trace_export(
-    team: Team, user: User, trace_id: str, timestamp_hint: datetime | None, *, was_impersonated: bool
+    team: Team,
+    user: User,
+    trace_id: str,
+    timestamp_hint: datetime | None,
+    *,
+    purpose: contracts.TraceExportPurpose,
+    was_impersonated: bool,
 ) -> contracts.TraceExport:
-    """Starts writing the trace and every node with its input and output to a JSON file the user downloads."""
-    request = TraceExportRequest(trace_id=trace_id, timestamp_hint=timestamp_hint)
+    """Starts writing the trace and every node with its input and output to a JSON file the user downloads or copies."""
+    request = TraceExportRequest(trace_id=trace_id, timestamp_hint=timestamp_hint, purpose=purpose)
     asset = create_export_asset_async(
         team=team,
         created_by=user,
@@ -674,7 +679,7 @@ def write_trace_export(team: Team, user: User, export_context: Mapping[str, obje
         stream,
         _to_trace(trace).model_dump_json(by_alias=True),
         truncated=loaded.truncated,
-        max_bytes=MAX_TRACE_EXPORT_BYTES,
+        max_bytes=request.max_bytes,
     )
     root = load_trace_root(team, user, trace.id, trace.created_at, workload=Workload.OFFLINE)
     writer.add_node(_to_root_detail(trace.id, root.trace_event).model_dump_json(by_alias=True))
@@ -685,6 +690,7 @@ def write_trace_export(team: Team, user: User, export_context: Mapping[str, obje
 
 
 def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
+    request = TraceExportRequest.from_context(asset.export_context or {})
     state = TraceExportState.of(
         has_content=asset.has_content,
         exception=asset.exception,
@@ -696,6 +702,8 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
     return contracts.TraceExport(
         id=asset.id,
         status=state.status,
+        purpose=request.purpose,
+        too_large=state.status == "failed" and state.exception == request.too_large_message,
         filename=asset.filename,
         created_at=asset.created_at,
         expires_after=asset.expires_after,
