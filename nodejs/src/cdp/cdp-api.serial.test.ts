@@ -34,7 +34,7 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
+import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -2669,7 +2669,7 @@ describe('CDP API', () => {
                     'sending_paused',
                     () =>
                         jest
-                            .spyOn(api['hogFlowManager'], 'getHogFlow')
+                            .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
                             .mockResolvedValueOnce({ ...hogFlow, email_sending_paused_at: Date.now() }),
                 ],
                 [
@@ -2805,22 +2805,28 @@ describe('CDP API', () => {
         it.each([
             ['transactional_email', body],
             ['transactional_email/send', { ...body, send: codeSend }],
-        ])('sends on %s under a workflow created after the cached read missed it', async (route, payload) => {
-            const unseen = transactionalFlow('api', 'active')
-            const post = () =>
-                supertest(app)
-                    .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
-                    .set({ Authorization: `Bearer ${mintToken(team.id, unseen.id)}` })
-                    .send(payload)
+        ])(
+            'sends on %s under a workflow the replica does not have yet, reading the primary once',
+            async (route, payload) => {
+                const unseen = await _insertHogFlow(hub.postgres, transactionalFlow('api', 'active'))
+                const query = hideHogFlowsFromReplica(hub.postgres, [unseen.id])
+                const post = () =>
+                    supertest(app)
+                        .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
+                        .set({ Authorization: `Bearer ${mintToken(team.id, unseen.id)}` })
+                        .send(payload)
 
-            expect((await post()).status).toEqual(404)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect((await post()).status).toEqual(202)
+                expect((await post()).status).toEqual(202)
 
-            await _insertHogFlow(hub.postgres, unseen)
-
-            expect((await post()).status).toEqual(202)
-            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-        })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
+                expect(
+                    query.mock.calls.filter(
+                        ([use, , , tag]) => use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows'
+                    )
+                ).toHaveLength(1)
+            }
+        )
 
         it.each(['transactional_email', 'transactional_email/send'])(
             'authenticates every send on %s',

@@ -13,7 +13,7 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '../_tests/fixtures-hogflows'
 import { attachmentMetadata, decodeAttachments } from '../services/hogflows/transactional-email'
 import {
     CyclotronJobInvocation,
@@ -591,35 +591,31 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
-        it('runs a flow its cached read missed once the database has it, and fails one missing from both', async () => {
-            const lateFlow = new FixtureHogFlowBuilder()
-                .withName('Flow created after its first job was read')
-                .withTeamId(team.id)
-                .withStatus('active')
-                .withSimpleWorkflow()
-                .build()
-            const invocationBeforeInsert = createSerializedHogFlowInvocation(lateFlow, {
-                event: { distinct_id: 'distinct_A_1', properties: {} } as any,
-            })
-
-            const resultsBeforeInsert = await processor.processInvocations([invocationBeforeInsert])
-
-            expect(resultsBeforeInsert).toEqual([])
-            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([invocationBeforeInsert])
-
+        it('runs a flow the replica does not have yet, and fails one missing from both', async () => {
+            const [lateFlow, missingFlow] = ['Flow only the primary has', 'Flow neither database has'].map((name) =>
+                new FixtureHogFlowBuilder()
+                    .withName(name)
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withSimpleWorkflow()
+                    .build()
+            )
             await insertHogFlow(hub.postgres, lateFlow)
-            const invocationAfterInsert = createSerializedHogFlowInvocation(lateFlow, {
-                event: { distinct_id: 'distinct_A_1', properties: {} } as any,
-            })
+            hideHogFlowsFromReplica(hub.postgres, [lateFlow.id])
+            const [lateInvocation, missingInvocation] = [lateFlow, missingFlow].map((flow) =>
+                createSerializedHogFlowInvocation(flow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                })
+            )
 
-            const resultsAfterInsert = await processor.processInvocations([invocationAfterInsert])
+            const results = await processor.processInvocations([lateInvocation, missingInvocation])
 
-            expect(resultsAfterInsert).toHaveLength(1)
-            expect(resultsAfterInsert[0]).toMatchObject({
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
                 finished: true,
                 invocation: { hogFlow: { id: lateFlow.id } },
             })
-            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([])
+            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
