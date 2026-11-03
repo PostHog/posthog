@@ -1077,7 +1077,7 @@ describe('CI workflow run plans', () => {
                 ).scenario
                 const plan = planWorkflow(workflow(DEPOT_BACKEND), scenario)
                 expect(plan.errors).toEqual([])
-                expect(plan.jobs[job]?.result).toBe(preparationOutcome)
+                expect(plan.jobs[job]?.result).toBe('success')
                 expect(plan.jobs[job]?.steps.find((step) => step.id === 'download-temporal-test-servers')?.runs).toBe(
                     prepares
                 )

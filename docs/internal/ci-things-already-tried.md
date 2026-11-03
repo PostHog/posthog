@@ -526,7 +526,8 @@ A longer step timeout does not help: the 5-minute bound and the retry let the sh
 
 Depot's step timeout leaves child processes running, so downloads that hold locks need a shorter process deadline.
 Temporal's SDK also makes retries wait while another downloader updates its `.downloading` file.
-Backend CI requires bounded preparation on a cache miss before pytest runs, and only master saves the completed cache.
+Backend CI runs bounded preparation on a cache miss before pytest runs, and only master saves the completed cache.
+A failed preparation does not fail the job: tests then fall back to the SDK's own download.
 This preparation is CI-only; local pytest uses the SDK's default downloader.
 
 `setup-uv` v9 changed the `prune-cache` default to `false`. Each cache-enabled call sets `prune-cache: true` so that the cache stays at about 3 MB.

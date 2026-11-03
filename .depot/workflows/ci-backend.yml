@@ -1181,6 +1181,7 @@ jobs:
               if: steps.temporal-test-servers.outputs.cache-hit != 'true'
               timeout-minutes: 3
               retry: 2
+              continue-on-error: true
               run: timeout --kill-after=10s "$TEMPORAL_DOWNLOAD_TIMEOUT" python posthog/test/temporal_test_servers.py
             - name: Save Temporal test servers
               if: env.IS_MASTER == 'true' && steps.download-temporal-test-servers.outcome == 'success'
@@ -3298,6 +3299,7 @@ jobs:
               if: steps.temporal-test-servers.outputs.cache-hit != 'true'
               timeout-minutes: 3
               retry: 2
+              continue-on-error: true
               run: timeout --kill-after=10s "$TEMPORAL_DOWNLOAD_TIMEOUT" python posthog/test/temporal_test_servers.py
             - name: Save Temporal test servers
               if: env.IS_MASTER == 'true' && steps.download-temporal-test-servers.outcome == 'success'
