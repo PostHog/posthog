@@ -5,6 +5,7 @@ from products.warehouse_sources.sources.jira.jira import (
     JiraResumeConfig,
     is_valid_subdomain,
     jira_source,
+    normalize_subdomain,
     validate_credentials as validate_jira_credentials,
 )
 from products.warehouse_sources.sources.jira.settings import ENDPOINTS, INCREMENTAL_FIELDS, JIRA_ENDPOINTS
@@ -127,9 +128,9 @@ The token authenticates as your Atlassian account, so the data we can sync is li
     def validate_credentials(
         self, config: JiraSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        if not is_valid_subdomain(config.subdomain):
-            # A common mistake is pasting the full host or URL; the probe would just return the
-            # generic "could not connect", so name the fix here instead of a network round-trip.
+        if not is_valid_subdomain(normalize_subdomain(config.subdomain)):
+            # Anything left after normalizing is not an Atlassian Cloud site; the probe would just return
+            # the generic "could not connect", so name the fix here instead of a network round-trip.
             return False, (
                 'That doesn\'t look like a Jira subdomain. Enter only the subdomain, such as "acme" '
                 "from acme.atlassian.net, not the full domain or URL."
