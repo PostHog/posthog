@@ -10055,10 +10055,10 @@ Diffed against: <https://docs.ramp.com/openapi/developer-api.json>
 - [x] `merchants` — Lookup resolving merchant IDs on every transaction - required for any spend-by-merchant analysis (high)
 - [x] `bills (and bills/drafts)` — Accounts-payable bills are a core Ramp spend object entirely missing from the warehouse (high)
 - [x] `accounting/accounts` — General-ledger account lookup that resolves the accounting codes applied to transactions (high)
-- [ ] `locations` — Lookup resolving location IDs on transactions, users and cards (high)
-- [ ] `entities` — Legal-entity lookup needed to split spend by entity in multi-entity orgs (high)
-- [ ] `transfers` — Money movement in and out of the Ramp balance - the settlement side of card spend (medium)
-- [ ] `statements` — Billing-period statements that reconcile transactions to what was actually charged (medium)
+- [x] `locations` — Lookup resolving location IDs on transactions, users and cards (high)
+- [x] `entities` — Legal-entity lookup needed to split spend by entity in multi-entity orgs (high)
+- [x] `transfers` — Money movement in and out of the Ramp balance - the settlement side of card spend (medium)
+- [x] `statements` — Billing-period statements that reconcile transactions to what was actually charged (medium)
 - [ ] `cashbacks` — Rewards earned per period, a headline Ramp value metric (medium)
 - [ ] `accounting/fields and accounting/field-options` — Custom accounting dimensions and their allowed values - the breakdown dimensions for coded spend (medium)
 - [ ] `receipts and item-receipts` — Receipt records and line-item detail attached to transactions, for compliance reporting (medium)
@@ -10353,10 +10353,10 @@ Diffed against: <https://api.corona-zahlen.org/docs/>
 - [x] `GET /vaccinations/history/:days` — daily vaccination time series, the analytical form of the vaccination data (high) → `vaccinations_history`
 - [x] `GET /vaccinations/states/:state` — per-state vaccination breakdown, the standard comparison dimension (high) → `vaccinations_states` (reads `GET /vaccinations/states`, which returns every state in one response)
 - [x] `GET /states/history/cases/:days` — per-state case time series; only Germany-level history is synced, so no state comparison over time is possible (high) → `states_history_cases`
-- [ ] `GET /states/history/deaths/:days` — per-state death time series to match the national germany_history_deaths table (high)
-- [ ] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high)
-- [ ] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high)
-- [ ] `GET /districts/history/incidence/:days` — per-district incidence over time, the main district-level reporting metric (high)
+- [x] `GET /states/history/deaths/:days` — per-state death time series to match the national germany_history_deaths table (high) → `states_history_deaths`
+- [x] `GET /states/history/incidence/:days` — per-state 7-day incidence, the metric the whole dataset is organized around (high) → `states_history_incidence`
+- [x] `GET /districts/history/cases/:days` — per-district case time series - the finest granularity the API offers and the reason to use it over aggregate sources (high) → `districts_history_cases`
+- [x] `GET /districts/history/incidence/:days` — per-district incidence over time, the main district-level reporting metric (high) → `districts_history_incidence`
 - [ ] `GET /germany/history/rValue/:days` — the reproduction number time series, a headline national metric with no equivalent column elsewhere (medium)
 - [ ] `GET /states/age-groups` — age-group breakdown per state; the source has only the Germany-level age groups (medium)
 - [ ] `GET /districts/age-groups` — age-group breakdown per district (medium)
@@ -10412,13 +10412,13 @@ Note: Both official reporting references were fetched with curl and their operat
 
 ## Rollbar — gaps
 
-Today (4): `deploys`, `environments`, `items`, `occurrences`
+Today (6): `activated_item_counts`, `deploys`, `environments`, `items`, `occurrence_counts`, `occurrences`
 
 Diffed against: <https://docs.rollbar.com/reference>
 
 - [ ] `projects (list-all-projects)` — lookup table resolving the project IDs carried on items and deploys we already sync (high)
-- [ ] `item occurrence counts (get-occurrence-counts)` — the per-item error-volume time series, Rollbar's headline metric (high)
-- [ ] `activated item counts (get-activated-item-counts)` — new-error-rate trend over time, the standard regression signal (high)
+- [x] `item occurrence counts (get-occurrence-counts)` — the per-item error-volume time series, Rollbar's headline metric (high)
+- [x] `activated item counts (get-activated-item-counts)` — new-error-rate trend over time, the standard regression signal (high)
 - [ ] `users (list-all-users)` — lookup resolving assignee and resolver IDs on items (medium)
 - [ ] `teams (list-all-teams)` — lookup for ownership attribution of items and projects (medium)
 - [ ] `top active items (get-top-active-items)` — ranked noisiest errors per period without recomputing from occurrences (medium)
@@ -10433,10 +10433,10 @@ Today (16): `action_items`, `alerts`, `causes`, `environments`, `escalation_poli
 
 Diffed against: <https://docs.rootly.com/api-reference>
 
-- [ ] `incident_events (list-incident-events)` — the incident timeline, the core state/transition history for MTTA and MTTR analysis (high)
-- [ ] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high)
-- [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high)
-- [ ] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high)
+- [x] `incident_events (list-incident-events)` — the incident timeline, the core state/transition history for MTTA and MTTR analysis (high) → `incident_events` (full refresh, fan-out over `incidents`)
+- [x] `statuses (list-statuses)` — lookup table resolving the status IDs on incidents we already sync (high) → `statuses` (full refresh)
+- [ ] `shifts (list-shifts)` — actual on-call shift records, the basis of on-call load and fairness reporting (high); skipped: shifts are computed for a `from`/`to` window that defaults to the next month, with no timestamps to sync on and no documented window limit for past shifts
+- [x] `alert_events (list-alert-events)` — alert lifecycle history (ack, escalate, resolve) for the alerts we already sync (high) → `alert_events` (incremental on `created_at`, from the flat `GET /v1/alert_events` feed)
 - [ ] `incident_roles (list-incident-roles)` — lookup resolving role assignments on incidents (commander, comms lead) (high)
 - [ ] `on_calls (list-on-calls)` — who was on call for a given schedule and window (medium)
 - [ ] `schedule_rotations (list-schedule-rotations)` — resolves the schedules table into rotation structure (medium)
@@ -10454,12 +10454,12 @@ Today (3): `categories`, `episodes`, `podcasts`
 
 Diffed against: <https://api.rss.com/v4/openapi.json>
 
-- [ ] `locations (GET /v4/locations)` — lookup table resolving the location IDs carried on podcasts we already sync (high)
-- [ ] `podcasts/{id}/collaborators` — membership table of who works on each podcast (high)
+- [ ] `locations (GET /v4/locations)` — lookup table resolving the location IDs carried on podcasts we already sync (high); skipped: a search endpoint that requires a free-text `filter` string, not a listable collection
+- [x] `podcasts/{id}/collaborators` — membership table of who works on each podcast (high) → `collaborators` (full refresh, fan-out over `podcasts`)
 - [ ] `roles (GET /v4/roles)` — lookup resolving the role IDs on collaborators (medium)
 - [ ] `podcasts/{id}/episodes/{id}/chapters` — per-episode chapter structure, a real sub-resource of data we already sync (medium)
-- [ ] `podcasts/{id}/episodes/{id}/midrolls` — ad-insertion markers, the monetization dimension of each episode (medium)
-- [ ] `podcasts/{id}/keywords` — discovery/SEO dimensions per podcast (medium)
+- [x] `podcasts/{id}/episodes/{id}/midrolls` — ad-insertion markers, the monetization dimension of each episode (medium) → `midrolls` (full refresh, fan-out over `podcasts` then `episodes`)
+- [x] `podcasts/{id}/keywords` — discovery/SEO dimensions per podcast (medium) → `keywords` (full refresh, fan-out over `podcasts`)
 - [ ] `podcasts/{id}/episodes/{id}/soundbites` — promo clip metadata per episode (low)
 - [ ] `podcasts/{id}/episodes/{id}/transcript` — episode transcript text for content analysis (low)
 
@@ -10467,14 +10467,14 @@ Note: The v4 Core API exposes no download/listener analytics endpoint at all, so
 
 ## Rubygems — gaps
 
-Today (2): `gems`, `versions`
+Today (7): `gems`, `versions`, `owners`, `reverse_dependencies`, `latest_gems`, `just_updated_gems`, `timeframe_versions`
 
 Diffed against: <https://guides.rubygems.org/rubygems-org-api/>
 
-- [ ] `gems/{name}/owners.json` — membership table of gem maintainers, the only ownership join available (high)
-- [ ] `gems/{name}/reverse_dependencies.json` — downstream adoption of a gem, the main ecosystem-impact question (medium)
-- [ ] `activity/just_updated.json and activity/latest.json` — feed of newly released and newly updated gems for ecosystem tracking (medium)
-- [ ] `timeframe_versions.json` — all versions published in a time window, an ecosystem-wide release feed with a natural incremental cursor (medium)
+- [x] `gems/{name}/owners.json` — membership table of gem maintainers, the only ownership join available (high) → `owners` (full refresh, per configured gem)
+- [x] `gems/{name}/reverse_dependencies.json` — downstream adoption of a gem, the main ecosystem-impact question (medium) → `reverse_dependencies` (full refresh, per configured gem)
+- [x] `activity/just_updated.json and activity/latest.json` — feed of newly released and newly updated gems for ecosystem tracking (medium) → `just_updated_gems`, `latest_gems` (full refresh, ecosystem-wide)
+- [x] `timeframe_versions.json` — all versions published in a time window, an ecosystem-wide release feed with a natural incremental cursor (medium) → `timeframe_versions` (incremental on `created_at`, 7-day first sync)
 - [ ] `owners/{handle}/gems.json` — inverse of the owners join, lists every gem for a maintainer (low)
 - [ ] `profiles/{handle}.json` — lookup resolving owner handles to profile metadata (low)
 
@@ -10912,8 +10912,8 @@ Diffed against: <https://www.servicenow.com/docs/r/zurich/it-service-management/
 - [x] `metric_instance (Metric instance table)` — Per-field duration records (time in each state, time per assignee) generated by the metric engine — the raw data behind MTTR and state-dwell analysis (high)
 - [x] `sys_choice (Choice table)` — Lookup that translates the numeric state/priority/impact/urgency codes stored on every synced task table into labels; without it incidents.state is an unreadable integer (high)
 - [x] `service_offering (Service Offering table)` — Lookup resolving the service offering referenced by incidents and change requests, and where resolution-time commitments live (medium)
-- [ ] `cmdb_ci_service_business and cmdb_ci_service_technical (Business Service / Technology Management Service)` — Service dimension referenced by incidents and changes; configuration_items (cmdb_ci) does not cover the service classes used for business-impact reporting (medium)
-- [ ] `Group Members (user-to-group membership related list on sys_user_group)` — users and user_groups are both synced but the many-to-many join between them is not, so assignment-group headcount and workload-per-member cannot be computed (medium)
+- [x] `cmdb_ci_service_business and cmdb_ci_service_technical (Business Service / Technology Management Service)` — Service dimension referenced by incidents and changes; configuration_items (cmdb_ci) does not cover the service classes used for business-impact reporting (medium)
+- [x] `Group Members (user-to-group membership related list on sys_user_group)` — users and user_groups are both synced but the many-to-many join between them is not, so assignment-group headcount and workload-per-member cannot be computed (medium)
 
 Note: ServiceNow's Table API is generic — /api/now/table/{table} can query any table — but the PostHog source hardcodes 13 ITSM tables in settings.py (SERVICENOW_ENDPOINTS) and get_schemas returns build_endpoint_schemas(ENDPOINTS, ...) with no dynamic table discovery. Adding a table is a one-line settings entry, so these gaps are cheap to close. ServiceNow's docs site is a JavaScript-only Fluid Topics app; the resource content above was read via its content API (https://www.servicenow.com/docs/api/khub/maps/{mapId}/topics/{topicId}/content), not the HTML pages. Field-level change history (the audit/history tables) is very likely another high-value gap but I could not confirm its exact table name in a vendor doc, so it is not listed.
 
