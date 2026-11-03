@@ -473,8 +473,6 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
-                distinctId,
-                captureEngagement,
                 headerCode,
             }: {
                 functionId: string
@@ -482,8 +480,6 @@ describe('EmailTrackingService', () => {
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
-                distinctId?: string
-                captureEngagement?: boolean
                 headerCode?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
@@ -493,12 +489,9 @@ describe('EmailTrackingService', () => {
                         teamId: team.id,
                         parentRunId,
                         workflowVersion,
-                        distinctId,
-                        captureEngagement,
                     },
                     false,
-                    workflowVersion !== undefined,
-                    captureEngagement !== undefined
+                    workflowVersion !== undefined
                 )
                 const sesRecord = {
                     eventType: 'Bounce',
@@ -638,12 +631,11 @@ describe('EmailTrackingService', () => {
 
             it.each([
                 { captureEngagement: true, teamCaptures: true, captured: 1 },
-                { captureEngagement: true, teamCaptures: false, captured: 0 },
-                { captureEngagement: false, teamCaptures: true, captured: 0 },
                 { captureEngagement: undefined, teamCaptures: true, captured: 1 },
-                { captureEngagement: undefined, teamCaptures: false, captured: 0 },
+                { captureEngagement: false, teamCaptures: true, captured: 0 },
+                { captureEngagement: true, teamCaptures: false, captured: 0 },
             ])(
-                "captures with the send's choice $captureEngagement only when the team switch $teamCaptures allows it",
+                "captures the bounce of a sent email by the send's choice $captureEngagement and the team switch $teamCaptures",
                 async ({ captureEngagement, teamCaptures, captured }) => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
@@ -652,38 +644,6 @@ describe('EmailTrackingService', () => {
                              email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
                          VALUES ($1, $2, 'off', '', '', 0)`,
                         [team.id, teamCaptures],
-                        'test-set-engagement-capture'
-                    )
-                    const hogFlow = await insertHogFlow(
-                        hub.postgres,
-                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
-                    )
-
-                    const res = await postBounce({ functionId: hogFlow.id, distinctId: 'user-1', captureEngagement })
-                    expect(res.status).toBe(200)
-
-                    const capturedEvents = mockInternalFetch.mock.calls.map(
-                        ([, options]) => parseJSON(String(options?.body)).event
-                    )
-                    expect(capturedEvents.filter((event) => event === '$workflows_email_bounced')).toHaveLength(
-                        captured
-                    )
-                }
-            )
-
-            it.each([
-                { captureEngagement: true, captured: 1 },
-                { captureEngagement: false, captured: 0 },
-            ])(
-                "captures the bounce of a sent email by the send's choice $captureEngagement",
-                async ({ captureEngagement, captured }) => {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        `INSERT INTO workflows_teamworkflowsconfig
-                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                             email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
-                         VALUES ($1, true, 'off', '', '', 0)`,
-                        [team.id],
                         'test-set-engagement-capture'
                     )
                     const hogFlow = await insertHogFlow(
