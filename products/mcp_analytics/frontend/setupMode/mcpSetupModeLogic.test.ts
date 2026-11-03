@@ -8,6 +8,7 @@ import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/produc
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -24,6 +25,7 @@ const captureRawMock = posthog.captureRaw as jest.Mock
 
 // Signal row shape: [has_initialize, tool_calls_total, tool_calls_7d, first_call_at]
 const NOT_INSTRUMENTED = [0, 0, 0, '1970-01-01T00:00:00Z']
+const ONE_CALL = [1, 1, 1, '2026-07-01T00:00:00Z']
 
 describe('mcpSetupModeLogic', () => {
     let logic: ReturnType<typeof mcpSetupModeLogic.build>
@@ -126,6 +128,28 @@ describe('mcpSetupModeLogic', () => {
             step: 'connect',
             reason: 'ask_ai',
         })
+    })
+
+    it.each([
+        { page: 'the welcome page', path: urls.onboardingWelcome(), expectedPath: urls.mcpAnalytics() },
+        // The onboarding step completes onboarding and redirects itself.
+        {
+            page: 'the onboarding install step',
+            path: '/onboarding/mcp_analytics',
+            expectedPath: '/onboarding/mcp_analytics',
+        },
+        { page: 'the scene', path: urls.mcpAnalyticsDashboard(), expectedPath: urls.mcpAnalyticsDashboard() },
+    ])('keeps the first-call reveal open when the first call lands on $page', async (testCase) => {
+        enableSetupMode(true)
+        router.actions.push(testCase.path, { setup: 'agent' })
+        await expectLogic(logic).toFinishAllListeners()
+        jest.spyOn(api, 'query').mockResolvedValue({ results: [ONE_CALL] } as any)
+
+        logic.actions.loadSignals()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(testCase.expectedPath)
+        expect(router.values.searchParams).toMatchObject({ setup: 'agent' })
     })
 
     it('exits on Escape wherever focus is', async () => {

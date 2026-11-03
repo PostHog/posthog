@@ -7,6 +7,7 @@ import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/produc
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -334,6 +335,13 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                     return () => clearInterval(id)
                 }, 'setupPoll')
             } else if (step === 'first-call') {
+                // Only the scene keeps a setup mode host once the product has data, so on the welcome page the
+                // reveal would unmount with the empty state. The onboarding step redirects itself, because it must
+                // complete onboarding first.
+                const path = removeProjectIdIfPresent(values.location.pathname)
+                if (!path.startsWith(urls.mcpAnalytics()) && !path.startsWith(urls.onboarding())) {
+                    router.actions.replace(urls.mcpAnalytics(), values.searchParams)
+                }
                 actions.loadRecentCalls()
                 cache.disposables.add(() => {
                     const id = window.setInterval(() => actions.loadRecentCalls(), FIRST_CALL_POLL_MS)
