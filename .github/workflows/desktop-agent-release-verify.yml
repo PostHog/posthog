@@ -34,6 +34,12 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
+                  sparse-checkout: |
+                      /packages/agent/
+                      /.github/actions/desktop-build-agent-release/
+                      /.nvmrc
+                      /products/desktop/pnpm-lock.yaml
+                  sparse-checkout-cone-mode: false
 
             - name: Setup pnpm
               uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
