@@ -2586,6 +2586,14 @@ export interface BoxPlotDatumApi {
     series_label?: string | null
 }
 
+export type MarketingAnalyticsCostSourceApi =
+    (typeof MarketingAnalyticsCostSourceApi)[keyof typeof MarketingAnalyticsCostSourceApi]
+
+export const MarketingAnalyticsCostSourceApi = {
+    Precomputed: 'precomputed',
+    Live: 'live',
+} as const
+
 export interface ClickhouseQueryProgressApi {
     active_cpu_time: number
     bytes_read: number
@@ -2756,6 +2764,8 @@ export interface TrendsQueryResponseApi {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** Which table served a Marketing cost trend. The live fallback has one series per source and ignores the breakdown, so a campaign split only applies when this is `precomputed`. */
+    marketingAnalyticsCostSource?: MarketingAnalyticsCostSourceApi | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */

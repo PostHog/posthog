@@ -6092,6 +6092,14 @@ export namespace Schemas {
       series_label?: string | null;
     }
 
+    export type MarketingAnalyticsCostSource = typeof MarketingAnalyticsCostSource[keyof typeof MarketingAnalyticsCostSource];
+
+
+    export const MarketingAnalyticsCostSource = {
+      Precomputed: 'precomputed',
+      Live: 'live',
+    } as const;
+
     /**
      * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
      */
@@ -6109,6 +6117,8 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** Which table served a Marketing cost trend. The live fallback has one series per source and ignores the breakdown, so a campaign split only applies when this is `precomputed`. */
+      marketingAnalyticsCostSource?: MarketingAnalyticsCostSource | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
@@ -94837,6 +94847,8 @@ export namespace Schemas {
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** Which table served a Marketing cost trend. The live fallback has one series per source and ignores the breakdown, so a campaign split only applies when this is `precomputed`. */
+      marketingAnalyticsCostSource?: MarketingAnalyticsCostSource | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */

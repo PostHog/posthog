@@ -2019,12 +2019,16 @@ export namespace Schemas {
         series_index?: (number | null) | undefined;
         series_label?: (string | null) | undefined;
     };
+    export type MarketingAnalyticsCostSource = "precomputed" | "live";
     export type TrendsQueryResponse = {
         action_names?: (Record<string, string> | null) | undefined;
         boxplot_data?: (Array<BoxPlotDatum> | null) | undefined;
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        marketingAnalyticsCostSource?:
+            | (MarketingAnalyticsCostSource | null)
+            | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
