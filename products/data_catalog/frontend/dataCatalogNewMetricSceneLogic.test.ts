@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -174,5 +176,17 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         logic.actions.testSqlQuery()
 
         expect(performQuery).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        [false, ['Data catalog', 'New metric']],
+        [true, ['Data catalog', 'Metrics', 'New metric']],
+    ])('with the catalog restructure %s the breadcrumbs read %j', (restructure, names) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: restructure,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: restructure,
+        })
+
+        expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(names)
     })
 })

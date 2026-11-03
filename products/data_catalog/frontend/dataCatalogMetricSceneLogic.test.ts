@@ -1,11 +1,15 @@
 import { router } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+import { SidePanelTab } from '~/types'
 
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
@@ -357,6 +361,30 @@ describe('dataCatalogMetricSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runResult?.compiled_query).toEqual('SELECT count()')
+    })
+
+    it('records the run and opens the agent when running with AI without scene integration', async () => {
+        ;(dataCatalogMetricsRunCreate as jest.Mock).mockResolvedValue({ results: [] })
+
+        logic.actions.runMetricWithAI()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsRunCreate).toHaveBeenCalledWith('1', 'weekly_active_users', {})
+        expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toContain('weekly_active_users')
+    })
+
+    it.each([
+        [false, ['Data catalog', 'Weekly active users']],
+        [true, ['Data catalog', 'Metrics', 'Weekly active users']],
+    ])('with the catalog restructure %s the breadcrumbs read %j', (restructure, names) => {
+        logic.actions.setMetric(buildMetric({ display_name: 'Weekly active users' }))
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: restructure,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: restructure,
+        })
+
+        expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(names)
     })
 
     it('discards the edited draft when the definition editor closes without saving', async () => {
