@@ -297,6 +297,7 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
     SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,

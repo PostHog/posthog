@@ -23,7 +23,7 @@ class BackblazeSource(SimpleSource[BackblazeSourceConfig]):
             name=ExternalDataSourceType.BACKBLAZE,
             category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="Backblaze B2",
-            iconPath="/static/services/backblaze.png",
+            iconPath="/static/services/backblaze.svg",
             keywords=["backblaze", "b2", "storage", "buckets"],
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
