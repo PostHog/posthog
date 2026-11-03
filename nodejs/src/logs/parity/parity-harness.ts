@@ -404,7 +404,14 @@ export function buildParityConsumer(
                 return Promise.resolve(scenario.pattern_message_keys[teamId] ?? MESSAGE_KEYS)
             },
         } as unknown as LogsIngestionConsumerDeps['patternMessageKeysCache'],
-        internalSourcePolicies: scenario.internal_source_policies,
+        internalSourcePolicies:
+            scenario.internal_source_policies &&
+            Object.fromEntries(
+                Object.entries(scenario.internal_source_policies).map(([source, policy]) => [
+                    source,
+                    { ...policy, serviceName: `posthog-internal-${source}` },
+                ])
+            ),
         tracingConfigCache: {
             getRetentionDays: (teamId: number) => Promise.resolve(scenario.traces_retention_days[teamId] ?? 30),
         } as unknown as TracesIngestionConsumerDeps['tracingConfigCache'],
