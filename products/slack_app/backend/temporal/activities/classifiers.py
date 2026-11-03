@@ -2,12 +2,18 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 
+from django.conf import settings
+
 import structlog
 from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
-from posthog.llm.gateway_client import Product, build_anthropic_client, build_openai_client, trace_id_from_seed
+from posthog.llm.gateway_client import (
+    build_ai_gateway_anthropic_client,
+    build_ai_gateway_openai_client,
+    trace_id_from_seed,
+)
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -50,9 +56,6 @@ CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 # The classifiers bill the customer's PostHog AI credits, the same as the Slack agent's runs,
 # so they share its product.
 CLASSIFIER_AI_PRODUCT = "slack_app"
-# The Python gateway's `slack_app` route refuses API keys, so its fallback keeps the
-# `slack_app_routing` route, which accepts them. The usage report does not bill that route.
-CLASSIFIER_FALLBACK_ROUTE: Product = "slack_app_routing"
 
 # Every classifier here and every Slack agent run share `ai_product="slack_app"`, so the captured
 # generation carries this property to say which classifier made the call. An online evaluation
@@ -235,8 +238,7 @@ def classify_task_needs_repo(
     )
     try:
         # The Go gateway refuses a Claude model on chat completions.
-        client = build_anthropic_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
+        client = build_ai_gateway_anthropic_client(
             ai_product=CLASSIFIER_AI_PRODUCT,
             trace_id=trace_id,
             properties=_classifier_properties("task_needs_repo", team_id),
@@ -363,8 +365,8 @@ def classify_message_is_agent_directed(
         event_text=event_text,
     )
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
+        client = build_ai_gateway_openai_client(
+            settings.AI_GATEWAY_API_KEY,
             ai_product=CLASSIFIER_AI_PRODUCT,
             trace_id=trace_id,
             properties=_classifier_properties("agent_directed", team_id),
@@ -542,8 +544,8 @@ def classify_slack_app_model_override(
     )
 
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
+        client = build_ai_gateway_openai_client(
+            settings.AI_GATEWAY_API_KEY,
             ai_product=CLASSIFIER_AI_PRODUCT,
             trace_id=trace_id,
             properties=_classifier_properties("model_override", team_id),
@@ -695,13 +697,13 @@ def classify_slack_app_project_route(
         event_text=event_text,
     )
 
+    client = build_ai_gateway_openai_client(
+        settings.AI_GATEWAY_API_KEY,
+        ai_product=CLASSIFIER_AI_PRODUCT,
+        trace_id=trace_id,
+        properties=_classifier_properties("project_route", team_id),
+    ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
     try:
-        client = build_openai_client(
-            product=CLASSIFIER_FALLBACK_ROUTE,
-            ai_product=CLASSIFIER_AI_PRODUCT,
-            trace_id=trace_id,
-            properties=_classifier_properties("project_route", team_id),
-        ).with_options(timeout=PROJECT_ROUTE_TIMEOUT_SECONDS, max_retries=PROJECT_ROUTE_MAX_RETRIES)
         response = client.chat.completions.create(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],

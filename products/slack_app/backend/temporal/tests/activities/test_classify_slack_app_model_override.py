@@ -74,7 +74,7 @@ class TestClassifySlackAppModelOverride:
 
     def test_llm_failure_falls_back_to_no_override(self):
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_openai_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client",
             side_effect=RuntimeError("boom"),
         ):
             assert classify_slack_app_model_override("use fable for this", CHOICES) is None
@@ -88,7 +88,7 @@ class TestClassifySlackAppModelOverride:
         """
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_openai_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override("use fable for this", CHOICES)
@@ -112,7 +112,7 @@ class TestClassifySlackAppModelOverride:
         # instead of taking the fallback this classifier is built around.
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_openai_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override("use fable for this", CHOICES)
@@ -126,7 +126,7 @@ class TestClassifySlackAppModelOverride:
         # The route 400s on `max_tokens`, and the except turns that into a silent "no override".
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_openai_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override("use fable for this", CHOICES)
@@ -147,7 +147,7 @@ class TestClassifySlackAppModelOverride:
     def _render_prompt(self, text: str) -> str:
         fake_client = self._fake_client('{"model": null, "reasoning_effort": null}')
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_openai_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client",
             return_value=fake_client,
         ):
             classify_slack_app_model_override(text, CHOICES)
@@ -165,7 +165,7 @@ class TestClassifySlackAppModelOverride:
 
     def _classify(self, text: str, content: str):
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_openai_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client",
             return_value=self._fake_client(content),
         ):
             return classify_slack_app_model_override(text, CHOICES)
