@@ -2822,7 +2822,7 @@
         },
         "AssistantDataVisualizationColumn": {
             "additionalProperties": false,
-            "description": "A column with number formatting only. Series display settings apply only to Y-axis series.",
+            "description": "A column with a description and number formatting. Series display settings apply only to Y-axis series.",
             "properties": {
                 "column": {
                     "description": "Name of a column returned by the SQL query.",
@@ -2830,15 +2830,29 @@
                 },
                 "settings": {
                     "$ref": "#/definitions/AssistantDataVisualizationColumnSettings",
-                    "description": "Optional number formatting for this column."
+                    "description": "Optional display and number-formatting settings for this column."
                 }
             },
             "required": ["column"],
             "type": "object"
         },
+        "AssistantDataVisualizationColumnDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "Table column description shown in the header tooltip.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDataVisualizationColumnSettings": {
             "additionalProperties": false,
             "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationColumnDisplaySettings",
+                    "description": "Display settings for this column."
+                },
                 "formatting": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
                     "description": "Number-formatting settings for the values in this column."
@@ -18251,6 +18265,9 @@
             "additionalProperties": false,
             "properties": {
                 "color": {
+                    "type": "string"
+                },
+                "description": {
                     "type": "string"
                 },
                 "displayType": {
@@ -36526,6 +36543,10 @@
                 },
                 "performanceMaxSearchTermTable": {
                     "description": "Google Ads search term table for Performance Max campaigns.",
+                    "type": "string"
+                },
+                "queryPageTable": {
+                    "description": "Google Search Console table with one row per query and page, used to find the page that ranks for a search.",
                     "type": "string"
                 },
                 "queryTable": {

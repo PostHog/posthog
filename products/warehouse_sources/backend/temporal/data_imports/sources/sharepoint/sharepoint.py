@@ -33,7 +33,12 @@ VALIDATE_TIMEOUT_SECONDS = 30
 _module_logger: FilteringBoundLogger = structlog.get_logger(__name__)
 
 LIST_ENDPOINTS = (SharePointEndpoint.LIST_ITEMS, SharePointEndpoint.LIST_ITEM_VERSIONS)
-VERSION_ENDPOINTS = (SharePointEndpoint.DRIVE_ITEM_VERSIONS, SharePointEndpoint.LIST_ITEM_VERSIONS)
+# Tables read with one request per list item or drive item, keyed by the collection below each item.
+ITEM_CHILD_COLLECTIONS = {
+    SharePointEndpoint.DRIVE_ITEM_VERSIONS: "versions",
+    SharePointEndpoint.LIST_ITEM_VERSIONS: "versions",
+    SharePointEndpoint.DRIVE_ITEM_PERMISSIONS: "permissions",
+}
 
 SITES_DENIED_ERROR = (
     "Microsoft Graph denied access to SharePoint. Grant the app the Sites.Read.All application permission "
@@ -396,8 +401,8 @@ def _iter_grandchildren(
             def stage(next_url: str, site_id: str = site_id, parent_id: str = parent_id) -> None:
                 manager.save_state(SharePointResumeConfig(site_id=site_id, parent_id=parent_id, next_url=next_url))
 
-            if endpoint in VERSION_ENDPOINTS:
-                pages = _iter_parent_versions(
+            if endpoint in ITEM_CHILD_COLLECTIONS:
+                pages = _iter_item_children(
                     client, endpoint, quoted_site, site_id, parent_id, start_url, stage, manager.safe_point, logger
                 )
             else:
@@ -464,7 +469,19 @@ def _iter_parent_rows(
             yield rows
 
 
-def _iter_parent_versions(
+def _strip_access_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    # Graph's preauthenticated download URL grants temporary access to the document contents.
+    row.pop("@microsoft.graph.downloadUrl", None)
+    link = row.get("link")
+    if isinstance(link, dict) and link.get("scope") == "anonymous":
+        # Anyone with an anonymous sharing link can open the item without signing in.
+        link.pop("webUrl", None)
+        link.pop("webHtml", None)
+        row.pop("shareId", None)
+    return row
+
+
+def _iter_item_children(
     client: SharePointClient,
     endpoint: SharePointEndpoint,
     quoted_site: str,
@@ -475,22 +492,23 @@ def _iter_parent_versions(
     safe_point: Callable[[], None],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Versions of every item in one list (`list_item_versions`) or every file in one drive (`drive_item_versions`).
+    """Rows below every item in one list or drive: versions of list items and files, or permissions of drive items.
 
-    The cursor names the page of items in progress, not the next one, because the versions of
-    that page are still being read. A resume reads the versions of that page again.
+    The cursor names the page of items in progress, not the next one, because the rows of
+    that page are still being read. A resume reads the rows of that page again.
     """
     quoted_parent = quote(parent_id, safe="!-_")
     is_list = endpoint == SharePointEndpoint.LIST_ITEM_VERSIONS
+    collection = ITEM_CHILD_COLLECTIONS[endpoint]
     if is_list:
         items_path = f"/sites/{quoted_site}/lists/{quoted_parent}/items"
         item_prefix = items_path
-        version_params: Optional[dict[str, str]] = {"expand": "fields"}
+        child_params: Optional[dict[str, str]] = {"expand": "fields"}
         parent_columns = {SITE_ID_COLUMN: site_id, LIST_ID_COLUMN: parent_id}
     else:
         items_path = f"/drives/{quoted_parent}/root/delta"
         item_prefix = f"/drives/{quoted_parent}/items"
-        version_params = None
+        child_params = None
         parent_columns = {SITE_ID_COLUMN: site_id, DRIVE_ID_COLUMN: parent_id}
 
     next_url: Optional[str] = None
@@ -509,18 +527,17 @@ def _iter_parent_versions(
             item_id = item.get("id")
             if item_id is None or item_id in seen:
                 continue
-            # Folders have no versions, and delta can return an item more than once.
-            if not is_list and (item.get("deleted") is not None or item.get("file") is None):
+            # Delta can return an item more than once. Folders have permissions but no versions.
+            if not is_list and item.get("deleted") is not None:
+                continue
+            if endpoint == SharePointEndpoint.DRIVE_ITEM_VERSIONS and item.get("file") is None:
                 continue
             seen.add(item_id)
-            path = f"{item_prefix}/{quote(item_id, safe='!-_')}/versions"
+            path = f"{item_prefix}/{quote(item_id, safe='!-_')}/{collection}"
             item_columns = {**parent_columns, ITEM_ID_COLUMN: item_id}
             item_yielded = False
-            for versions in _walk_child_collection(client, path, version_params, None, lambda _: None, logger):
-                rows = []
-                for version in versions:
-                    version.pop("@microsoft.graph.downloadUrl", None)
-                    rows.append(_normalize(version, endpoint, **item_columns))
+            for children in _walk_child_collection(client, path, child_params, None, lambda _: None, logger):
+                rows = [_normalize(_strip_access_secrets(child), endpoint, **item_columns) for child in children]
                 item_yielded = True
                 yield rows
             if item_yielded:
@@ -568,6 +585,7 @@ def _get_rows(
         SharePointEndpoint.LISTS: "lists",
         SharePointEndpoint.DRIVES: "drives",
         SharePointEndpoint.CONTENT_TYPES: "contentTypes",
+        SharePointEndpoint.SITE_PAGES: "pages/microsoft.graph.sitePage",
     }
     if sharepoint_endpoint == SharePointEndpoint.SITE_ACTIVITY_STATS:
         collection = _activity_stats_collection(incremental_field_last_value, datetime.now(UTC))
