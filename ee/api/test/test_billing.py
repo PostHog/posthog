@@ -44,6 +44,7 @@ from ee.api.billing import (
     _EXPORT_STREAMS,
     BILLING_ACCESS_DENIED_MESSAGE,
     BILLING_PROJECT_ACCESS_DENIED_MESSAGE,
+    AISpendPeriod,
     BillingDateRangeTooLong,
     BillingExportThrottle,
     BillingNotManagedByPartner,
@@ -1669,7 +1670,9 @@ class TestAISpendPeriod(SimpleTestCase):
     ) -> None:
         organization = Organization(usage={"period": period} if period else None)
 
-        assert ai_spend_period(organization, periods_ago, datetime(2026, 11, 3, 12, tzinfo=UTC)) == (start, end)
+        assert ai_spend_period(organization, periods_ago, datetime(2026, 11, 3, 12, tzinfo=UTC)) == AISpendPeriod(
+            start=start, end=end
+        )
 
 
 class TestPartnerManagedBillingAPI(APILicensedTest):
@@ -1816,6 +1819,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         "ai_credit_settings",
         "ai_credit_history",
         "ai_credit_card",
+        "ai_spend",
     }
     UNLOCKED_WRITE_ACTIONS = {
         "deactivate",

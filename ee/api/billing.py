@@ -31,6 +31,7 @@ from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMix
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, get_org_spend
@@ -941,8 +942,16 @@ class AISpendResponseSerializer(serializers.Serializer):
     days = AISpendDaySerializer(many=True, help_text="Spend by day, for the days so far.")
 
 
-def ai_spend_period(organization: Organization, periods_ago: int, now: datetime) -> tuple[date, date]:
-    """The period's first day and the next period's first day. An organization with no billing period gets calendar months."""
+@frozen
+class AISpendPeriod:
+    start: date
+    """The period's first day."""
+    end: date
+    """The next period's first day."""
+
+
+def ai_spend_period(organization: Organization, periods_ago: int, now: datetime) -> AISpendPeriod:
+    """An organization with no billing period gets calendar months."""
     billing_period = organization.current_billing_period
     if billing_period:
         start, end = billing_period.start.date(), billing_period.end.date()
@@ -950,9 +959,11 @@ def ai_spend_period(organization: Organization, periods_ago: int, now: datetime)
         start = now.date().replace(day=1)
         end = start + relativedelta(months=1)
     if periods_ago == 0:
-        return start, end
+        return AISpendPeriod(start=start, end=end)
     # Each bound counts back from the current start, so a period anchored on the 31st stays on the 31st.
-    return start - relativedelta(months=periods_ago), start - relativedelta(months=periods_ago - 1)
+    return AISpendPeriod(
+        start=start - relativedelta(months=periods_ago), end=start - relativedelta(months=periods_ago - 1)
+    )
 
 
 def _ai_credits_error(
@@ -1611,13 +1622,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not get_cached_instance_license():
             raise NotFound("AI credits need PostHog Cloud.")
         organization = self._get_org_required()
-        start, end = ai_spend_period(organization, request.validated_query_data["periods_ago"], timezone.now())
+        period = ai_spend_period(organization, request.validated_query_data["periods_ago"], timezone.now())
         try:
-            spend = get_org_spend(str(organization.id), start, end)
+            spend = get_org_spend(str(organization.id), start=period.start, end=period.end)
         except AIGatewayInternalError as error:
             logger.warning("ai_spend_gateway_unavailable", organization_id=str(organization.id))
             raise AISpendUnavailable() from error
-        answer = AISpendResponseSerializer(data={**spend, "period_start": start, "period_end": end})
+        answer = AISpendResponseSerializer(data={**spend, "period_start": period.start, "period_end": period.end})
         if not answer.is_valid():
             logger.warning(
                 "ai_spend_gateway_answer_invalid", organization_id=str(organization.id), errors=answer.errors
