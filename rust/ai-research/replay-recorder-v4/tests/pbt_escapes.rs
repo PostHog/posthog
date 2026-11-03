@@ -191,7 +191,7 @@ fn secret_range(url: &str) -> std::ops::Range<usize> {
     url.find(SECRET).map_or(0..0, |at| at..at + SECRET.len())
 }
 
-/// `url` as the URL parser reads it the same: the scheme and host in any letter case, the default port, a dot segment in the path, or the first letter of the host percent-encoded.
+/// `url` as the URL parser reads it the same: the scheme and host in any letter case, the default port, a dot segment in the path, the first letter of the host percent-encoded, or fullwidth letters in the host, which IDNA maps to ASCII.
 fn parsed_alike(tc: &TestCase, url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("//") else {
         return url.to_owned();
@@ -225,9 +225,22 @@ fn parsed_alike(tc: &TestCase, url: &str) -> String {
             })
             .collect(),
     };
-    if draw_index(tc, 4) == 0 {
-        let first = host.remove(0);
-        host.insert_str(0, &format!("%{:02X}", first as u32));
+    match draw_index(tc, 8) {
+        0 | 1 => {
+            let first = host.remove(0);
+            host.insert_str(0, &format!("%{:02X}", first as u32));
+        }
+        2 => {
+            host = host
+                .chars()
+                .enumerate()
+                .map(|(at, ch)| match char::from_u32(ch as u32 + 0xFEE0) {
+                    Some(fullwidth) if at % 2 == 1 && ch.is_ascii_alphabetic() => fullwidth,
+                    _ => ch,
+                })
+                .collect()
+        }
+        _ => {}
     }
     if draw_index(tc, 6) == 0 {
         host.push('.');

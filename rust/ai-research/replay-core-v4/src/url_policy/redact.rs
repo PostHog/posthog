@@ -9,7 +9,7 @@ use url::{form_urlencoded, Url};
 
 use super::{
     as_parsed, decoded_lowercase_path, has_credential_path, has_credential_query,
-    is_credential_param, is_remote, path_tokens, PathToken, MAX_URL_LEN,
+    is_credential_param, path_tokens, PathToken, MAX_URL_LEN,
 };
 
 /// The URL parser reads these with an authority, and a backslash in them as a slash. A URL with no scheme resolves
@@ -39,19 +39,21 @@ pub fn redaction(raw: &str) -> Redaction {
         return Redaction::Clean;
     }
     let url = as_parsed(raw);
-    if !may_hold_credential(&url) {
-        return Redaction::Clean;
-    }
+    // A text check reads a URL otherwise than the URL parser, which maps a host with IDNA, decodes it and drops dot
+    // segments. So every URL within the fetcher's limit is parsed, and a longer one keeps none of its text.
     if url.len() > MAX_URL_LEN {
         return Redaction::Unread;
     }
-    let (Some(parsed), Some(parts)) = (parsed_as_the_policy_does(&url), Parts::of(&url)) else {
+    let Some(parsed) = parsed_as_the_policy_does(&url) else {
         return Redaction::Unread;
     };
     if !holds_credential(&parsed) {
         return Redaction::Clean;
     }
-    let cut = parts.without_credentials(&url);
+    let Some(parts) = Parts::of(&url) else {
+        return Redaction::Unread;
+    };
+    let cut = parts.without_credentials(&url, page_host(&parsed));
     if parsed_as_the_policy_does(&cut).is_some_and(|cut| !holds_credential(&cut)) {
         return Redaction::Redacted(cut);
     }
@@ -81,12 +83,8 @@ fn holds_credential(parsed: &Url) -> bool {
     if has_credential_query(parsed).unwrap_or(true) {
         return true;
     }
-    let host = parsed
-        .host_str()
-        .filter(|&host| Some(host) != RELATIVE_BASE.host_str())
-        .map(|host| host.strip_suffix('.').unwrap_or(host));
     match decoded_lowercase_path(parsed) {
-        Ok(path) if has_credential_path(&path, host) => return true,
+        Ok(path) if has_credential_path(&path, page_host(parsed)) => return true,
         Ok(_) => {}
         Err(_) => return true,
     }
@@ -98,29 +96,12 @@ fn holds_credential(parsed: &Url) -> bool {
     })
 }
 
-/// A credential needs userinfo, a query or fragment, a path parameter, an escape, or one of the path tokens that the
-/// policy knows, so a URL with none of those needs no parse. The text is read as the URL parser reads it, without
-/// tabs and line breaks and with a backslash as a slash, and as if a slash came before it, as before a relative path.
-fn may_hold_credential(url: &str) -> bool {
-    let relative = !is_remote(url);
-    let mut recent = [b'/'; 16];
-    for &byte in url.as_bytes() {
-        let byte = match byte {
-            b'\t' | b'\n' | b'\r' => continue,
-            b'@' | b'?' | b'#' | b';' | b'%' => return true,
-            b'\\' => b'/',
-            _ => byte.to_ascii_lowercase(),
-        };
-        recent.copy_within(1.., 0);
-        recent[recent.len() - 1] = byte;
-        let holds_token = [&b"--"[..], b"bcdn_token", b"oraclecloud", b"/sign/"]
-            .iter()
-            .any(|token| recent.ends_with(token));
-        if holds_token || (relative && recent.ends_with(b"/p/")) {
-            return true;
-        }
-    }
-    false
+/// The host as the policy reads it, or `None` for a relative URL, whose host is the page's.
+fn page_host(parsed: &Url) -> Option<&str> {
+    parsed
+        .host_str()
+        .filter(|&host| Some(host) != RELATIVE_BASE.host_str())
+        .map(|host| host.strip_suffix('.').unwrap_or(host))
 }
 
 /// A URL of a scheme such as `data:` or `mailto:` holds no path to a host. The URL parser drops tabs and line breaks
@@ -220,37 +201,24 @@ impl Parts {
         })
     }
 
-    /// Where the host starts after any userinfo, and the host in lower case without a trailing dot.
-    fn host(&self, url: &str) -> (usize, String) {
-        let Some(authority) = self.authority.clone() else {
-            return (0, String::new());
-        };
-        let host_start = url[authority.clone()]
+    /// Where the host starts after any userinfo.
+    fn host_start(&self, url: &str, authority: &Range<usize>) -> usize {
+        url[authority.clone()]
             .rfind('@')
-            .map_or(authority.start, |at| authority.start + at + 1);
-        let host = url[host_start..authority.end]
-            .split(':')
-            .next()
-            .unwrap_or_default();
-        let host = percent_decode_str(host)
-            .decode_utf8_lossy()
-            .to_ascii_lowercase();
-        let host = host.strip_suffix('.').unwrap_or(&host).to_owned();
-        (host_start, host)
+            .map_or(authority.start, |at| authority.start + at + 1)
     }
 
-    fn without_credentials(&self, url: &str) -> String {
+    /// `host` is the host as the policy reads it, which the path's tokens can depend on.
+    fn without_credentials(&self, url: &str, host: Option<&str>) -> String {
         let mut out = String::with_capacity(url.len());
-        let (host_start, host) = self.host(url);
         match &self.authority {
             Some(authority) => {
                 out.push_str(&url[..authority.start]);
-                out.push_str(&url[host_start..authority.end]);
+                out.push_str(&url[self.host_start(url, authority)..authority.end]);
             }
             None => out.push_str(&url[..self.path.start]),
         }
         let mut copied_to = self.path.start;
-        let host = self.authority.is_some().then_some(host.as_str());
         for cut in self.path_cuts(url, host) {
             out.push_str(&url[copied_to..cut.start]);
             copied_to = cut.end;
@@ -277,14 +245,11 @@ impl Parts {
     /// The scheme and host without the userinfo, or `/` for a relative URL.
     fn origin(&self, url: &str) -> String {
         match &self.authority {
-            Some(authority) => {
-                let (host_start, _) = self.host(url);
-                format!(
-                    "{}{}/",
-                    &url[..authority.start],
-                    &url[host_start..authority.end]
-                )
-            }
+            Some(authority) => format!(
+                "{}{}/",
+                &url[..authority.start],
+                &url[self.host_start(url, authority)..authority.end]
+            ),
             None if url.starts_with(['/', '\\']) => "/".to_owned(),
             None => String::new(),
         }
@@ -475,6 +440,11 @@ mod tests {
                 r"https://cdn.example.com\storage\v1\object\sign\abc",
                 Some("https://cdn.example.com/"),
             ),
+            // IDNA maps fullwidth letters to ASCII, so this host is an Oracle bucket.
+            (
+                "https://objectstorage.r.ｏｒａｃｌｅｃｌｏｕｄ.com/p/abc/n/ns",
+                Some("https://objectstorage.r.ｏｒａｃｌｅｃｌｏｕｄ.com/p/n/ns"),
+            ),
             ("https://cdn.example.com/a.png?w=10", None),
             ("https://cdn.example.com/a.png#token", None),
             ("data:image/png;base64,abc?token=x", None),
@@ -497,6 +467,7 @@ mod tests {
             "https://cdn.example.com/image/upload%2Fs--secret--%2Fv1/a.png",
             "https://cdn.example.com/a;jsessionid=first;jsessionid=secret",
             "https://cdn.example.com/x/./../bcdn_token=secret/a.png",
+            "https://ＯＢＪＥＣＴＳＴＯＲＡＧＥ.r.ｏｒａｃｌｅｃｌｏｕｄ.com/p/secret/n/ns",
         ] {
             assert_eq!(checked_url(raw).err(), Some(Decline::Credential), "{raw}");
             let kept = without_credentials(raw).unwrap();
@@ -510,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_no_credential_url_past_the_fetchers_limit() {
+    fn reads_no_url_past_the_fetchers_limit() {
         let long = format!(
             "https://cdn.example.com{}?token=abc",
             "/a".repeat(16 * 1024 * 1024)
@@ -520,6 +491,7 @@ mod tests {
         for long in [
             format!("https://cdn.example.com/bcdn_to\tken=abc{padding}"),
             format!("/p/abc/n/ns/b/bucket/o{padding}"),
+            format!("https://cdn.example.com{padding}"),
         ] {
             assert_eq!(redaction(&long), Redaction::Unread);
         }
