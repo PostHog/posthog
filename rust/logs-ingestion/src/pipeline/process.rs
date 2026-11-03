@@ -19,7 +19,7 @@ use super::context::{
     applies_team_log_rules, is_unbilled_internal, parse_kafka_headers_except,
     quarantine_log_message, team_id_matches_csv, AppSource, LogsPipelineContext, LOGS_OUTPUT,
 };
-use super::errors::is_dependency_unavailable;
+use super::errors::{is_dependency_unavailable, kafka_outage_as_dependency};
 use super::resolve::resolve_log_buffer;
 use super::types::{billing_byte_reduction_for_drops, LogsIngestionMessage, UsageStatsByTeam};
 
@@ -322,6 +322,7 @@ async fn process_log_message(
                     .outputs
                     .queue_messages(LOGS_OUTPUT, vec![out])
                     .await
+                    .map_err(kafka_outage_as_dependency)
             }
         })
         .await

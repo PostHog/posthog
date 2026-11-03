@@ -24,7 +24,7 @@ use super::config::LogsIngestionConsumerConfig;
 use super::consumer::LogsIngestionConsumer;
 use super::context::LogsConsumerIdentity;
 use super::deps::*;
-use super::errors::{DependencyRetry, DependencyUnavailableError, NamedError};
+use super::errors::{DependencyRetry, DependencyUnavailableError, KafkaProduceError, NamedError};
 
 fn get<'a>(v: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     match v {
@@ -74,6 +74,13 @@ fn to_error(spec: &JsValue) -> anyhow::Error {
         return anyhow::Error::new(DependencyUnavailableError {
             message,
             dependency_name: "parity".to_string(),
+        });
+    }
+    if let Some(code) = n(get(spec, "kafka_code")) {
+        return anyhow::Error::new(KafkaProduceError {
+            code: code as i32,
+            name,
+            message,
         });
     }
     anyhow::Error::new(NamedError::new(name, message))

@@ -62,6 +62,33 @@
    "sha256": "b6bb19720f61809c306f3f57a16de163fe7967f1611b346d8d35a5d0876649d4"
   }
  ],
+ "faults-kafka-delivery.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "e9989bdfc6668d19d05a20a61b3efb9814e2a9d05ab58ef3766860d6eafbf32b"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "6c7919c8d6224c803ffc1b44f68e78e882e406061df847c78b593c4e8f0fdf47"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "bd8ea24db890499eabe2abe8c774fa73f7f938f728d482e6e5a12af05d318b08"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "20a8b747fd09c8f48673140431b93e8d8cec99b4ba1ecbb8ce919748951350ff"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "361373cfba5b907cc3441f4f51260ffc5663ea85b9d81433603d4d9294460dae"
+  }
+ ],
  "faults-team-by-id.json": [
   {
    "codec": "zstandard",

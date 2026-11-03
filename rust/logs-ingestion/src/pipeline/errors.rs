@@ -32,6 +32,47 @@ pub struct DependencyUnavailableError {
     pub dependency_name: String,
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("{message}")]
+pub struct KafkaProduceError {
+    pub code: i32,
+    pub name: String,
+    pub message: String,
+}
+
+pub const ERR_INVALID_MSG: i32 = 2;
+pub const ERR_INVALID_MSG_SIZE: i32 = 4;
+pub const ERR_MSG_SIZE_TOO_LARGE: i32 = 10;
+pub const ERR_RECORD_LIST_TOO_LARGE: i32 = 18;
+pub const ERR_INVALID_RECORD: i32 = 87;
+pub const ERR_BAD_MSG: i32 = -199;
+pub const ERR_INVALID_ARG: i32 = -186;
+pub const ERR_INVALID_TYPE: i32 = -154;
+
+pub const PER_MESSAGE_KAFKA_ERROR_CODES: [i32; 8] = [
+    ERR_INVALID_MSG,
+    ERR_INVALID_MSG_SIZE,
+    ERR_MSG_SIZE_TOO_LARGE,
+    ERR_RECORD_LIST_TOO_LARGE,
+    ERR_INVALID_RECORD,
+    ERR_BAD_MSG,
+    ERR_INVALID_ARG,
+    ERR_INVALID_TYPE,
+];
+
+/// `rethrowKafkaOutageAsDependency`: a Kafka outage on the logs produce replays the batch.
+pub fn kafka_outage_as_dependency(error: anyhow::Error) -> anyhow::Error {
+    match error.downcast_ref::<KafkaProduceError>() {
+        Some(e) if !PER_MESSAGE_KAFKA_ERROR_CODES.contains(&e.code) => {
+            anyhow::Error::new(DependencyUnavailableError {
+                message: e.message.clone(),
+                dependency_name: "Kafka".to_string(),
+            })
+        }
+        _ => error,
+    }
+}
+
 pub fn is_dependency_unavailable(error: &anyhow::Error) -> bool {
     error.downcast_ref::<DependencyUnavailableError>().is_some()
 }
@@ -39,6 +80,9 @@ pub fn is_dependency_unavailable(error: &anyhow::Error) -> bool {
 /// `error instanceof Error ? error.name : 'UnknownError'`.
 pub fn error_name(error: &anyhow::Error) -> String {
     if let Some(e) = error.downcast_ref::<NamedError>() {
+        return e.name.clone();
+    }
+    if let Some(e) = error.downcast_ref::<KafkaProduceError>() {
         return e.name.clone();
     }
     if error.downcast_ref::<DependencyUnavailableError>().is_some() {

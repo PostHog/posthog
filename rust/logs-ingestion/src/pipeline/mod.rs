@@ -21,5 +21,5 @@ pub use config::LogsIngestionConsumerConfig;
 pub use consumer::{BackgroundTask, LogsIngestionConsumer, ProcessedBatch};
 pub use context::{AppSource, LogsConsumerIdentity, LOGS_DLQ_OUTPUT, LOGS_OUTPUT};
 pub use deps::*;
-pub use errors::{DependencyRetry, DependencyUnavailableError, NamedError};
+pub use errors::{DependencyRetry, DependencyUnavailableError, KafkaProduceError, NamedError};
 pub use types::LogsIngestionMessage;
