@@ -30,19 +30,41 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
     const now = useNow()
     const filters = useInboxFilters()
     const query = useInboxItems({ filters, refreshWhileVisible: active })
-    const prefetch = usePrefetchReports(query.data)
+    const prefetch = usePrefetchReports(active ? query.data : undefined)
     const setRead = useSetReportRead()
     const filterActions = inboxFilterActions(filters)
     const [filtersOpen, setFiltersOpen] = useState(false)
     const listRef = useRef<FlatList<InboxItem>>(null)
     const revealed = useRef(false)
-    useEffect(() => {
-        if (!active || revealed.current || !query.data) return
+    const revealFailed = useRef(false)
+    const revealFrame = useRef<number | null>(null)
+    const revealSelected = useCallback((): void => {
+        if (!active || revealed.current || !query.data || !listRef.current) return
         const index = query.data.findIndex((item) => item.reportId === selectedReportId)
         if (index < 0) return
-        revealed.current = true
-        if (index > 0) listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.4 })
+        revealFailed.current = false
+        if (index > 0) listRef.current.scrollToIndex({ index, animated: false, viewPosition: 0.4 })
+        revealed.current = !revealFailed.current
     }, [active, query.data, selectedReportId])
+    const cancelRevealFrame = useCallback((): void => {
+        if (revealFrame.current !== null) {
+            cancelAnimationFrame(revealFrame.current)
+            revealFrame.current = null
+        }
+    }, [])
+    const scheduleReveal = useCallback((): void => {
+        if (!active || revealed.current || revealFrame.current !== null) return
+        revealFrame.current = requestAnimationFrame(() => {
+            revealFrame.current = requestAnimationFrame(() => {
+                revealFrame.current = null
+                revealSelected()
+            })
+        })
+    }, [active, revealSelected])
+    useEffect(() => {
+        revealSelected()
+        return cancelRevealFrame
+    }, [revealSelected, cancelRevealFrame])
     const [menu, setMenu] = useState<RowMenuTarget | null>(null)
     const open = useCallback((id: string): void => router.setParams({ id, from: 'inbox' }), [router])
     const onMenu = useCallback((item: InboxItem, anchor: RowAnchor): void => setMenu({ item, anchor }), [])
@@ -80,16 +102,20 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
                 ref={listRef}
                 onScrollBeginDrag={() => {
                     revealed.current = true
+                    cancelRevealFrame()
                 }}
-                onScrollToIndexFailed={({ averageItemLength, index }) =>
+                onScrollToIndexFailed={({ averageItemLength, index }) => {
+                    revealFailed.current = true
                     listRef.current?.scrollToOffset({ offset: averageItemLength * index, animated: false })
-                }
+                }}
+                onContentSizeChange={scheduleReveal}
+                onLayout={scheduleReveal}
                 data={query.data ?? []}
                 onViewableItemsChanged={prefetch.onViewableItemsChanged}
                 viewabilityConfig={prefetch.viewabilityConfig}
                 keyExtractor={(item) => item.id}
                 renderItem={({ item }) => (
-                    <View style={item.reportId === selectedReportId && styles.selected}>
+                    <View style={item.reportId === selectedReportId && styles.selected} onLayout={scheduleReveal}>
                         <InboxRow
                             titleLines={3}
                             item={item}

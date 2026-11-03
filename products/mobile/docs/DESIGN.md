@@ -109,7 +109,9 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Before selection, the detail area asks the person to choose a report. Opening the device does not mark a report read.
 - Folding or entering a narrow Split View hides the inbox pane without remounting the selected report or its sheets.
   The expanded inbox shows the same filters and actions as the main inbox and initially reveals the selected report.
+  It retries the reveal as rows are measured, and stops if the reader starts scrolling.
   Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
+  The report's inbox pane only prefetches while it is visible and its screen is focused.
 - Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
   It requires at least 600pt of safe width; narrow cover displays keep the phone navigation and full reading width.
   The rail follows the side with the larger inset. Short windows keep horizontal tab navigation and the report's Back control,
@@ -130,7 +132,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.
   Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.
   Assignee and Project cards cap their width at 600pt; navigation menus cap at 400pt.
-  Android Back dismisses the top sheet or card before navigating away from the page behind it.
+  Android Back dismisses the top sheet or card on the focused screen before navigating away from that page.
 - Full-screen charts use the space remaining below the title and above the safe bottom edge, including short landscape phones.
 
 ## Component inventory
