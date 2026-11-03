@@ -786,6 +786,7 @@ export namespace Schemas {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -819,6 +820,7 @@ export namespace Schemas {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -909,6 +911,7 @@ export namespace Schemas {
       MarketingAnalytics: 'marketing_analytics',
       McpAnalytics: 'mcp_analytics',
       McpRegistry: 'mcp_registry',
+      MessagingPreference: 'messaging_preference',
       Metrics: 'metrics',
       Notebook: 'notebook',
       OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -942,6 +945,7 @@ export namespace Schemas {
       Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
+      TransactionalEmail: 'transactional_email',
       FieldNote: 'field_note',
       UploadedMedia: 'uploaded_media',
       UsageMetric: 'usage_metric',
@@ -1032,6 +1036,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1065,6 +1070,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1278,6 +1284,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1311,6 +1318,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -1690,6 +1698,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1723,6 +1732,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -52562,6 +52572,7 @@ export namespace Schemas {
      * * `task_repository` - task_repository
      * * `task_mcp_installations` - task_mcp_installations
      * * `signals_scout` - signals_scout
+     * * `posthog_survey` - posthog_survey
      * * `task_skills` - task_skills
      * * `replay_vision_scan` - replay_vision_scan
      */
@@ -52590,6 +52601,7 @@ export namespace Schemas {
       TaskRepository: 'task_repository',
       TaskMcpInstallations: 'task_mcp_installations',
       SignalsScout: 'signals_scout',
+      PosthogSurvey: 'posthog_survey',
       TaskSkills: 'task_skills',
       ReplayVisionScan: 'replay_vision_scan',
     } as const;
@@ -64690,6 +64702,70 @@ export namespace Schemas {
     }
 
     /**
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     * * `subscription` - Subscription
+     * * `alert` - Alert
+     */
+    export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
+
+
+    export const MemberOffboardingResourceKindEnum = {
+      Dashboard: 'dashboard',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Recording: 'recording',
+      Subscription: 'subscription',
+      Alert: 'alert',
+    } as const;
+
+    export interface MemberOffboardingResource {
+      /** Opaque identifier used to update this resource during offboarding. */
+      id: string;
+      /** Identifier accepted by the resource’s own API. */
+      resource_id: string;
+      /** The kind of public object or automated delivery.
+       *
+       * * `dashboard` - Dashboard
+       * * `insight` - Insight
+       * * `notebook` - Notebook
+       * * `recording` - Session recording
+       * * `subscription` - Subscription
+       * * `alert` - Alert */
+      kind: MemberOffboardingResourceKindEnum;
+      /** The resource's display name. */
+      name: string;
+      /** Project containing the resource. */
+      team_id: number;
+      /** Name of the project containing the resource. */
+      project_name: string;
+      /**
+         * When the subscription was created, if applicable.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * Subscription delivery channel: email, slack, or teams.
+         * @nullable
+         */
+      destination_type?: string | null;
+      /**
+         * Subscription recipients, Slack channels, or safe webhook host.
+         * @nullable
+         */
+      destination?: string | null;
+      /** Whether all active public links require a password. */
+      password_protected: boolean;
+      /**
+         * Project-scoped path to open the resource in PostHog.
+         * @nullable
+         */
+      url: string | null;
+    }
+
+    /**
      * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
      */
     export interface ProjectAccessSource {
@@ -64784,6 +64860,7 @@ export namespace Schemas {
        * * `marketing_analytics` - marketing_analytics
        * * `mcp_analytics` - mcp_analytics
        * * `mcp_registry` - mcp_registry
+       * * `messaging_preference` - messaging_preference
        * * `metrics` - metrics
        * * `notebook` - notebook
        * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -64817,6 +64894,7 @@ export namespace Schemas {
        * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
+       * * `transactional_email` - transactional_email
        * * `field_note` - field_note
        * * `uploaded_media` - uploaded_media
        * * `usage_metric` - usage_metric
@@ -66204,6 +66282,13 @@ export namespace Schemas {
          * @nullable
          */
       next_measurement_at: string | null;
+    }
+
+    export interface MonitoringUnresolvedSignalExtra {
+      /** Original Closed report whose implementation remains unverified. */
+      report_id: string;
+      /** Monitoring attempt that durably requested this investigation. */
+      attempt_id: string;
     }
 
     export interface MonteCarloAlertSignalExtra {
@@ -97439,6 +97524,7 @@ export namespace Schemas {
      * * `ci_duration_regression` - ci_duration_regression
      * * `search_opportunity` - search_opportunity
      * * `check_failed` - check_failed
+     * * `monitoring_unresolved` - monitoring_unresolved
      * * `incident` - incident
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
@@ -97468,6 +97554,7 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
       SearchOpportunity: 'search_opportunity',
       CheckFailed: 'check_failed',
+      MonitoringUnresolved: 'monitoring_unresolved',
       Incident: 'incident',
     } as const;
 
@@ -97739,7 +97826,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -97895,6 +97982,7 @@ export namespace Schemas {
        * * `ci_duration_regression` - ci_duration_regression
        * * `search_opportunity` - search_opportunity
        * * `check_failed` - check_failed
+       * * `monitoring_unresolved` - monitoring_unresolved
        * * `incident` - incident */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */

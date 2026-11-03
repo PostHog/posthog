@@ -159,6 +159,11 @@ class TestSubscriptionActivityLog(BaseTest):
                 "Signups by week",
             ),
             (
+                "unnamed_insight_uses_fallback",
+                lambda self: self._unsaved_subscription(insight=Insight.objects.create(team=self.team)),
+                "Untitled insight",
+            ),
+            (
                 "dashboard_uses_dashboard_name",
                 lambda self: self._unsaved_subscription(
                     dashboard=Dashboard.objects.create(team=self.team, name="Growth")
