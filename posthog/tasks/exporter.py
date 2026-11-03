@@ -7,6 +7,7 @@ from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import EventSource, groups
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
@@ -121,6 +122,12 @@ def export_asset_direct(
     export_source = source or EventSource.EXPORT
 
     try:
+        if exported_asset.created_by is not None:
+            assert_creator_can_run(exported_asset.created_by, team, exported_asset.dashboard, exported_asset.insight)
+        elif export_source == EventSource.SUBSCRIPTION:
+            # A subscription copies its owner onto every asset, so an ownerless one means the owner's account
+            # was deleted. Other exports have no owner on purpose (logs, activity logs, sharing renders).
+            raise CreatorLeftOrganizationError()
         assert_export_authorization(exported_asset)
         export_handler = get_export_format_handler(
             export_format=exported_asset.export_format, kind=exported_asset.export_kind
