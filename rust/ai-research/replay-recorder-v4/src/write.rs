@@ -989,6 +989,16 @@ mod tests {
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": deep_face}, "childNodes": [], "id": 3}),
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 4}),
         ];
+        let deep_value = format!(
+            "background-image:{}url('https://cdn.example.com/deep.png?token=secret'){}",
+            "var(--a,".repeat(80),
+            ")".repeat(80)
+        );
+        let nested_values = vec![
+            json!({"type": 2, "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png"}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "div", "attributes": {"style": deep_value}, "childNodes": [], "id": 3}),
+            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 4}),
+        ];
         use posthog_replay_anonymizer::v4_image_refs::{
             FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
         };
@@ -1013,6 +1023,12 @@ mod tests {
             ),
             (
                 nested_fonts,
+                "imageurl:v4:7:2026-10:",
+                URL_UNCHECKED_MARKER,
+                FONT_URL_UNCHECKED_MARKER,
+            ),
+            (
+                nested_values,
                 "imageurl:v4:7:2026-10:",
                 URL_UNCHECKED_MARKER,
                 FONT_URL_UNCHECKED_MARKER,

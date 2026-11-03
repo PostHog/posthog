@@ -206,7 +206,7 @@ pub enum UrlLimit {
     FontUrlBytes,
     /// A font rewrite can hold an escaped remote URL, which no other rewrite replaces.
     FontRewrites,
-    NestedRules,
+    NestedBlocks,
 }
 
 impl UrlLimit {
@@ -219,7 +219,7 @@ impl UrlLimit {
             UrlLimit::FontUrlCount => "too_many_font_urls",
             UrlLimit::FontUrlBytes => "too_many_font_url_bytes",
             UrlLimit::FontRewrites => "too_many_font_rewrites",
-            UrlLimit::NestedRules => "too_many_nested_rules",
+            UrlLimit::NestedBlocks => "too_many_nested_blocks",
         }
     }
 
@@ -518,7 +518,7 @@ impl Urls {
             CssUrl::Font { url, family } => self.push_font(url, family),
             CssUrl::ResolvedFont(url) => self.queue_font(url),
             CssUrl::NestedTooDeep => {
-                self.remote.limit = self.remote.limit.or(Some(UrlLimit::NestedRules))
+                self.remote.limit = self.remote.limit.or(Some(UrlLimit::NestedBlocks))
             }
         }
     }

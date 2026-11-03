@@ -21,7 +21,7 @@ use crate::url_policy::{
 pub const MAX_RESOLVED_URLS: usize = 1024;
 /// Far more than a real `image-set()` lists. A longer set gets no rewrite, so the inspector never holds its candidates.
 const MAX_IMAGE_SET_CANDIDATES: usize = 32;
-/// The depth at which `cssparser` enters no more blocks, to keep the stack bounded. Its default, set here so that [`Declarations`] can see it.
+/// The depth at which `cssparser` enters no more blocks, to keep the stack bounded. Its default, set here so that the scan knows where it stops.
 const NESTED_BLOCK_LIMIT: u8 = 75;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +40,7 @@ pub enum CssUrl<'a> {
     },
     /// A [`CssUrl::Resolved`] font URL of a family that the renderer does not ship.
     ResolvedFont(&'a str),
-    /// Rules nest to [`NESTED_BLOCK_LIMIT`], where a rule reads as declarations of the block around it, so an `@font-face` there names no URL.
+    /// Rules or functions nest to [`NESTED_BLOCK_LIMIT`], where `cssparser` enters no block, so a URL there goes unnamed.
     NestedTooDeep,
 }
 
@@ -119,7 +119,7 @@ pub fn rewrite_functions(
 ) -> Option<String> {
     let mut out: Option<String> = None;
     let mut copied_to = 0;
-    each_function(&mut Parser::new(css), &mut |input, start, opened| {
+    each_function(&mut Parser::new(css), 0, &mut |input, start, opened| {
         if !matches!(opened, Opened::UnquotedUrl(_)) {
             skip_block(input);
         }
@@ -205,11 +205,11 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
                             found(CssUrl::Rewrite(rewrite));
                         }
                         CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
+                        CssUrl::NestedTooDeep => found(CssUrl::NestedTooDeep),
                         CssUrl::Resolved(_)
                         | CssUrl::Unshown(_)
                         | CssUrl::Font { .. }
-                        | CssUrl::ResolvedFont(_)
-                        | CssUrl::NestedTooDeep => {}
+                        | CssUrl::ResolvedFont(_) => {}
                     },
                 );
             }
@@ -459,31 +459,42 @@ enum Opened<'i> {
     ImageSet,
 }
 
-/// Calls `each` at each `url()` and `image-set()` in `input`, at any depth. A block deeper than `cssparser`'s nesting limit reads as flat tokens, to keep the stack bounded.
+/// Calls `each` at each `url()` and `image-set()` in `input`, at any depth. Returns false when it skipped a block too deep to read whole, as `each` enters one more block for an `image-set()` candidate.
 fn each_function<'i>(
     input: &mut Parser<'i>,
+    depth: u8,
     each: &mut impl FnMut(&mut Parser<'i>, SourcePosition, Opened<'i>),
-) {
+) -> bool {
+    let mut whole = true;
     loop {
         let start = input.position();
-        let opened = match input.next_including_whitespace_and_comments() {
-            Err(_) => return,
-            Ok(Token::UnquotedUrl(url)) => Opened::UnquotedUrl(url.clone()),
-            Ok(Token::Function(name)) if name.eq_ignore_ascii_case("url") => Opened::UrlFunction,
-            Ok(Token::Function(name)) if is_image_set(name) => Opened::ImageSet,
-            Ok(
-                Token::Function(_)
+        let token = match input.next_including_whitespace_and_comments() {
+            Err(_) => return whole,
+            Ok(token) => token,
+        };
+        let opens_block = matches!(
+            token,
+            Token::Function(_)
                 | Token::ParenthesisBlock
                 | Token::SquareBracketBlock
-                | Token::CurlyBracketBlock,
-            ) => {
+                | Token::CurlyBracketBlock
+        );
+        if opens_block && depth + 1 >= NESTED_BLOCK_LIMIT {
+            whole = false;
+            continue;
+        }
+        let opened = match token {
+            Token::UnquotedUrl(url) => Opened::UnquotedUrl(url.clone()),
+            Token::Function(name) if name.eq_ignore_ascii_case("url") => Opened::UrlFunction,
+            Token::Function(name) if is_image_set(name) => Opened::ImageSet,
+            _ if opens_block => {
                 let _ = input.parse_nested_block(|input| {
-                    each_function(input, each);
+                    whole &= each_function(input, depth + 1, each);
                     Ok::<_, ParseError<()>>(())
                 });
                 continue;
             }
-            Ok(_) => continue,
+            _ => continue,
         };
         each(input, start, opened);
     }
@@ -503,7 +514,9 @@ fn value_urls(
     escaped: EscapedSources,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
-    each_function(&mut Parser::new(value), &mut |input, start, opened| {
+    let mut input = Parser::new(value);
+    input.set_nested_block_limit(NESTED_BLOCK_LIMIT);
+    let whole = each_function(&mut input, 0, &mut |input, start, opened| {
         let source = match opened {
             Opened::ImageSet => return image_set_urls(input, start, resolver, found),
             Opened::UnquotedUrl(url) => Some(unquoted_url_source(url, input.slice_from(start))),
@@ -519,6 +532,9 @@ fn value_urls(
             None => {}
         }
     });
+    if !whole {
+        found(CssUrl::NestedTooDeep);
+    }
 }
 
 struct UrlSource<'i> {
