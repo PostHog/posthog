@@ -203,14 +203,28 @@ describe('EmailTrackingService', () => {
         } as any
         const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
 
-        it('includes distinct_id in the public tracking URLs in dev/test', () => {
-            const out = addTrackingToEmail(
-                '<body><a href="https://example.com">x</a></body>',
-                invocationWithDistinctId,
-                signer
-            )
-            expect(signer.parse(phIdOf(out))?.distinctId).toBe('leaky-id')
-        })
+        it.each([
+            { captureEngagement: undefined, distinctId: 'leaky-id' },
+            { captureEngagement: true, distinctId: 'leaky-id' },
+            { captureEngagement: false, distinctId: undefined },
+        ])(
+            'puts distinct_id in the dev/test pixel and redirect codes by the capture choice $captureEngagement',
+            ({ captureEngagement, distinctId }) => {
+                const inv = {
+                    ...invocationWithDistinctId,
+                    hogFunction: { metadata: { capture_engagement: captureEngagement } },
+                }
+                const out = addTrackingToEmail('<body><a href="https://example.com">x</a></body>', inv, signer)
+                const codes = [...out.matchAll(/ph_id=([A-Za-z0-9._-]+)/g)].map((match) => match[1])
+
+                expect(codes).toHaveLength(2) // one redirect, one pixel
+                for (const code of codes) {
+                    const parsed = signer.parse(code)
+                    expect(parsed).toBeTruthy()
+                    expect(parsed?.distinctId).toBe(distinctId)
+                }
+            }
+        )
 
         it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
             const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)

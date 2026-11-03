@@ -2314,30 +2314,15 @@ describe('CDP API', () => {
                     .set({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
-            const defaultSenderSend = (integrationId: number) => ({
-                ...codeSend,
-                from: { integrationId, isDefault: true },
-            })
             const otherSenderId = codeSend.from.integrationId + 3
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
-            const integrationOnlySend = (from: Record<string, unknown>) => ({
-                ...codeSend,
-                from: { integrationId: codeSend.from.integrationId, ...from },
-            })
-
             it.each([
                 ['a template send', 'transactional_email', body, body],
                 ['a code send', 'transactional_email/send', { ...body, send: codeSend }, { ...body, send: codeSend }],
-                [
-                    'a code send after the default sender changed',
-                    'transactional_email/send',
-                    { ...body, send: defaultSenderSend(codeSend.from.integrationId) },
-                    { ...body, send: defaultSenderSend(otherSenderId) },
-                ],
                 [
                     'a code send after its named address resolved to another sender',
                     'transactional_email/send',
@@ -2345,10 +2330,10 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
                 [
-                    'a code send whose retry leaves out that its sender is not the default',
+                    'a code send whose retry marks its sender as the default',
                     'transactional_email/send',
-                    { ...body, send: integrationOnlySend({ isDefault: false }) },
-                    { ...body, send: integrationOnlySend({}) },
+                    { ...body, send: codeSend },
+                    { ...body, send: { ...codeSend, from: { ...codeSend.from, isDefault: true } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
@@ -2399,11 +2384,6 @@ describe('CDP API', () => {
                         'transactional_email/send',
                         { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
                     ],
-                ],
-                [
-                    'a named sender instead of the default one',
-                    ['transactional_email/send', { ...body, send: defaultSenderSend(codeSend.from.integrationId) }],
-                    ['transactional_email/send', { ...body, send: codeSend }],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',

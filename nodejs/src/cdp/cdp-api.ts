@@ -193,7 +193,7 @@ const withSenderTheCallerChose = ({
 })
 
 const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
-    if (!from || from.isDefault) {
+    if (!from) {
         return undefined
     }
     return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
