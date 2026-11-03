@@ -344,7 +344,7 @@ describe('SyncFrequencySelect', () => {
                 '24hour',
                 {
                     cadence: '6hour',
-                    note: 'Refreshes every 6 hours to keep up with downstream view maps. Your 1 day setting applies again if maps refreshes less often.',
+                    note: 'Refreshes every 6 hours to keep up with downstream view maps. Your 1 day setting applies again if downstream views refresh less often.',
                 },
             ],
             [
@@ -353,7 +353,7 @@ describe('SyncFrequencySelect', () => {
                 '24hour',
                 {
                     cadence: '6hour',
-                    note: 'Refreshes every 6 hours to keep up with a downstream view. Your 1 day setting applies again if that view refreshes less often.',
+                    note: 'Refreshes every 6 hours to keep up with a downstream view. Your 1 day setting applies again if downstream views refresh less often.',
                 },
             ],
         ])('when %s', (_case, input, value, expected) => {

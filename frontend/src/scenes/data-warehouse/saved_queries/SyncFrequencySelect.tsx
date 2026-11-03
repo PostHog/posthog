@@ -320,7 +320,7 @@ export function inheritedCadence(
         cadence,
         note:
             `Refreshes every ${CADENCE_LABELS[cadence]} to keep up with ${consumer ? `downstream view ${consumer}` : 'a downstream view'}. ` +
-            `Your ${CADENCE_LABELS[value]} setting applies again if ${consumer ?? 'that view'} refreshes less often.`,
+            `Your ${CADENCE_LABELS[value]} setting applies again if downstream views refresh less often.`,
     }
 }
 
