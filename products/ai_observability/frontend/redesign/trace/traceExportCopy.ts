@@ -114,12 +114,11 @@ export async function readTraceExportText({
     if (traceExport.status === ExportStatusEnumApi.Failed) {
         throw new TraceExportFailedError(traceExport.exception ?? "Couldn't export this trace. Try again.")
     }
-    // Read the body as a stream instead of as parsed JSON, so that the cap stops the read before a large file
-    // is in memory.
     const read = new AbortController()
     const stopReading = (): void => read.abort(signal.reason)
     signal.addEventListener('abort', stopReading, { once: true })
     try {
+        // nosemgrep: prefer-codegen-api -- an export download; the generated client parses JSON, and the cap needs the raw body stream
         const response = await api.getResponse(
             getAiObservabilityTracesExportsContentRetrieveUrl(projectId, segment, traceExport.id, {
                 purpose: AiObservabilityTracesExportsContentRetrievePurpose.Copy,
