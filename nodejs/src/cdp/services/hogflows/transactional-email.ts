@@ -113,6 +113,7 @@ export const AcceptedSendSchema = z
                 html: z.string().optional(),
                 text: z.string().optional(),
             })
+            .strict()
             .readonly()
             .refine((content) => !!content.html || !!content.text, { message: 'content needs html or text' })
             .optional(),
@@ -122,13 +123,14 @@ export const AcceptedSendSchema = z
                 email: z.string().optional(),
                 name: z.string().optional(),
             })
+            .strict()
             .readonly()
             .optional(),
         replyTo: z.array(z.string()).readonly().optional(),
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         attachments: AttachmentsSchema,
-        tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
+        tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
     })
     // A field this version does not know is refused, so a newer caller never loses one without notice.
     .strict()

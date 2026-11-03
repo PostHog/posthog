@@ -2487,6 +2487,18 @@ describe('CDP API', () => {
 
         it.each([
             ['a field this version does not know', { ...codeSend, priority: 'high' }],
+            [
+                'a content field this version does not know',
+                { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
+            ],
+            [
+                'a sender field this version does not know',
+                { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
+            ],
+            [
+                'a tracking field this version does not know',
+                { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+            ],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
