@@ -1,0 +1,272 @@
+.DotMatrixDemo {
+    width: 1108px;
+    max-width: 100%;
+    color: var(--color-text-primary);
+    container-type: inline-size;
+
+    &--narrow {
+        width: 520px;
+    }
+
+    &--wide {
+        width: 1440px;
+    }
+
+    &__toolbar,
+    &__dataset,
+    &__controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    &__toolbar {
+        justify-content: space-between;
+        padding-bottom: 12px;
+    }
+
+    &__range {
+        padding: 5px 8px;
+        font-size: 13px;
+        color: var(--color-text-secondary);
+        white-space: nowrap;
+    }
+
+    &__account-label {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+    }
+
+    &__account-label > svg {
+        flex: none;
+    }
+
+    &__label-copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    &__label-copy > span {
+        overflow: hidden;
+        font-size: 12px;
+        line-height: 16px;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__account-name.LemonButton {
+        --lemon-button-height: 20px;
+        --lemon-button-padding-horizontal: 0;
+        --lemon-button-padding-vertical: 0;
+        --lemon-button-font-size: 14px;
+
+        min-height: 20px;
+        padding: 0;
+        margin: 0 !important;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+    }
+
+    &__account-name .LemonButton__chrome {
+        min-height: 20px;
+        padding: 0;
+        font-family: var(--font-sans);
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+    }
+
+    &__account-name .LemonButton__content {
+        display: block;
+        overflow: hidden;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__product-label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-left: 34px;
+        font-size: 13px;
+    }
+
+    &__product-label > span {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-weight: 500;
+        line-height: 20px;
+        color: var(--color-text-primary);
+    }
+
+    &__product-label small {
+        padding-left: 16px;
+        font-size: 12px;
+        line-height: 16px;
+        color: var(--color-text-tertiary);
+    }
+
+    &__family-label {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 20px;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    &__account-heading {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 12px;
+        font-size: 13px;
+    }
+
+    &__account-heading h3 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    &__account-row > td,
+    &__family-row > td {
+        background: var(--color-bg-surface-secondary) !important;
+    }
+
+    &__family-row .DotMatrix__cell {
+        min-height: 0;
+    }
+
+    &__top-users {
+        overflow: hidden;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__sparkline {
+        height: 28px;
+    }
+
+    &__account-tooltip {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 252px;
+        font-size: 12px;
+        line-height: 16px;
+
+        > strong {
+            font-size: 13px;
+            font-weight: 600;
+        }
+    }
+
+    &--users .DotMatrix__cell {
+        justify-content: flex-start;
+    }
+
+    &--users .DotMatrixDemo__product-row .DotMatrix__cell {
+        padding: 0;
+    }
+
+    &--account .DotMatrixDemo__product-label {
+        gap: 0;
+        padding-left: 0;
+    }
+
+    &--account .DotMatrixDemo__product-label small {
+        padding-left: 16px;
+    }
+
+    &--users .DotMatrix__table.LemonTable table > tbody > tr.DotMatrixDemo__product-row > td.DotMatrix__bucket {
+        padding-top: 0;
+        padding-bottom: 0;
+        vertical-align: top;
+    }
+
+    &--account .DotMatrix__table.LemonTable table > tbody > tr {
+        --row-base-height: 49px;
+
+        height: 49px;
+
+        > td,
+        > td.DotMatrix__row-header {
+            padding-top: 6px;
+            padding-bottom: 6px;
+        }
+
+        &.DotMatrixDemo__summary-row {
+            --row-base-height: 41px;
+
+            height: 41px;
+
+            > td {
+                padding-top: 8px;
+                padding-bottom: 8px;
+            }
+
+            > td.DotMatrix__row-header {
+                padding-top: 10px;
+                padding-bottom: 10px;
+                font-size: 13px;
+                font-weight: 600;
+                line-height: 20px;
+                color: var(--color-text-primary);
+            }
+        }
+
+        &.DotMatrixDemo__family-row {
+            --row-base-height: 33px;
+
+            height: 33px;
+
+            > td {
+                line-height: 20px;
+            }
+        }
+    }
+
+    @container (max-width: 640px) {
+        &__controls {
+            width: 100%;
+        }
+
+        &__range {
+            padding-left: 0;
+        }
+    }
+}
+
+.Tooltip__popup.DotMatrix__tooltip:has(.DotMatrixDemo__account-tooltip) {
+    width: 280px;
+
+    .DotMatrixDemo__account-tooltip {
+        width: 100%;
+    }
+}
+
+@layer components {
+    .DotMatrixDemo .DotMatrixDemo__sparkline {
+        width: 104px !important;
+    }
+
+    .DotMatrixDemo .DotMatrixDemo__account-name .LemonButton__chrome,
+    .DotMatrixDemo .DotMatrixDemo__account-name .LemonButton__content {
+        color: var(--color-text-primary) !important;
+    }
+}
