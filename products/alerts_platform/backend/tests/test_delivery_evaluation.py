@@ -812,6 +812,35 @@ class TestDeliveryPath(APIBaseTest):
         assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
         assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
 
+    @parameterized.expand(
+        [
+            ("a_hog_function_a_person_built_also_hears_it", [HOG_FUNCTION_SLACK, SUBSCRIBER], 1),
+            ("no_hog_function_listens", [SUBSCRIBER], 0),
+        ]
+    )
+    def test_an_alert_whose_destinations_the_platform_keeps_emits_for_its_hog_functions(
+        self, _name: str, groups: list[AlertDestinationGroup], emitted: int
+    ) -> None:
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
+            destinations_owner=PlatformAlertOwner.PLATFORM
+        )
+        create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration.id,
+            destinations=(
+                NewAlertDestination(
+                    data=cast(AlertDestinationData, {**SLACK, "slack_channel_id": "C-native"}),
+                    event_kinds=(AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+                ),
+            ),
+        )
+
+        # A failing chooser would emit, so a pass shows the path choice is never read here.
+        self._run(_announcement(_transition(AlertEventKind.FIRING)), self._fails, groups=groups)
+
+        assert len(self.emitted) == emitted
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-native"]
+
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
         fired = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
