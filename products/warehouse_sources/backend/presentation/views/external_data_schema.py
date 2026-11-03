@@ -76,6 +76,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     add_table_failure_message,
     ambiguous_masked_columns,
+    collision_alias_masked_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
     get_cdc_adapter,
@@ -604,8 +605,15 @@ def _validate_masked_columns(
             if isinstance(column, dict) and isinstance(name := column.get("name"), str)
         ]
         # Non-SQL sources record no column metadata, so their synced columns are the known ones.
+        aliases: list[str] = []
         if not source_columns and instance.table is not None:
             source_columns = [column["name"] for column in instance.table.get_user_facing_columns()]
+            aliases = collision_alias_masked_columns(masked_columns, source_columns)
+        if aliases:
+            raise ValidationError(
+                f"Can't mask {sorted(aliases)}: the column was renamed because two source columns share its "
+                "name. Rename one of the source columns, then mask it."
+            )
         primary_key_columns = [*(data.get("primary_key_columns") or []), *(instance.primary_key_columns or [])]
         # Without a stored key, a sync merges and partitions on `id` when the table has one.
         if not primary_key_columns:

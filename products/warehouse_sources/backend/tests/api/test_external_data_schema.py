@@ -5504,17 +5504,25 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         table = DataWarehouseTable.objects.create(
             team=self.team,
             name="hubspot_contacts",
-            columns={"id": {"clickhouse": "String"}, "email": {"clickhouse": "Nullable(String)"}},
+            columns={
+                "id": {"clickhouse": "String"},
+                "email": {"clickhouse": "Nullable(String)"},
+                "_email": {"clickhouse": "Nullable(String)"},
+            },
         )
         schema = ExternalDataSchema.objects.create(
             name="contacts", team=self.team, source=source, table=table, sync_type_config={}
         )
         with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
             unknown = self._patch(schema, {"masked_columns": ["phone"]})
+            # `_email` is where the pipeline put the later of two colliding source columns.
+            alias = self._patch(schema, {"masked_columns": ["_email"]})
             accepted = self._patch(schema, {"masked_columns": ["EMAIL"]})
 
         assert unknown.status_code == 400
         assert "Unknown columns" in str(unknown.json())
+        assert alias.status_code == 400
+        assert "renamed" in str(alias.json())
         assert accepted.status_code == 200, accepted.json()
         schema.refresh_from_db()
         assert schema.masked_columns == ["email"]

@@ -107,6 +107,21 @@ def ambiguous_masked_columns(masked_columns: list[str], source_columns: Iterable
     return [column for column in masked_columns if counts.get(fold_column_name(column), 0) > 1]
 
 
+def collision_alias_masked_columns(masked_columns: list[str], synced_columns: Iterable[str]) -> list[str]:
+    """Masked entries that name a synced column the pipeline renamed to avoid a name collision.
+
+    The pipeline prefixes `_` to the later of two colliding columns (`Email` and `email` load as `email`
+    and `_email`). Which source column gets the alias depends on the batch, and a batch with only one
+    of them loads it under the plain name, so a mask on the alias would leave that value in plaintext.
+    """
+    folded = {fold_column_name(name) for name in synced_columns}
+    return [
+        column
+        for column in masked_columns
+        if column.startswith("_") and fold_column_name(column[1:]) in folded and fold_column_name(column) in folded
+    ]
+
+
 def protected_masked_columns(masked_columns: list[str] | None, protected_columns: Iterable[str | None]) -> list[str]:
     """Folded masked names that are also a key, partition or cursor column. Callers fail on any.
 
