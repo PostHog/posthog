@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -91,14 +93,23 @@ def hold_delivery(
     )
 
 
-def hold_release(address: HeldDeliveryAddress) -> tuple[str | None, str | None, datetime]:
+@frozen
+class HoldSnapshot:
+    release_action: str | None
+    released_by: str | None
+    release_after: datetime
+
+
+def hold_release(address: HeldDeliveryAddress) -> HoldSnapshot:
     """A hold's release action, who released it, and its deadline."""
     hold = (
         PlatformAlertDeliveryHold.objects.for_team(address.team_id)
         .filter(configuration_id=address.configuration_id, evaluation_key=address.evaluation_key)
         .get()
     )
-    return hold.release_action, hold.released_by, hold.release_after
+    return HoldSnapshot(
+        release_action=hold.release_action, released_by=hold.released_by, release_after=hold.release_after
+    )
 
 
 def set_due_at(configuration_id: UUID, due_at: datetime) -> None:

@@ -219,11 +219,16 @@ class TestFinishInvestigation(BaseTest):
 
     @parameterized.expand(
         [
-            ("a true positive sends", "true_positive", HoldRelease.SEND),
-            ("a false positive suppresses", "false_positive", HoldRelease.SUPPRESS),
+            ("a true positive sends", "true_positive", True, HoldRelease.SEND),
+            ("a false positive suppresses", "false_positive", True, HoldRelease.SUPPRESS),
+            ("a disabled alert suppresses", "true_positive", False, HoldRelease.SUPPRESS),
         ]
     )
-    def test_a_verdict_releases_the_held_firing(self, _name: str, verdict: str, action: HoldRelease) -> None:
+    def test_a_verdict_releases_the_held_firing(
+        self, _name: str, verdict: str, enabled: bool, action: HoldRelease
+    ) -> None:
+        self.alert.enabled = enabled
+        self.alert.save()
         self._hold()
         investigation = self._row("slot:now", status=InvestigationStatus.RUNNING)
 
@@ -232,7 +237,8 @@ class TestFinishInvestigation(BaseTest):
 
         expected = (self.request,) if action == HoldRelease.SEND else ()
         assert release.deliveries == repeated.deliveries == expected
-        assert platform_testing.hold_release(self.address)[:2] == (action, HoldReleasedBy.VERDICT)
+        hold = platform_testing.hold_release(self.address)
+        assert (hold.release_action, hold.released_by) == (action, HoldReleasedBy.VERDICT)
         investigation.refresh_from_db()
         assert (investigation.status, investigation.verdict) == (InvestigationStatus.DONE, verdict)
 
