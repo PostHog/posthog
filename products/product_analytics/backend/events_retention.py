@@ -10,6 +10,7 @@ from posthog.models.events_plan_deletion import (
     admitted,
     cleanup_date,
     default_window,
+    deletion_months,
     next_cleanup_on,
     next_pass_on,
     with_window,
@@ -26,7 +27,6 @@ from posthog.models.events_retention_config import (
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.event_retention import (
-    events_deletion_applies,
     events_retention_windows,
     organization_default_window,
     organization_events_retention_months,
@@ -60,11 +60,12 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
 def _next_deletion(
     team_id: int, setting: TeamEventsRetention | None, window_months: int, scheduled_pass_on: date | None
 ) -> ScheduledEventsDeletion | None:
-    if setting is not None:
-        deletes_on, months = next_cleanup_on(), setting.months
-    elif scheduled_pass_on is not None and should_enforce_events_retention(team_id):
-        deletes_on, months = scheduled_pass_on, window_months
-    else:
+    pass_on = scheduled_pass_on if should_enforce_events_retention(team_id) else None
+    deletes_on = next_cleanup_on() if setting is not None else pass_on
+    if deletes_on is None:
+        return None
+    months = deletion_months(setting, window_months if pass_on is not None and pass_on <= deletes_on else None)
+    if months is None:
         return None
     deletes_before = whole_month_cutoff(datetime.combine(deletes_on, time()), months).date()
     return ScheduledEventsDeletion(deletes_on=deletes_on, deletes_before=deletes_before)
@@ -100,14 +101,14 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
 def _schedule_passes(teams: Sequence[Team]) -> None:
     """Give each team whose window the cleanup enforces a pass date, so that its next deletion is known on save."""
     today = cleanup_date()
-    team_ids = [team.id for team in teams]
-    setting_months = {item.team_id: item.months for item in effective_events_retention(team_ids=team_ids)}
-    windows = events_retention_windows(teams)
-    states = {row.team_id: row.state for row in TeamEventsPlanDeletion.objects.filter(team_id__in=team_ids)}
+    enforced = [team for team in teams if should_enforce_events_retention(team.id)]
+    windows = events_retention_windows(enforced)
+    states = {
+        row.team_id: row.state
+        for row in TeamEventsPlanDeletion.objects.filter(team_id__in=[team.id for team in enforced])
+    }
     rows = []
-    for team in teams:
-        if not events_deletion_applies(team.id, setting_months.get(team.id)):
-            continue
+    for team in enforced:
         window = windows[team.id]
         state = with_window(states[team.id], window, today) if team.id in states else admitted(window, today)
         rows.append(TeamEventsPlanDeletion(team=team, months=state.months, next_deletion_on=state.next_deletion_on))

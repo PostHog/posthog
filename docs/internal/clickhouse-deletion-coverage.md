@@ -337,20 +337,20 @@ Organization admins set the retention in project and organization settings, and 
 
 `monthly_retention_events_cleanup_job` has six steps:
 
-- `update_plan_deletions` tracks each team's pass window in `TeamEventsPlanDeletion`: the set window, never past the plan's window, else the default window. It reads the teams that have a set window or where `should_enforce_events_retention` is true.
+- `update_plan_deletions` tracks each team's pass window in `TeamEventsPlanDeletion`: the set window, never past the plan's window, else the default window. It reads only the teams where `should_enforce_events_retention` is true, so a team without enforcement gets no pass and its set window is never capped by its plan.
   - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams`. Any other team is admitted without counting.
   - A shorter window, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
   - It writes all its changes in one transaction at the end, then hands on the teams whose pass is due.
-- Saving a window in settings writes the team's row straight away, so the settings page can show the next deletion. A shorter window moves the next pass to at least 3 months out. That row is admitted without the cap.
+- Saving a window in settings writes the row of each enforced team straight away, so the settings page can show the next deletion. A shorter window moves the next pass to at least 3 months out. That row is admitted without the cap.
 - Pass dates fall on the 3rd, so the date shown is the run that deletes.
-- `plan_old_events_cleanup` reads every team's set window when the run starts. A team with a set window uses it. A team whose pass is due uses its pass window, or the shorter of the two. It logs each team's window in months, then finds the months that hold events for each team and keeps the ones entirely past that team's window. It logs the teams due in each month.
+- `plan_old_events_cleanup` reads every team's set window. A team with a set window uses it. A team whose pass is due uses its pass window, or the shorter of the two. It reads each due pass row again, so a window saved after the run started applies: a longer window raises the row's months, and a shorter one moves the pass past this run. It logs each team's window in months, then finds the months that hold events for each team and keeps the ones entirely past that team's window. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
-- `advance_plan_deletion_passes` moves the next pass of each team that the cleanup completed 3 months out, after the events deletes succeed.
 - `plan_old_sessions_cleanup` starts after the events are deleted. It uses the window the events plan used for each team, and finds the sessions partitions entirely past it, so a month whose events an earlier run deleted still gets its sessions deleted.
 - `cleanup_old_sessions_by_partition` deletes each planned sessions month for the teams due in it. Sessions partition by the month a session started, so a session that continues into a kept month is deleted with the due month.
+- `advance_plan_deletion_passes` moves the next pass of each team that both plans completed 3 months out, after the sessions deletes succeed. It keeps a later date that a shorter window saved during the run set.
 
-A manual run can narrow the events plan with `team_ids` and `partitions`, and the sessions plan with `partitions`. The sessions plan covers the teams the events plan covers. A listed team with neither a set window nor a pass due is ignored.
-A pass completes only for a team the events plan includes, and only when its `partitions` is empty. Otherwise the pass stays due for the next full run.
+A manual run can narrow each plan with its own `team_ids` and `partitions`. The sessions plan covers only the teams the events plan covers. A listed team with neither a set window nor a pass due is ignored.
+A pass completes only for a team that both plans include, and only when neither sets `partitions`. Otherwise the pass stays due for the next full run.
 The `update_plan_deletions` config has its own `team_ids` for admission, and a manual run admits no team unless that config sets `max_new_plan_deletion_teams`.
 `monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no team has a retention or a row and `PLAN_DELETION_TEAMS_PER_RUN` is 0. It is stopped by default.
 Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.

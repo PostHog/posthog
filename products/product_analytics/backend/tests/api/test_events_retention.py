@@ -96,6 +96,14 @@ class TestEventsRetentionAPI(APIBaseTest):
             ("set_window_keeps_its_pass", 12, 24, 12, ("2026-10-03", "2025-10-01", "2026-11-03")),
             ("set_window_without_a_pass", None, 24, 12, ("2026-10-03", "2025-10-01", None)),
             ("not_admitted", None, 84, None, (None, None, None)),
+            (
+                "due_pass_shortens_a_set_window_past_the_plan",
+                12,
+                12,
+                36,
+                ("2026-10-03", "2025-10-01", "2026-10-03"),
+                date(2026, 10, 3),
+            ),
         ]
     )
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
@@ -106,15 +114,14 @@ class TestEventsRetentionAPI(APIBaseTest):
         plan_months: int,
         setting_months: int | None,
         expected: tuple[str | None, str | None, str | None],
+        pass_on: date = date(2026, 11, 3),
     ) -> None:
         self.team.event_retention_months = plan_months
         self.team.save()
         if setting_months is not None:
             TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=setting_months)
         if stored_months is not None:
-            TeamEventsPlanDeletion.objects.create(
-                team=self.team, months=stored_months, next_deletion_on=date(2026, 11, 3)
-            )
+            TeamEventsPlanDeletion.objects.create(team=self.team, months=stored_months, next_deletion_on=pass_on)
 
         response = self.client.get(self.url())
 
@@ -253,6 +260,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             == 12
         )
         assert TeamEventsRetentionConfig.objects.get(team=self.team).events_retention_months == 12
+        assert not TeamEventsPlanDeletion.objects.filter(team=self.team).exists()
 
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:

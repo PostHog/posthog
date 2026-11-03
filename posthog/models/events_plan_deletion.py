@@ -91,7 +91,8 @@ def with_window(state: PlanDeletionState, window_months: int, today: date) -> Pl
 
 
 def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
-    return replace(state, next_deletion_on=next_pass_on(today))
+    # A shorter window saved while the pass ran has already moved the next deletion later, so keep that date.
+    return replace(state, next_deletion_on=max(state.next_deletion_on, next_pass_on(today)))
 
 
 def deletion_months(setting: TeamEventsRetention | None, pass_months: int | None) -> int | None:

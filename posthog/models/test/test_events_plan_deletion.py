@@ -47,10 +47,16 @@ class TestPlanDeletionRules(SimpleTestCase):
         assert is_shorter_window(state, window) is shorter
         assert with_window(state, window, TODAY) == PlanDeletionState(months=window, next_deletion_on=expected_next_on)
 
-    def test_after_pass(self) -> None:
-        state = PlanDeletionState(months=12, next_deletion_on=TODAY)
+    @parameterized.expand(
+        [
+            ("due_pass", TODAY, date(2027, 2, 3)),
+            ("pass_moved_later_during_the_run", date(2027, 3, 3), date(2027, 3, 3)),
+        ]
+    )
+    def test_after_pass(self, _name: str, next_on: date, expected_next_on: date) -> None:
+        state = PlanDeletionState(months=12, next_deletion_on=next_on)
 
-        assert after_pass(state, TODAY) == PlanDeletionState(months=12, next_deletion_on=date(2027, 2, 3))
+        assert after_pass(state, TODAY) == PlanDeletionState(months=12, next_deletion_on=expected_next_on)
 
     @parameterized.expand(
         [

@@ -30,7 +30,7 @@ export interface EventsRetentionWindowFormProps {
     /** How a custom window here relates to the other settings level. */
     overrideNote: string
     nextMonthlyCleanupOn: string
-    /** The current project's pass dates, or null when the default here doesn't apply to the project. */
+    /** The project's pass dates, or null when the default here covers many projects and so always deletes. */
     passSchedule: EventsPassSchedule | null
     saving: boolean
     restrictionReason: string | null

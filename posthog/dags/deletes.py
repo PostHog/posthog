@@ -89,7 +89,7 @@ from posthog.models.sessions.sql import (
     TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
 )
 from posthog.models.team import Team
-from posthog.models.team.event_retention import TeamPlan, default_windows, events_deletion_applies
+from posthog.models.team.event_retention import TeamPlan, default_windows, should_enforce_events_retention
 from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.facade.api import (
@@ -208,7 +208,7 @@ class PlanDeletionConfig(dagster.Config):
 @frozen
 class PlanDeletionPasses:
     run_on: date
-    window_months_by_team: dict[int, int]
+    due_team_ids: list[int]
 
 
 @frozen
@@ -239,6 +239,7 @@ class OldEventsCleanupPlan:
 @frozen
 class OldSessionsCleanupPlan:
     partitions: list[PartitionCleanup]
+    completed_pass_team_ids: list[int] = field(default_factory=list)
 
 
 @frozen
@@ -1650,7 +1651,10 @@ def teams_losing_events_at_first_pass(
 
 
 def _deletion_teams(team_ids: list[int]) -> list[_PlanTeam]:
-    """Every team whose window the cleanup enforces, with that window."""
+    """Every team whose window the cleanup enforces, with that window.
+
+    A team without enforcement gets no pass, so the plan never caps its set window. That window still deletes monthly.
+    """
     setting_months = {item.team_id: item.months for item in effective_events_retention(team_ids=team_ids or None)}
     teams = Team.objects.filter(id__in=team_ids) if team_ids else Team.objects.all()
     plans = [
@@ -1658,7 +1662,7 @@ def _deletion_teams(team_ids: list[int]) -> list[_PlanTeam]:
         for team_id, organization_id, plan_months in teams.order_by("organization_id", "id")
         .values_list("id", "organization_id", "event_retention_months")
         .iterator(chunk_size=_ADMISSION_CHUNK_SIZE)
-        if events_deletion_applies(team_id, setting_months.get(team_id))
+        if should_enforce_events_retention(team_id)
     ]
     defaults = default_windows(plans)
     return [
@@ -1719,11 +1723,11 @@ def update_plan_deletions(
     for team in admissions.losing_events + admissions.losing_nothing:
         changed[team.team_id] = admitted(team.window_months, today)
 
-    passes = {
-        team.team_id: team.window_months
+    due_team_ids = [
+        team.team_id
         for team in teams
         if team.team_id in states and changed.get(team.team_id, states[team.team_id]).next_deletion_on <= today
-    }
+    ]
     # Last, so a failure anywhere above admits no team and moves no pass.
     with transaction.atomic():
         TeamEventsPlanDeletion.objects.bulk_create(
@@ -1743,10 +1747,20 @@ def update_plan_deletions(
             "admitted_losing_events": dagster.MetadataValue.int(len(admissions.losing_events)),
             "admitted_losing_nothing": dagster.MetadataValue.int(len(admissions.losing_nothing)),
             "shorter_windows": dagster.MetadataValue.int(shorter_windows),
-            "passes_due": dagster.MetadataValue.int(len(passes)),
+            "passes_due": dagster.MetadataValue.int(len(due_team_ids)),
         }
     )
-    return PlanDeletionPasses(run_on=today, window_months_by_team=passes)
+    return PlanDeletionPasses(run_on=today, due_team_ids=due_team_ids)
+
+
+def _still_due_pass_months(passes: PlanDeletionPasses) -> dict[int, int]:
+    """The window of each pass found due when the run started, read again from its row.
+
+    Settings can change while the run waits. A longer window raises the row's months, and a shorter one moves the
+    row's next deletion past this run, so neither deletes more than the saved policy allows.
+    """
+    rows = TeamEventsPlanDeletion.objects.filter(team_id__in=passes.due_team_ids, next_deletion_on__lte=passes.run_on)
+    return dict(rows.values_list("team_id", "months"))
 
 
 @dagster.op
@@ -1758,7 +1772,7 @@ def plan_old_events_cleanup(
 ) -> OldEventsCleanupPlan:
     """Find each team's deletion window, and for each month the teams whose events in it are all past it."""
     setting_by_team = {item.team_id: item for item in effective_events_retention()}
-    pass_months = passes.window_months_by_team
+    pass_months = _still_due_pass_months(passes)
     if config.team_ids:
         setting_by_team = {team_id: item for team_id, item in setting_by_team.items() if team_id in config.team_ids}
         pass_months = {team_id: months for team_id, months in pass_months.items() if team_id in config.team_ids}
@@ -1891,35 +1905,29 @@ def cleanup_old_events_by_partition(
 
 
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
-def advance_plan_deletion_passes(
-    context: dagster.OpExecutionContext, passes: PlanDeletionPasses, plan: OldEventsCleanupPlan
-) -> None:
-    """Move the next pass of each team whose pass this run completed three months out, once its events are deleted."""
-    rows = list(TeamEventsPlanDeletion.objects.filter(team_id__in=plan.completed_pass_team_ids))
-    for row in rows:
-        row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
-    with transaction.atomic():
-        TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"], batch_size=_ADMISSION_CHUNK_SIZE)
-    context.add_output_metadata({"passes": dagster.MetadataValue.int(len(rows))})
-
-
-@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def plan_old_sessions_cleanup(
     context: dagster.OpExecutionContext,
     config: MonthlyCleanupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     events_plan: OldEventsCleanupPlan,
 ) -> OldSessionsCleanupPlan:
-    """For each month, find the teams whose sessions in it are all past the window their events were cleaned up by."""
-    if not events_plan.window_months_by_team:
+    """For each month, find the teams whose sessions in it are all past the window their events were cleaned up by.
+
+    A pass completes only when this plan also covers the team and every month, so its sessions are deleted too.
+    """
+    window_months = events_plan.window_months_by_team
+    completed_pass_team_ids = [] if config.partitions else events_plan.completed_pass_team_ids
+    if config.team_ids:
+        if ignored := sorted(set(config.team_ids) - set(window_months)):
+            context.log.info(f"Ignoring teams whose events this run did not clean up: {ignored}")
+        window_months = {team_id: months for team_id, months in window_months.items() if team_id in config.team_ids}
+        completed_pass_team_ids = [team_id for team_id in completed_pass_team_ids if team_id in config.team_ids]
+    if not window_months:
         context.log.info("No team has an events retention to enforce")
         return OldSessionsCleanupPlan(partitions=[])
 
     now = datetime.now(UTC).replace(tzinfo=None)
-    team_cutoffs = {
-        team_id: _yyyymm(whole_month_cutoff(now, months))
-        for team_id, months in events_plan.window_months_by_team.items()
-    }
+    team_cutoffs = {team_id: _yyyymm(whole_month_cutoff(now, months)) for team_id, months in window_months.items()}
 
     # Each sessions version partitions on a different expression of the session start, so the
     # month comes from the partition id.
@@ -1950,7 +1958,8 @@ def plan_old_sessions_cleanup(
         partitions=[
             PartitionCleanup(partition=partition, team_ids=team_ids)
             for partition, team_ids in sorted(teams_by_partition.items(), reverse=True)
-        ]
+        ],
+        completed_pass_team_ids=completed_pass_team_ids,
     )
     for partition_cleanup in plan.partitions:
         context.log.info(f"{partition_cleanup.partition}: teams {partition_cleanup.team_ids}")
@@ -1964,7 +1973,7 @@ def plan_old_sessions_cleanup(
     return plan
 
 
-@dagster.op
+@dagster.op(out=dagster.Out(dagster.Nothing))
 def cleanup_old_sessions_by_partition(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -2003,6 +2012,20 @@ def cleanup_old_sessions_by_partition(
     )
 
 
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
+def advance_plan_deletion_passes(
+    context: dagster.OpExecutionContext, passes: PlanDeletionPasses, plan: OldSessionsCleanupPlan
+) -> None:
+    """Move the next pass of each team whose pass this run completed three months out, once its sessions are deleted."""
+    with transaction.atomic():
+        # Lock the rows so that a settings save during the update can't be overwritten with an earlier date.
+        rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=plan.completed_pass_team_ids))
+        for row in rows:
+            row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
+        TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"], batch_size=_ADMISSION_CHUNK_SIZE)
+    context.add_output_metadata({"passes": dagster.MetadataValue.int(len(rows))})
+
+
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
@@ -2012,10 +2035,11 @@ def cleanup_old_sessions_by_partition(
 def monthly_retention_events_cleanup_job():
     """Delete each team's events and sessions past its window, monthly where set in settings, else on each pass."""
     passes = update_plan_deletions(start_after=ensure_no_concurrent_deletes_run())
-    plan = plan_old_events_cleanup(passes)
-    events_deleted = cleanup_old_events_by_partition(plan)
-    advance_plan_deletion_passes(passes, plan, start_after=events_deleted)
-    cleanup_old_sessions_by_partition(plan_old_sessions_cleanup(plan, start_after=events_deleted))
+    events_plan = plan_old_events_cleanup(passes)
+    events_deleted = cleanup_old_events_by_partition(events_plan)
+    sessions_plan = plan_old_sessions_cleanup(events_plan, start_after=events_deleted)
+    sessions_deleted = cleanup_old_sessions_by_partition(sessions_plan)
+    advance_plan_deletion_passes(passes, sessions_plan, start_after=sessions_deleted)
 
 
 @dagster.schedule(

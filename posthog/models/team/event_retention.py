@@ -54,11 +54,6 @@ def should_enforce_events_retention(team_id: int) -> bool:
     )
 
 
-def events_deletion_applies(team_id: int, setting_months: int | None) -> bool:
-    """Whether the cleanup deletes the team's events: a window set in settings always does, the default only once enforced."""
-    return setting_months is not None or should_enforce_events_retention(team_id)
-
-
 def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int]) -> Optional[int]:
     """Months of events retention to floor a query's events scans to, or None if retention isn't enforced.
 

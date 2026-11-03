@@ -39,7 +39,7 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
                 scope="Events in projects without their own custom events retention"
                 overrideNote="Projects with their own custom events retention policy will override this organization level policy."
                 nextMonthlyCleanupOn={organizationRetention.next_monthly_cleanup_on}
-                passSchedule={projectRetention.project_retention_months === null ? projectRetention : null}
+                passSchedule={null}
                 saving={organizationRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateOrganizationRetention}
