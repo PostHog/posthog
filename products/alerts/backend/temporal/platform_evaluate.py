@@ -88,8 +88,8 @@ FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # and never holds it back. It is best effort, so it gets what the batch budget leaves.
 STOP_QUERIES_START_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
-CLAIM_START_TO_CLOSE = dt.timedelta(seconds=10)
-CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
+CLAIM_START_TO_CLOSE = dt.timedelta(seconds=45)
+CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
 # checks per tick. Rounds refill the slots that finished checks free, the way production's
@@ -99,7 +99,8 @@ ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # What the source needs from its binding's `evaluation_timeout`. The checks run side by side, so
 # the batch costs the admission rounds plus one check's budget, not one per check. The last check
 # can end while an earlier record still runs, so the tail holds two records and their failures,
-# or one record and the stop of a failed check's queries.
+# or one record and the stop of a failed check's queries. A firing's claim follows its record, and a
+# failed check claims nothing.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
@@ -107,7 +108,7 @@ EVALUATION_BUDGET = (
     + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
     + CLAIM_SCHEDULE_TO_CLOSE
-    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE + CLAIM_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
+    + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
 # Runs started before it recorded every outcome in one activity, and replay must schedule the same.

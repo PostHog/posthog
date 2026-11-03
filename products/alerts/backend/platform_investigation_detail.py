@@ -14,6 +14,8 @@ from products.alerts_platform.backend.facade.contracts import AlertDeliveryReque
 # The legacy alert whose agent investigates the firing. Recorded with the firing, so history shows
 # which checks asked for an investigation.
 INVESTIGATION_REQUESTED_KEY = "investigation_alert_id"
+# The same, for a metrics alert, whose investigation is a few metric queries the claim runs itself.
+METRICS_INVESTIGATION_REQUESTED_KEY = "metrics_investigation_alert_id"
 
 
 @frozen
@@ -53,13 +55,15 @@ class InvestigationClaims:
 class RequestedInvestigation:
     alert_id: str
     episode_started_at: datetime | None
+    metrics: bool = False
 
 
 def requested_investigation(outcome: PlatformAlertOutcome) -> RequestedInvestigation | None:
     """The investigation an outcome asks for, or None. Only an ungrouped firing asks for one."""
     for group in outcome.groups:
-        alert_id = group.source_detail.get(INVESTIGATION_REQUESTED_KEY)
-        if alert_id is not None:
-            started_at = group.firing_episode.started_at if group.firing_episode else None
+        started_at = group.firing_episode.started_at if group.firing_episode else None
+        if (alert_id := group.source_detail.get(INVESTIGATION_REQUESTED_KEY)) is not None:
             return RequestedInvestigation(alert_id=str(alert_id), episode_started_at=started_at)
+        if (alert_id := group.source_detail.get(METRICS_INVESTIGATION_REQUESTED_KEY)) is not None:
+            return RequestedInvestigation(alert_id=str(alert_id), episode_started_at=started_at, metrics=True)
     return None

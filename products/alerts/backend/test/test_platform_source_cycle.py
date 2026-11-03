@@ -949,3 +949,30 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert outcome.held_delivery is None
         assert len(self.deliveries) == 1
+
+    @parameterized.expand([("found", None, InvestigationStatus.DONE), ("failed", RuntimeError("no data"), "failed")])
+    def test_a_metrics_firing_records_its_investigation_without_holding_the_firing(
+        self, _name: str, error: Exception | None, status: str
+    ) -> None:
+        alert = self._alert(investigation_agent_enabled=True, investigation_gates_notifications=True)
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+
+        with patch(
+            "products.alerts.backend.platform_investigation.investigate_metrics_alert",
+            side_effect=error,
+            return_value="queue.depth moved up.",
+        ) as investigate:
+            claims = claim_requested_investigations(self.team.id, (outcome,))
+            claim_requested_investigations(self.team.id, (outcome,))
+
+        assert outcome.held_delivery is None
+        assert len(self.deliveries) == 1
+        assert claims.starts == ()
+        investigate.assert_called_once()
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
+        assert (investigation.kind, investigation.status) == (InsightAlertInvestigation.Kind.METRICS, status)
+        assert investigation.summary == ("queue.depth moved up." if error is None else None)
