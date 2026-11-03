@@ -52,6 +52,14 @@ from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
+from products.stamphog.backend.logic.routing.service import (
+    ROUTING_ACTIONS,
+    STATUS_REQUESTED,
+    finish_comment,
+    route_reviewers,
+    routing_skip_reason,
+    stored_routing,
+)
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import (
     PullRequest,
@@ -1892,3 +1900,63 @@ def request_rereview_after_external_review(*, repository: str, pr_number: int, h
     head is still current. Any other call is a no-op, so a caller may call it for every turn.
     """
     rereview_after_external_review.delay(repository=repository, pr_number=pr_number, head_sha=head_sha)
+
+
+_ROUTING_MAX_RETRIES = 4
+_ROUTING_RETRY_BASE_SECONDS = 30
+
+
+def _route_reviewers(payload: dict[str, Any]) -> None:
+    action = payload.get("action", "")
+    if action not in ROUTING_ACTIONS:
+        return
+    installation_id = str((payload.get("installation") or {}).get("id", ""))
+    repo = (payload.get("repository") or {}).get("full_name", "")
+    pr_number = (payload.get("pull_request") or {}).get("number")
+    if not installation_id or not repo or not pr_number:
+        return
+    repo_config = _resolve_repo_config(installation_id, repo)
+    if repo_config is None or not repo_config.routing_enabled:
+        return
+
+    client = StamphogGitHubClient(installation_id)
+    # The live PR, not the payload: a draft toggle or a close can land between the two.
+    pr = client.get_pr(repo, pr_number)
+    skip_reason = routing_skip_reason(action, pr)
+    if skip_reason is not None:
+        logger.info("stamphog_reviewer_routing_skipped", repo=repo, pr_number=pr_number, reason=skip_reason)
+        return
+
+    head_sha = (pr.get("head") or {}).get("sha") or ""
+    stored = stored_routing(repo_config, pr_number)
+    if stored is not None and stored.get("head_sha") == head_sha and stored.get("action") == action:
+        if stored.get("status") == STATUS_REQUESTED:
+            # A retry after the requests went out: finish the comment, request nobody again.
+            pr_obj = (
+                PullRequest.objects.for_team(repo_config.team_id)
+                .using(router.db_for_write(PullRequest))
+                .get(repo_config=repo_config, pr_number=pr_number)
+            )
+            finish_comment(client, pr_obj, stored)
+        return
+
+    pr_obj = _upsert_pull_request(repo_config, pr)
+    route_reviewers(client, pr_obj, pr, action)
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=_ROUTING_MAX_RETRIES)
+def route_pull_request_reviewers(self: Task, payload: dict[str, Any], delivery_id: str) -> None:
+    """Request reviews from the owners of the changed code when a PR opens or becomes ready.
+
+    Independent of the review path: it never reads or waits for a verdict. GitHub and DB errors
+    retry with backoff. The stored routing record makes a retry or a redelivery for the same head
+    and action request nobody twice.
+    """
+    try:
+        _route_reviewers(payload)
+    except GitHubRateLimitError as e:
+        logger.warning("stamphog_reviewer_routing_rate_limited", delivery_id=delivery_id)
+        raise self.retry(exc=e, countdown=max(e.retry_after or 0, 60))
+    except Exception as e:
+        logger.exception("stamphog_reviewer_routing_failed", delivery_id=delivery_id, error=str(e))
+        raise self.retry(exc=e, countdown=_ROUTING_RETRY_BASE_SECONDS * 2**self.request.retries)

@@ -39,7 +39,7 @@ _OWNERSHIP_FILE_NAMES = frozenset({"owners.yaml", "product.yaml"})
 _SKIPPED_STATUSES = frozenset({"generated", "vendored"})
 # GitHub reports a moved file as `renamed`, and a move into a new directory adds that directory as
 # much as a new file does.
-_ADDED_FILE_STATUSES = frozenset({"added", "renamed", "copied"})
+ADDED_FILE_STATUSES = frozenset({"added", "renamed", "copied"})
 
 
 class OwnerKind(StrEnum):
@@ -187,7 +187,7 @@ def _collect_additions(collector: _CandidateCollector, file: ChangedFile, resolu
     # The resolver reads the base tree, so `added` is set for any path the base lacks. The status
     # check matters on a pull request behind its base: a file it edits that the base deleted since
     # is missing from the tree too, and it adds nothing.
-    if resolution is None or resolution.added is None or file.status not in _ADDED_FILE_STATUSES:
+    if resolution is None or resolution.added is None or file.status not in ADDED_FILE_STATUSES:
         return
     if is_excluded(file.path) or _is_generated_or_vendored(file.path, resolution):
         return

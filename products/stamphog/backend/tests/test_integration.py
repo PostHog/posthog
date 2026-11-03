@@ -33,6 +33,7 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
+from products.stamphog.backend.logic import gateway_tokens
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -968,7 +969,7 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert run.status == ReviewRunStatus.FAILED
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
-    assert mint.call_count == activities._MINT_ATTEMPTS
+    assert mint.call_count == gateway_tokens.MINT_ATTEMPTS
     _assert_no_review_ran(stamphog_chain)
     assert not (run.error or "").startswith("SandboxPhaseError")
 
@@ -3036,9 +3037,9 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 120, "sha120a")
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
-    unpinned_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
-    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
-    error_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
+    unpinned_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
+    ok_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    error_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5"]),
@@ -3054,9 +3055,9 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
     # One mint counts once: unpinned, never ok or error as well.
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3072,7 +3073,7 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
             _mint_response(200, {"revoked": True}),
         ]
     )
-    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    ok_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS),
@@ -3089,14 +3090,14 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
     ]
     assert all(call.kwargs["timeout"] == 3 for call in mint.call_args_list)
     sleep.assert_called_once()
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
 
 
 def test_product_tag_matches_the_engine_blob() -> None:
     # The mint pins the product and the shipped engine stamps the same word in its properties blob;
     # the two are hand-typed in different packages, so bind them here where both are visible.
     engine_gateway = Path(activities.__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "gateway.py"
-    assert f'AI_PRODUCT = "{activities.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
+    assert f'AI_PRODUCT = "{gateway_tokens.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

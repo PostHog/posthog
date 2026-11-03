@@ -54,6 +54,12 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
     # The review sandbox's short-lived LLM gateway token is minted under this identity, mirroring how
     # tasks mints under task.created_by. Null means "never synced": hosted reviews fail closed.
     connected_by_user_id = models.BigIntegerField(null=True, blank=True)
+    # Opt-in: request reviews from the owners of the changed code when a PR opens or becomes ready.
+    # Independent of `enabled`, because routing never reads or waits for a verdict.
+    # db_default on both: the previous release still inserts rows without these columns during a deploy.
+    routing_enabled = models.BooleanField(default=False, db_default=False)
+    # Team slugs that a fork PR labels instead of requesting, so an outside author cannot ping them.
+    routing_label_only_teams = models.JSONField(default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -164,6 +170,9 @@ class PullRequest(ProductTeamModel):
     # fan out an older snapshot after a newer one; this field is the monotonic clock that lets the task
     # drop a strictly-older delivery instead of superseding the current run with a stale review.
     payload_updated_at = models.DateTimeField(null=True)
+    # The latest reviewer routing result for this PR (logic/routing/service.py). Null until routing
+    # runs. Holds owner names and counts only, never PR content.
+    routing = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

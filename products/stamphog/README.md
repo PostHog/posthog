@@ -172,6 +172,16 @@ A merge fans out to every audience it belongs to, and each audience resolves to 
 
 Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
+## Reviewer routing
+
+A repository with `routing_enabled` gets review requests for every owner of the changed code when a PR opens ready for review or is marked ready (`backend/logic/routing/`, queued by its own webhook consumer).
+Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
+When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
+Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
+A comment names the cut owners and why. Fork PRs label the teams in `routing_label_only_teams` instead of requesting them.
+Routing is independent of the approval review: it never reads or waits for a verdict, and it routes bot and fork PRs too.
+The latest result is stored on `PullRequest.routing`, which also stops a retry or a redelivery for the same head and action from requesting anybody twice.
+
 ## How it runs
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
