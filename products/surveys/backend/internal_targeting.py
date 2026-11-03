@@ -9,7 +9,13 @@ WAIT_PERIOD_DAYS_CONDITION = "seenSurveyWaitPeriodInDays"
 def is_valid_wait_period(value: Any) -> TypeGuard[int | float]:
     """Tell whether a value from a survey's conditions can serve as a wait period in days."""
     # A bool passes isinstance(value, int), and a JSON body can carry NaN or infinity.
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        # A JSON integer has no width limit, and float() rejects one above f64 range.
+        return False
 
 
 def _get_wait_period_days(conditions: dict[str, Any] | None) -> int | None:

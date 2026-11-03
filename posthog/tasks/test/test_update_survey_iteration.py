@@ -119,6 +119,8 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             ("wait_period", 7, 7),
             # The API accepted any JSON here before it validated the value.
             ("malformed_wait_period", "7", None),
+            # A JSON integer has no width limit, and this one is wider than a float.
+            ("oversized_wait_period", -(10**309), None),
         ]
     )
     def test_can_update_internal_targeting_flag(
