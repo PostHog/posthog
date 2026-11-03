@@ -376,20 +376,25 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
     Some(percent_encoding::percent_decode(text.as_bytes()).collect())
 }
 
-/// Reads the header through CSS escapes and the JSON escapes of `/`, and skips the tabs and line breaks that a browser removes from a URL. The end of the JSON string, or any other JSON escape, gives `None`.
+/// Reads the header through CSS escapes and the JSON escapes of `/`, and skips the tabs and line breaks that a browser removes from a URL, however they are written. The end of the JSON string, or any other JSON escape, gives `None`.
 fn header_char(bytes: &[u8], at: usize) -> Option<(char, usize)> {
     let mut removed = 0;
-    while let Some([b'\\', b't' | b'n' | b'r', ..]) = bytes.get(at + removed..) {
-        removed += 2;
+    loop {
+        let (ch, len) = match bytes.get(at + removed..)? {
+            [b'\\', b't', ..] => Some(('\t', 2)),
+            [b'\\', b'n', ..] => Some(('\n', 2)),
+            [b'\\', b'r', ..] => Some(('\r', 2)),
+            [b'\\', b'/', ..] => Some(('/', 2)),
+            [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..] => Some(('/', 6)),
+            [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
+            [b'"' | b'\\', ..] | [] => None,
+            [byte, ..] => Some((char::from(*byte), 1)),
+        }?;
+        if !matches!(ch, '\t' | '\n' | '\r') {
+            return Some((ch, removed + len));
+        }
+        removed += len;
     }
-    let (ch, len) = match bytes.get(at + removed..)? {
-        [b'\\', b'/', ..] => Some(('/', 2)),
-        [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..] => Some(('/', 6)),
-        [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
-        [b'"' | b'\\', ..] | [] => None,
-        [byte, ..] => Some((char::from(*byte), 1)),
-    }?;
-    Some((ch, removed + len))
 }
 
 /// The length counts from after the backslash, and a hex escape takes the one whitespace after it, as CSS reads it.
@@ -459,7 +464,7 @@ fn read_header(bytes: &[u8], meta_start: usize) -> Header {
 }
 
 /// Reads the data URI whose `data:` starts at `start`, with the rules of v3 `collectable_data_uri_bytes`: the media
-/// type and `base64` in any case, and any parameters before the comma.
+/// type and `base64` in any case, and any parameters before the comma. Unlike v3, `base64` counts only at the end.
 fn read_data_uri(
     bytes: &[u8],
     start: usize,
@@ -475,7 +480,7 @@ fn read_data_uri(
     }
     let media_type = meta.split(';').next().unwrap_or_default();
     let subtype = &media_type["image/".len()..];
-    let base64 = meta.contains("base64");
+    let base64 = ends_with_base64(meta);
     if subtype.starts_with("svg") && payload_is_markup(bytes, payload_start, base64) {
         return DataUri::Svg;
     }
@@ -514,6 +519,13 @@ fn read_data_uri(
         sink.take_base64(&wrapped_payload(bytes, payload_start, end))
     };
     DataUri::Replaced { replacement, end }
+}
+
+/// A browser decodes the payload as base64 only when `;base64` ends the header.
+fn ends_with_base64(meta: &str) -> bool {
+    meta.trim_ascii()
+        .strip_suffix("base64")
+        .is_some_and(|rest| rest.trim_end_matches(' ').ends_with(';'))
 }
 
 fn comma_is_escaped(bytes: &[u8], payload_start: usize) -> bool {
@@ -640,7 +652,7 @@ fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
 pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, [u8]> {
     let mut out: Option<Vec<u8>> = None;
     let mut copied_to = 0;
-    // A header can run to the end of its JSON string, so the scan reads each header once and takes a `data:` inside it as part of that URI, to stay linear.
+    // A header can run to the end of its JSON string, so the scan reads each header once and takes a `data:` inside it as part of that URI, to stay linear. That `data:` ends at the same comma and the same `;base64`, so it reads the payload the same way.
     let mut headers_read_to = 0;
     for (start, meta_start) in data_schemes(bytes) {
         if start < copied_to.max(headers_read_to) {
@@ -831,6 +843,11 @@ mod tests {
                 format!(r"data:image/png;\tbase64,{base64}"),
                 r#""}"#,
             ),
+            (
+                r#"{"textContent":".a{background:url(\""#,
+                format!(r"data:i\\9mage/png;base64,{base64}"),
+                r#"\")}"}"#,
+            ),
             // Raster bytes under an SVG label, which a browser shows as an image.
             (r#"{"src":""#, format!("data:image/svg+xml,{percent}"), r#""}"#),
             (
@@ -861,6 +878,16 @@ mod tests {
                 "{event}"
             );
         }
+        let event = format!(
+            r#"{{"textContent":"/*data:image/png;base64*/.a{{background:url(data:image/png,{percent})}}"}}"#
+        );
+        let mut images = sink(ImageLimits::default());
+        let out = extract_images(event.as_bytes(), &mut images);
+        assert_eq!(images.images.len(), 1, "{event}");
+        assert!(
+            !String::from_utf8_lossy(&out).contains(&percent[..12]),
+            "{event}"
+        );
     }
 
     #[test]
