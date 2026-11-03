@@ -11182,6 +11182,7 @@ export namespace Schemas {
 
     export interface ChartSettingsDisplay {
       color?: string | null;
+      description?: string | null;
       displayType?: DisplayType | null;
       /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
       excludeFromTotal?: boolean | null;
