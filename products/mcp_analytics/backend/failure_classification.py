@@ -158,7 +158,6 @@ def _build_batch_prompt(messages: list[str]) -> str:
 def _call_llm(client: OpenAI, messages: list[str], team: Team) -> ClassificationBatch:
     response = client.chat.completions.create(
         model=FAILURE_CLASS_MODEL,
-        temperature=0,
         timeout=30,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
