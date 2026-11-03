@@ -36383,7 +36383,7 @@
             "additionalProperties": false,
             "properties": {
                 "copyValue": {
-                    "description": "Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax.",
+                    "description": "Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line.",
                     "type": ["string", "null"]
                 },
                 "linkText": {
