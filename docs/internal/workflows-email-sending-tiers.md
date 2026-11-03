@@ -116,3 +116,4 @@ Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSender
 A committed state change reaches the workers through the `reload-sandbox-sender-state` message. Own-sender sends do not read this state.
 Each delivered send emits a `workflows sandbox email sent` event.
 Live workflow sends record `email_sent`, so workflow reports count them, and also `email_sandbox_sent`, so the sending tier can leave them out of its promotion volume; test sends record neither.
+The team's sending allowance also leaves out `email_sandbox_sent`, floored at zero per workflow.

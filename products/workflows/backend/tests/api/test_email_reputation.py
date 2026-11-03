@@ -86,6 +86,28 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspension_reason": "",
         }
 
+    def test_sending_allowance_leaves_out_sandbox_sends(self):
+        sends_by_source = {
+            self.team.id: {"flow-a": {"email_sent": 1, "email_sandbox_sent": 3}, "flow-b": {"email_sent": 2}}
+        }
+
+        def requested_metrics(*, name: list[str], **_kwargs: object) -> dict[int, dict[str, dict[str, int]]]:
+            return {
+                team_id: {
+                    source: {metric: count for metric, count in counts.items() if metric in name}
+                    for source, counts in sources.items()
+                }
+                for team_id, sources in sends_by_source.items()
+            }
+
+        with patch(
+            "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_team_and_source",
+            side_effect=requested_metrics,
+        ):
+            allowance = self._get_reputation({})["sending_allowance"]
+        assert allowance["emails_sent_last_hour"] == 2
+        assert allowance["emails_sent_last_day"] == 2
+
     @parameterized.expand(
         [
             ("no_findings", "ENABLED", None, "healthy"),

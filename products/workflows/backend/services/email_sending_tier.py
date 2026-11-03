@@ -351,6 +351,10 @@ def _fetch_daily_metrics(
         )
 
 
+def own_sends(counts: dict[str, int]) -> int:
+    return max(0, counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0))
+
+
 def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSendingHistory:
     # The tier decision only reads team totals, so metrics recorded under a batch job id and under
     # its parent workflow id sum the same either way and need no per-source resolution.
@@ -361,12 +365,8 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
         hard_bounced=sum(counts.get(HARD_BOUNCE_METRIC, 0) for counts in days.values()),
         complained=sum(counts.get(COMPLAINT_METRIC, 0) for counts in days.values()),
         auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
-        daily_sends={day: sends for day, counts in days.items() if (sends := _promotion_sends(counts)) > 0},
+        daily_sends={day: sends for day, counts in days.items() if (sends := own_sends(counts)) > 0},
     )
-
-
-def _promotion_sends(counts: dict[str, int]) -> int:
-    return counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0)
 
 
 def _empty_history(team_id: int) -> TeamSendingHistory:
