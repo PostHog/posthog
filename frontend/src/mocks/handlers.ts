@@ -108,6 +108,8 @@ export const defaultMocks: Mocks = {
             docs_url: 'https://posthog.com/docs/data/events-retention',
             project_retention_months: null,
             organization_retention_months: null,
+            default_retention_months: 84,
+            default_is_grandfathered: true,
             plan_retention_months: 84,
             min_retention_months: 1,
             max_retention_months: 84,
@@ -179,6 +181,8 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/events_retention_setting/': {
             organization_retention_months: null,
+            default_retention_months: 84,
+            default_is_grandfathered: true,
             plan_retention_months: 84,
             min_retention_months: 1,
             max_retention_months: 84,

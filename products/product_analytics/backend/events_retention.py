@@ -13,7 +13,12 @@ from posthog.models.events_retention_config import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.event_retention import organization_events_retention_months
+from posthog.models.team.event_retention import (
+    STANDARD_DEFAULT_WINDOW_MONTHS,
+    default_window,
+    has_standard_retention,
+    organization_events_retention_months,
+)
 from posthog.models.user import User
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
@@ -77,11 +82,15 @@ def _report_retention_set(
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
     config = OrganizationEventsRetentionConfig.objects.filter(organization_id=organization.id).first()
     plan_months = organization_events_retention_months(organization)
+    staff_min = config.min_events_retention_months if config else None
     staff_max = config.max_events_retention_months if config else None
+    standard = has_standard_retention(organization)
     return OrganizationEventsRetention(
         organization_months=config.default_events_retention_months if config else None,
+        default_months=default_window(plan_months, standard, staff_min),
+        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_WINDOW_MONTHS,
         plan_months=plan_months,
-        min_months=(config.min_events_retention_months if config else None) or 1,
+        min_months=staff_min or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
     )
 

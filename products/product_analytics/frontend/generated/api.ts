@@ -86,7 +86,7 @@ export const getOrganizationEventsRetentionRetrieveUrl = (organizationId: string
 }
 
 /**
- * Returns the events retention window that every project without its own window uses, and the range an organization admin can set.
+ * Returns the events retention window that every project without its own window uses, the default window while none is set, and the range an organization admin can set.
  * @summary Get the organization's events retention window
  */
 export const organizationEventsRetentionRetrieve = async (

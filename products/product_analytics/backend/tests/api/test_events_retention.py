@@ -34,11 +34,13 @@ class TestEventsRetentionAPI(APIBaseTest):
     def organization_url(self) -> str:
         return f"/api/organizations/{self.organization.id}/events_retention_setting/"
 
-    def _set_plan_years(self, years: int) -> None:
+    def _set_plan_years(self, years: int, standard: bool = False) -> None:
+        standard_feature = [{"key": "product_analytics_standard_data_retention"}] if standard else []
         Organization.objects.filter(pk=self.organization.pk).update(
             available_product_features=[
                 {"key": "product_analytics_data_retention", "limit": years, "unit": "years"},
                 {"key": "access_control", "name": "Access control"},
+                *standard_feature,
             ]
         )
 
@@ -77,10 +79,37 @@ class TestEventsRetentionAPI(APIBaseTest):
             "docs_url": "https://posthog.com/docs/data/events-retention",
             "project_retention_months": None,
             "organization_retention_months": None,
+            "default_retention_months": 12,
+            "default_is_grandfathered": False,
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
         }
+
+    @parameterized.expand(
+        [
+            ("standard_plan_defaults_to_24_months", True, None, 24, False),
+            ("grandfathered_plan_defaults_to_its_whole_window", False, None, 84, True),
+            ("staff_minimum_raises_the_standard_default", True, 36, 36, False),
+        ]
+    )
+    def test_reports_the_default_window(
+        self, _name: str, standard: bool, staff_min: int | None, expected_months: int, grandfathered: bool
+    ) -> None:
+        self._set_plan_years(7, standard=standard)
+        self.team.event_retention_months = 84
+        self.team.save()
+        if staff_min is not None:
+            OrganizationEventsRetentionConfig.objects.create(
+                organization=self.organization, min_events_retention_months=staff_min
+            )
+
+        project = self.client.get(self.url()).json()
+        organization = self.client.get(self.organization_url()).json()
+
+        assert (project["retention_months"], project["default_retention_months"]) == (expected_months, expected_months)
+        assert (organization["default_retention_months"], organization["max_retention_months"]) == (expected_months, 84)
+        assert organization["default_is_grandfathered"] is grandfathered
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_reports_no_window_until_retention_is_enforced(self) -> None:
@@ -136,6 +165,8 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "organization_retention_months": 12,
+            "default_retention_months": 24,
+            "default_is_grandfathered": False,
             "plan_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
