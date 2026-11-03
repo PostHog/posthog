@@ -3,7 +3,8 @@
 Read this before changing a workflow listed in `.github/workflows/actions.lock`, its action dependencies, or the lockfile itself.
 
 The lockfile's `workflows` section lists the onboarded workflows.
-Onboard another workflow in its own change, and add it to the Renovate exclusion in `.github/renovate.json5` in that change.
+Onboard another workflow in its own change.
+Action bumps are manual, and Renovate does not bump actions.
 
 ## Update and verify
 
@@ -34,6 +35,11 @@ Do not use `--relock` or `--accept-moved` to silence a provenance error before y
 ## Coverage boundaries
 
 - The lockfile does not cover remote reusable-workflow calls at `jobs.<job_id>.uses`. Keep their inline SHA pins.
-- `gh-actions-lock` does not follow local `./` actions. A migration to `$/` changes which commit supplies the action, so keep it out of routine lockfile maintenance.
+- The runner checks the remote actions inside a local `./` composite against the calling workflow's own lockfile entry, and fails the job when a pin is missing.
+  `gh-actions-lock` does not follow `./` actions, so it cannot add those pins.
+  A workflow that uses a `./` composite with a remote action stays off the lockfile, and `--verify` fails when an onboarded workflow's composite gains one.
+- Do not migrate local actions to `$/`.
+  The runner fetches a `$/` action from the repository archive, and `.gitattributes` excludes `.github/` from that archive, so the action is not found.
+  Without that exclusion, every job that uses a `$/` action downloads the whole repository archive, about 213 MB.
 
 See GitHub's [lockfile maintenance guide](https://docs.github.com/en/actions/how-tos/secure-your-work/lock-workflow-dependencies) and the [gh-actions-lock limitations](https://github.com/github/gh-actions-lock#limitations).

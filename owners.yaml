@@ -44,6 +44,10 @@ teams:
     team-replay:
         notifications:
             stamphog: false
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-warehouse-sources:
+        notifications:
+            stamphog: false
 rules:
     - match: Dockerfile.llm-analytics
       owners: team-ai-observability
