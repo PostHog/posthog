@@ -482,6 +482,10 @@ class DataWarehouseSavedQuerySerializer(
 
         frequency_given = "sync_frequency" in validated_data
         sync_frequency = validated_data.pop("sync_frequency", None)
+        raw_trino = is_raw_managed_trino_query(validated_data.get("query", instance.query))
+
+        if raw_trino and sync_frequency not in (None, "never"):
+            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
@@ -492,8 +496,8 @@ class DataWarehouseSavedQuerySerializer(
                 database=self.context.get("database"),
             )
 
-        # The frequency writes through to the DAG node's freshness target.
-        frequency_changed = frequency_given
+        # The frequency writes through to the DAG node's freshness target. Raw Trino views have no node.
+        frequency_changed = frequency_given and not raw_trino
 
         soft_update = validated_data.pop("soft_update", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
@@ -511,24 +515,21 @@ class DataWarehouseSavedQuerySerializer(
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
-        pending_query = validated_data.get("query", instance.query)
-        if is_raw_managed_trino_query(pending_query) != instance.is_raw_managed_trino:
+        if raw_trino != instance.is_raw_managed_trino:
             raise serializers.ValidationError(
                 "A view cannot switch between Trino and ClickHouse. Save it as a new view."
             )
-        if is_raw_managed_trino_query(pending_query):
+        if raw_trino:
             if "query" in validated_data and not soft_update:
-                inferred_columns = self._raw_trino_columns(sync_frequency if frequency_given else None)
+                inferred_columns = self._raw_trino_columns(None)
                 inferred_external_tables = []
-            elif frequency_given and sync_frequency not in (None, "never"):
-                raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
         elif "query" in validated_data or "name" in validated_data:
             self._validate_view_dependencies(
                 instance.team,
                 validated_data.get("name", instance.name),
                 validated_data.get("query", instance.query)["query"],
             )
-        if "query" in validated_data and not soft_update and not is_raw_managed_trino_query(pending_query):
+        if "query" in validated_data and not soft_update and not raw_trino:
             # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
             # carrying the pending query and name rather than the stored ones, as create() does.
             probe = DataWarehouseSavedQuery(

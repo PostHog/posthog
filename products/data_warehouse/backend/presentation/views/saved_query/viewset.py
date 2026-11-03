@@ -324,6 +324,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+        if saved_query.is_raw_managed_trino:
+            raise exceptions.ValidationError(detail="Views that run raw Trino SQL cannot be materialized yet.")
         on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
 
         if body.validated_data["full_refresh"] and not on_trino:

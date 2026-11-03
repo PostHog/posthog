@@ -207,7 +207,8 @@ class TestSavedQuery(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn("Unknown table", response.json()["detail"])
+        # Expanding the view would fail on its inner Trino table instead, so the view name pins the filter.
+        self.assertIn("Unknown table `hub_occupancy`", response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -239,6 +240,30 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn(expected_detail, response.json()["detail"])
         self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="trino_view").exists())
+
+    @parameterized.expand(
+        [
+            ("run", "post", "run/", {}),
+            ("schedule", "patch", "", {"sync_frequency": "24hour"}),
+        ]
+    )
+    def test_raw_managed_trino_view_never_reaches_the_dag(self, _case: str, method: str, path: str, body: dict) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="trino_view",
+            query={
+                "kind": "HogQLQuery",
+                "query": 'SELECT * FROM "warehouse_catalog".production.hub_occupancy',
+                "executionTarget": "managed_trino",
+                "sendRawQuery": True,
+            },
+        )
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/{path}", body, format="json"
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("raw Trino SQL cannot be materialized", response.json()["detail"])
+        self.assertFalse(Node.objects.filter(saved_query=view).exists())
 
     @parameterized.expand(
         [("ui", {}), ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}), ("api", {"HTTP_USER_AGENT": "test-api-client"})]
