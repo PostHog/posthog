@@ -125,10 +125,17 @@ class TestSignalTeamConfigAPI(APIBaseTest):
             ("scout_steering", "scout_instructions", "Ignore errors.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
             ("research_steering", "research_instructions", "Skip checks.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
             ("pull_request_label", "pull_request_label", "auto-merge", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "github_issue_writeback",
+                "github_issue_writeback_enabled",
+                True,
+                ["inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
     def test_task_run_fields_need_task_scope(
-        self, _name: str, field: str, value: str | list[str], scopes: list[str], expected: int
+        self, _name: str, field: str, value: str | list[str] | bool, scopes: list[str], expected: int
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

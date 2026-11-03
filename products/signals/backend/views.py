@@ -721,6 +721,7 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "pull_request_label_enabled",
         "pull_request_label",
         "implementation_repositories",
+        "github_issue_writeback_enabled",
         *STEERING_FIELDS.values(),
     )
 
@@ -1680,10 +1681,17 @@ class SignalReportViewSet(
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
 
+    request_dependent_scope_actions = frozenset({"claim"})
+
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         # The title and summary become an implementation task's prompt, so editing them is task work.
         if self.action == "partial_update":
             return ["inbox:write", "task:write"]
+        if self.action == "claim":
+            # A linked PR can be in any repo the team's GitHub integration reaches, and `pr_comments` then returns
+            # its private comments and diff hunks. An inbox-only credential can claim but cannot link a PR.
+            attaches_pull_requests = not _submitted_config_fields(request).isdisjoint({"pr_url", "pull_requests"})
+            return ["inbox:write", "task:write"] if attaches_pull_requests else ["inbox:write"]
         return None
 
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
@@ -2837,11 +2845,12 @@ class SignalReportViewSet(
         description=(
             "Start or update work for the current user, internal task, or external agent. "
             "Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, "
-            "or release=true to end ownership while preserving work history and PR links."
+            "or release=true to end ownership while preserving work history and PR links. "
+            "Adding PRs needs task:write as well as inbox:write."
         ),
         operation_id="signals_reports_claim",
     )
-    @action(detail=True, methods=["post"], url_path="claim", required_scopes=["inbox:write"])
+    @action(detail=True, methods=["post"], url_path="claim")
     def claim(self, request: Request, *args, **kwargs) -> Response:
         request_serializer = SignalReportClaimSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
