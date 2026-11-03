@@ -40,6 +40,25 @@ export function visit(state: TurnState, taskId: string | null): TurnState {
   return { ...state, waiting };
 }
 
+// What the inbox needs to know about a chat's last turn, from its log.
+export interface TurnFacts {
+  turnEndedAt: number | null;
+  shells: number;
+  wake: boolean;
+}
+
+export function turnFacts(
+  view: RunView,
+  runtime: AgentRuntime | undefined,
+): TurnFacts {
+  const transcript = transcriptFrom(runtime, view.entries);
+  return {
+    turnEndedAt: transcript.lastTurn?.endedAt ?? null,
+    shells: transcript.shells,
+    wake: transcript.wake !== null,
+  };
+}
+
 // The run is up and has a prompt it has not finished answering.
 export function midTurn(
   view: RunView,

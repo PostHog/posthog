@@ -8,7 +8,14 @@ import {
 } from "../layout";
 import type { LocalAgent } from "../local";
 import type { CloudRuns, RunView } from "../runs";
-import { midTurn, noTurns, settle, visit } from "../turns";
+import {
+  midTurn,
+  noTurns,
+  settle,
+  type TurnFacts,
+  turnFacts,
+  visit,
+} from "../turns";
 
 // How often a watched chat's log is read for its turn, so a fast stream costs one reading a second.
 const CHECK_MS = 1_000;
@@ -18,6 +25,10 @@ export interface Turns {
   working: Set<string>;
   // Chats whose turn ended while the reader was on another chat.
   waiting: Set<string>;
+  // Each watched chat's last turn, for the inbox.
+  facts: Map<string, TurnFacts>;
+  // When the user last sent each chat a message (epoch ms), this run of the app.
+  repliedAt: Map<string, number>;
 }
 
 // Which chats are working and which finished unseen, for the sidebar.
@@ -41,6 +52,8 @@ export function useTurns({
   listed?: Task[];
 }): Turns {
   const [turns, setTurns] = useState(noTurns);
+  const [facts, setFacts] = useState<Map<string, TurnFacts>>(new Map());
+  const [repliedAt, setRepliedAt] = useState<Map<string, number>>(new Map());
   const workspace = activeWorkspace(layout);
   const focusedTaskId =
     findPane(layout, workspace.focusedPaneId)?.taskId ?? null;
@@ -64,10 +77,13 @@ export function useTurns({
   const wasPending = useRef(new Set<string>());
   useEffect(() => {
     const now = new Set(pendingIds ? pendingIds.split(",") : []);
-    for (const taskId of now)
+    for (const taskId of now) {
       setTurns((state) =>
         settle(state, taskId, true, taskId === focused.current),
       );
+      if (!wasPending.current.has(taskId))
+        setRepliedAt((current) => new Map(current).set(taskId, Date.now()));
+    }
     for (const taskId of wasPending.current) {
       if (now.has(taskId)) continue;
       const last = latest.current.get(taskId);
@@ -150,6 +166,7 @@ export function useTurns({
     };
     const timer = setInterval(() => {
       readListed();
+      const read = new Map<string, TurnFacts>();
       for (const [taskId, { view, runtime }] of unread.current) {
         // A message still on its way keeps the turn open whatever the log says so far.
         const working =
@@ -157,8 +174,25 @@ export function useTurns({
         setTurns((state) =>
           settle(state, taskId, working, taskId === focused.current),
         );
+        if (view.loaded) read.set(taskId, turnFacts(view, runtime));
       }
       unread.current.clear();
+      if (read.size > 0)
+        setFacts((current) => {
+          let next = current;
+          for (const [taskId, fact] of read) {
+            const was = current.get(taskId);
+            if (
+              was?.turnEndedAt === fact.turnEndedAt &&
+              was.shells === fact.shells &&
+              was.wake === fact.wake
+            )
+              continue;
+            if (next === current) next = new Map(current);
+            next.set(taskId, fact);
+          }
+          return next;
+        });
     }, CHECK_MS);
     return () => {
       clearInterval(timer);
@@ -167,5 +201,5 @@ export function useTurns({
     };
   }, []);
 
-  return turns;
+  return { ...turns, facts, repliedAt };
 }

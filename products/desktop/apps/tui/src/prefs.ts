@@ -6,7 +6,7 @@ import type { ModelChoice } from "./models";
 
 export type ChatPlace = "local" | "cloud";
 // Whose chats the sidebar lists under its tabs: the user's own, or the whole team's.
-export type ChatScope = "mine" | "all";
+export type ChatScope = "mine" | "all" | "inbox";
 
 export interface PinnedChat {
   id: string;
@@ -38,6 +38,8 @@ export interface Prefs {
   pinnedChats: PinnedChat[];
   // The tab the sidebar's chat list is on.
   chatScope: ChatScope;
+  // Chats dismissed from the inbox, with when (epoch ms); a turn ending later brings one back.
+  inboxDismissed: Record<string, number>;
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -63,6 +65,7 @@ const DEFAULT_PREFS: Prefs = {
   relayLocalMcp: false,
   pinnedChats: [],
   chatScope: "mine",
+  inboxDismissed: {},
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -98,7 +101,19 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
               typeof chat?.id === "string" && typeof chat?.title === "string",
           )
         : [],
-      chatScope: saved.chatScope === "all" ? "all" : "mine",
+      chatScope:
+        saved.chatScope === "all" || saved.chatScope === "inbox"
+          ? saved.chatScope
+          : "mine",
+      inboxDismissed:
+        saved.inboxDismissed && typeof saved.inboxDismissed === "object"
+          ? Object.fromEntries(
+              Object.entries(saved.inboxDismissed).filter(
+                (entry): entry is [string, number] =>
+                  typeof entry[1] === "number",
+              ),
+            )
+          : {},
     };
   } catch {
     return DEFAULT_PREFS;
