@@ -18,10 +18,10 @@ function getCreateDisabledReason(
     policiesLoading: boolean
 ): string | undefined {
     if (providers === null) {
-        return providersLoadFailed ? "Couldn't load the supported CI providers" : 'Loading the supported CI providers'
+        return providersLoadFailed ? "Couldn't load the supported providers" : 'Loading the supported providers'
     }
     if (providers.supported.length === 0) {
-        return 'No CI provider is supported on this instance'
+        return 'No workload provider is supported on this instance'
     }
     // A list response that lands after a save would replace the new policy with an older snapshot.
     return policiesLoading ? 'Loading trusted workloads' : undefined
@@ -40,9 +40,9 @@ export function WorkloadTrustPolicies(): JSX.Element {
         <TimeSensitiveAuthenticationArea>
             <>
                 <p>
-                    A trusted workload, such as the CI jobs of one repository, gets short-lived tokens for this project,
-                    so you don't have to store an API key in your CI provider. Tokens act as the organization owner and
-                    carry only the scopes the policy lists.
+                    A trusted workload, such as a CI job, gets short-lived tokens for this project, so you don't have to
+                    store an API key with it. Tokens act as the organization owner and carry only the scopes the policy
+                    lists.
                 </p>
                 <LemonButton
                     type="primary"
@@ -60,7 +60,7 @@ export function WorkloadTrustPolicies(): JSX.Element {
                         className="mb-4"
                         action={{ children: 'Retry', onClick: () => loadProviders() }}
                     >
-                        Couldn't load the supported CI providers.
+                        Couldn't load the supported providers.
                     </LemonBanner>
                 ) : null}
                 {providers && providers.unsupported.length > 0 ? (
@@ -99,24 +99,27 @@ export function WorkloadTrustPolicies(): JSX.Element {
                                 ),
                             },
                             {
-                                title: 'Repository',
-                                key: 'repository',
+                                title: 'Workload',
+                                key: 'subject',
                                 render: (_, policy) => (
                                     <div className="flex flex-col">
-                                        <span className="font-mono">{policy.repository}</span>
-                                        <span className="text-secondary text-xs">ID {policy.repository_id}</span>
+                                        <span className="font-mono">{policy.subject_name}</span>
+                                        <span className="text-secondary text-xs">
+                                            {policy.claim_labels.subject} {policy.subject}
+                                        </span>
                                     </div>
                                 ),
                             },
                             {
-                                title: 'Runs on',
+                                title: 'Conditions',
                                 key: 'conditions',
                                 render: (_, policy) => (
                                     <span className="flex flex-wrap gap-1">
-                                        {policy.ref ? <LemonTag>ref: {policy.ref}</LemonTag> : null}
-                                        {policy.environment ? (
-                                            <LemonTag>environment: {policy.environment}</LemonTag>
-                                        ) : null}
+                                        {Object.entries(policy.conditions ?? {}).map(([claim, value]) => (
+                                            <LemonTag key={claim}>
+                                                {policy.claim_labels.conditions[claim] ?? claim}: {value}
+                                            </LemonTag>
+                                        ))}
                                     </span>
                                 ),
                             },
