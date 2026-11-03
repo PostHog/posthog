@@ -314,8 +314,7 @@ tools:
             same link. Undo a wrong link with comments-unlink-slack-thread.
         param_overrides:
             url:
-                description: >-
-                    Link to any message in the Slack thread, from Copy link in Slack, e.g.
+                description: Link to any message in the Slack thread, from Copy link in Slack, e.g.
                     https://acme.slack.com/archives/C0123ABCDEF/p1767225636123456.
         feature_flag: discussions-slack-sync
     comments-list:
@@ -342,12 +341,12 @@ tools:
             idempotent: false
         title: Unlink a Slack thread from a discussion
         description: >
-            Undo comments-link-slack-thread. Stops the Slack sync and deletes the discussion it created in PostHog,
-            the opening comment and every reply. The thread stays in Slack and can be linked again, for example to the
-            right ticket. Pass the id of the discussion's opening comment: in comments-list it has source_comment null,
-            item_context.from_slack true and a slack_thread. A discussion written in PostHog and sent to Slack cannot
-            be unlinked. For a support ticket discussion this needs the ticket:write scope. Confirm with the user
-            first, because the comments are removed.
+            Undo comments-link-slack-thread. Stops the Slack sync and deletes the discussion it created in PostHog, the
+            opening comment and every reply. The thread stays in Slack and can be linked again, for example to the right
+            ticket. Pass the id of the discussion's opening comment: in comments-list it has source_comment null,
+            item_context.from_slack true and a slack_thread. A discussion written in PostHog and sent to Slack cannot be
+            unlinked. For a support ticket discussion this needs the ticket:write scope. Confirm with the user first,
+            because the comments are removed.
         param_overrides:
             id:
                 description: ID of the opening comment of a discussion linked from a Slack thread.
