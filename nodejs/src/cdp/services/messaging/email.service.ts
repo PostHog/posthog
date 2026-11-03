@@ -34,8 +34,6 @@ import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from 
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailCaptureChoice,
-    resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
@@ -875,11 +873,10 @@ export class EmailService {
             }
         }
 
-        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        const distinctId = resolveEmailTrackingDistinctId(invocation)
         if (
             distinctId &&
             !isTest &&
-            resolveEmailCaptureChoice(invocation) !== false &&
             (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
         ) {
             result.capturedPostHogEvents.push({
