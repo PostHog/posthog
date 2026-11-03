@@ -287,6 +287,40 @@ On a development build with notifications enabled:
 6. Repeat a delivery with the app backgrounded or terminated. App-side filtering does **not** provide the same
    guarantees there; server consolidation and synchronized snoozes remain follow-ups in [GAPS.md](GAPS.md).
 
+### Android notification taps after process death
+
+Use a rebuilt Android development client. Keep the app's task in Recents when killing its
+process; force-stop and removing the task test different startup paths.
+Send test pushes as described in [Push notifications](PUSH.md#testing) and tap them in the
+system tray. Use different reports in a project the test account can access. To kill the process
+without removing the task, substitute the installed variant's package in these commands.
+
+```sh
+adb shell input keyevent KEYCODE_HOME
+adb shell am kill com.posthog.mobile
+adb shell pidof com.posthog.mobile # must print nothing
+```
+
+Disconnect the debugger if it keeps the development build alive.
+
+Verify these sequences against both base and proposed builds:
+
+1. Open report A, background the app, and tap a notification for report B with the process alive.
+2. Repeat after killing the background process while retaining its task. B must open once.
+3. Start a fresh task by tapping a notification for A, navigate to another report, background
+   and kill the process, then tap a notification for B. B must open without reopening A.
+4. Repeat the notification-launched task sequence but reopen from Recents with no new tap.
+   The original notification must not replay.
+5. Tap a notification to start a fresh task, then kill its process before JavaScript routes it.
+   Reopen from Recents without another tap. The pending target must open once.
+   Repeat while signed out, kill and reopen, then sign in. The pending target must still open.
+6. Background the app and tap a local snooze reminder, then open a report deep link.
+   Both must still reach their targets.
+7. While routing is waiting for sign-in, tap a push for A and then a snooze reminder for B.
+   Sign in and verify only B opens. Repeat with the tap order reversed and verify only A opens.
+
+Also perform real push delivery checks on physical Android and iOS devices before marking the PR ready.
+
 ## Demo walkthrough on the iOS simulator
 
 `.argent/flows/demo-smoke.yaml` drives the demo end to end with [Argent](https://docs.expo.dev/agents/argent/), a device automation CLI from Software Mansion.
