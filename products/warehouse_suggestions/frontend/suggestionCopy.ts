@@ -214,7 +214,7 @@ export function mainSaving(payload: WarehouseSuggestionApi['payload']): MainSavi
     if (isMaterializePayload(payload)) {
         return materializeMainSaving(payload)
     }
-    return isUnmaterializePayload(payload) ? timeOrBytes(unmaterializeSaving(payload), 'background') : null
+    return isUnmaterializePayload(payload) ? unmaterializeMainSaving(payload) : null
 }
 
 export function materializeHighlight(payload: WarehouseSuggestionMaterializePayloadApi): SavingHighlight {
@@ -234,10 +234,13 @@ export function materializeHighlight(payload: WarehouseSuggestionMaterializePayl
 }
 
 export function unmaterializeHighlight(payload: WarehouseSuggestionUnmaterializePayloadApi): SavingHighlight {
-    const saving = unmaterializeSaving(payload)
-    const main = timeOrBytes(saving, 'background')
+    const main = unmaterializeMainSaving(payload)
     return headlineHighlight(main, [
-        perMonth(main.kind === 'scanned' ? backgroundText(saving.seconds) : scannedText(saving.bytes)),
+        perMonth(
+            main.kind === 'scanned'
+                ? backgroundText(payload.refresh_seconds_per_month)
+                : scannedText(unmaterializeSaving(payload).bytes)
+        ),
         payload.live_seconds_per_month >= MIN_SECONDS_WORTH_NAMING
             ? `Without the stored copy, reads would take ~${spokenDuration(payload.live_seconds_per_month, 1)} a month`
             : null,
@@ -288,6 +291,14 @@ function materializeMainSaving(payload: WarehouseSuggestionMaterializePayloadApi
         default:
             return timeOrBytes(materializeSaving(payload), 'waiting')
     }
+}
+
+function unmaterializeMainSaving(payload: WarehouseSuggestionUnmaterializePayloadApi): MainSaving {
+    const saving = unmaterializeSaving(payload)
+    if (!savesTime(saving)) {
+        return { kind: 'scanned', amount: saving.bytes }
+    }
+    return { kind: 'background', amount: payload.refresh_seconds_per_month }
 }
 
 function timeOrBytes(saving: MonthlySaving, timeKind: MainSavingKind): MainSaving {

@@ -179,20 +179,22 @@ describe('suggestionCopy', () => {
         expect(summarySavings({ views: 2, saving: { seconds: 0, bytes }, split })).toEqual(expected)
     })
 
-    it('names the read time a stopped materialization adds as a sentence of its own', () => {
+    it('leads a stop-materializing row with the refresh time it saves and names the read time it adds', () => {
         const stop = {
             subject_name: 'orders',
-            refresh_seconds_per_month: 5400,
+            refresh_seconds_per_month: 3 * HOUR,
             refresh_bytes_per_month: 4 * TB,
-            live_seconds_per_month: 900,
+            live_seconds_per_month: 15 * 60,
             live_bytes_per_month: TB,
             read_seconds: 3.6,
         }
 
-        expect(unmaterializeHighlight(stop).tooltip).toEqual([
-            '~3.00 TB less scanned a month',
-            'Without the stored copy, reads would take ~15 minutes a month',
-        ])
+        expect(unmaterializeHighlight(stop)).toEqual({
+            amount: '~3 hours',
+            detail: 'less background work',
+            narrowLabel: 'less background work a month',
+            tooltip: ['~3.00 TB less scanned a month', 'Without the stored copy, reads would take ~15 minutes a month'],
+        })
     })
 
     it.each<[Parameters<typeof suggestedScheduleHint>[0], string]>([
