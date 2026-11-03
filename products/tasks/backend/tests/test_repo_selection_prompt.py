@@ -219,6 +219,18 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
     [
         ("retry_answers", '{"repository": "acme/b", "reason": "Owns the checkout path."}', "acme/b", None),
         ("retry_still_progress", "Still waiting on the query.", None, ValueError),
+        (
+            "retry_corrects_to_null",
+            '{"repository": "acme/a", "reason": "First choice"}\n{"repository": null, "reason":',
+            None,
+            ValueError,
+        ),
+        (
+            "retry_corrects_to_another_candidate",
+            '{"repository": "acme/a", "reason": "First choice"}\n{"repository": "acme/b", "reason":',
+            None,
+            ValueError,
+        ),
         ("retry_rejects_mentioned_candidate", "acme/a does not own this.", None, ValueError),
         ("retry_usage_limit", "API Error: 402 No credits remaining.", None, RepoSelectionUsageLimitError),
         ("retry_answers_off_list", '{"repository": "acme/zzz", "reason": "Guess."}', None, RepoSelectionRejectedError),

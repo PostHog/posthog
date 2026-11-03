@@ -602,6 +602,8 @@ context and repo names alone.
 
 def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
     """Recover an explicit leading JSON selection, never a repository mentioned in prose."""
+    if len(re.findall(r'"repository"\s*:', text)) != 1:
+        raise ValueError("End-turn text contains missing or competing repository decisions")
     stated = re.match(r'\s*(?:```(?:json)?\s*)?\{\s*"repository"\s*:\s*"([^"\\]*)"', text)
     choice = stated.group(1).strip().lower() if stated else None
     if choice not in candidate_repos:
