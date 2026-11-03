@@ -40,6 +40,15 @@ export const scene: SceneExport = {
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
+    return (
+        <>
+            <FirstDataCelebration />
+            <MCPAnalyticsSceneBody />
+        </>
+    )
+}
+
+function MCPAnalyticsSceneBody(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState } = useValues(mcpAnalyticsOnboardingLogic)
@@ -127,7 +136,6 @@ export function MCPAnalyticsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <FirstDataCelebration />
             <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"

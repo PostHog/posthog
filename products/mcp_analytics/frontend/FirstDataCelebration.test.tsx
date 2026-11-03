@@ -1,15 +1,19 @@
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { FirstDataCelebration } from './FirstDataCelebration'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
+import { MCPAnalyticsScene } from './MCPAnalyticsScene'
+import { mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 
 jest.mock('lib/api')
+jest.mock('lib/utils/product-intents', () => ({ addProductIntent: jest.fn() }))
 
 const mockApi = api as jest.Mocked<typeof api>
 
@@ -23,6 +27,7 @@ describe('FirstDataCelebration', () => {
     })
 
     afterEach(() => {
+        cleanup()
         jest.restoreAllMocks()
     })
 
@@ -54,5 +59,27 @@ describe('FirstDataCelebration', () => {
             expect.objectContaining({ animated: testCase.animated }),
             undefined
         )
+    })
+
+    it('settles an arrival on a tab the scene renders as not found', async () => {
+        jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        jest.spyOn(mockApi, 'query')
+            .mockReset()
+            .mockResolvedValueOnce({ results: [CONNECTED] } as any)
+            .mockResolvedValueOnce({ results: [ONE_CALL] } as any)
+        sceneLogic.mount()
+        sceneLogic.actions.setExportedScene({} as any, 'MCPAnalytics', 'mcpAnalyticsIntentClustering', {})
+        const logic = mcpAnalyticsOnboardingLogic()
+        logic.mount()
+        mcpAnalyticsSceneLogic().mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSignals()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.firstDataWatch).toBe('arrived')
+
+        const { getByText } = render(<MCPAnalyticsScene />)
+
+        expect(getByText('Page not found')).toBeTruthy()
+        expect(logic.values.firstDataWatch).toBe('settled')
     })
 })
