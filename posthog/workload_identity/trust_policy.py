@@ -33,6 +33,8 @@ from posthog.auth import (
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.workload_trust_policy import (
+    CONDITION_VALUE_MAX_LENGTH,
+    CONDITIONS_MAX_BYTES,
     WorkloadTrustPolicy,
     WorkloadTrustPolicyRequest,
     workload_trust_policy_grantable_scopes,
@@ -50,11 +52,6 @@ from posthog.rate_limit import WorkloadTrustPolicyRequestBurstThrottle, Workload
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
-    CONDITION_VALUE_MAX_LENGTH,
-    CONDITIONS_MAX_BYTES,
-    FALLBACK_SUBJECT_LABEL,
-    FALLBACK_SUBJECT_NAME_LABEL,
-    WorkloadClaim,
     WorkloadProvider,
     get_supported_workload_providers,
     get_unsupported_workload_providers,
@@ -66,6 +63,8 @@ from posthog.workload_identity.providers import (
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
 WILDCARD_CHARACTERS = frozenset("*?[]")
 DUPLICATE_POLICY_MESSAGE = "A policy for this workload with the same conditions already exists."
+FALLBACK_SUBJECT_LABEL = "Subject"
+FALLBACK_SUBJECT_NAME_LABEL = "Name"
 
 
 def _validate_exact_value(value: str, field_label: str) -> str:
@@ -138,9 +137,7 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
 class WorkloadConditionsField(serializers.Field):
     """Claim name to required value. The serializer's `validate` normalizes it once the provider is known."""
 
-    def to_internal_value(self, data: Any) -> dict[str, Any]:
-        if not isinstance(data, dict):
-            raise serializers.ValidationError("Send conditions as an object of claim names and values.")
+    def to_internal_value(self, data: Any) -> Any:
         return data
 
     def to_representation(self, value: Any) -> dict[str, Any]:
@@ -226,10 +223,10 @@ class WorkloadConditionsSerializerMixin(serializers.Serializer):
         return normalize_issuer(provider.issuer)
 
     def validate_subject_name(self, value: str) -> str:
-        return _validate_exact_value(value, "Name")
+        return _validate_exact_value(value, FALLBACK_SUBJECT_NAME_LABEL)
 
     def validate_subject(self, value: str) -> str:
-        return _validate_exact_value(value, "Subject")
+        return _validate_exact_value(value, FALLBACK_SUBJECT_LABEL)
 
     @extend_schema_field(WorkloadClaimLabelsSerializer)
     def get_claim_labels(self, instance: Any) -> dict[str, Any]:
@@ -342,10 +339,6 @@ def notify_admins_of_policy_change(
     )
 
 
-def _claim_payload(claim: WorkloadClaim) -> dict[str, str]:
-    return {"name": claim.name, "label": claim.label, "help_text": claim.help_text}
-
-
 class DenyWorkloadAccessToken(BasePermission):
     """A workload token can never reach a policy or a request, not even to read, so it can't widen its own policy."""
 
@@ -414,22 +407,8 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def providers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         grantable = workload_trust_policy_grantable_scopes()
         payload = {
-            "supported": [
-                {
-                    "key": provider.key,
-                    "name": provider.name,
-                    "issuer": provider.issuer,
-                    "docs_url": provider.docs_url,
-                    "subject_claim": _claim_payload(provider.subject_claim),
-                    "subject_name_claim": _claim_payload(provider.subject_name_claim),
-                    "condition_claims": [_claim_payload(claim) for claim in provider.condition_claims],
-                }
-                for provider in get_supported_workload_providers()
-            ],
-            "unsupported": [
-                {"key": provider.key, "name": provider.name, "reason": provider.reason}
-                for provider in get_unsupported_workload_providers()
-            ],
+            "supported": get_supported_workload_providers(),
+            "unsupported": get_unsupported_workload_providers(),
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }

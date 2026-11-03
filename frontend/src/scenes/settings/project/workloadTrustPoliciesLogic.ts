@@ -30,7 +30,7 @@ export type WorkloadTrustPolicyFormValues = Pick<
     WorkloadTrustPolicyApi,
     'name' | 'issuer' | 'subject_name' | 'subject' | 'scopes'
 > & {
-    /** Claim name to required value. An empty value means the condition isn't set. */
+    /** Claim name to required value. A condition that isn't set has no key. */
     conditions: Record<string, string>
 }
 
@@ -227,10 +227,6 @@ export type workloadTrustPoliciesLogicType = MakeLogicType<
     workloadTrustPoliciesLogicMeta
 >
 
-function withoutEmptyValues(conditions: Record<string, string>): Record<string, string> {
-    return Object.fromEntries(Object.entries(conditions).filter(([, value]) => value !== ''))
-}
-
 export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
     path(['scenes', 'settings', 'project', 'workloadTrustPoliciesLogic']),
     connect(() => ({
@@ -332,15 +328,13 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 subject_name: !subject_name ? `${values.claimLabels.subjectName} is required` : undefined,
                 subject: !subject ? `${values.claimLabels.subject} is required` : undefined,
                 conditions:
-                    values.editingProvider?.condition_claims.length &&
-                    Object.keys(withoutEmptyValues(conditions)).length === 0
+                    values.editingProvider?.condition_claims.length && Object.keys(conditions).length === 0
                         ? ('Set at least one condition' as any)
                         : undefined,
                 scopes: !scopes.length ? ('Choose at least one scope' as any) : undefined,
             }),
-            submit: async (formValues, breakpoint) => {
+            submit: async (payload, breakpoint) => {
                 const projectId = String(values.currentTeamId)
-                const payload = { ...formValues, conditions: withoutEmptyValues(formValues.conditions) }
                 const isNew = values.editingPolicyId === 'new'
                 try {
                     const saved = isNew
@@ -437,7 +431,9 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
             posthog.capture('workload trust policy form opened', { is_new: id === 'new' })
         },
         setConditionValue: ({ claim, value }) => {
-            actions.setEditingPolicyValue('conditions', { ...values.editingPolicy.conditions, [claim]: value })
+            // An empty input means the condition isn't set, so the form never holds an empty value.
+            const { [claim]: _, ...others } = values.editingPolicy.conditions
+            actions.setEditingPolicyValue('conditions', value ? { ...others, [claim]: value } : others)
         },
         setScopeLevel: ({ key, level }) => {
             const levels = scopesArrayToObject(values.editingPolicy.scopes)
