@@ -1082,8 +1082,14 @@ export const WarehouseMigrationsListParams = () => zod.object({
         ),
 })
 
+export const warehouseMigrationsListQueryLimitMax = 1000
+
 export const WarehouseMigrationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(warehouseMigrationsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -1117,6 +1123,17 @@ export const WarehouseMigrationsItemsListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const warehouseMigrationsItemsListQueryLimitMax = 1000
+
+export const WarehouseMigrationsItemsListQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .max(warehouseMigrationsItemsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**

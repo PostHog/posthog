@@ -49,7 +49,12 @@ export function MigrationConnectScene(): JSX.Element {
                         </p>
                     </LemonBanner>
                 ) : (
-                    <Form logic={migrationConnectSceneLogic} formKey="keyForm" enableFormOnSubmit className="space-y-4">
+                    <Form
+                        logic={migrationConnectSceneLogic}
+                        formKey="keyForm"
+                        enableFormOnSubmit
+                        className="space-y-4 ph-no-capture"
+                    >
                         <p className="m-0 text-sm">
                             Create a system key in Fivetran with read access to connections, destinations, and the
                             account.{' '}

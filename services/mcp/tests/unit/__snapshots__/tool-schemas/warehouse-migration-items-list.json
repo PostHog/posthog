@@ -4,6 +4,15 @@
         "id": {
             "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
             "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "maximum": 1000,
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
         }
     },
     "required": ["id"],

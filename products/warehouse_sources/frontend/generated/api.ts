@@ -52,6 +52,7 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedWarehouseColumnStatisticsListApi,
+    PaginatedWarehouseMigrationItemListApi,
     PaginatedWarehouseMigrationListApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
@@ -80,6 +81,7 @@ import type {
     WarehouseMigrationSkipItemsApi,
     WarehouseMigrationSkipItemsResponseApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
+    WarehouseMigrationsItemsListParams,
     WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
 } from './api.schemas'
@@ -1768,8 +1770,24 @@ export const warehouseMigrationsDestroy = async (
     })
 }
 
-export const getWarehouseMigrationsItemsListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
+export const getWarehouseMigrationsItemsListUrl = (
+    projectId: string,
+    id: string,
+    params?: WarehouseMigrationsItemsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/${id}/items/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
 }
 
 /**
@@ -1778,12 +1796,16 @@ export const getWarehouseMigrationsItemsListUrl = (projectId: string, id: string
 export const warehouseMigrationsItemsList = async (
     projectId: string,
     id: string,
+    params?: WarehouseMigrationsItemsListParams,
     options?: RequestInit
-): Promise<WarehouseMigrationItemApi[]> => {
-    return apiMutator<WarehouseMigrationItemApi[]>(getWarehouseMigrationsItemsListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedWarehouseMigrationItemListApi> => {
+    return apiMutator<PaginatedWarehouseMigrationItemListApi>(
+        getWarehouseMigrationsItemsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getWarehouseMigrationsItemsRetrieveUrl = (projectId: string, id: string, itemId: string) => {
