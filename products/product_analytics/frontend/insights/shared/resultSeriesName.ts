@@ -1,5 +1,5 @@
 import { toDisplayEntityFilter } from 'lib/components/EntityFilterInfo'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 
 /**

@@ -27,7 +27,9 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.util import (
+    LIFECYCLE_DELETE_PERSONS_PER_RPC,
     DistinctIdForPerson,
+    PersonDeletionConflict,
     PersonTombstone,
     PersonTombstonePublication,
     _fetch_persons_by_distinct_ids_via_personhog,
@@ -35,6 +37,7 @@ from posthog.models.person.util import (
     _paginated_get_distinct_ids_for_person,
     get_person_tombstones,
     tombstone_persons_in_postgres,
+    tombstone_persons_via_lifecycle,
 )
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
@@ -175,6 +178,25 @@ def resolve_persons_for_deletion(
     return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
 
 
+@frozen
+class DeletionRun:
+    """One deletion request as the lifecycle saga sees it, shared by every retry of that request.
+
+    ``run_id`` goes into each saga op_id, so a retry of the same chunk attaches to the op it
+    started instead of being refused or starting a second one. Callers with a retry loop pass
+    the id that loop keeps (the Celery task id, the Temporal workflow run id, the Dagster run id);
+    a caller without one takes a fresh id. ``rpc_timeout`` bounds each saga call for the request
+    path; None keeps the lifecycle channel's default deadline.
+    """
+
+    run_id: str
+    rpc_timeout: float | None = None
+
+    @classmethod
+    def fresh(cls, *, rpc_timeout: float | None = None) -> "DeletionRun":
+        return cls(run_id=str(uuid_lib.uuid4()), rpc_timeout=rpc_timeout)
+
+
 def delete_persons_profile(
     team_id: int,
     persons: builtins.list[Person],
@@ -183,6 +205,7 @@ def delete_persons_profile(
     request=None,
     organization_id=None,
     queue_ai_training_deletion: bool = True,
+    run: DeletionRun | None = None,
 ) -> PersonProfileDeletionResult:
     """Tombstone the persons in Postgres and publish their ClickHouse tombstones.
 
@@ -200,6 +223,7 @@ def delete_persons_profile(
         actor=actor,
         was_impersonated=is_impersonated(request),
         organization_id=organization_id,
+        run=run,
     )
     _observe_person_outcomes("sync", result)
     return result
@@ -209,7 +233,9 @@ class PersonTombstoneFailed(Exception):
     """The Postgres tombstone failed for some persons, so they are still live and a retry must resolve them again."""
 
 
-def tombstone_and_publish_persons(team_id: int, persons: builtins.list[Person]) -> int:
+def tombstone_and_publish_persons(
+    team_id: int, persons: builtins.list[Person], *, run: DeletionRun | None = None
+) -> int:
     """Raise PersonTombstoneFailed when a Postgres tombstone fails, because that person is still live.
 
     A failed ClickHouse publish does not raise: the ClickHouse deletion sweep republishes from the tombstone queue.
@@ -219,6 +245,7 @@ def tombstone_and_publish_persons(team_id: int, persons: builtins.list[Person]) 
         persons,
         actor=None,
         queue_ai_training_deletion=False,
+        run=run,
     )
     if result.retryable_errors:
         first = next(f for f in result.failures if f.step not in STEPS_AFTER_DELETION)
@@ -254,17 +281,20 @@ DELETION_LOG_DEDUPE_WINDOW = timedelta(hours=24)
 @frozen(slots=False)  # The activity log encoder writes a context out through __dict__.
 class PersonDeletionActivityContext(ActivityContextBase):
     # The version of the Postgres tombstone. A retry reports the same version, and a later deletion of the revived
-    # person a higher one, so the version tells a retried deletion from a new one.
-    person_version: int
+    # person a higher one, so the version tells a retried deletion from a new one. None when the lifecycle saga
+    # answered from an op recorded without one.
+    person_version: int | None
 
 
 @frozen
 class _DeletedPerson:
     person: Person
-    tombstone_version: int
+    tombstone_version: int | None
 
 
-def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.list[str]) -> int:
+def tombstone_and_publish_persons_by_uuids(
+    team_id: int, person_uuids: builtins.list[str], *, run: DeletionRun | None = None
+) -> int:
     """Like tombstone_and_publish_persons, but read distinct IDs in batches, page heavy persons, and bound each RPC."""
     from posthog.personhog_client.client import personhog_call
 
@@ -293,15 +323,15 @@ def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.
         batch.append(person)
         batch_distinct_id_count += len(person._distinct_ids or [])
         if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
-            tombstoned += _tombstone_batch_and_release(team_id, batch)
+            tombstoned += _tombstone_batch_and_release(team_id, batch, run)
             batch, batch_distinct_id_count = [], 0
     if batch:
-        tombstoned += _tombstone_batch_and_release(team_id, batch)
+        tombstoned += _tombstone_batch_and_release(team_id, batch, run)
     return tombstoned
 
 
-def _tombstone_batch_and_release(team_id: int, persons: builtins.list[Person]) -> int:
-    tombstoned = tombstone_and_publish_persons(team_id, persons)
+def _tombstone_batch_and_release(team_id: int, persons: builtins.list[Person], run: DeletionRun | None) -> int:
+    tombstoned = tombstone_and_publish_persons(team_id, persons, run=run)
     # The resolved persons outlive their batch, so drop their ID strings to hold one batch of them at a time.
     for person in persons:
         person._distinct_ids = None
@@ -315,6 +345,7 @@ class _QueuedDeletionOptions:
     actor: User | None
     was_impersonated: bool
     organization_id: uuid_lib.UUID | None
+    run: DeletionRun
 
 
 def process_queued_person_deletion(
@@ -327,6 +358,7 @@ def process_queued_person_deletion(
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
     unmatched_distinct_ids: builtins.list[str] | None = None,
+    run_id: str | None = None,
 ) -> PersonProfileDeletionResult:
     """Run every distinct-ID-dependent deletion step for ``person_uuids`` from a background task.
 
@@ -342,6 +374,8 @@ def process_queued_person_deletion(
     Every failure is recorded against the step it happened in. The profile delete only runs
     when the steps before it succeeded, because it removes the distinct IDs a retry of those
     steps would need.
+
+    ``run_id`` is the task id, which Celery keeps across retries and redeliveries of the chunk.
     """
     from posthog.personhog_client.client import personhog_call
 
@@ -351,6 +385,7 @@ def process_queued_person_deletion(
         actor=actor,
         was_impersonated=was_impersonated,
         organization_id=organization_id,
+        run=DeletionRun(run_id=run_id) if run_id else DeletionRun.fresh(),
     )
     failures: builtins.list[PersonDeletionFailure] = []
     requested = [uuid_lib.UUID(u) for u in person_uuids]
@@ -523,6 +558,7 @@ def _run_queued_deletion_steps(
         actor=options.actor,
         was_impersonated=options.was_impersonated,
         organization_id=options.organization_id,
+        run=options.run,
     )
     failures.extend(result.failures)
     return result.deleted_count
@@ -535,6 +571,7 @@ def _tombstone_and_delete_persons(
     actor: User | None,
     was_impersonated: bool,
     organization_id: uuid_lib.UUID | None,
+    run: DeletionRun | None,
 ) -> PersonProfileDeletionResult:
     """Tombstone each person in Postgres, publish the ClickHouse tombstones, then log the deletions.
 
@@ -546,7 +583,7 @@ def _tombstone_and_delete_persons(
     raising would hide a completed deletion behind an error.
     """
     failures: builtins.list[PersonDeletionFailure] = []
-    deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures)
+    deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures, run or DeletionRun.fresh())
 
     if organization_id is not None and deleted:
         try:
@@ -601,7 +638,7 @@ def _logged_deletion_versions(team_id: int, person_ids: builtins.list[int]) -> d
     return versions
 
 
-def _deletion_already_logged(logged_versions: set[int | None], tombstone_version: int) -> bool:
+def _deletion_already_logged(logged_versions: set[int | None], tombstone_version: int | None) -> bool:
     return tombstone_version in logged_versions or None in logged_versions
 
 
@@ -609,18 +646,28 @@ def _tombstone_persons_at_exact_versions(
     team_id: int,
     persons: builtins.list[Person],
     failures: builtins.list[PersonDeletionFailure],
+    run: DeletionRun,
 ) -> builtins.list[_DeletedPerson]:
     """Tombstone Postgres first, then publish ClickHouse tombstones at the versions it wrote.
 
     Postgres goes first because only the replica knows the versions. A person whose Postgres
     tombstone landed is deleted, so it is counted and logged even when the ClickHouse publish
     fails; that failure gets its own step and the weekly deletion sweep republishes it.
+
+    On the leader write path the identity server's fenced saga does the whole job: it tells
+    the person's leader before the row changes, and its publish outbox and the person changelog
+    carry the ClickHouse rows, so nothing is published from here. The replica path must not
+    serve a delete once writes go through the leader: the replica never tells the leader, so
+    the leader's cached person outlives the tombstone and its next write revives the person.
     """
+    if settings.PERSONHOG_WRITE_PATH == "leader":
+        return _tombstone_persons_via_lifecycle(team_id, persons, failures, run)
+
     deleted: builtins.list[_DeletedPerson] = []
     person_by_uuid = {person.uuid: person for person in persons}
     publication = PersonTombstonePublication(team_id=team_id)
 
-    for batch in _batches_by_distinct_id_count(persons):
+    for batch in _batches_by_distinct_id_count(persons, max_persons=None):
         uuids = [person.uuid for person in batch]
         try:
             tombstones = tombstone_persons_in_postgres(team_id, uuids)
@@ -647,6 +694,74 @@ def _tombstone_persons_at_exact_versions(
             person_uuids=[failure.person_uuid],
         )
     return deleted
+
+
+def _tombstone_persons_via_lifecycle(
+    team_id: int,
+    persons: builtins.list[Person],
+    failures: builtins.list[PersonDeletionFailure],
+    run: DeletionRun,
+) -> builtins.list[_DeletedPerson]:
+    """Run the saga per batch; a person another live op holds is a retryable failure for the next attempt.
+
+    A call that raises after the saga tombstoned the rows still counts them: the replica shows the
+    tombstone, and the identity sweeper re-drives the op to completion, which is what writes the
+    outbox pointer. Nothing here publishes to ClickHouse.
+
+    Every person here was live when the caller resolved it, so a NOT_FOUND means it was tombstoned
+    between that read and the saga's claim: by an earlier attempt's op that finished after its call
+    failed, or by another deleter. Its tombstone is read back so the delete is counted and logged.
+    """
+    person_by_uuid = {person.uuid: person for person in persons}
+    deleted: builtins.list[_DeletedPerson] = []
+    for batch in _batches_by_distinct_id_count(persons, max_persons=LIFECYCLE_DELETE_PERSONS_PER_RPC):
+        try:
+            outcome = tombstone_persons_via_lifecycle(
+                team_id, {person.pk: person.uuid for person in batch}, run_id=run.run_id, timeout=run.rpc_timeout
+            )
+        except Exception as exc:
+            committed = _committed_tombstones(team_id, [person.uuid for person in batch], exc, failures)
+            deleted.extend(
+                _DeletedPerson(person=person_by_uuid[tombstone.uuid], tombstone_version=tombstone.version)
+                for tombstone in committed
+            )
+            continue
+        if outcome.conflicts:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.TOMBSTONE_POSTGRES,
+                team_id=team_id,
+                exc=PersonDeletionConflict("another lifecycle operation holds the person; it stays live for a retry"),
+                person_uuids=outcome.conflicts,
+            )
+        deleted.extend(
+            _DeletedPerson(person=person_by_uuid[uuid], tombstone_version=version)
+            for uuid, version in outcome.deleted.items()
+        )
+        deleted.extend(
+            _DeletedPerson(person=person_by_uuid[tombstone.uuid], tombstone_version=tombstone.version)
+            for tombstone in _tombstones_behind_not_found(team_id, outcome.not_found)
+        )
+    return deleted
+
+
+def _tombstones_behind_not_found(
+    team_id: int, person_uuids: builtins.list[uuid_lib.UUID]
+) -> builtins.list[PersonTombstone]:
+    """The tombstones of persons the saga did not find. A failed read drops the count rather than the run:
+    the persons are deleted either way, and a failure here would retry into the same NOT_FOUND."""
+    if not person_uuids:
+        return []
+    try:
+        return get_person_tombstones(team_id, person_uuids)
+    except Exception:
+        logger.warning(
+            "person_deletion.not_found_tombstone_check_failed",
+            team_id=team_id,
+            person_count=len(person_uuids),
+            exc_info=True,
+        )
+        return []
 
 
 class PersonTombstoneStateUnknown(Exception):
@@ -688,18 +803,20 @@ def _committed_tombstones(
     return stored
 
 
-def _batches_by_distinct_id_count(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
+def _batches_by_distinct_id_count(
+    persons: builtins.list[Person], *, max_persons: int | None = None
+) -> Iterator[builtins.list[Person]]:
     """Group persons so one RPC carries at most TOMBSTONE_DISTINCT_IDS_PER_RPC distinct IDs.
 
     Every caller resolves persons with their distinct IDs loaded, and Person.distinct_ids raises
     when they are not, so a person never counts as narrower than it is. A single person wider than
-    the budget goes alone.
+    the budget goes alone. ``max_persons`` also caps the persons in a batch, for the saga's id limit.
     """
     batch: builtins.list[Person] = []
     count = 0
     for person in persons:
         width = len(person.distinct_ids)
-        if batch and count + width > TOMBSTONE_DISTINCT_IDS_PER_RPC:
+        if batch and (count + width > TOMBSTONE_DISTINCT_IDS_PER_RPC or len(batch) == max_persons):
             yield batch
             batch, count = [], 0
         batch.append(person)

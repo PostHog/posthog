@@ -27,6 +27,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.ph_client import feature_enabled_or_false
 
+from .access_control import MarketingAnalyticsAccessMixin
 from .attribution_base import ConversionGoal
 from .conversion_goal_conditions import conversion_goal_match_expr
 from .marketing_analytics_config import MarketingAnalyticsConfig
@@ -35,7 +36,9 @@ from .search_conversion_query_runner import SearchConversionQueryRunner
 MAX_POSTHOG_CONVERSION_GOALS = 5
 
 
-class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsSearchQueryResponse]):
+class MarketingAnalyticsSearchQueryRunner(
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[MarketingAnalyticsSearchQueryResponse]
+):
     query: MarketingAnalyticsSearchQuery
     response: MarketingAnalyticsSearchQueryResponse
     cached_response: CachedMarketingAnalyticsSearchQueryResponse

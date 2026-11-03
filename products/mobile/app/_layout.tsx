@@ -105,9 +105,7 @@ export default function RootLayout(): ReactElement {
                                     name="chat"
                                     dangerouslySingular={(): string => 'chat'}
                                     options={{
-                                        presentation: 'transparentModal',
-                                        animation: 'none',
-                                        contentStyle: { backgroundColor: 'transparent' },
+                                        presentation: 'card',
                                     }}
                                 />
                             </Stack>

@@ -1,0 +1,153 @@
+from typing import cast
+
+from products.warehouse_sources.sources.aws_guardduty._config import AwsGuarddutySourceConfig
+from products.warehouse_sources.sources.aws_guardduty.aws_guardduty import (
+    AwsGuarddutyResumeConfig,
+    aws_guardduty_source,
+    validate_credentials as validate_aws_guardduty_credentials,
+)
+from products.warehouse_sources.sources.aws_guardduty.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aws_guardduty.settings import (
+    ENDPOINT_DESCRIPTIONS,
+    ENDPOINTS,
+    ERROR_MESSAGES,
+    GUARDDUTY_API_VERSION,
+    INCREMENTAL_FIELDS,
+)
+from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    aws_auth_field,
+    build_endpoint_schemas,
+    detect,
+    resolve_aws_credentials,
+)
+
+
+@SourceRegistry.register
+class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_GUARDDUTY|AWSGUARDDUTY)_",),
+        npm=("@aws-sdk/client-guardduty",),
+        cargo=("aws-sdk-guardduty",),
+        go=("github.com/aws/aws-sdk-go-v2/service/guardduty",),
+        maven=("software.amazon.awssdk:guardduty", "com.amazonaws:aws-java-sdk-guardduty"),
+        rubygems=("aws-sdk-guardduty",),
+    )
+
+    lists_tables_without_credentials = True
+    supported_versions = (GUARDDUTY_API_VERSION,)
+    default_version = GUARDDUTY_API_VERSION
+    api_docs_url = "https://docs.aws.amazon.com/guardduty/latest/APIReference/Welcome.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-guardduty"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.AWSGUARDDUTY
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS GuardDuty request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: AwsGuarddutySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"findings"}, descriptions=ENDPOINT_DESCRIPTIONS
+        )
+
+    def validate_credentials(
+        self,
+        config: AwsGuarddutySourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_guardduty_credentials(
+            config, credentials, self.resolve_api_version(api_version), schema_name
+        )
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsGuarddutyResumeConfig]:
+        return ResumableSourceManager(inputs, AwsGuarddutyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AwsGuarddutySourceConfig,
+        resumable_source_manager: ResumableSourceManager[AwsGuarddutyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return aws_guardduty_source(
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            self.resolve_api_version(inputs.api_version),
+            resumable_source_manager,
+            inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.AWSGUARDDUTY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="AWS GuardDuty",
+            iconPath="/static/services/aws_guardduty.png",
+            caption=(
+                "Sync GuardDuty findings, detectors, member accounts, Runtime Monitoring coverage, "
+                "malware scans, and usage statistics from one AWS region. "
+                "Enable GuardDuty in that region before syncing. "
+                "Grant `guardduty:ListDetectors`, `guardduty:GetDetector`, `guardduty:ListFindings`, "
+                "`guardduty:GetFindings`, `guardduty:ListMembers`, `guardduty:ListCoverage`, "
+                "`guardduty:DescribeMalwareScans`, and `guardduty:GetUsageStatistics` for all tables. "
+                "The members table requires a GuardDuty administrator account. "
+                "Findings use incremental sync through their update time. Other tables use full refresh."
+            ),
+            releaseStatus=ReleaseStatus.BETA,
+            keywords=["aws", "guardduty", "security", "threat detection"],
+            fields=cast(
+                list[FieldType],
+                [
+                    aws_auth_field(),
+                    SourceFieldInputConfig(
+                        name="aws_region",
+                        label="AWS region",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="us-east-1",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

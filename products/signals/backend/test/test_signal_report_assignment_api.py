@@ -28,7 +28,10 @@ from products.signals.backend.models import (
     SignalReportMonitoringAttempt,
     SignalReportPullRequest,
 )
-from products.signals.backend.report_assignments import update_assignments_for_pull_request
+from products.signals.backend.report_assignments import (
+    sync_task_pull_request_to_assignments,
+    update_assignments_for_pull_request,
+)
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 
@@ -555,6 +558,44 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert note.json()["claim_id"] == claim_id
         assert release.status_code == status.HTTP_409_CONFLICT
 
+    @parameterized.expand(
+        [
+            ("claim_inbox_only", "claim", ["inbox:write"], False),
+            ("bulk_claim_inbox_only", "bulk_claim", ["inbox:write"], False),
+            ("claim_inbox_and_task", "claim", ["inbox:write", "task:write"], True),
+            ("bulk_claim_inbox_and_task", "bulk_claim", ["inbox:write", "task:write"], True),
+            ("claim_legacy_task", "claim", ["task:write"], True),
+        ]
+    )
+    def test_claiming_for_a_task_needs_task_scope(
+        self, _name: str, endpoint: str, scopes: list[str], allowed: bool
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        url, body = (
+            (self._claim_url(report), {})
+            if endpoint == "claim"
+            else (f"/api/projects/{self.team.id}/signals/reports/bulk_claim/", {"ids": [str(report.id)]})
+        )
+
+        response = self.client.post(url, data=body, format="json", headers={"X-PostHog-Task-Id": str(task.id)})
+
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_403_FORBIDDEN), response.content
+        linked = sync_task_pull_request_to_assignments(
+            team_id=self.team.id, task_id=str(task.id), pr_url="https://github.com/example/private/pull/9"
+        )
+        assert (linked > 0) is allowed
+
     def test_internal_task_claim_uses_task_attribution(self):
         Task = apps.get_model("tasks", "Task")
         task = Task.objects.create(
@@ -742,7 +783,68 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert pr.state == SignalReportAssignment.PrState.UNKNOWN
         assert pr.state != "merged"
 
-    def test_only_current_actor_can_release_and_pr_is_preserved(self):
+    @parameterized.expand(
+        [
+            ("inbox_only_claim", ["inbox:write"], {}, status.HTTP_200_OK, False),
+            (
+                "legacy_task_only_pr",
+                ["task:write"],
+                {"pr_url": "https://github.com/example/private/pull/9"},
+                status.HTTP_200_OK,
+                True,
+            ),
+            (
+                "inbox_only_pr_url",
+                ["inbox:write"],
+                {"pr_url": "https://github.com/example/private/pull/9"},
+                status.HTTP_403_FORBIDDEN,
+                False,
+            ),
+            (
+                "inbox_only_pull_requests",
+                ["inbox:write"],
+                {"pull_requests": ["https://github.com/example/private/pull/9"]},
+                status.HTTP_403_FORBIDDEN,
+                False,
+            ),
+            (
+                "inbox_and_task_pull_requests",
+                ["inbox:write", "task:write"],
+                {"pull_requests": ["https://github.com/example/private/pull/9"]},
+                status.HTTP_200_OK,
+                True,
+            ),
+        ]
+    )
+    @patch(
+        "products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository",
+        return_value=None,
+    )
+    def test_linking_a_pull_request_needs_task_scope(
+        self, _name: str, scopes: list[str], body: dict, expected: int, linked: bool, _integration: MagicMock
+    ) -> None:
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._claim_url(report), data=body, format="json")
+
+        assert response.status_code == expected, response.content
+        assert SignalReportPullRequest.objects.for_team(self.team.id).filter(number=9).exists() is linked
+
+    @parameterized.expand(
+        [
+            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK),
+            ("responsible_user", None, False, False, status.HTTP_200_OK),
+            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK),
+            ("different_agent", "codex", False, True, status.HTTP_409_CONFLICT),
+            ("different_user", None, True, True, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_only_current_actor_or_responsible_user_can_release_and_pr_is_preserved(
+        self, _name: str, agent: str | None, different_user: bool, include_claim_id: bool, expected_status: int
+    ) -> None:
         report = self._create_report()
         claim = self.client.post(
             self._claim_url(report),
@@ -752,23 +854,24 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
         assert claim.status_code == status.HTTP_200_OK
 
-        rejected = self.client.post(
-            self._claim_url(report),
-            data={"release": True},
-            format="json",
-            headers=self._agent_headers("codex"),
-        )
-        assert rejected.status_code == status.HTTP_409_CONFLICT
+        if different_user:
+            other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+            self.client.force_login(other_user)
 
         released = self.client.post(
             self._claim_url(report),
-            data={"release": True},
+            data={"release": True, **({"claim_id": claim.json()["assignee"]["claim_id"]} if include_claim_id else {})},
             format="json",
-            headers=self._agent_headers("claude-code"),
+            headers=self._agent_headers(agent) if agent else {},
         )
 
-        assert released.status_code == status.HTTP_200_OK
+        assert released.status_code == expected_status
         assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        if expected_status == status.HTTP_409_CONFLICT:
+            assert assignment is not None
+            assert str(assignment.claim_id) == claim.json()["assignee"]["claim_id"]
+            assert not SignalReportArtefact.objects.filter(report=report, type="work_release").exists()
+            return
         assert assignment is None
         assert released.json()["implementation_pr_url"] == "https://github.com/PostHog/posthog/pull/123"
         assert released.json()["implementation_pr_state"] == "unknown"

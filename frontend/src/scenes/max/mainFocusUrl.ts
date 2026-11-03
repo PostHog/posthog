@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 
 export interface MainFocusUrlInput {
     /** Whether the panel is running the new PostHog AI view rather than the legacy Max chat. */

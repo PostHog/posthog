@@ -3,6 +3,7 @@ import time
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 import urllib.parse
 
@@ -414,7 +415,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
         inputs.batch_export.data_interval_end or "END",
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_WORKFLOWS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
@@ -426,6 +427,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
             data_interval_end=inputs.batch_export.data_interval_end,
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
