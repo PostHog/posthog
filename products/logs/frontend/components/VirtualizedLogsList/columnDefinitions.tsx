@@ -20,6 +20,7 @@ import {
     customColumnFilterTarget,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { WorkflowLogMessage } from 'products/logs/frontend/components/LogsViewer/WorkflowLogMessage'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
 import { SessionErrorsCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/SessionErrorsCell'
@@ -46,7 +47,7 @@ import {
     logsConfigLogic,
 } from 'products/logs/frontend/logsConfigLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
-import { getDistinctIdWithKey, getSessionIdWithKey } from 'products/logs/frontend/utils'
+import { getDistinctIdWithKey, getSessionIdWithKey, getWorkflowIdFromLog } from 'products/logs/frontend/utils'
 
 export const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     trace: 'bg-muted-alt',
@@ -191,10 +192,14 @@ function MessageColumnCell({
 }): JSX.Element {
     const { prettifiedLogIds } = useValues(logsViewerLogic)
     const isPrettified = prettifiedLogIds.has(log.uuid)
+    const workflowId = getWorkflowIdFromLog(log)
 
     return (
         <MessageCell
             message={log.cleanBody}
+            renderedMessage={
+                workflowId ? <WorkflowLogMessage workflowId={workflowId} message={log.cleanBody} /> : undefined
+            }
             wrapBody={isPrettified || wrapBody}
             prettifyJson={isPrettified || prettifyJson}
             parsedBody={log.parsedBody}

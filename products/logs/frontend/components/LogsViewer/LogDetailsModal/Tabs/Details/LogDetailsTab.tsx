@@ -3,13 +3,17 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyFilterType } from '~/types'
 
 import { LogAttributes } from 'products/logs/frontend/components/LogsViewer/LogAttributes'
+import { WorkflowLogMessage } from 'products/logs/frontend/components/LogsViewer/WorkflowLogMessage'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { getWorkflowIdFromLog } from 'products/logs/frontend/utils'
 
 export interface LogDetailsTabContentProps {
     log: ParsedLogMessage
 }
 
 export function LogDetailsTabContent({ log }: LogDetailsTabContentProps): JSX.Element {
+    const workflowId = getWorkflowIdFromLog(log)
+
     return (
         <div className="flex flex-col gap-4">
             <h3 className="text-sm font-semibold text-muted">Log Message</h3>
@@ -17,7 +21,13 @@ export function LogDetailsTabContent({ log }: LogDetailsTabContentProps): JSX.El
                 {log.parsedBody && typeof log.parsedBody === 'object' ? (
                     <JSONViewer src={log.parsedBody as object} collapsed={2} />
                 ) : (
-                    <span className="font-mono text-sm whitespace-pre-wrap break-all">{log.cleanBody}</span>
+                    <span className="font-mono text-sm whitespace-pre-wrap break-all">
+                        {workflowId ? (
+                            <WorkflowLogMessage workflowId={workflowId} message={log.cleanBody} />
+                        ) : (
+                            log.cleanBody
+                        )}
+                    </span>
                 )}
             </div>
             <LogAttributes

@@ -12,6 +12,7 @@ import {
     SEVERITY_LEVEL_FILTER,
     facetSelection,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 /**
  * A level or service selection reaches a summary in one of two shapes: the dedicated
@@ -285,4 +286,13 @@ export function buildLogsSessionScope(
         sessionId,
         initialFilters: timestamp ? { dateRange: buildDateRangeAround(timestamp, windowMinutes) } : undefined,
     }
+}
+
+// Must match SERVICE_NAMES in nodejs/src/logs/internal-logs-producer.ts, which sets log_source_id to the workflow ID.
+const INTERNAL_WORKFLOWS_SERVICE = 'posthog-internal-workflows'
+
+export function getWorkflowIdFromLog(log: ParsedLogMessage): string | undefined {
+    return log.resource_attributes?.['service.name'] === INTERNAL_WORKFLOWS_SERVICE
+        ? log.attributes.log_source_id || undefined
+        : undefined
 }

@@ -14,9 +14,17 @@ export interface MessageCellProps {
     prettifyJson: boolean
     parsedBody: JsonType | null
     style?: React.CSSProperties
+    renderedMessage?: JSX.Element
 }
 
-export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style }: MessageCellProps): JSX.Element {
+export function MessageCell({
+    message,
+    wrapBody,
+    prettifyJson,
+    parsedBody,
+    style,
+    renderedMessage,
+}: MessageCellProps): JSX.Element {
     const { id } = useValues(logsViewerLogic)
     const { scrollRef, handleScroll } = useCellScrollRef({ id, cellKey: 'message', enabled: !wrapBody })
 
@@ -48,7 +56,7 @@ export function MessageCell({ message, wrapBody, prettifyJson, parsedBody, style
                             )}
                             style={{ paddingRight: wrapBody ? 16 : LOG_ROW_FAB_WIDTH }}
                         >
-                            {displayValue}
+                            {renderedMessage ?? displayValue}
                         </span>
                     )}
                 </div>
