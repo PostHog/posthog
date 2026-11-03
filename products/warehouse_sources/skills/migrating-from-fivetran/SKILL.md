@@ -69,8 +69,10 @@ project yet. Tell the user that and stop.
    - A 400 names the connections PostHog could not read, and saves the rest of the batch. Read each error:
      - A missing field or a wrong type means the response changed on the way. Read that connection again and upload
        it unchanged, once.
-     - A connection larger than 1 MB can never be uploaded. Do not retry it. Tell the user, and offer the API key
-       link for the account.
+     - A connection larger than 1 MB, or with a name longer than 400 characters, can never be uploaded. Do not
+       retry it. Tell the user, and offer the API key link for the account.
+   - A 400 that says the account is too large to upload means the migration is full. Stop uploading, and offer the API
+     key link.
    - When every connection is uploaded, continue with the report. The migration is already `ready`.
 
 2. **Report.** List the items with `warehouse-migration-items-list`. Lead with what is worth moving:
