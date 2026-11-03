@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from dateutil import parser
 from parameterized import parameterized
@@ -38,6 +39,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import WeekStartDay
 
 from products.actions.backend.models.action import Action
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, DataWarehouseSavedQuery
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -506,6 +508,38 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         # A Date-typed column yields a naive datetime; comparing it against the tz-aware
         # date_to raised "can't compare offset-naive and offset-aware datetimes" here.
         self.assertGreater(len(query_date_range.all_values()), 0)
+
+    @parameterized.expand([("view_edited",), ("view_materialized_again",)])
+    def test_data_warehouse_view_change_refreshes_cached_earliest_timestamp(self, change):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_view", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        node = DataWarehouseNode(
+            id="orders_view",
+            table_name="orders_view",
+            id_field="id",
+            distinct_id_field="id",
+            timestamp_field="created_at",
+        )
+        before_change = datetime.datetime(2024, 6, 1, tzinfo=datetime.UTC)
+        after_change = datetime.datetime(2022, 1, 1, tzinfo=datetime.UTC)
+
+        with patch("posthog.hogql_queries.utils.timestamp_utils.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = [[before_change]]
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), before_change)
+
+            mock_execute.return_value.results = [[after_change]]
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), before_change)
+
+            if change == "view_edited":
+                view.query = {"kind": "HogQLQuery", "query": "SELECT 2 AS id"}
+                view.save()
+            else:
+                DataModelingJob.objects.create(
+                    team=self.team, saved_query=view, status=DataModelingJobStatus.COMPLETED, last_run_at=timezone.now()
+                )
+
+            self.assertEqual(get_earliest_timestamp_from_series(self.team, [node]), after_change)
 
     @override_settings(IN_UNIT_TESTING=False)
     @patch("posthog.hogql_queries.utils.timestamp_utils._get_earliest_timestamp_from_node")

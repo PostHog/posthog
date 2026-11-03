@@ -38,6 +38,7 @@ from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
 from products.actions.backend.models.action import Action
+from products.data_modeling.backend.facade import api as data_modeling_api
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
@@ -103,6 +104,13 @@ def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, Acti
     )
 
 
+def _data_warehouse_cache_key_suffix(team: Team, table_name: str) -> str:
+    # A view returns different rows after someone edits its HogQL or it materializes again, so its
+    # earliest timestamp is valid only for the revision it was read from. A warehouse table has no revision.
+    revision = data_modeling_api.saved_query_data_revision(team.pk, table_name)
+    return f"_{revision}" if revision else ""
+
+
 def _get_earliest_timestamp_cache_key(
     team: Team,
     node: Union[
@@ -121,11 +129,14 @@ def _get_earliest_timestamp_cache_key(
             # Use the same cache key as EventsNode(event=None) since they return the same result
             return f"earliest_timestamp_event_{team.pk}"
         case DataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
-            return f"earliest_timestamp_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+            suffix = _data_warehouse_cache_key_suffix(team, table_name)
+            return f"earliest_timestamp_data_warehouse_{team.pk}_{table_name}_{timestamp_field}{suffix}"
         case FunnelsDataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
-            return f"earliest_timestamp_funnels_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+            suffix = _data_warehouse_cache_key_suffix(team, table_name)
+            return f"earliest_timestamp_funnels_data_warehouse_{team.pk}_{table_name}_{timestamp_field}{suffix}"
         case LifecycleDataWarehouseNode(table_name=table_name, timestamp_field=timestamp_field):
-            return f"earliest_timestamp_lifecycle_data_warehouse_{team.pk}_{table_name}_{timestamp_field}"
+            suffix = _data_warehouse_cache_key_suffix(team, table_name)
+            return f"earliest_timestamp_lifecycle_data_warehouse_{team.pk}_{table_name}_{timestamp_field}{suffix}"
         case ActionsNode(id=action_id):
             return f"earliest_timestamp_action_{team.pk}_{action_id}"
         case EventsNode(event=None):
