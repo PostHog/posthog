@@ -1,23 +1,23 @@
 ---
 name: implementing-warehouse-sources
-description: Implement and extend PostHog Data warehouse import sources. Use when adding a new source under products/warehouse_sources/backend/temporal/data_imports/sources, adding datasets/endpoints to an existing source, or adding incremental sync, resumable imports, webhook ingestion, pagination, credentials validation, and source tests.
+description: Implement and extend PostHog Data warehouse import sources. Use when adding a new source under products/warehouse_sources/sources/ (or changing one there or under products/warehouse_sources/backend/temporal/data_imports/sources), adding datasets/endpoints to an existing source, or adding incremental sync, resumable imports, webhook ingestion, pagination, credentials validation, and source tests.
 ---
 
 # Implementing Data warehouse sources
 
-Use this skill when building or updating Data warehouse sources in `products/warehouse_sources/backend/temporal/data_imports/sources/`.
+Use this skill when building or updating Data warehouse sources. New sources go in the `products/warehouse_sources/sources/` tree, one directory per vendor (`products/warehouse_sources/sources/AGENTS.md`). Shared code (`common/`) and the vendors that other code imports stay in `products/warehouse_sources/backend/temporal/data_imports/sources/`.
 
 ## Read first
 
 Before coding, read:
 
-- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
+- `products/warehouse_sources/sources/source.template` (the top-of-file TODOs are the bootstrap checklist; still verify target files against current source implementations, since the template can drift)
 - `products/warehouse_sources/backend/temporal/data_imports/sources/README.md`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `products/warehouse_sources/backend/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
-- **`chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `klaviyo/` or `github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
+- **`products/warehouse_sources/sources/chargebee/` — the canonical reference for a new REST source.** It uses the shared `rest_source` framework (declarative `RESTAPIConfig` + `rest_api_resource`, framework auth + paginators, tracked+retrying transport) and is resumable — proof the framework covers the dominant "paginate a list endpoint and yield, resumably" shape. Read it first, alongside "Prefer the shared REST framework" below. Read `products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/` or `products/warehouse_sources/backend/temporal/data_imports/sources/github/` only as a _bespoke-transport_ fallback: they hand-roll their client for edge cases (custom query-string encoding, multi-level fan-out, JSON:API reshaping) that most sources don't have — don't copy that boilerplate into a source that doesn't need it. For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
 - For webhook-capable sources, read `products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
 
 ## Picking the right base class
@@ -95,8 +95,9 @@ Follow this order. Each step maps to TODOs in `source.template`.
 2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
 
    ```sh
-   mkdir -p products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}
-   cp products/warehouse_sources/backend/temporal/data_imports/sources/source.template products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}/source.py
+   mkdir -p products/warehouse_sources/sources/{SOURCE_NAME}
+   cp products/warehouse_sources/sources/source.template products/warehouse_sources/sources/{SOURCE_NAME}/source.py
+   touch products/warehouse_sources/sources/{SOURCE_NAME}/__init__.py
    ```
 
    Then add the one enum member. `ExternalDataSourceType` at `products/warehouse_sources/backend/types.py`
@@ -107,8 +108,8 @@ Follow this order. Each step maps to TODOs in `source.template`.
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
-5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py` (one generated module per source; the package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit with `DEBUG=1 python manage.py generate_source_field_classification`. A test fails when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
+5. **Register** the source — nothing to edit. The loader finds `products/warehouse_sources/sources/{SOURCE_NAME}/source.py` by its directory, and the `@SourceRegistry.register` decorator on the class handles runtime registration. Keep the empty `__init__.py` files in the vendor directory and in `tests/`.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/sources/<your_source>/_config.py` (one generated module per source; vendors that stay in the product get `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py`, whose package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit with `DEBUG=1 python manage.py generate_source_field_classification`. A test fails when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -176,8 +177,8 @@ authoritative — they're applied directly (`description_source="canonical"`) an
 Add a `canonical_descriptions.py` **accompanying the source** (sibling of `source.py` / `settings.py`):
 
 ```python
-# products/warehouse_sources/backend/temporal/data_imports/sources/{source}/canonical_descriptions.py
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
+# products/warehouse_sources/sources/{source}/canonical_descriptions.py
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Charge": {  # key = ExternalDataSchema.name (the endpoint name from get_schemas / ENDPOINTS)
@@ -195,7 +196,7 @@ Then override the hook on the source class with a lazy import of the sibling fil
 
 ```python
 def get_canonical_descriptions(self) -> CanonicalDescriptions:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
+    from products.warehouse_sources.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
     return CANONICAL_DESCRIPTIONS
 ```
 
@@ -237,12 +238,11 @@ The richer the table list, the better the docs — so pair this with `canonical_
 
 Every source **must** set `category` on its `SourceConfig` — it groups the source in the new-source wizard
 catalog (a category rail + tile grid). A test (`tests/test_source_categories.py`) fails if any registered
-source has no category, so this is non-optional. Import `SourceConfig` and `DataWarehouseSourceCategory` from
-`products.warehouse_sources.backend.facade.source_config`, and `name` from the facade `ExternalDataSourceType`:
+source has no category, so this is non-optional. A vendor in `products/warehouse_sources/sources/` imports `SourceConfig`,
+`DataWarehouseSourceCategory` and `ExternalDataSourceType` from `products.warehouse_sources.sources.sdk`:
 
 ```python
-from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk import DataWarehouseSourceCategory, ExternalDataSourceType, SourceConfig
 ...
 return SourceConfig(
     name=ExternalDataSourceType.STRIPE,
@@ -387,7 +387,7 @@ Guidelines:
 
 ### Connection fields vs sync settings
 
-Each top-level key in a source's `job_inputs` has one kind. The kind decides where the value is stored. `sources/common/job_input_classification.py` resolves it. `split_job_inputs` returns the five parts, and `merge_job_inputs` joins them again without loss.
+Each top-level key in a source's `job_inputs` has one kind. The kind decides where the value is stored. `products/warehouse_sources/sources/common/job_input_classification.py` resolves it. `split_job_inputs` returns the five parts, and `merge_job_inputs` joins them again without loss.
 
 - **Connection** (the default): a value needed to authenticate or reach the third party. Examples are API keys, tokens, passwords, credential IDs (`aws_access_key_id`, `key_id`), host, port, user, database name, account, tenant or project ids, region, base URLs, the SSH tunnel, TLS certificates and keys, auth-method selects and OAuth `*_integration_id` pointers. Connection values move to an `Integration` row for the source, so do not read them from the model field directly. Use `SourceInputsStore` (below).
 - **Reference**: a pointer to an existing `Integration` row, such as `bing_ads_integration_id`. Every `SourceFieldOauthConfig` field is a reference, so you set no flag. The value stays in `job_inputs`.
@@ -421,7 +421,7 @@ A subclass inherits the override of its parent, so a subclass of an overriding s
 
 The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. Never change the kind of a released source. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind.
 
-Each credential kind also has a default auth type: the `credential_auth_type` property on the source class. The default on `BaseSource` (`derive_credential_auth_type` in `sources/common/credential_auth_type.py`) reads the connection fields:
+Each credential kind also has a default auth type: the `credential_auth_type` property on the source class. The default on `BaseSource` (`derive_credential_auth_type` in `products/warehouse_sources/sources/common/credential_auth_type.py`) reads the connection fields:
 
 - `oauth`: the source has an OAuth field and no typed-in connection field.
 - `token`: the source has exactly one typed-in field, and it is a secret.
@@ -448,6 +448,20 @@ Read and write a source's `job_inputs` only through `SourceInputsStore` (`produc
 - `load` raises `UnreadableSourceInputsError` when the stored value is not a mapping. Catch it where the old code accepted a bad value.
 
 The semgrep rule `warehouse-source-inputs-go-through-store` blocks `source.job_inputs` and `job_inputs=` on `ExternalDataSource` outside the store. Tests and migrations can still set the field directly.
+
+#### Connection fields in an Integration row
+
+A source's typed-in connection fields go to one `Integration` row of the source's credential kind (see "Credential kind"). `WarehouseSourceCredentialsStore` (`products/warehouse_sources/backend/logic/source_credentials.py`) is the only code that reads or writes these rows. It goes through the integrations SDK: `IntegrationManager.source(kind).token` or `.credentials` (`posthog/integrations/manager.py`). It never uses the `Integration` model directly.
+
+- The source points at its row with its `credentials_integration_id` column, not with a key in its inputs. The column holds the string form of `IntegrationReference` (`posthog/integrations/references.py`): a decimal legacy id, or later a UUID. Never parse or format it yourself.
+- `WarehouseSourceCredentialsStore.create` and `update` set the column on the source and do not save it. Save the source with its inputs in the same write: `SourceInputsStore.save` and `create`, and a full model save, write the column. `SourceInputsStore.update_runtime` does not write it.
+- An OAuth source keeps its own `*_integration_id` key and gets no new row. Account selectors stay in `job_inputs`, because several sources can share one OAuth row.
+- The row has the auth type that `facade/credential_auth_types.py` derives for the kind (`token` or `credentials`). An OAuth-only source has no typed-in row. On a catalogue kind with an OAuth default, the row has a second auth type of that kind (`stripe` `token`, `github` `token`). The catalogue entry of the kind (`posthog/integrations/catalogue.py`) must support the derived auth type. If it does not, add the type there and run `hogli build:projections --only integration-kinds`. The test `test_every_typed_in_source_type_has_an_auth_type_its_kind_supports` fails otherwise.
+- The row has the marker `config["warehouse_source_type"]`. The SDK writes the marker only through `IntegrationManager.source(kind)`, and the named accessors (`IntegrationManager.stripe.token`) and kind-limited pickers skip marked rows. Hog functions can never use a marked row as an input.
+- Rows are visible in the integrations list with their auth type, and several sources can use one row. An edit of a shared row raises `SharedCredentialsError` unless the caller confirms. An edit of an identifying field of a shared row makes a new row. The source gives these fields with the `credential_identity_fields` property on its class. The default is `connection_host_fields` plus each generic name in `GENERIC_IDENTITY_FIELDS` (`host`, `port`, `instance_url`, `connection_string`, `ssh_tunnel`, `user`, `username`, `account`, `account_id`, `account_sid`) that the source declares, at any depth (Snowflake keeps `user` under `auth_type`). The compare skips the secrets inside `connection_string` (it reads the scheme, user, hosts and database) and inside `ssh_tunnel` (it reads `enabled`, `host`, `port` and the username), so a secret rotation asks for a confirmation and does not make a new row. Override the property in your `source.py` only when a different field says where the credentials connect, or as which account.
+- The store never deletes a row. When a source is soft deleted, the store only releases the row. A row that nothing uses stays in the integrations list.
+- `products/warehouse_sources/backend/integration_usages.py` reports each source that points at a row, with its `credentials_integration_id` column (one indexed query) or a `*_integration_id` field in its inputs. A source whose inputs do not decode counts as a user of every OAuth row of its credential kind (named "unreadable source: ..."), but not of a typed-in row, because the column always reads. The SDK reads it for `usages`, and `delete` raises `IntegrationInUse` while a source uses the row. The integrations API returns that as a 400.
+- Never query these rows in source code, and do not call the credentials store from source code. Use `SourceInputsStore`, which will use the credentials store internally. The Custom source keeps its `job_inputs` as they are.
 
 ## Implementing `source_for_pipeline`
 
@@ -836,7 +850,7 @@ If new:
      fail-closed message, so code and charts can ship before the secret values exist.
      This settings and `oauth_config_for_kind()` wiring is still required for the OAuth connect flow in the web app.
      Source code that runs during a sync must read PostHog-owned credentials (client ids, client secrets, developer tokens,
-     service-account keys) with `credentials_service.get_secret(s)` from `sources/common/credentials_service.py`, not `settings.X`.
+     service-account keys) with `credentials_service.get_secret(s)` from `products/warehouse_sources/sources/common/credentials_service.py`, not `settings.X`.
      Resolve them inside the function that needs them, never at import time.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the
      access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
@@ -941,7 +955,7 @@ A typical REST source needs one transport module of 10 to 25 parameterized cases
 ```text
 Bootstrapping:
 - [ ] Enum added to products/warehouse_sources/backend/types.py (ALL_CAPS, no underscores between words) — the only place a source type is declared
-- [ ] Source imported in products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py + __all__
+- [ ] Source directory at products/warehouse_sources/sources/<source>/ with empty __init__.py files (vendor dir and tests/)
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
 Source implementation:
