@@ -13,17 +13,17 @@ concurrency:
 
 jobs:
     mypy-memory:
-        name: mypy ${{ matrix.variant.name }}
-        runs-on: depot-ubuntu-24.04
+        name: mypy ${{ matrix.variant.name }} ${{ matrix.runner }}
+        runs-on: ${{ matrix.runner }}
         timeout-minutes: 50
         strategy:
             fail-fast: false
             matrix:
+                runner: [depot-ubuntu-24.04, depot-ubuntu-24.04-4]
                 variant:
                     - { name: fg-w2, flags: '--cache-fine-grained', workers: '2' }
                     - { name: nofg-w2, flags: '', workers: '2' }
                     - { name: nofg-w1, flags: '', workers: '1' }
-                    - { name: nofg-w0, flags: '', workers: '0' }
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -63,9 +63,17 @@ jobs:
                   MYPY_NUM_WORKERS: ${{ matrix.variant.workers }}
                   FLAGS: ${{ matrix.variant.flags }}
                   VARIANT: ${{ matrix.variant.name }}
+                  RUNNER: ${{ matrix.runner }}
               run: |
-                  sample() { while sleep 1; do free -b | awk '/^Mem:/{print $3}'; done > "$1"; }
-                  peak() { sort -n "$1" | tail -1 | awk '{printf "%.2f", $1/2^30}'; }
+                  sample() {
+                      while sleep 1; do
+                          free -b | awk '/^Mem:/{m=$3} /^Swap:/{s=$3} END{print m, s}'
+                          ps -C mypy,python -o rss= | awk '{t+=$1} END{print "rss", t*1024}'
+                      done > "$1"
+                  }
+                  peak() {
+                      awk '$1!="rss"{u=$1+$2; if(u>p)p=u; if($2>sw)sw=$2} $1=="rss"{if($2>r)r=$2} END{printf "%.2f GiB, swap %.2f GiB, mypy rss %.2f", p/2^30, sw/2^30, r/2^30}' "$1"
+                  }
                   run() {
                       local label=$1 log=mem-$1.txt
                       sample "$log" & local sampler=$!
@@ -76,9 +84,9 @@ jobs:
                       local secs=$((SECONDS - start))
                       kill $sampler
                       tail -1 "out-$label.txt"
-                      echo "| $VARIANT | $label | $code | $secs s | $(peak "$log") GiB | $(du -sh .mypy_cache | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
+                      echo "| $VARIANT | $RUNNER | $label | $code | $secs s | $(peak "$log") GiB | $(du -sh .mypy_cache | cut -f1) |" | tee -a "$GITHUB_STEP_SUMMARY"
                   }
-                  echo "| variant | run | exit | wall | peak used | cache |" >> "$GITHUB_STEP_SUMMARY"
+                  echo "| variant | runner | run | exit | wall | peak used+swap, swap, mypy rss | cache |" >> "$GITHUB_STEP_SUMMARY"
                   echo "|---|---|---|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
                   run cold
                   echo "" >> posthog/models/team/team.py
