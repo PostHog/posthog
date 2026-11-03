@@ -102,6 +102,7 @@ describe('Hogflow Executor', () => {
             emailSuppressionService,
             recipientsManager: new RecipientsManagerService(hub.postgres),
             emailStatusService: null,
+            workflowsActivationReporter: { report: jest.fn() },
         })
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         const hogExecutor = new HogExecutorAsyncService(

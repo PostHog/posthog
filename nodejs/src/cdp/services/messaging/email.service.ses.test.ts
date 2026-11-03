@@ -99,6 +99,7 @@ describe('EmailService with local SES', () => {
             emailSuppressionService: suppression,
             recipientsManager: new RecipientsManagerService(hub.postgres),
             emailStatusService: null,
+            workflowsActivationReporter: { report: jest.fn() },
             messageAssetsService: assets,
             workflowEmailRateLimiter: limiter,
             teamEmailRateLimiter: limiter,

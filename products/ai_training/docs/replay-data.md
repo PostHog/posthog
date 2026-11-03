@@ -522,7 +522,8 @@ The recorder does not write the two index prefixes itself, as in v3:
 ### Block index
 
 A flush can write its blocks and index rows and then fail before it commits its Kafka offsets.
-The next attempt for that partition starts at the same committed offset and writes the same messages again.
+The recorder keeps running and tries to commit those offsets again later, and it exits only when commits keep failing for 10 minutes.
+When the partition moves first, or the process restarts, the next attempt for that partition starts at the same committed offset and writes the same messages again.
 A retry can also cover a different range than the attempt it replaces, for example one flush that replays two earlier flushes.
 Every row therefore names its flush and its Kafka position.
 The index rows are published without waiting for delivery, so a retry can also reach the index only in part.
@@ -668,7 +669,7 @@ It collects URLs from image sources, the kept candidate of each `srcset`, SVG im
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
 It applies the recorder's URL policy through `@posthog/ai-research-v4-native`, an addon over `replay_core_v4::url_policy`, so it canonicalizes a URL, groups it by registrable domain and refuses private hosts exactly as the recorder does.
-It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane.
+It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane. It parses the image URL reference, seals the frame and computes the response URL HMAC with `replay_core_v4::fetched_image` through the same addon.
 It stores PNG, JPEG, GIF, WebP and SVG as fetched. It does not rasterize an SVG; redaction downstream of the dataset handles SVG text.
 The response must have one of these media types and bytes of that format: a signature for a raster image, or an SVG root element for SVG. An SVG may carry a byte order mark, comments, processing instructions and a doctype before its root. The doctype may name no internal subset and no external DTD other than a W3C SVG DTD, so that a parser downstream cannot resolve entities from the document. It refuses AVIF and every other type.
 

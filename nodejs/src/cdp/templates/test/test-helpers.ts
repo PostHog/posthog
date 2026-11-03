@@ -222,6 +222,7 @@ export class TemplateTester {
             emailSuppressionService: undefined as any,
             recipientsManager: undefined as any,
             emailStatusService: null,
+            workflowsActivationReporter: { report: () => Promise.resolve() },
         })
         return new HogExecutorAsyncService(
             new HogExecutorService(
