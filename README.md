@@ -65,7 +65,7 @@
 **AI and agents**
 
 - [AI observability](https://posthog.com/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app. Run LLM-as-a-judge evaluations to catch regressions.
-- [MCP analytics](https://posthog.com/docs/mcp-analytics) (beta): See how agents actually use your MCP server.
+- [MCP analytics](https://posthog.com/docs/mcp-analytics): See how agents actually use your MCP server.
 - [PostHog AI](https://posthog.com/ai): Ask your product data anything. PostHog AI builds insights, writes SQL, and finds replays for you.
 - [Self-driving](https://posthog.com/self-driving): Turn signals in your product data (errors, rage clicks, failed queries, and more) into researched reports and pull requests, delivered to your Inbox for you to review and merge.
 
