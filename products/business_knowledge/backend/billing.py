@@ -22,6 +22,7 @@ from django.db.models import Sum
 
 import structlog
 
+from .facade.contracts import KnowledgeUsageByTeam
 from .models import KnowledgeUsageKey, KnowledgeUsageRecord
 
 logger = structlog.get_logger(__name__)
@@ -83,7 +84,7 @@ def record_query(*, team_id: int, trace_id: str, surface: str) -> None:
         )
 
 
-def usage_by_team(begin: datetime, end: datetime) -> dict[KnowledgeUsageKey, list[tuple[int, int]]]:
+def usage_by_team(begin: datetime, end: datetime) -> KnowledgeUsageByTeam:
     """(team_id, total) rows for each meter, from rows written in [begin, end).
 
     Buckets by write time, so a row written late lands in the next report instead of being missed.
@@ -98,4 +99,4 @@ def usage_by_team(begin: datetime, end: datetime) -> dict[KnowledgeUsageKey, lis
     totals: dict[KnowledgeUsageKey, list[tuple[int, int]]] = {key: [] for key in KnowledgeUsageKey}
     for row in rows:
         totals[KnowledgeUsageKey(row["usage_key"])].append((row["team_id"], row["total"]))
-    return totals
+    return KnowledgeUsageByTeam(chunks=totals[KnowledgeUsageKey.CHUNKS], queries=totals[KnowledgeUsageKey.QUERIES])

@@ -97,6 +97,7 @@ from products.batch_exports.backend.facade.enums import (
     BatchExportModel,
     BatchExportRunStatus,
 )
+from products.business_knowledge.backend.models import KnowledgeUsageKey, KnowledgeUsageRecord
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -330,6 +331,20 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
+
+            # Different amounts per meter and team, so a swapped or misattributed counter fails the expectations.
+            for team, usage_key, quantity in [
+                (self.org_1_team_1, KnowledgeUsageKey.CHUNKS, 120),
+                (self.org_1_team_1, KnowledgeUsageKey.QUERIES, 7),
+                (self.org_1_team_2, KnowledgeUsageKey.CHUNKS, 30),
+                (self.org_2_team_3, KnowledgeUsageKey.QUERIES, 4),
+            ]:
+                row = KnowledgeUsageRecord.objects.unscoped().create(
+                    team_id=team.id, usage_key=usage_key, quantity=quantity, surface="text"
+                )
+                KnowledgeUsageRecord.objects.unscoped().filter(id=row.id).update(
+                    created_at=now() - relativedelta(hours=12)
+                )
 
             uuids = [uuid4() for _ in range(0, 10)]
             for uuid in uuids:
@@ -797,8 +812,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 7,
                     "mcp_event_count_in_period": 0,
-                    "business_knowledge_chunks_in_period": 0,
-                    "business_knowledge_queries_in_period": 0,
+                    "business_knowledge_chunks_in_period": 150,
+                    "business_knowledge_queries_in_period": 7,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -906,8 +921,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 7,
                             "mcp_event_count_in_period": 0,
-                            "business_knowledge_chunks_in_period": 0,
-                            "business_knowledge_queries_in_period": 0,
+                            "business_knowledge_chunks_in_period": 120,
+                            "business_knowledge_queries_in_period": 7,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -1005,7 +1020,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
-                            "business_knowledge_chunks_in_period": 0,
+                            "business_knowledge_chunks_in_period": 30,
                             "business_knowledge_queries_in_period": 0,
                         },
                     },
@@ -1128,7 +1143,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ai_event_count_in_period": 0,
                     "mcp_event_count_in_period": 0,
                     "business_knowledge_chunks_in_period": 0,
-                    "business_knowledge_queries_in_period": 0,
+                    "business_knowledge_queries_in_period": 4,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -1235,7 +1250,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
                             "business_knowledge_chunks_in_period": 0,
-                            "business_knowledge_queries_in_period": 0,
+                            "business_knowledge_queries_in_period": 4,
                         }
                     },
                 },
