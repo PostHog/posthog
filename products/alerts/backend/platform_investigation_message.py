@@ -121,6 +121,9 @@ def _read(team_id: int, transition: AnnouncedTransition) -> FiringInvestigation 
         link = notebook_url(notebook_short_id) if notebook_short_id else None
     elif agent and released_by == HoldReleasedBy.SAFETY_NET:
         breaches = tuple(safety_net_breaches(triggered_dates=triggered_dates, value=value))
+    elif not agent and status == InvestigationStatus.DONE and summary:
+        # Every channel reads the breaches, so the explanation goes after them, as the agent's teaser does.
+        breaches = (*(str(line) for line in transition.source_detail.get("breaches") or []), summary)
 
     return FiringInvestigation(
         status=status,
