@@ -10,8 +10,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
-import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
 import {
     filedOrAddedLabel,
@@ -63,8 +61,6 @@ export function ScoutHealthStrip({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { scoutCostRollups } = useValues(scoutFleetLogic)
-    const costRollup = scoutCostRollups.get(config.skill_name)
     const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName: config.skill_name }))
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
@@ -139,22 +135,7 @@ export function ScoutHealthStrip({
                 </Segment>
             )}
 
-            <FlaggedFeature
-                flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}
-                fallback={
-                    <>
-                        {costRollup && (
-                            <Segment
-                                tooltip={`Model usage for this scout in the ${scoutCostWindowLabel(costRollup.windowDays)}, with rates per run and per report.`}
-                            >
-                                <span className="whitespace-nowrap tabular-nums">
-                                    {scoutCostLineParts(costRollup).join(' · ')}
-                                </span>
-                            </Segment>
-                        )}
-                    </>
-                }
-            >
+            <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                 <ScoutSpendLabel skillName={config.skill_name} />
             </FlaggedFeature>
 
