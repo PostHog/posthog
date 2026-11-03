@@ -39,6 +39,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_id="hog-device-client",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
         )
@@ -177,6 +178,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_id="other-device-client",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
         )
@@ -197,22 +199,43 @@ class TestOAuthDeviceGrant(APIBaseTest):
             clock.shift(timedelta(seconds=6))
             self.assertEqual(self._poll(started["device_code"]).status_code, status.HTTP_200_OK)
 
-    def test_a_client_registered_for_authorization_code_cannot_start_a_device_grant(self) -> None:
+    @parameterized.expand(
+        [
+            ("registered for authorization code", OAuthApplication.GRANT_AUTHORIZATION_CODE, True, "can't use"),
+            ("PostHog hasn't verified", OAuthApplication.GRANT_DEVICE_CODE, False, "hasn't verified"),
+        ]
+    )
+    def test_a_client_cannot_start_a_device_grant_when(
+        self, _name: str, grant_type: str, is_verified: bool, description: str
+    ) -> None:
         OAuthApplication.objects.create(
-            name="web app",
-            client_id="web-client",
+            name="other app",
+            client_id="other-client",
             client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            authorization_grant_type=grant_type,
+            is_verified=is_verified,
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
         response = self.client.post(
-            "/oauth/device-authorization/", urlencode({"client_id": "web-client"}), content_type=FORM
+            "/oauth/device-authorization/", urlencode({"client_id": "other-client"}), content_type=FORM
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "unauthorized_client")
+        self.assertIn(description, response.json()["error_description"])
         self.assertFalse(OAuthDeviceGrant.objects.exists())
+
+    def test_a_grant_whose_client_lost_its_verification_cannot_be_approved(self) -> None:
+        started = self._start()
+        OAuthApplication.objects.filter(pk=self.device_app.pk).update(is_verified=False)
+
+        lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
+        approve = self._approve(started["user_code"])
+
+        self.assertEqual(lookup.json()["error"], "unverified_client")
+        self.assertEqual(approve.json()["error"], "unverified_client")
+        self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
 
     def test_a_confidential_client_must_authenticate_even_when_it_names_the_device_grant(self) -> None:
         OAuthApplication.objects.create(
@@ -221,6 +244,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_secret="the-secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
         )
@@ -241,6 +265,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_secret="the-secret",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
         )
@@ -275,6 +300,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
             jwks_uri="https://cli.example.com/.well-known/jwks.json",
@@ -317,6 +343,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
             jwks_uri="https://cli.example.com/.well-known/jwks.json",
@@ -435,6 +462,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
             client_id="required-scopes-client",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
             redirect_uris="",
             algorithm="RS256",
             scopes=["insight:read"],

@@ -3,32 +3,24 @@ import { join } from 'node:path'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
-import { PersonalApiKey, type Credential } from './credential'
-import type { StoreChoice } from './credential-store'
-import { loginStorage, readLogin } from './logins'
+import { PersonalAPIKey, type AccessKey } from './access-key'
+import type { StoreChoice } from './credential-store/types'
+import { loginStorage, readLogin } from './login/stored'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = 'https://us.i.posthog.com'
 
-export interface Credentials {
-    apiKey: string
-    projectId: string
-    host: string
-}
+// The key a command sends to PostHog, and where hog found it.
+export type Credentials = { key: AccessKey } & (
+    | { source: 'env' }
+    | { source: 'dotenv-file'; path: string }
+    // What `hog auth login` or `hog auth migrate` saved. `path` is the file that holds the secret,
+    // and null for the keychain.
+    | { source: 'store'; store: StoreChoice; path: string | null }
+)
 
-// `store` is what `hog auth login` or `hog auth migrate` saved.
-export type CredentialSource = 'env' | 'dotenv-file' | 'store'
-
-export type ResolvedCredentials = Credentials & {
-    // The credential itself, which knows how to renew and log out.
-    credential: Credential
-    source: CredentialSource
-    // Set when the source is the store.
-    store?: StoreChoice
-    // The file the credentials came from, when they came from one.
-    path?: string
-}
+export type CredentialSource = Credentials['source']
 
 interface RawCredentials {
     apiKey: string
@@ -128,7 +120,7 @@ export function checkHost(host: string): string | undefined {
     return URL.canParse(host) ? undefined : `The host must be a valid URL, but it is "${host}".`
 }
 
-function validate(raw: RawCredentials, host: string): Credentials {
+function validate(raw: RawCredentials, host: string): PersonalAPIKey {
     const keyError = checkApiKey(raw.apiKey)
     if (keyError) {
         throw new HogError(
@@ -149,7 +141,7 @@ function validate(raw: RawCredentials, host: string): Credentials {
     if (hostError) {
         throw new HogError('invalid_credentials', hostError)
     }
-    return { apiKey: raw.apiKey, projectId: raw.projectId, host }
+    return new PersonalAPIKey({ host, projectId: raw.projectId, apiKey: raw.apiKey })
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
@@ -160,10 +152,10 @@ function validate(raw: RawCredentials, host: string): Credentials {
 // otherwise only stops the command when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
-    // `includeStore: false` leaves out what `hog auth login` stored, for callers that must never
-    // open the keychain or renew a token, like telemetry for a command that needed no credentials.
-    options: { host?: string; dotenvFile?: string; configHost?: string; includeStore?: boolean }
-): Promise<ResolvedCredentials> {
+    // `skipStore` leaves out what `hog auth login` stored, for callers that must never open the
+    // keychain or renew a token, like telemetry for a command that needed no credentials.
+    options: { host?: string; dotenvFile?: string; configHost?: string; skipStore?: boolean }
+): Promise<Credentials> {
     // posthog.json only stops a command whose credentials belong to another host. It never redirects them.
     const checkConfigHost = (host: string): void => {
         const { configHost } = options
@@ -176,28 +168,15 @@ export async function resolveCredentials(
             )
         }
     }
-    const resolved = (
-        credential: Credential,
-        source: CredentialSource,
-        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
-    ): ResolvedCredentials => {
-        const { host, projectId, token } = credential
-        return { apiKey: token, projectId, host, credential, source, ...extra }
-    }
-    const withHost = (
-        raw: RawCredentials,
-        source: CredentialSource,
-        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
-    ): ResolvedCredentials => {
+    const keyFrom = (raw: RawCredentials): PersonalAPIKey => {
         const host = options.host ?? raw.host ?? DEFAULT_HOST
         checkConfigHost(host)
-        const { apiKey, projectId } = validate(raw, host)
-        return resolved(new PersonalApiKey(host, projectId, apiKey), source, extra)
+        return validate(raw, host)
     }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
     if (fromEnv) {
-        return withHost(fromEnv, 'env')
+        return { key: keyFrom(fromEnv), source: 'env' }
     }
 
     const dotenvFile = options.dotenvFile
@@ -213,11 +192,11 @@ export async function resolveCredentials(
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
-            return withHost(fromFile, 'dotenv-file', { path: dotenvFile })
+            return { key: keyFrom(fromFile), source: 'dotenv-file', path: dotenvFile }
         }
     }
 
-    if (options.includeStore !== false) {
+    if (!options.skipStore) {
         const settings = await readSettings(runtime)
         const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
         for (const host of new Set(hosts)) {
@@ -225,11 +204,11 @@ export async function resolveCredentials(
             if (!login) {
                 continue
             }
-            // Before a renewal, so hog never renews a credential it then refuses to send.
-            checkConfigHost(login.credential.host)
-            const credential = await login.credential.fresh(runtime, loginStorage(runtime, login))
+            // Before a renewal, so hog never renews a key it then refuses to send.
+            checkConfigHost(login.key.host)
+            const key = await login.key.fresh(runtime, loginStorage(runtime, login))
             const { store } = login
-            return resolved(credential, 'store', { store: store.kind, path: store.path ?? undefined })
+            return { key, source: 'store', store: store.kind, path: store.path }
         }
     }
 

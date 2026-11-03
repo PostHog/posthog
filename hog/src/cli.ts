@@ -180,8 +180,8 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             }
             let ctx: Context | undefined
             telemetry.credentials = () =>
-                ctx?.resolvedCredentials ??
-                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, includeStore: false })
+                ctx?.requestedCredentials ??
+                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
