@@ -2279,6 +2279,7 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
+    TH = "th"
 
 
 class MetricsAggregation(StrEnum):
