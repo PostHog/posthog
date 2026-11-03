@@ -6,6 +6,9 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+
+import psycopg
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -799,6 +802,38 @@ class TestTransactionalEmail(APIBaseTest):
         assert first_url == second_url
         assert TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(key="welcome").count() == 1
         assert HogFlow.objects.filter(team=self.team, name="welcome").count() == 1
+
+    def test_other_first_sends_of_the_project_wait_while_a_new_key_is_added(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+        create = transactional_email.create_code_email_workflow
+        lock_free_for_another_sender: list[bool] = []
+
+        def create_while_another_sender_tries_the_lock(*, team_id: int, key: str) -> UUID:
+            db = connection.settings_dict
+            with psycopg.connect(
+                dbname=db["NAME"],
+                user=db["USER"],
+                password=db["PASSWORD"],
+                host=db["HOST"] or None,
+                port=db["PORT"] or None,
+                autocommit=True,
+            ) as other:
+                row = other.execute(
+                    "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
+                    [f"{transactional_email.TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"],
+                ).fetchone()
+            assert row is not None
+            lock_free_for_another_sender.append(row[0])
+            return create(team_id=team_id, key=key)
+
+        with patch.object(
+            transactional_email, "create_code_email_workflow", side_effect=create_while_another_sender_tries_the_lock
+        ):
+            response = psak.post(self.send_email_url, self._code_send(template_key="receipt"), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert lock_free_for_another_sender == [False]
 
     @parameterized.expand(
         [
