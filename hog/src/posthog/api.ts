@@ -98,10 +98,17 @@ export class PostHogApi {
         // hostUrl keeps the path a self-hosted PostHog can sit under, which `new URL` would drop. A
         // path from a pagination link already starts with it.
         const root = hostUrl(host, '')
+        let url: URL
         if (path.startsWith('/')) {
-            return path.startsWith(root.pathname) ? new URL(path, root) : hostUrl(host, path.slice(1))
+            url = path.startsWith(root.pathname) ? new URL(path, root) : hostUrl(host, path.slice(1))
+        } else {
+            url = new URL(path, hostUrl(host, `api/environments/${projectId}/`))
         }
-        return new URL(path, hostUrl(host, `api/environments/${projectId}/`))
+        // A path from a link PostHog sent, such as `//other.example/`, must not carry the token elsewhere.
+        if (url.origin !== root.origin) {
+            throw new HogError('unexpected_response', `PostHog sent a link to another host: ${url.origin}.`)
+        }
+        return url
     }
 
     get<T>(path: string): Promise<T> {
