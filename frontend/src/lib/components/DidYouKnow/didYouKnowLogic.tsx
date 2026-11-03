@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
@@ -49,9 +49,17 @@ export function parseDidYouKnowPayload(value: unknown): DidYouKnowPayload | null
     }
 }
 
+// Attempts made before the host logic mounts (e.g. a direct page load) are replayed once it does.
+const pendingTips = new Set<DidYouKnowTipKey>()
+
 export function tryShowDidYouKnow(tipKey: DidYouKnowTipKey): void {
     try {
-        didYouKnowLogic.findMounted()?.actions.tryShowTip(tipKey)
+        const mounted = didYouKnowLogic.findMounted()
+        if (mounted) {
+            mounted.actions.tryShowTip(tipKey)
+        } else {
+            pendingTips.add(tipKey)
+        }
     } catch (error) {
         console.warn('[didYouKnow] dispatch failed', { tipKey, error })
     }
@@ -137,8 +145,11 @@ export const didYouKnowLogic = kea<didYouKnowLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         tryShowTip: async ({ tipKey }) => {
+            if (cache.loadingTip) {
+                return
+            }
             const now = Date.now()
             const cooldownActive = values.lastShownAt !== null && now - values.lastShownAt < COOLDOWN_MS
             if (values.dismissedTips[tipKey] || values.masteredTips[tipKey] || cooldownActive) {
@@ -158,9 +169,11 @@ export const didYouKnowLogic = kea<didYouKnowLogicType>([
                 return
             }
 
-            actions.recordShown(now)
+            cache.loadingTip = true
             try {
+                // Load first so a failed chunk doesn't burn the cooldown for a tip nobody saw
                 const { DidYouKnowToast } = await import('./DidYouKnowToast')
+                actions.recordShown(now)
                 const toastId = `did-you-know-${tipKey}-${now}`
                 toast.info(
                     <DidYouKnowToast
@@ -192,6 +205,8 @@ export const didYouKnowLogic = kea<didYouKnowLogicType>([
                 actions.reportTipShown(tipKey)
             } catch (error) {
                 console.warn('[didYouKnow] toast render failed', { tipKey, error })
+            } finally {
+                cache.loadingTip = false
             }
         },
         // pinned: analytics event names and properties
@@ -208,4 +223,9 @@ export const didYouKnowLogic = kea<didYouKnowLogicType>([
             posthog.capture('did you know action clicked', { tip_key: tipKey })
         },
     })),
+    afterMount(({ actions }) => {
+        const tips = [...pendingTips]
+        pendingTips.clear()
+        tips.forEach((tipKey) => actions.tryShowTip(tipKey))
+    }),
 ])

@@ -46,8 +46,10 @@ interface ShortcutWithRef extends ShortcutBase {
     callback?: never
 }
 
+export type ShortcutInvocationSource = 'keyboard' | 'search'
+
 interface ShortcutWithCallback extends ShortcutBase {
-    callback: () => void
+    callback: (source?: ShortcutInvocationSource) => void
     interaction: 'function'
     ref?: never
 }
@@ -85,7 +87,7 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
     } else if (shortcut.interaction === 'focus') {
         shortcut.ref.current?.focus()
     } else if (shortcut.interaction === 'function') {
-        shortcut.callback()
+        shortcut.callback('keyboard')
     }
 }
 
@@ -193,7 +195,7 @@ export const shortcutLogic = kea<shortcutLogicType>([
                             } else if (shortcut.interaction === 'focus') {
                                 shortcut.ref.current?.focus()
                             } else {
-                                shortcut.callback?.()
+                                shortcut.callback?.('search')
                             }
                         },
                         record: { type: 'shortcut', ref: shortcut.name },

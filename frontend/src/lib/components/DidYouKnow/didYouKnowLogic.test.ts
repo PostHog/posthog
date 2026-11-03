@@ -6,7 +6,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { didYouKnowLogic, markDidYouKnowTipAsMastered, parseDidYouKnowPayload } from './didYouKnowLogic'
+import {
+    didYouKnowLogic,
+    markDidYouKnowTipAsMastered,
+    parseDidYouKnowPayload,
+    tryShowDidYouKnow,
+} from './didYouKnowLogic'
 import { DID_YOU_KNOW_TIPS, didYouKnowFlagKey } from './didYouKnowTips'
 
 jest.mock('posthog-js')
@@ -80,6 +85,17 @@ describe('didYouKnowLogic', () => {
 
         expect(logic.values.lastShownAt).toBeNull()
         expect(toastInfoSpy).not.toHaveBeenCalled()
+    })
+
+    it('replays an attempt made before the logic mounted', async () => {
+        logic.unmount()
+        tryShowDidYouKnow(TIP_KEY)
+        expect(toastInfoSpy).not.toHaveBeenCalled()
+
+        logic = didYouKnowLogic()
+        await expectLogic(logic, () => logic.mount()).toDispatchActions(['tryShowTip', 'recordShown', 'reportTipShown'])
+
+        expect(toastInfoSpy).toHaveBeenCalledTimes(1)
     })
 
     it('records mastery only once through the public helper', () => {

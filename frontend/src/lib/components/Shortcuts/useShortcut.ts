@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { isMac } from 'lib/utils/dom'
 
-import { ShortcutType, shortcutLogic } from './shortcutLogic'
+import { ShortcutInvocationSource, ShortcutType, shortcutLogic } from './shortcutLogic'
 
 const IS_MAC = isMac()
 
@@ -43,7 +43,7 @@ interface UseShortcutOptionsWithCallback extends UseShortcutOptionsBase {
     /** 'function' calls your callback directly - no ref needed */
     interaction: 'function'
     /** The function to call when the shortcut is triggered */
-    callback: () => void
+    callback: (source?: ShortcutInvocationSource) => void
     externalRef?: never
 }
 
@@ -149,7 +149,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
             registerShortcut({
                 name,
                 keybind: platformAgnosticKeybinds,
-                callback: () => callbackFnRef.current?.(),
+                callback: (source) => callbackFnRef.current?.(source),
                 intent,
                 interaction: 'function',
                 scope,

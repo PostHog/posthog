@@ -74,8 +74,10 @@ export function GlobalShortcuts(): null {
         keybind: [keyBinds.sqlEditor],
         intent: 'Open SQL editor',
         interaction: 'function',
-        callback: () => {
-            markDidYouKnowTipAsMastered(DID_YOU_KNOW_TIPS.SQL_EDITOR_SHORTCUT)
+        callback: (source) => {
+            if (source === 'keyboard') {
+                markDidYouKnowTipAsMastered(DID_YOU_KNOW_TIPS.SQL_EDITOR_SHORTCUT)
+            }
             if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()) {
                 router.actions.push(urls.sqlEditor())
             }
