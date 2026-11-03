@@ -5,12 +5,12 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { hogql } from 'lib/utils/hogql'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { PropertyGroupFilterValue } from '~/types'
 
 import { errorTrackingSuppressionRulesCreate } from '../../generated/api'

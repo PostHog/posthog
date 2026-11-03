@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
@@ -471,7 +472,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         min_value=1,
         # Ceiling at the int4 column max so an out-of-range value returns 400, not a DB write error.
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text=(
             "Daily cap on new reports surfacing to the inbox, counted per calendar day in the "
             "project's timezone. Once reached, signal ingestion, scout runs, and report research "
@@ -1571,7 +1572,7 @@ class PersonalRankingSerializer(serializers.Serializer):
     stale = serializers.BooleanField(
         help_text=(
             "True when the list does not match your current inbox or focus. When `building` is true, a newer "
-            "list is on the way. Otherwise you reached the build limit, so try again later."
+            "list is on the way. Otherwise a build limit was reached, so try again later."
         )
     )
     building = serializers.BooleanField(
@@ -1584,9 +1585,11 @@ class PersonalRankingSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Why the list is in inbox order and not ranked by the language model. building: no list is stored "
-            "yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. "
-            "build_failed: no list is stored yet and the build could not start. llm_error, timeout, "
-            "malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. "
+            "yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, "
+            "either yours or the shared daily one. build_failed: no list is stored yet and the build could not "
+            "start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. "
+            "llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored "
+            "build fell back. "
             "Null when the model ranked it."
         ),
     )
@@ -2554,10 +2557,11 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
-            "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
-            "only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), "
-            "then the priority as a tiebreak. The priority ranker uses the priority only. "
-            "Reports without a usable score sort after scored ones. Null for every other sort."
+            "Sort key from the ranker named by the list response's ranker field, for sort=recommended only. "
+            "Lower keys rank first, so rows from several requests merge in the order of one request. "
+            "For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, "
+            "and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the "
+            "priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort."
         ),
     )
 
@@ -2565,12 +2569,12 @@ class SignalReportListSerializer(SignalReportSerializer):
         fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
         read_only_fields = fields
 
-    def get_inbox_merge_key(self, obj: SignalReport) -> int | None:
+    def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        decile = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score_decile", None)
-        return inbox_merge_key(decile, getattr(obj, "priority_sort_rank", None))
+        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
+        return inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):
