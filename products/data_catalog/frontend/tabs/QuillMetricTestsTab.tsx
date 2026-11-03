@@ -9,7 +9,13 @@ import { QuillMetricCallout } from '../components/QuillMetricCallout'
 import { dataCatalogMetricSceneLogic } from '../dataCatalogMetricSceneLogic'
 import { NEW_CHECK_NEEDS_SQL_REASON } from './MetricTestsTab'
 
-function QuillUnsupportedDefinitionTests({ metricId }: { metricId: string }): JSX.Element {
+function QuillUnsupportedDefinitionTests({
+    metricId,
+    metricName,
+}: {
+    metricId: string
+    metricName: string
+}): JSX.Element {
     const { checks, checksLoaded, checksLoadError } = useValues(
         dataQualityChecksLogic({ subjectType: 'metric', subjectId: metricId })
     )
@@ -31,7 +37,11 @@ function QuillUnsupportedDefinitionTests({ metricId }: { metricId: string }): JS
                 This metric's definition is not SQL, so these checks fail on every run. Turn them off or delete them, or
                 save a HogQL query as the definition.
             </QuillMetricCallout>
-            <QuillMetricChecksPanel metricId={metricId} newCheckDisabledReason={NEW_CHECK_NEEDS_SQL_REASON} />
+            <QuillMetricChecksPanel
+                metricId={metricId}
+                metricName={metricName}
+                newCheckDisabledReason={NEW_CHECK_NEEDS_SQL_REASON}
+            />
         </>
     )
 }
@@ -43,8 +53,8 @@ export function QuillMetricTestsTab(): JSX.Element | null {
         return null
     }
     if (!supportsMetricChecks) {
-        return <QuillUnsupportedDefinitionTests metricId={metric.id} />
+        return <QuillUnsupportedDefinitionTests metricId={metric.id} metricName={metric.name} />
     }
 
-    return <QuillMetricChecksPanel metricId={metric.id} />
+    return <QuillMetricChecksPanel metricId={metric.id} metricName={metric.name} />
 }

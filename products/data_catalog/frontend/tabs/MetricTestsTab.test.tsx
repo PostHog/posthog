@@ -12,15 +12,17 @@ import { MetricTestsTab } from './MetricTestsTab'
 import { QuillMetricTestsTab } from './QuillMetricTestsTab'
 
 const TABS = [
-    ['Lemon', MetricTestsTab],
-    ['quill', QuillMetricTestsTab],
+    ['Lemon', MetricTestsTab, /queries \{metric\}/],
+    ['quill', QuillMetricTestsTab, /No checks on signups yet/],
 ] as const
 
 describe('MetricTestsTab', () => {
     afterEach(cleanup)
     it.each(
-        TABS.flatMap(([label, Tab]) => ['HogQLQuery', 'MarkdownDefinition'].map((kind) => [label, kind, Tab] as const))
-    )('%s tab offers the check editor only for SQL metrics (%s)', async (_label, kind, Tab) => {
+        TABS.flatMap(([label, Tab, emptyState]) =>
+            ['HogQLQuery', 'MarkdownDefinition'].map((kind) => [label, kind, Tab, emptyState] as const)
+        )
+    )('%s tab offers the check editor only for SQL metrics (%s)', async (_label, kind, Tab, emptyState) => {
         useMocks({
             get: {
                 '/api/projects/:team_id/data_catalog/metrics/signups/': {
@@ -43,8 +45,7 @@ describe('MetricTestsTab', () => {
             </BindLogic>
         )
         if (kind === 'HogQLQuery') {
-            expect(await screen.findByText('Add your first check')).toBeInTheDocument()
-            expect(screen.getByText(/queries \{metric\}/)).toBeInTheDocument()
+            expect(await screen.findByText(emptyState)).toBeInTheDocument()
             expect(screen.queryByText('Run automatically')).not.toBeInTheDocument()
         } else {
             expect(await screen.findByText(/Tests are available for SQL metrics only/)).toBeInTheDocument()
@@ -53,7 +54,7 @@ describe('MetricTestsTab', () => {
         logic.unmount()
     })
 
-    it.each(TABS)(
+    it.each(TABS.map(([label, Tab]) => [label, Tab] as const))(
         '%s tab lists the checks a metric kept after its definition stopped being SQL',
         async (_label, Tab) => {
             useMocks({
