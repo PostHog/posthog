@@ -395,7 +395,7 @@ describe('hog auth login', () => {
             { [LEGACY_CLI_FILE]: STORED },
             401,
             1,
-            { code: 'legacy_key_rejected', hint: expect.stringContaining('hog auth login') },
+            { code: 'key_rejected', hint: expect.stringContaining('hog auth login') },
         ],
     ])('migrate: %s', async (_name, files: Record<string, string>, keyStatus, exitCode, expected) => {
         const result = await runHog(['auth', 'migrate'], {

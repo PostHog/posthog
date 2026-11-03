@@ -66,8 +66,7 @@ USER_CODE_LENGTH = 8
 # jitter doesn't earn a well-behaved client a slow_down.
 POLL_INTERVAL_TOLERANCE = timedelta(seconds=1)
 
-# The approval page shows only the client's self-declared name, and a code can be sent to someone
-# else to approve, so only clients PostHog staff verified can use the grant.
+# `OAuthApplication.allows_grant_type` refuses an unverified device client. This says why.
 UNVERIFIED_CLIENT_DESCRIPTION = (
     "PostHog hasn't verified this app. Device login only works for apps PostHog has verified, "
     "which are PostHog's own apps."
@@ -266,12 +265,16 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
 
         response = cast(dict[str, Any], body)
         application = OAuthApplication.objects.filter(client_id=client_id).first()
+        if (
+            application is not None
+            and application.authorization_grant_type == AbstractApplication.GRANT_DEVICE_CODE
+            and not application.is_verified
+        ):
+            return _error_response(rfc6749_errors.UnauthorizedClientError(description=UNVERIFIED_CLIENT_DESCRIPTION))
         if application is None or not application.allows_grant_type(AbstractApplication.GRANT_DEVICE_CODE):
             return _error_response(
                 rfc6749_errors.UnauthorizedClientError(description="This client can't use the device grant.")
             )
-        if not application.is_verified:
-            return _error_response(rfc6749_errors.UnauthorizedClientError(description=UNVERIFIED_CLIENT_DESCRIPTION))
 
         OAuthDeviceGrant.objects.create(
             client_id=application.client_id,
@@ -530,7 +533,8 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
             grant = _pending_grant(serializer.validated_data["user_code"], lock=True)
             if grant is None:
                 return _invalid_code()
-            if not OAuthApplication.objects.filter(client_id=grant.client_id, is_verified=True).exists():
+            application = OAuthApplication.objects.filter(client_id=grant.client_id).first()
+            if application is None or not application.is_verified:
                 return _unverified_client()
             if block := _gateway_blocklist_block(
                 request, grant.scope or "", access_level="team", scoped_team_ids=[team.id]
