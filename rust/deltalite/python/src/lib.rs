@@ -641,26 +641,9 @@ impl DeltaLiteTable {
         Ok(stats)
     }
 
-    /// Apply a batch of versions to an SCD2 history table in one data commit.
-    ///
-    /// Per key (`key_columns`, null-safe): rows with the same `order_column` value collapse
-    /// to the one with the highest `tie_break_column` value; only rows newer than the key's
-    /// open row in the `current_partition` are kept; the kept rows chain (each closes at
-    /// the next one's `valid_from_column`, the newest stays open), and the old open row
-    /// closes at the first kept row's `valid_from_column`. A closed row goes to the
-    /// partition named by its `valid_to_column` value as `%Y-%m` in UTC. The source must
-    /// not carry `valid_to_column` or `partition_column`, and a null order or `valid_from`
-    /// value raises. The tie-break column is not written unless the table has it.
-    ///
-    /// The table must be partitioned by exactly `partition_column`, else
-    /// `DeltaLiteUnsupportedTableError`. A source that keeps no row (a re-run of the same
-    /// input) makes no commit and returns `committed=False`.
-    ///
-    /// The keyword arguments are the `upsert` ones that apply here. There is no
-    /// `commit_max_retries`: a commit that finds a newer table version fails as a conflict,
-    /// and the call plans again against that version, up to five times.
-    /// `max_parallel_partitions` is accepted so callers can pass the same set, and has no
-    /// effect: the operation rewrites only the current partition.
+    /// Apply a batch of versions to an SCD2 history table in one data commit. See the
+    /// README's "History upsert" section for the rules, refusals and knobs.
+    /// `max_parallel_partitions` is accepted and has no effect.
     #[pyo3(signature = (
         data,
         key_columns,
@@ -999,11 +982,8 @@ fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
     Ok(d.into_any().unbind())
 }
 
-/// A bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of `data`, from the values
-/// of `key_columns`. Null-safe: rows with equal keys, null parts included, get the same
-/// id. The ids are stable across processes and releases (arrow-row key encoding hashed
-/// with xxHash64 under a fixed seed, modulo `n`), and depend on the key columns' Arrow
-/// types, so pass the same types to get the same ids.
+/// A stable, null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of
+/// `data`, from the values of `key_columns`. See the README.
 #[pyfunction]
 fn key_buckets(
     py: Python<'_>,
