@@ -365,6 +365,25 @@ class TestWorkloadTrustPolicyRequestAPI(APIBaseTest):
 
         assert (shown["requested_via"], shown["requested_via_verified"]) == ("Renamed app", False)
 
+    @parameterized.expand([("visible", None, ["Olive Owner"]), ("hidden_member_list", set(), [])])
+    def test_member_sees_only_the_approvers_the_members_list_shows_them(
+        self, _name: str, visible_membership_ids: set[str] | None, expected_approvers: list[str]
+    ) -> None:
+        owner = User.objects.create_and_join(
+            self.organization, "owner@example.com", None, first_name="Olive", level=OrganizationMembership.Level.OWNER
+        )
+        owner.last_name = "Owner"
+        owner.save()
+        policy_request = self._create_request()
+
+        with patch(
+            "posthog.workload_identity.trust_policy.restricted_visible_membership_ids",
+            return_value=visible_membership_ids,
+        ):
+            body = self.client.get(f"{self.url}{policy_request.id}/").json()
+
+        assert body["approvers"] == expected_approvers
+
     def test_admin_sees_they_can_approve_and_the_risky_scopes(self) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         policy_request = self._create_request(scopes=["organization_member:write", "annotation:write"])
