@@ -7,7 +7,6 @@ export type {
     ProgressStep,
 } from '../types/streamTypes'
 export type { ToolCallMessage } from '../types/toolTypes'
-export type { AttachedContextItem } from '../types/contextTypes'
 export type { Task, TaskAssigneeFilter, TaskListParams } from '../types/taskTypes'
 export type {
     ToolStreamEvent,

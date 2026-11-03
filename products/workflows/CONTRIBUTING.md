@@ -2,6 +2,8 @@
 
 This product is designed so other teams can add their own workflow trigger types, action nodes, and any backend functionality that those nodes need.
 
+Before you open a PR, read [REVIEW.md](REVIEW.md). It lists the problems that reviewers catch most often in this code.
+
 At a high level:
 
 - **Frontend (workflows editor)** uses registries to discover which trigger types and action nodes to show.

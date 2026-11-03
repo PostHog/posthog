@@ -1,6 +1,7 @@
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { hasDangerousScheme } from 'lib/utils/url'
 
 import { CustomMenuProps } from '../types'
 
@@ -21,6 +22,9 @@ export function BrowserLikeMenuItems({
                 asChild
                 onClick={(e) => {
                     e.stopPropagation()
+                    if (hasDangerousScheme(href)) {
+                        return
+                    }
                     window.open(href, '_blank')
                     onClick?.()
                 }}

@@ -260,7 +260,7 @@ async def _generate_record_batches_from_internal_stage(
                 continue
 
 
-async def _run_activity(
+async def _stage_record_batches(
     activity_environment: ActivityEnvironment,
     object_storage_client,
     team_id,
@@ -269,8 +269,8 @@ async def _run_activity(
     exclude_events: list[str] | None = None,
     model: AnyBatchExportModel | None = None,
     batch_export_id: str | None = None,
-) -> list[dict]:
-    """Get rows from the internal stage."""
+) -> list[pa.RecordBatch]:
+    """Run the stage activity and read back the record batches a destination would consume."""
 
     batch_export_id = batch_export_id or str(uuid.uuid4())
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
@@ -296,12 +296,36 @@ async def _run_activity(
         compression=None,
         json_columns=None,
     )
-    exported_rows = []
-    async for record_batch in _generate_record_batches_from_internal_stage(
-        batch_export_id, data_interval_start, data_interval_end, stage_folder
-    ):
-        exported_rows.extend(record_batch.to_pylist())
-    return exported_rows
+    return [
+        record_batch
+        async for record_batch in _generate_record_batches_from_internal_stage(
+            batch_export_id, data_interval_start, data_interval_end, stage_folder
+        )
+    ]
+
+
+async def _run_activity(
+    activity_environment: ActivityEnvironment,
+    object_storage_client,
+    team_id,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    exclude_events: list[str] | None = None,
+    model: AnyBatchExportModel | None = None,
+    batch_export_id: str | None = None,
+) -> list[dict]:
+    """Get rows from the internal stage."""
+    record_batches = await _stage_record_batches(
+        activity_environment=activity_environment,
+        object_storage_client=object_storage_client,
+        team_id=team_id,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        model=model,
+        batch_export_id=batch_export_id,
+    )
+    return [row for record_batch in record_batches for row in record_batch.to_pylist()]
 
 
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
@@ -1616,6 +1640,37 @@ class TestHogQLModel:
         assert sorted((row["event_id"], row["event"], row["distinct_id"]) for row in exported_rows_2) == sorted(
             (e["uuid"], e["event"], e["distinct_id"]) for e in events
         )
+
+    async def test_stages_column_types_destinations_map(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        auser,
+        data_interval_start,
+        data_interval_end,
+    ):
+        # Destinations create table columns from the staged Arrow types. If ClickHouse starts to stage
+        # a Date as uint16, for example, a Databricks export creates an integer column, not a DATE.
+        record_batches = await _stage_record_batches(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=BatchExportHogQLModel(
+                query="SELECT toDate(timestamp) AS day, toDecimal(1.5, 2) AS amount, uuid AS uuid FROM events",
+                user_id=auser.pk,
+                modifiers={},
+            ),
+        )
+
+        assert {field.name: field.type for field in record_batches[0].schema} == {
+            "day": pa.date32(),
+            "amount": pa.decimal128(18, 2),
+            "uuid": pa.uuid(),
+        }
 
     @override_settings(
         BATCH_EXPORT_HOGQL_MAX_EXECUTION_TIME=900,

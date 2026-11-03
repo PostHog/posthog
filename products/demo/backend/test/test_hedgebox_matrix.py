@@ -13,11 +13,24 @@ from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
 from products.demo.backend.logic.products.hedgebox.taxonomy import (
     EVENT_DOWNGRADED_PLAN,
+    EVENT_LOGGED_IN,
+    EVENT_LOGGED_OUT,
     EVENT_PAID_BILL,
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
 )
+
+
+class TestHedgeboxMatrixSimulation(SimpleTestCase):
+    def test_users_who_log_out_log_back_in(self):
+        matrix = HedgeboxMatrix(seed="login-test", n_clusters=10, days_past=60, days_future=0)
+        matrix.simulate()
+
+        events = [event.event for person in matrix.people for event in person.past_events]
+
+        assert events.count(EVENT_LOGGED_OUT) > 0
+        assert events.count(EVENT_LOGGED_IN) > 0
 
 
 class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):

@@ -54,6 +54,7 @@ rust/persons_migrations/** @PostHog/team-ingestion
 
 # Critical authentication logic
 ee/api/authentication.py @PostHog/team-security
+posthog/api/sso.py @PostHog/team-security
 posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 posthog/api/scim/auth.py @PostHog/team-security
@@ -91,3 +92,11 @@ products/isolation_baseline.txt @PostHog/team-devex
 /CLAUDE.md @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 .agents/skills/writing-pr-descriptions/ @PostHog/team-devex
+
+# A changed commit in the lockfile means a workflow now runs different third-party code.
+.github/workflows/actions.lock @PostHog/team-devex
+
+# The mobile owner reviews app changes and the workflows that build and release it.
+products/mobile/** @cvolzer3
+products/desktop/apps/mobile/** @cvolzer3
+.github/workflows/*mobile*.yml @cvolzer3
