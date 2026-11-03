@@ -11,6 +11,7 @@ import { membersLogic } from '~/models/membersLogic'
 
 import { memberOffboardingLogic } from './memberOffboardingLogic'
 import { MemberOffboardingResourceSection } from './MemberOffboardingResourceSection'
+import { MemberOffboardingUnattributedRecordings } from './MemberOffboardingUnattributedRecordings'
 
 export function MemberOffboardingModal(): JSX.Element {
     const {
@@ -22,13 +23,14 @@ export function MemberOffboardingModal(): JSX.Element {
         savingResourcesLoading,
         publicResources,
         subscriptions,
+        unattributedRecordings,
     } = useValues(memberOffboardingLogic)
     const { close, loadResources, remove } = useActions(memberOffboardingLogic)
     const { scopedApiKeys, scopedApiKeysLoading } = useValues(membersLogic)
     const { user } = useValues(userLogic)
     const isSelf = member?.user.uuid === user?.uuid
     const disabledReason = removedLoading ? 'Removing member…' : savingResourcesLoading ? 'Saving changes…' : undefined
-    const hasResources = !resourcesLoading && !loadError && !!resources?.length
+    const hasResources = !resourcesLoading && !loadError && (!!resources?.length || !!unattributedRecordings?.count)
 
     return (
         <LemonModal
@@ -78,11 +80,14 @@ export function MemberOffboardingModal(): JSX.Element {
                     {publicResources.length > 0 && (
                         <MemberOffboardingResourceSection resources={publicResources} kind="public" />
                     )}
-                    {subscriptions.length > 0 && (
-                        <MemberOffboardingResourceSection resources={subscriptions} kind="subscriptions" />
-                    )}
                 </div>
             ) : null}
+            {!isSelf && <MemberOffboardingUnattributedRecordings />}
+            {hasResources && subscriptions.length > 0 && (
+                <div className="mt-6">
+                    <MemberOffboardingResourceSection resources={subscriptions} kind="subscriptions" />
+                </div>
+            )}
             {!scopedApiKeysLoading && !!scopedApiKeys?.keys.length && (
                 <div className="mt-4">
                     <LemonBanner type="warning" className="mb-2">

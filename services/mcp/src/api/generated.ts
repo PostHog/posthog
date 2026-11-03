@@ -64765,6 +64765,13 @@ export namespace Schemas {
       url: string | null;
     }
 
+    export interface MemberOffboardingUnattributedRecordings {
+      /** Active public recording links in this organization with no recorded publisher. These links can't be tied to any member. The count stops at 10,000. */
+      count: number;
+      /** Whether more links exist than `count` shows. */
+      count_is_capped: boolean;
+    }
+
     /**
      * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
      */

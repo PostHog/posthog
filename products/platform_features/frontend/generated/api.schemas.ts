@@ -540,6 +540,13 @@ export interface MemberOffboardingResourceApi {
     url: string | null
 }
 
+export interface MemberOffboardingUnattributedRecordingsApi {
+    /** Active public recording links in this organization with no recorded publisher. These links can't be tied to any member. The count stops at 10,000. */
+    count: number
+    /** Whether more links exist than `count` shows. */
+    count_is_capped: boolean
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string

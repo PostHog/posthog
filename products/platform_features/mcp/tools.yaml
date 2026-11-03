@@ -330,6 +330,16 @@ tools:
         disabled_reason:
             Offboarding is an organization settings workflow. Its organization-wide resource review and member
             removal are kept together in that UI; this change does not expose an MCP offboarding workflow.
+    org-member-offboarding-revoke-unattributed-recordings:
+        operation: members_offboarding_unattributed_recordings_revoke
+        enabled: false
+        disabled_reason: Revoking every public recording link without a known publisher breaks links across the whole
+            organization, so it stays a confirmed action in the offboarding UI.
+    org-member-offboarding-unattributed-recordings:
+        operation: members_offboarding_unattributed_recordings_retrieve
+        enabled: false
+        disabled_reason: Offboarding is an organization settings workflow. The count of recording links without a known
+            publisher is only shown inside that review.
     org-members-list:
         operation: members_list
         enabled: true

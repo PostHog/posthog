@@ -110,6 +110,10 @@ const meta: Meta<typeof MemberOffboardingModal> = {
             get: {
                 '/api/organizations/:organizationId/members/:userUuid/offboarding_preview/': resources,
                 '/api/organizations/:organizationId/members/:userUuid/scoped_api_keys/': { has_keys: false, keys: [] },
+                '/api/organizations/:organizationId/members/:userUuid/offboarding_unattributed_recordings/': {
+                    count: 0,
+                    count_is_capped: false,
+                },
             },
         }),
     ],
@@ -137,6 +141,54 @@ export const NoResources: Story = {
         await waitFor(() => {
             if (logic.values.resourcesLoading || logic.values.resources === null) {
                 throw new Error(logic.values.loadError || 'Waiting for resource review')
+            }
+        })
+    },
+}
+export const UnattributedRecordingLinks: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:organizationId/members/:userUuid/offboarding_unattributed_recordings/': {
+                    count: 1240,
+                    count_is_capped: false,
+                },
+            },
+        }),
+    ],
+    play: async () => {
+        await openMemberOffboarding()
+        const logic = memberOffboardingLogic
+        await waitFor(() => {
+            if (!logic.values.resources?.length || !logic.values.unattributedRecordings?.count) {
+                throw new Error(logic.values.loadError || 'Waiting for resource review')
+            }
+        })
+    },
+}
+
+export const OnlyUnattributedRecordingLinks: Story = {
+    ...UnattributedRecordingLinks,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/:organizationId/members/:userUuid/offboarding_preview/': [],
+                '/api/organizations/:organizationId/members/:userUuid/offboarding_unattributed_recordings/': {
+                    count: 10000,
+                    count_is_capped: true,
+                },
+            },
+        }),
+    ],
+    play: async () => {
+        await openMemberOffboarding()
+        await waitFor(() => {
+            if (
+                memberOffboardingLogic.values.resourcesLoading ||
+                !memberOffboardingLogic.values.unattributedRecordings?.count
+            ) {
+                throw new Error('Waiting for recording links')
             }
         })
     },

@@ -45,6 +45,10 @@ describe('memberOffboardingLogic', () => {
             get: {
                 '/api/organizations/:organization/members/:user/offboarding_preview/': resources,
                 '/api/organizations/:organization/members/:user/scoped_api_keys/': { has_keys: false, keys: [] },
+                '/api/organizations/:organization/members/:user/offboarding_unattributed_recordings/': {
+                    count: 0,
+                    count_is_capped: false,
+                },
             },
             patch: {
                 '/api/projects/:project/:kind/:resource/sharing/': async ({ request }) => {
@@ -81,6 +85,31 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.member).toBeNull()
         expect(membersLogic.values.members).toEqual([MOCK_DEFAULT_ORGANIZATION_MEMBER])
         expect(membersLogic.values.membersLoading).toBe(false)
+    })
+
+    it('loads unknown recording links without member resources and reports revocation as queued', async () => {
+        const links = { count: 12, count_is_capped: false }
+        useMocks({
+            get: {
+                '/api/organizations/:organization/members/:user/offboarding_preview/': [],
+                '/api/organizations/:organization/members/:user/offboarding_unattributed_recordings/': links,
+            },
+            post: {
+                '/api/organizations/:organization/members/:user/offboarding_unattributed_recordings/revoke/': () => [
+                    202,
+                    links,
+                ],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+        expect(logic.values.resources).toEqual([])
+        expect(logic.values.unattributedRecordings).toEqual(links)
+        await expectLogic(logic, () => logic.actions.revokeUnattributedRecordings()).toFinishAllListeners()
+        expect(logic.values.recordingRevocationRequested).toBe(true)
+        expect(logic.values.unattributedRecordings?.count).toBe(12)
+        logic.actions.close()
+        expect(logic.values.unattributedRecordings).toBeNull()
+        expect(submitted).toEqual([])
     })
 
     it('disables selected resources immediately and cancellation does not undo the change', async () => {
