@@ -84,11 +84,14 @@ function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: Retur
 
 describe('chat send preparation', () => {
     test('keeps an unsaved draft notice visible and disables retry while saving', () => {
-        const { draft } = mockReadyChat()
+        const { session, draft } = mockReadyChat()
+        session.notice = 'Connection interrupted. Reconnect to continue.'
+        session.reconnect = jest.fn()
         draft.draftError = 'Draft not saved. Remove a queued message before saving more.'
         const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
         expect(screen.getByDisplayValue('First message')).toBeTruthy()
         expect(screen.getByText(draft.draftError)).toBeTruthy()
+        expect(screen.queryByTestId('session-reconnect')).toBeNull()
         fireEvent.press(screen.getByTestId('chat-draft-retry'))
         expect(draft.retrySave).toHaveBeenCalledTimes(1)
         draft.draftSaving = true
@@ -100,6 +103,9 @@ describe('chat send preparation', () => {
         draft.draftError = undefined
         view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
         expect(screen.queryByTestId('chat-draft-retry')).toBeNull()
+        expect(screen.getByText(session.notice)).toBeTruthy()
+        fireEvent.press(screen.getByTestId('session-reconnect'))
+        expect(session.reconnect).toHaveBeenCalledTimes(1)
     })
     test.each(['new', 'close', 'unmount'])('a prepared message does not send after %s', async (transition) => {
         let finishStorage!: (settle: (sent: boolean) => Promise<void>) => void
