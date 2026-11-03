@@ -34,12 +34,13 @@ const product = (name: string, searchKeywords: string[] = []): SearchItem => ({
 
 const exactWordRank = (created: number): number[] => [-1, 0, 0, 0, -1, 0, 2, 0, -created]
 
-const account = (id: string, name: string, identityFields: string[] = []): SearchItem => ({
+const account = (id: string, name: string, identityFields: string[] = [], isCurated = false): SearchItem => ({
     id,
     name,
     category: 'accounts',
     itemType: 'account',
     identityFields,
+    isCurated,
 })
 
 const summary = (sections: CommandKSection[]): string[] =>
@@ -257,6 +258,24 @@ describe('buildRankedResults', () => {
             products: [],
             unifiedRanking: true,
             expected: ['Results: checkout-flow-redesign, Flow of checkout events'],
+        },
+        {
+            name: 'with unified ranking, an account with a generic name and no CRM record ranks below a saved object',
+            query: 'studio',
+            results: [result('1', 'Studio review', 'notebook', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
+            products: [],
+            accounts: [account('account-1', 'Studio')],
+            unifiedRanking: true,
+            expected: ['Results: Studio review, Studio'],
+        },
+        {
+            name: 'with unified ranking, a curated account with the same name still ranks first',
+            query: 'studio',
+            results: [result('1', 'Studio review', 'notebook', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
+            products: [],
+            accounts: [account('account-1', 'Studio', [], true)],
+            unifiedRanking: true,
+            expected: ['Results: Studio, Studio review'],
         },
         {
             name: 'with unified ranking, a snake_case name splits into words like a hyphenated one',

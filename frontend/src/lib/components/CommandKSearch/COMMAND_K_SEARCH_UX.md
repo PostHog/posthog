@@ -119,7 +119,8 @@ Results for a search with words follow ordered tie-breaking rules: words matched
   When a search finds nothing and its text converts from a Russian, Hebrew or Arabic keyboard layout to English letters, Cmd+K searches the converted text and says so ("No matches for **фзш**. Showing results for **api**.").
   An account whose display name does not contain the search ranks as an identity match or a match inside a word, not as an exact match.
   Products rank three match tiers higher, so a product whose name starts with the search ranks with an exact saved object name, and "replay" puts Replay vision above a notebook named Replay.
-  The type preference breaks ties: a search that looks like a domain or an email address prefers accounts and persons, and any other search prefers products.
+  The type preference breaks ties: a search that looks like a domain or an email address prefers accounts and persons, and any other search prefers products, then saved objects and settings, then accounts and persons.
+  An account with no Salesforce, HubSpot deal or billing ID, no tag and no notebook ranks three match tiers lower, so a generic account name such as "Studio" does not lead an equally good saved object. A domain or email search still finds its account.
 - When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
 - **Best matches** comes first: the three best results of different types.
 - The other results follow in groups by type, each with its total count and up to three rows. A group ends with a **See all N <types>** row that adds the `is:` chip and keeps the words. A one-word search that starts a type name (`dash`, `flag`) moves that type's group up.
@@ -225,4 +226,5 @@ Every step emits an event so we can see adoption and drop-off:
 - `command k search opened` (source: shortcut, button)
 - `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste, see-all)
 - `command k result opened` (section, position, has_filters, filter_keys, query_length, ranked_section: `best-matches`, `group-<type>`, or the local section)
+- `command k result opened` and `command k search abandoned` also carry query_words, query_shape, query_has_underscore and layout_corrected. `query_shape` keeps only the words that PostHog's own product and settings names use and writes `*` for every other word, so no search text leaves the browser. The result event adds picked_before (the person picked this result for this search before). The abandon event adds had_results.
 - `command k search abandoned` (closed with no result opened; last mode, had_filters)

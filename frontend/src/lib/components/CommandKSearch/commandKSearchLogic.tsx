@@ -44,7 +44,7 @@ import { askAiQuestionFor } from './commandKAskAi'
 import { buildFilterOptions, viewAllFor } from './commandKFilterOptions'
 import { ChipSelection, KeyIntent } from './commandKKeys'
 import { LayoutCorrection, convertKeyboardLayout } from './commandKLayout'
-import { PickInput, pickScores, recordPick } from './commandKPickMemory'
+import { PICKED_THRESHOLD, PickInput, pickScores, recordPick } from './commandKPickMemory'
 import {
     CursorContext,
     FilterDefinition,
@@ -84,6 +84,7 @@ import {
     themeSearchItem,
 } from './commandKSections'
 import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequest } from './commandKSources'
+import { queryShape } from './commandKTelemetry'
 
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
@@ -97,6 +98,22 @@ const PICK_MEMORY_PERSIST_OPTIONS =
         : { persist: false }
 
 const pickInput = (query: string | undefined): string => freeWords(query ?? '').join(' ')
+
+type TelemetryValues = Pick<
+    commandKSearchLogicValues,
+    'remoteQueries' | 'localQuery' | 'layoutCorrection' | 'localLists'
+>
+
+// Search text never leaves the browser. Words outside PostHog's own product and settings names are masked.
+const searchTelemetry = (values: TelemetryValues): Record<string, string | number | boolean> => {
+    const searched = pickInput(values.remoteQueries.results ?? values.localQuery)
+    return {
+        query_words: searched ? searched.split(' ').length : 0,
+        query_shape: queryShape(searched, [values.localLists.products, values.localLists.settings]),
+        query_has_underscore: searched.includes('_'),
+        layout_corrected: !!values.layoutCorrection,
+    }
+}
 const INPUT_HIGHLIGHT_KEY = 'input'
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
@@ -894,7 +911,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             ) {
                 actions.recordPick(pickInput(values.remoteQueries.results), item.id, Date.now())
             }
+            const searched = values.remoteQueries.results ?? values.localQuery
+            const picked =
+                item && row.kind === 'item' && row.ranked
+                    ? (pickScores(values.pickMemory, pickInput(searched), Date.now()).get(item.id) ?? 0) >=
+                      PICKED_THRESHOLD
+                    : false
             posthog.capture('command k result opened', {
+                ...searchTelemetry(values),
+                picked_before: picked,
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
                 position: values.selectableRows.findIndex((candidate) => candidate.key === row.key),
@@ -1158,6 +1183,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             posthog.capture('command k search abandoned', {
                 last_mode: values.mode,
                 had_filters: values.chips.length > 0,
+                had_results: values.sections.some((section) => section.rows.some((row) => row.kind === 'item')),
+                ...searchTelemetry(values),
             })
         }
     }),

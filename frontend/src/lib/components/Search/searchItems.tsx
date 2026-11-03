@@ -40,6 +40,7 @@ export interface SearchItem {
     searchKeywords?: string[]
     hiddenSearchText?: string
     identityFields?: string[]
+    isCurated?: boolean
     matchedSearchKeyword?: string | null
     parentName?: string
     record?: Record<string, unknown>
@@ -223,6 +224,13 @@ export const accountToSearchItem = (account: AccountApi): SearchItem => {
             account.properties?.website_domain,
             ...(account.properties?.email_domains ?? []),
         ].filter((value): value is string => !!value),
+        isCurated: !!(
+            account.properties?.sfdc_id ||
+            account.properties?.hubspot_deal_id ||
+            account.properties?.billing_id ||
+            account.tags?.length ||
+            account.notebooks.length
+        ),
         record: { type: 'account', id: account.id },
         badges: getAccountStatusTags(account).map(({ label, type, dateLabel }) => ({
             label,
