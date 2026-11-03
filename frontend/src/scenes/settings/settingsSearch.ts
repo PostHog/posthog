@@ -10,9 +10,14 @@ export const FUSE_THRESHOLD = 0.2
 
 const RESULT_LIMIT = 30
 
+// A shorter acronym matches too many titles: "ai" is also "Agent instructions".
+const MIN_ACRONYM_LENGTH = 3
+
 export interface SearchIndexEntry {
     settingId: SettingId
     settingTitle: string
+    /** The first letter of each title word, so "pak" finds "Personal API keys". */
+    titleInitials: string
     sectionId: SettingSectionId
     sectionTitle: string
     level: SettingLevelId
@@ -22,7 +27,10 @@ export interface SearchIndexEntry {
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface GlobalSearchFuse extends FuseClass<SearchIndexEntry> {}
+export interface GlobalSearchFuse extends FuseClass<SearchIndexEntry> {
+    // Fuse does not expose its collection, and the acronym match reads every entry.
+    entries: readonly SearchIndexEntry[]
+}
 
 function collectText(node: ReactNode): string {
     if (typeof node === 'string') {
@@ -52,6 +60,14 @@ export function getTitleText(title: ReactNode): string {
 
 /** The title a search matches on, falling back to the id for a title with no readable text. */
 const indexedTitle = (title: ReactNode, id: string): string => getTitleText(title) || id.replace(/[-]/g, ' ')
+
+const titleInitials = (title: string): string =>
+    title
+        .split(' ')
+        .filter((word) => /^[\p{L}\p{N}]/u.test(word))
+        .map((word) => word[0])
+        .join('')
+        .toLowerCase()
 
 const keywordText = (keywords: string[] | undefined): string => (keywords ?? []).join(' ')
 
@@ -84,6 +100,7 @@ export function buildSettingsSearchIndex(
                 ...shared,
                 settingId: section.id as SettingId,
                 settingTitle: sectionTitle,
+                titleInitials: titleInitials(sectionTitle),
                 keywords: '',
                 description: '',
             })
@@ -95,10 +112,12 @@ export function buildSettingsSearchIndex(
                 continue
             }
 
+            const settingTitle = indexedTitle(setting.title, setting.id)
             entries.push({
                 ...shared,
                 settingId: setting.id,
-                settingTitle: indexedTitle(setting.title, setting.id),
+                settingTitle,
+                titleInitials: titleInitials(settingTitle),
                 keywords: keywordText(setting.keywords),
                 description: settingDescription(setting),
             })
@@ -109,7 +128,7 @@ export function buildSettingsSearchIndex(
 }
 
 export function createSettingsSearchFuse(entries: SearchIndexEntry[]): GlobalSearchFuse {
-    return createFuse(entries, {
+    const fuse = createFuse(entries, {
         keys: [
             { name: 'settingTitle', weight: 2 },
             { name: 'keywords', weight: 1.5 },
@@ -125,6 +144,7 @@ export function createSettingsSearchFuse(entries: SearchIndexEntry[]): GlobalSea
         ignoreLocation: true,
         includeScore: true,
     })
+    return Object.assign(fuse, { entries })
 }
 
 interface WordMatch {
@@ -157,6 +177,34 @@ function matchWords(index: GlobalSearchFuse, words: string[]): WordMatch[] {
 }
 
 /**
+ * Fuse looks for the query letters in sequence inside one field, so an acronym such as "PAK"
+ * never matches "Personal API keys". An uppercase query is an acronym on purpose, so its matches go first.
+ * A lowercase one can be a real word ("rec" is also the start of "recordings"), so its matches
+ * go after the fuzzy results.
+ */
+function addAcronymMatches(index: GlobalSearchFuse, term: string, results: SearchIndexEntry[]): SearchIndexEntry[] {
+    if (term.length < MIN_ACRONYM_LENGTH || !/^[\p{L}\p{N}]+$/u.test(term)) {
+        return results
+    }
+
+    const initials = term.toLowerCase()
+    const acronymMatches = index.entries.filter((entry) => entry.titleInitials === initials)
+    if (acronymMatches.length === 0) {
+        return results
+    }
+
+    const resultKeys = new Set(results.map(entryKey))
+    const newMatches = acronymMatches.filter((entry) => !resultKeys.has(entryKey(entry)))
+    if (term !== term.toUpperCase()) {
+        return [...results, ...newMatches].slice(0, RESULT_LIMIT)
+    }
+
+    const acronymKeys = new Set(acronymMatches.map(entryKey))
+    const otherResults = results.filter((entry) => !acronymKeys.has(entryKey(entry)))
+    return [...acronymMatches, ...otherResults].slice(0, RESULT_LIMIT)
+}
+
+/**
  * Fuse treats a query as one fuzzy pattern, so a multi-word query only matches when those
  * words sit together in one indexed field. That makes "session replay retention" and
  * "enable AI" return nothing. Searching word by word restores them: prefer the entries that
@@ -174,7 +222,8 @@ export function searchSettingsIndex(index: GlobalSearchFuse, term: string): Sear
 
     const words = trimmed.split(/\s+/)
     if (words.length === 1) {
-        return index.search(trimmed, { limit: RESULT_LIMIT }).map((result) => result.item)
+        const results = index.search(trimmed, { limit: RESULT_LIMIT }).map((result) => result.item)
+        return addAcronymMatches(index, trimmed, results)
     }
 
     const matches = matchWords(index, words)
