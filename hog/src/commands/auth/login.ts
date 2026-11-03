@@ -56,7 +56,7 @@ function loggedInResult(loggedIn: LoggedIn): LoginResult {
 
 async function finish(ctx: Context, approval: Approval): Promise<LoginResult> {
     const { host, apiKey, projectId, scopes } = approval
-    const loggedIn = await saveLogin(ctx.runtime, new PersonalAPIKey({ host, projectId, apiKey }))
+    const loggedIn = await saveLogin(ctx.runtime, new PersonalAPIKey({ host, projectId, apiKey, scopes }))
     return loggedInResult({ ...loggedIn, scopes })
 }
 
