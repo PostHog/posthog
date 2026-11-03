@@ -10,7 +10,7 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 - Tier state: `email_sending_tier`, `email_sending_tier_updated_at` (dwell anchor), `email_sending_tier_demoted_at` (demotion cooldown anchor), and `email_sending_tier_pinned` on `TeamWorkflowsConfig`.
 - Tier movement: a daily Celery sweep (07:15 UTC, after the SES tenant-state reconcile at 07:00) in `products/workflows/backend/services/email_sending_tier.py`.
 - Batch audience cap: `get_hogflow_batch_trigger_limit` in `products/workflows/backend/utils/batch_trigger_limit.py`, applied at batch dispatch and shown in the blast radius preview.
-- Send-time caps: two Valkey token buckets per team in the CDP email worker (`claimTeamSendingBudget` in `nodejs/src/cdp/services/messaging/email.service.ts`).
+- Send-time caps: two Valkey token buckets per team in the CDP email worker (`TeamSendingCap.claim` in `nodejs/src/cdp/services/messaging/email-pacing.ts`).
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
 - Audit trail: every tier or pin change writes an `email_sending_tier_changed` row to the team's activity log, with the before and after values and the decision reason (`staff_set` for a tier staff set by hand). Staff rows name the acting user. Sweep and backfill rows carry a trigger with the job type and a per-run id. The rows are staff-only in the activity log (`products/workflows/backend/services/email_sending_tier_audit.py`).
 - Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
@@ -38,7 +38,7 @@ Django (`posthog/settings/web.py`):
 Worker (`nodejs/src/cdp/config.ts`):
 
 - `EMAIL_TEAM_SENDING_CAP_MODE`: `off` (default), `shadow`, or `enforce`.
-- `EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER`, `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django tables. An unusable table turns the cap off rather than applying a wrong number.
+- `EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER`, `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django tables. An unset or unusable table falls back to the worker's built-in table, which mirrors the Django defaults.
 
 All of these reach production as environment variables through `posthog/charts` (with any secret values via `posthog/secrets`).
 None of them are wired there yet; the charts change is part of turning the rollout mode on, not part of merging the code.

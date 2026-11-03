@@ -29,15 +29,10 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { teamEmailCapBuckets } from './email-pacing'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
-import {
-    EmailService,
-    formatMailbox,
-    parseAddressList,
-    sanitizeEmailSubject,
-    teamEmailCapBuckets,
-} from './email.service'
+import { EmailService, formatMailbox, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { RecipientTokensService } from './recipient-tokens.service'
 

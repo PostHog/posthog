@@ -21,7 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { CAP_RETRY_MAX_MS, WorkflowPacing, emailReservedParkMs, pickReservedRetryDelayMs } from './email-pacing'
+import { TeamEmailCapConfig, TeamEmailCapMode, TeamSendingCap, WorkflowPacing } from './email-pacing'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
@@ -196,30 +196,14 @@ function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reaso
     }
 }
 
-const teamEmailCapDelayedTotal = new Counter({
-    name: 'cdp_team_email_cap_delayed_total',
-    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
-    labelNames: ['tier', 'bucket', 'mode'],
-})
-
-/**
- * Rollout mode for the per-team sending cap.
- *  - `off`: the cap is not consulted at all.
- *  - `shadow`: the cap is evaluated and every send it would delay is counted and logged, but no
- *    send is delayed. This is how the tier distribution is checked against real traffic before
- *    anything is enforced.
- *  - `enforce`: a denied claim reschedules the send.
- */
-export type TeamEmailCapMode = 'off' | 'shadow' | 'enforce'
-
 /** An unrecognized mode reads as `off`, so a typo in the env cannot start throttling teams. */
 export function parseTeamEmailCapMode(value: string | undefined): TeamEmailCapMode {
     const mode = (value ?? '').trim().toLowerCase()
     return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
 }
 
-/** Parses a comma-separated cap table. Any unusable entry drops the whole table, which turns the
- * cap off rather than applying a wrong number to a paying customer. */
+/** Parses a comma-separated cap table. Any unusable entry drops the whole table, so the cap uses its
+ * built-in default table instead of a partly wrong one. */
 export function parseTierCaps(value: string | undefined): number[] {
     const parts = (value ?? '')
         .split(',')
@@ -232,52 +216,7 @@ export function parseTierCaps(value: string | undefined): number[] {
     return caps
 }
 
-// Mirrors WORKFLOWS_EMAIL_TIER_HOURLY_CAPS / _DAILY_CAPS in posthog/settings/web.py. Both sides
-// read the same tier index, so the two tables must stay in step.
-const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [50, 200, 600, 2000, 6000, 20000, 60000, 200000]
-const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
-
-// Comfortably longer than the window each bucket paces, so an idle bucket is never reset to full
-// by expiry before it would have refilled on its own. Without that, a team that pauses for a day
-// would get a fresh daily allowance instead of waiting for the refill.
-const TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS = 6 * 60 * 60
-const TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS = 3 * 24 * 60 * 60
-
-type TeamEmailCapBucket = {
-    name: 'hour' | 'day'
-    key: string
-    capacity: number
-    refillPerSecond: number
-    ttlSeconds: number
-    /** Cap and period as the customer sees them in the log line. */
-    label: string
-}
-
-// The `{teamId}` hash tag puts both bucket keys in the same cluster slot. Enforce mode claims
-// both keys in one Lua call (claimAllOrNothingPair), and clustered Valkey rejects a multi-key
-// call whose keys hash to different slots with a CROSSSLOT error.
-export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
-    return [
-        {
-            name: 'hour',
-            key: `@posthog/team-email-rate-hour/{${teamId}}`,
-            capacity: hourlyCap,
-            refillPerSecond: hourlyCap / 3600,
-            ttlSeconds: TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS,
-            label: `${hourlyCap.toLocaleString('en-US')} emails per hour`,
-        },
-        {
-            name: 'day',
-            key: `@posthog/team-email-rate-day/{${teamId}}`,
-            capacity: dailyCap,
-            refillPerSecond: dailyCap / 86400,
-            ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
-            label: `${dailyCap.toLocaleString('en-US')} emails per day`,
-        },
-    ]
-}
-
-export interface EmailServiceConfig {
+export interface EmailServiceConfig extends TeamEmailCapConfig {
     sesAccessKeyId: string
     sesSecretAccessKey: string
     sesRegion: string
@@ -287,11 +226,6 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
-    // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
-    // builds an EmailService without them keeps its pre-cap behavior.
-    teamEmailCapMode?: TeamEmailCapMode
-    teamEmailTierHourlyCaps?: number[]
-    teamEmailTierDailyCaps?: number[]
 }
 
 /**
@@ -358,6 +292,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowPacing: WorkflowPacing
+    private teamSendingCap: TeamSendingCap
     private untrackedConfigSetWarningLogged = false
 
     constructor(
@@ -375,9 +310,10 @@ export class EmailService {
         private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        teamEmailRateLimiter: RateLimiterService | null = null
     ) {
         this.workflowPacing = new WorkflowPacing(workflowEmailRateLimiter)
+        this.teamSendingCap = new TeamSendingCap(teamEmailRateLimiter, teamWorkflowsConfigService, sesConfig)
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
                   region: this.sesConfig.sesRegion,
@@ -619,7 +555,7 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            const capDelay = await this.teamSendingCap.claim(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -628,13 +564,7 @@ export class EmailService {
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
-                const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
-                addLog(
-                    'info',
-                    capDelay.label
-                        ? `This project reached its email sending limit of ${capDelay.label}. Retrying this email in ${capRetrySeconds}s. The limit rises as the project builds a clean sending history.`
-                        : `Could not check this project's email sending limit, so this email is waiting. Retrying in ${capRetrySeconds}s. No action is needed on your side.`
-                )
+                addLog('info', capDelay.logMessage)
                 return result
             }
 
@@ -800,115 +730,6 @@ export class EmailService {
         }
 
         return result
-    }
-
-    /**
-     * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
-     * trust-tier buckets.
-     *
-     * Returns the delay to reschedule with when a cap is reached, or null when the send may go out.
-     * Two buckets, not one: the daily cap bounds how much damage a team can do to the shared SES
-     * account's reputation, and the hourly cap forces that volume to spread out so complaint
-     * feedback (which lags by hours) arrives while the team's total volume is still small.
-     *
-     * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
-     * config blip must never throttle a legitimate customer. A failed bucket claim returns 0 from
-     * the limiter, which delays the send, because we must not send when we cannot account for it.
-     * That second case returns a null `label`: the send waits, but no cap was reached, so the
-     * caller must not tell the customer it hit one.
-     */
-    private async claimTeamSendingBudget(
-        invocation: CyclotronJobInvocationHogFunction,
-        isTest: boolean,
-        recipients: number = 1
-    ): Promise<{ retryDelayMs: number; label: string | null } | null> {
-        const mode: TeamEmailCapMode = this.sesConfig.teamEmailCapMode ?? 'off'
-        if (mode === 'off' || isTest || !this.teamEmailRateLimiter) {
-            return null
-        }
-
-        const teamTier = await this.teamWorkflowsConfigService.getEmailSendingTier(invocation.teamId)
-        if (teamTier === null) {
-            return null
-        }
-
-        const hourlyCaps = this.sesConfig.teamEmailTierHourlyCaps?.length
-            ? this.sesConfig.teamEmailTierHourlyCaps
-            : DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS
-        const dailyCaps = this.sesConfig.teamEmailTierDailyCaps?.length
-            ? this.sesConfig.teamEmailTierDailyCaps
-            : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
-        const topTier = Math.min(hourlyCaps.length, dailyCaps.length) - 1
-        if (topTier < 0) {
-            return null
-        }
-        const tier = Math.min(Math.max(teamTier, 0), topTier)
-
-        const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
-        // Clamped to the smaller capacity: a send with more copies than a whole allowance could
-        // never be granted and would reschedule forever. It charges the entire bucket instead, so
-        // it still waits for full capacity and pays everything there is.
-        const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
-
-        if (mode === 'enforce') {
-            // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
-            // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
-            // every retry and starve the team's other emails while never sending itself.
-            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
-                [buckets[0], buckets[1]],
-                requested,
-                CAP_RETRY_MAX_MS
-            )
-            if (claim.granted) {
-                return null
-            }
-            // `deniedIndex` is null when the limiter itself failed, not when a bucket was full. The
-            // send still waits, because we must not send what we cannot account for, but no cap was
-            // reached, so a null label tells the caller it has no cap to name to the customer.
-            const denied = claim.deniedIndex === null ? null : buckets[claim.deniedIndex]
-            // The daily bucket paces a limiter failure because it is the slower of the two, so the
-            // retry backs off at the safer rate while the limiter is unreachable.
-            const pacing = denied ?? buckets[1]
-            teamEmailCapDelayedTotal.inc({
-                tier: String(tier),
-                bucket: denied?.name ?? 'limiter_unavailable',
-                mode,
-            })
-            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, pacing.refillPerSecond, claim.reserved)
-            emailReservedParkMs.labels('team-email').observe(retryDelayMs)
-            return {
-                retryDelayMs,
-                label: denied?.label ?? null,
-            }
-        }
-
-        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
-        // and log the first cap that would have delayed it, measuring both against real traffic.
-        let firstDenial: TeamEmailCapBucket | null = null
-        for (const bucket of buckets) {
-            const granted = await this.teamEmailRateLimiter.claimUpTo({
-                key: bucket.key,
-                requested,
-                capacity: bucket.capacity,
-                refillPerSecond: bucket.refillPerSecond,
-                ttlSeconds: bucket.ttlSeconds,
-            })
-            if (granted >= requested) {
-                continue
-            }
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
-            firstDenial = firstDenial ?? bucket
-        }
-
-        if (firstDenial) {
-            logger.info('📧', 'Team email sending cap would have delayed this send', {
-                teamId: invocation.teamId,
-                tier,
-                bucket: firstDenial.name,
-                cap: firstDenial.label,
-            })
-        }
-        return null
     }
 
     // Per-send tracking decision, combining two independent controls:
