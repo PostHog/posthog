@@ -437,3 +437,200 @@ describe('commentsLogic', () => {
         expect(logic.values.composerDrafts['footer']).toEqual(DRAFT_CONTENT)
     })
 })
+
+describe('commentsLogic linked Slack threads', () => {
+    let logic: ReturnType<typeof commentsLogic.build>
+    let results: Record<string, any>[]
+    let listStatus: number
+    let rootStatus: number
+    let replyPages: Record<string, any>[][]
+    let requests: string[]
+
+    const linkedRoot = (state: string): Record<string, any> => ({
+        ...makeComment('linked-root'),
+        created_at: '2025-01-01T00:00:00.000Z',
+        item_context: { from_slack: true, slack_import_state: state },
+    })
+
+    beforeEach(() => {
+        results = []
+        listStatus = 200
+        rootStatus = 200
+        replyPages = [[makeComment('old-reply', 'linked-root')]]
+        requests = []
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': ({ request }) => {
+                    const url = new URL(request.url)
+                    const sourceComment = url.searchParams.get('source_comment')
+                    if (!sourceComment) {
+                        return listStatus === 200 ? [200, { results }] : [listStatus, {}]
+                    }
+                    const page = Number(url.searchParams.get('cursor') ?? 0)
+                    requests.push(`replies page ${page}`)
+                    const next =
+                        page + 1 < replyPages.length
+                            ? `http://localhost/api/projects/997/comments/?source_comment=${sourceComment}&cursor=${page + 1}`
+                            : null
+                    return [200, { results: replyPages[page], next }]
+                },
+                '/api/projects/:team_id/comments/:id': ({ params }) => {
+                    requests.push('root')
+                    return rootStatus !== 200
+                        ? [rootStatus, {}]
+                        : params.id === 'linked-root'
+                          ? [200, linkedRoot('done')]
+                          : [404, {}]
+                },
+                '/api/organizations/@current/members/': { results: [] },
+            },
+        })
+        logic = commentsLogic({ scope: ActivityScope.INSIGHT, item_id: '1' })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+        logic.unmount()
+    })
+
+    it('keeps a thread linked from here in view when it is older than the newest page', async () => {
+        // The newest page is full of newer comments, so the Slack-dated opening comment isn't on it.
+        results = [makeComment('newer')]
+
+        await expectLogic(logic, () =>
+            logic.actions.addLinkedSlackThread(linkedRoot('pending') as any)
+        ).toDispatchActions(['addLinkedSlackThread', 'refreshCommentsSuccess'])
+
+        expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'old-reply'])
+    })
+
+    it("brings in every page of an older linked thread's replies", async () => {
+        results = [makeComment('newer')]
+        replyPages = [[makeComment('reply-1', 'linked-root')], [makeComment('reply-2', 'linked-root')]]
+
+        await expectLogic(logic, () => logic.actions.addLinkedSlackThread(linkedRoot('done') as any)).toDispatchActions(
+            ['refreshCommentsSuccess']
+        )
+
+        expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'reply-1', 'reply-2'])
+        // The root first: once it says the import is done, the replies read after it are complete.
+        expect(requests).toEqual(['root', 'replies page 0', 'replies page 1'])
+    })
+
+    it('keeps an older linked thread through a failed fetch, and drops it once it is gone', async () => {
+        results = [makeComment('newer')]
+        await expectLogic(logic, () => logic.actions.addLinkedSlackThread(linkedRoot('done') as any)).toDispatchActions(
+            ['refreshCommentsSuccess']
+        )
+
+        rootStatus = 500
+        await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
+        expect(logic.values.comments?.map((c) => c.id).sort()).toEqual(['linked-root', 'newer', 'old-reply'])
+
+        rootStatus = 404
+        await expectLogic(logic, () => logic.actions.refreshComments()).toDispatchActions(['refreshCommentsSuccess'])
+        expect(logic.values.comments?.map((c) => c.id)).toEqual(['newer'])
+    })
+
+    it('keeps refreshing an import through a failed refresh', async () => {
+        jest.useFakeTimers()
+        results = [linkedRoot('pending')]
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+
+        listStatus = 500
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toDispatchActions(['refreshComments', 'refreshCommentsFailure'])
+
+        listStatus = 200
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toDispatchActions(['refreshComments', 'refreshCommentsSuccess'])
+        expect(logic.values.comments?.[0].id).toBe('linked-root')
+    })
+
+    it('refreshes while a linked thread imports, and stops once it has', async () => {
+        jest.useFakeTimers()
+        results = [linkedRoot('pending')]
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+
+        results = [linkedRoot('done')]
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toDispatchActions(['refreshComments', 'refreshCommentsSuccess'])
+
+        expect(logic.values.comments?.[0].item_context?.slack_import_state).toBe('done')
+
+        jest.advanceTimersByTime(60000)
+        await expectLogic(logic).toNotHaveDispatchedActions(['refreshComments'])
+    })
+
+    it('gives a newly linked thread its own refreshes after an older one used them up', async () => {
+        jest.useFakeTimers()
+        results = [linkedRoot('pending')]
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+        for (let i = 0; i < 60; i++) {
+            jest.advanceTimersByTime(5000)
+            await expectLogic(logic).toDispatchActions(['refreshCommentsSuccess'])
+        }
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toNotHaveDispatchedActions(['refreshComments'])
+
+        await expectLogic(logic, () =>
+            logic.actions.addLinkedSlackThread(linkedRoot('pending') as any)
+        ).toDispatchActions(['refreshCommentsSuccess'])
+        jest.advanceTimersByTime(5000)
+        await expectLogic(logic).toDispatchActions(['refreshComments'])
+        expect(logic.values.linkedSlackThreadIds).toEqual(['linked-root'])
+    })
+})
+
+describe('commentsLogic unlinkSlackThread', () => {
+    let logic: ReturnType<typeof commentsLogic.build>
+    let unlinkedId: string | null
+
+    beforeEach(() => {
+        unlinkedId = null
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': {
+                    results: [makeComment('linked-root'), makeComment('reply', 'linked-root'), makeComment('other')],
+                },
+                '/api/organizations/@current/members/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team_id/comments/:id/unlink_slack_thread': ({ params }) => {
+                    unlinkedId = params.id as string
+                    return [204]
+                },
+            },
+        })
+        logic = commentsLogic({ scope: ActivityScope.INSIGHT, item_id: '1' })
+        logic.mount()
+    })
+
+    it('removes the linked thread and its replies in place, leaving the reader where they were', async () => {
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+        const root = logic.values.comments!.find((c) => c.id === 'linked-root')!
+
+        await expectLogic(logic, () => logic.actions.unlinkSlackThread(root))
+            .toDispatchActions(['unlinkSlackThreadSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+
+        expect(unlinkedId).toBe('linked-root')
+        expect(logic.values.comments?.map((c) => c.id)).toEqual(['other'])
+    })
+
+    it('closes a reply or an edit that was on the unlinked thread', async () => {
+        await expectLogic(logic, () => logic.actions.loadComments()).toDispatchActions(['loadCommentsSuccess'])
+        const root = logic.values.comments!.find((c) => c.id === 'linked-root')!
+        const reply = logic.values.comments!.find((c) => c.id === 'reply')!
+        logic.actions.setReplyingComment('linked-root')
+        logic.actions.setEditingComment(reply)
+
+        await expectLogic(logic, () => logic.actions.unlinkSlackThread(root))
+            .toDispatchActions(['unlinkSlackThreadSuccess'])
+            .toMatchValues({ replyingCommentId: null, editingComment: null })
+        expect(logic.values.comments?.map((c) => c.id)).toEqual(['other'])
+    })
+})

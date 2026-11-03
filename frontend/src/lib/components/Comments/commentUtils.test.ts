@@ -1,6 +1,6 @@
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { getCommentText } from './commentUtils'
+import { getCommentText, isLinkedSlackThread } from './commentUtils'
 
 describe('getCommentText', () => {
     // Each shape here carries a mark or node DEFAULT_EXTENSIONS lacks, which used to throw out of
@@ -89,5 +89,24 @@ describe('getCommentText', () => {
             ],
         }
         expect(getCommentText({ rich_content: richContent })).toBe('hey @member:42')
+    })
+})
+
+describe('isLinkedSlackThread', () => {
+    const SLACK_THREAD = { channel_id: 'C0123ABCDEF', channel_name: 'team-exports', url: 'https://slack.test/t' }
+
+    // Only a thread brought in from Slack can be unlinked. One written here and sent to Slack, or a
+    // reply that synced in from Slack, shares some of its fields and must not count.
+    it.each([
+        [
+            'an opening comment linked from Slack',
+            { item_context: { from_slack: true }, slack_thread: SLACK_THREAD },
+            true,
+        ],
+        ['an opening comment sent to Slack from here', { item_context: null, slack_thread: SLACK_THREAD }, false],
+        ['a reply that synced in from Slack', { source_comment: 'root', item_context: { from_slack: true } }, false],
+        ['an opening comment from Slack whose sync was removed', { item_context: { from_slack: true } }, false],
+    ])('%s: %s', (_, comment, expected) => {
+        expect(isLinkedSlackThread({ source_comment: null, slack_thread: null, ...comment })).toBe(expected)
     })
 })

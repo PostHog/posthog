@@ -12,6 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 import { scopeSyncsToSlack } from './commentUtils'
+import { LinkSlackThreadButton } from './LinkSlackThreadModal'
 import { SlackDestinationPicker } from './SlackDestinationPicker'
 
 export type CommentComposerProps = CommentsLogicProps & {
@@ -46,6 +47,8 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
     // Toggling a brand-new top-level comment straight to Slack; replies sync automatically.
     const showSlackToggle =
         !replyingCommentId && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] && scopeSyncsToSlack(props.scope)
+    // The other way round: a discussion that started in Slack, brought here. It attaches to one resource.
+    const showLinkSlackThread = showSlackToggle && !!props.item_id
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -126,7 +129,8 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
                     className="rounded border border-border p-2"
                 />
             ) : null}
-            <div className="flex justify-between items-center gap-2">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+                {showLinkSlackThread ? <LinkSlackThreadButton {...props} size={buttonSize} /> : null}
                 <div className="flex-1" />
                 {itemContext ? (
                     <LemonButton size={buttonSize} type="secondary" onClick={() => clearItemContext()}>
