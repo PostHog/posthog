@@ -518,7 +518,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         return _within_body_limit(value, "The plain text body")
 
     def validate_from(self, value: str) -> str:
-        _name, address = parseaddr(value)
+        try:
+            _name, address = parseaddr(value)
+        except RecursionError:
+            address = ""
         if not _is_sender_address(address):
             raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
         return value
@@ -646,15 +649,26 @@ def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
 
-def _require_flag(team: Any, flag: str) -> None:
-    if not posthoganalytics.feature_enabled(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    ):
+def require_email_status_read(team: Any) -> None:
+    if not (_flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG) or _flag_enabled(team, EMAIL_FROM_CODE_FLAG)):
         raise NotFound()
+
+
+def _require_flag(team: Any, flag: str) -> None:
+    if not _flag_enabled(team, flag):
+        raise NotFound()
+
+
+def _flag_enabled(team: Any, flag: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def transactional_email_throttles() -> list[BaseThrottle]:
