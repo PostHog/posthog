@@ -245,11 +245,53 @@ const WorkflowsSendEmailSchema = () => {
     })
 }
 
-const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSchema>, unknown> => ({
-    name: 'workflows-send-email',
+const WorkflowsSendEmailSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const workflowsSendEmailPrepare = (): ToolBase<
+    ReturnType<typeof WorkflowsSendEmailSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'workflows-send-email-prepare',
     schema: WorkflowsSendEmailSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'workflows-send-email',
+            actionLabel: 'send email',
+            messageTemplate: "About to send the email '{subject}' to {to}. Reply 'confirm' to send it.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaExecute, unknown> => ({
+    name: 'workflows-send-email-execute',
+    schema: WorkflowsSendEmailSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof WorkflowsSendEmailSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof WorkflowsSendEmailSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'workflows-send-email',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const body: Record<string, unknown> = {}
         if (params.to !== undefined) {
             body['to'] = params.to
@@ -372,7 +414,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-make-email-template-transactional-prepare': workflowsMakeEmailTemplateTransactionalPrepare,
     'workflows-make-email-template-transactional-execute': workflowsMakeEmailTemplateTransactionalExecute,
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
-    'workflows-send-email': workflowsSendEmail,
+    'workflows-send-email-prepare': workflowsSendEmailPrepare,
+    'workflows-send-email-execute': workflowsSendEmailExecute,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
 }

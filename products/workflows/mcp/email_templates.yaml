@@ -153,11 +153,12 @@ tools:
             body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes
             out as typed. When the user points you at a local file, such as an HTML email in their repository, read the
             file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a
-            domain the project verified; sender_not_verified means nothing was sent. Each call sends an email, so never
-            repeat a call that succeeded. A 503, a timeout or a connection error means PostHog did not confirm the send,
-            and the email may still go out: do not try again on your own, tell the user. A 404 with code not_found means
-            sending email from code is not enabled for this project, or the project does not exist: stop and tell the
-            user.
+            domain the project verified; sender_not_verified means nothing was sent. Sending takes two calls: prepare
+            checks the email and returns a message for the user, and execute sends it only after the user replies with
+            the literal word 'confirm'. Each execute call sends an email, so never repeat one that succeeded. A 503, a
+            timeout or a connection error means PostHog did not confirm the send, and the email may still go out: do not
+            try again on your own, tell the user. A 404 with code not_found means sending email from code is not enabled
+            for this project, or the project does not exist: stop and tell the user.
         exclude_params:
             - template_id
             - message_data
@@ -170,6 +171,10 @@ tools:
                 description: >
                     Distinct ID of the recipient's person. The send and its engagement events are recorded against that
                     person. Defaults to the recipient's email address.
+        confirmed_action:
+            message: >
+                About to send the email '{subject}' to {to}. Reply 'confirm' to send it.
+            action_label: send email
         feature_flag: workflows-email-from-code
     workflows-show-email-template:
         operation: messaging_templates_retrieve
