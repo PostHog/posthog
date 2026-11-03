@@ -54,7 +54,7 @@ from .import_resolution import (
     resolve_absolute_module,
     source_file,
 )
-from .paths import REPO_ROOT, TACH_TOML, get_tach_block
+from .paths import REPO_ROOT, TACH_TOML
 from .wiring_interfaces import WiringInterfaceResolver, WiringVerdict
 
 # ---------------------------------------------------------------------------
@@ -168,21 +168,17 @@ def has_routes_module(backend_dir: Path) -> bool:
 
 
 def has_tach_interface(name: str, tach_content: str | None = None) -> bool:
-    """True if the product is named in a tach [[interfaces]] block (inline or global).
+    """True if the product is named in the `from` list of a tach [[interfaces]] table.
 
-    Names are matched structurally against each block's `from` list. A loose regex
-    over the whole file false-positives on any product whose name appears later (e.g.
-    in its own [[modules]] block), which made nearly every product read as sealed.
+    Names are matched against the parsed TOML, so a comment that mentions `[[interfaces]]`
+    or a neighbouring block's table cannot count. A loose match over the file text
+    false-positives on any product whose name or block text happens to contain the word.
+    [[interfaces]] is the only form tach reads: it rejects an `interfaces` key on a
+    [[modules]] table.
     """
-    block = get_tach_block(f"products.{name}")
-    if block and "interfaces" in block and "interfaces = []" not in block:
-        return True
     content = tach_content if tach_content is not None else (TACH_TOML.read_text() if TACH_TOML.exists() else "")
-    return any(
-        name in names_from_pattern(pattern)
-        for _expose, from_patterns in iter_interface_blocks(content)
-        for pattern in from_patterns
-    )
+    interface_tables = tomllib.loads(content).get("interfaces", [])
+    return any(name in names_from_pattern(pattern) for table in interface_tables for pattern in table.get("from", []))
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:

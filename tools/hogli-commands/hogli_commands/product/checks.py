@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import json
 import shlex
+import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -59,15 +60,17 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
 
 
 def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
-    """Yield (path, depends_on) for every [[modules]] block."""
-    for match in re.finditer(r"\[\[modules\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        path_match = re.search(r'path\s*=\s*"(.*?)"', block)
-        if not path_match:
+    """Yield (path, depends_on) for every [[modules]] block.
+
+    Reads the parsed TOML because a comment inside a depends_on list can name `[[interfaces]]`,
+    which ends a text match early and drops the rest of the list.
+    """
+    for module in tomllib.loads(tach_content).get("modules", []):
+        path = module.get("path")
+        if not path:
             continue
-        path = path_match.group(1)
-        deps_match = re.search(r"depends_on\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        depends_on = re.findall(r'"(.*?)"', deps_match.group(1)) if deps_match else []
+        # tach accepts a dependency as a bare path or as a table such as {path = "...", deprecated = true}.
+        depends_on = [dep if isinstance(dep, str) else dep["path"] for dep in module.get("depends_on", [])]
         yield path, depends_on
 
 

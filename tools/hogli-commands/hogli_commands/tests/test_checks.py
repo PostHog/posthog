@@ -45,6 +45,7 @@ from hogli_commands.product.isolation import (
     facade_unapproved_wiring,
     has_narrowed_turbo_inputs,
     has_real_facade,
+    has_tach_interface,
     permanent_interface_modules,
     routes_in_turbo_inputs,
     uncovered_carveout_modules,
@@ -1090,6 +1091,56 @@ from = [
 
 
 # ---------------------------------------------------------------------------
+# has_tach_interface
+# ---------------------------------------------------------------------------
+
+_TACH_INTERFACE_MENTIONS = r"""
+[[modules]]
+path = "products.review_hog"
+depends_on = [
+    # Facade-only (enforced by stamphog's [[interfaces]] block)
+    "products.stamphog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.field_notes"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.models\\.Task",
+]
+from = [
+    "products.tasks",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products\\.(stamphog|visual_review)",
+]
+"""
+
+
+class TestHasTachInterface:
+    @pytest.mark.parametrize(
+        "name, expected",
+        [
+            pytest.param("review_hog", False, id="comment_mentions_interfaces"),
+            pytest.param("field_notes", False, id="next_product_interfaces_block_follows"),
+            pytest.param("tasks", True, id="named_in_from"),
+            pytest.param("stamphog", True, id="named_in_from_regex"),
+        ],
+    )
+    def test_detection(self, name: str, expected: bool) -> None:
+        assert has_tach_interface(name, _TACH_INTERFACE_MENTIONS) is expected
+
+
+# ---------------------------------------------------------------------------
 # permanent-interface marker
 # ---------------------------------------------------------------------------
 
@@ -1882,6 +1933,13 @@ class TestValidateTachReferences:
                 '[[interfaces]]\nexpose = ["backend\\\\.x.*"]\nfrom = ["products.missing_iface"]\n',
                 [("missing_dep", "dangling dependency"), ("missing_iface", "dangling interface")],
             ),
+            # Dangling depends_on listed after a comment that names [[interfaces]].
+            (
+                '[[modules]]\npath = "products.alpha"\ndepends_on = [\n'
+                "    # Facade-only (enforced by beta's [[interfaces]] block)\n"
+                '    "products.ghost",\n]\n',
+                [("products.ghost", "dangling dependency")],
+            ),
         ],
         ids=[
             "clean_interface",
@@ -1889,6 +1947,7 @@ class TestValidateTachReferences:
             "dangling_depends_on",
             "clean_depends_on",
             "both_dangling",
+            "dangling_depends_on_after_interfaces_comment",
         ],
     )
     def test_references(self, tach: str, expected_substrings: list[tuple[str, str]]) -> None:
