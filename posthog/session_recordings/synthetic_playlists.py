@@ -16,6 +16,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Comment, Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.data_retention import retention_period_in_days
@@ -196,7 +197,7 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
         )
 
 
-@dataclass
+@frozen
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces recordings whose retention window ends within the next 10 days.
