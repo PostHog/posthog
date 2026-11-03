@@ -149,7 +149,8 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     if not check.owned_by_platform or check.legacy_configuration_id is None or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
-    if len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
+    # A skipped check keeps a firing alert's state without evaluating it, so it has nothing to investigate.
+    if outcome.skipped or len(outcome.groups) != 1 or outcome.groups[0].new_state != AlertState.FIRING.value:
         return evaluation
     alert = AlertConfiguration.objects.filter(team_id=check.team_id, id=check.legacy_configuration_id).first()
     if alert is None:
