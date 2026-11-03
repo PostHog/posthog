@@ -16,6 +16,7 @@
     .dlq-error { color: var(--error-fg); }
     .dlq-table { width: 100%; }
     .dlq-table td, .dlq-table th { font-size: 12px; }
+    .dlq-report { max-width: 480px; max-height: 320px; overflow: auto; }
     </style>
 {% endblock %}
 {% block content %}
@@ -120,7 +121,7 @@
                                 {% for outcome, count in run.report.totals.items %}{{ outcome }}: {{ count }}{% if not forloop.last %}, {% endif %}{% endfor %}
                                 <details>
                                     <summary>Details</summary>
-                                    <pre>{{ run.report_json }}</pre>
+                                    <pre class="dlq-report">{{ run.report_json }}</pre>
                                 </details>
                             {% else %}
                                 -
