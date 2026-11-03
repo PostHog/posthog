@@ -257,6 +257,7 @@ export function sidebarRows({
     { kind: "heading", label: "Work" },
     ...(showToday ? [today, { kind: "gap" } as const] : []),
   ];
+  const pinnedIds = new Set(pinned.map((chat) => chat.id));
   const singlePaneOf = new Map<string, string>();
   const unlisted: SidebarRow[] = [];
   layout.workspaces.forEach((workspace, index) => {
@@ -266,7 +267,7 @@ export function sidebarRows({
       if (pane.taskId === null) {
         if (pane.today && showToday) today.paneId = pane.id;
         else newChatPaneId = pane.id;
-      } else if (listed.has(pane.taskId))
+      } else if (listed.has(pane.taskId) || pinnedIds.has(pane.taskId))
         singlePaneOf.set(pane.taskId, pane.id);
       // Shown once the list has loaded, so loading never lists tasks by saved name alone. The Inbox tab shows it
       // only when it needs the user, as it would a listed chat.
@@ -297,7 +298,6 @@ export function sidebarRows({
     rows.push({ kind: "gap" });
   });
   // Pinned chats sit above the workspaces instead of under All chats, by their saved name until the list loads.
-  const pinnedIds = new Set(pinned.map((chat) => chat.id));
   const pinnedRows = pinned.map((chat) => ({
     ...taskRow(chat.id, singlePaneOf.get(chat.id) ?? null, false, chat.title),
     pinned: true,

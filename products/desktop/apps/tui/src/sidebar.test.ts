@@ -268,6 +268,30 @@ describe("sidebarRows", () => {
       "New chat",
     ]);
     expect(selectionKey(rows[4])).toBe("pinned:b");
+    // A pinned chat open alone in the main view, off the loaded page, still marks its row as that pane's.
+    const opened = openTask(initialLayout(), "gone", "Saved gone");
+    const open = sidebarRows({
+      layout: opened,
+      work: page({ tasks: [] }),
+      collapsed: new Set(),
+      working: new Set(),
+      showToday: false,
+      pinned: [{ id: "gone", title: "Saved gone" }],
+    });
+    expect(labels(open)).toEqual([
+      "# Work",
+      "## Pinned",
+      "Saved gone",
+      "",
+      "## All chats",
+      "New chat",
+      "[empty]",
+    ]);
+    expect(open[2]).toMatchObject({
+      kind: "task",
+      taskId: "gone",
+      paneId: paneIds(opened.workspaces[0].root)[0],
+    });
   });
 
   it("names who started each chat on the All chats tab, except the user's own", () => {
