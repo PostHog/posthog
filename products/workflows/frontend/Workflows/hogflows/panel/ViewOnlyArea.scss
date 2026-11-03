@@ -2,7 +2,8 @@
     :is(input, textarea, select, button, .monaco-editor):not(
         .LemonCollapsePanel__header,
         .ViewOnlyArea__reading-control,
-        [data-attr='copy-code-button']
+        [data-attr='copy-code-button'],
+        [data-attr^='show-prop-filter-']
     ) {
         opacity: 0.6;
     }
@@ -15,7 +16,8 @@
         :not([type]),
         .LemonCollapsePanel__header,
         .ViewOnlyArea__reading-control,
-        [data-attr='copy-code-button']
+        [data-attr='copy-code-button'],
+        [data-attr^='show-prop-filter-']
     ) {
         pointer-events: none;
     }

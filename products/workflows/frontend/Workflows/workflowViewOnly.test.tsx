@@ -13,6 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { HogFlowEventFilters } from './hogflows/filters/HogFlowFilters'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { HogFlowEditorPanelBuildDetail } from './hogflows/panel/HogFlowEditorPanelBuildDetail'
 import { ViewOnlyArea } from './hogflows/panel/ViewOnlyArea'
@@ -136,6 +137,31 @@ describe('view-only workflow', () => {
 
         expect(editorLogic.values.mode).toBe('variables')
         editorLogic.unmount()
+    })
+
+    it('lets a viewer show the property filters of a trigger event', () => {
+        renderForViewer(
+            <ViewOnlyArea>
+                <HogFlowEventFilters
+                    filters={{
+                        events: [
+                            {
+                                id: '$pageview',
+                                name: '$pageview',
+                                type: 'events',
+                                properties: [{ key: '$browser', value: ['Firefox'], operator: 'exact', type: 'event' }],
+                            },
+                        ],
+                    }}
+                    setFilters={jest.fn()}
+                />
+            </ViewOnlyArea>
+        )
+        expect(screen.queryByText(/Firefox/)).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Show filters' }))
+
+        expect(screen.getByText(/Firefox/)).toBeInTheDocument()
     })
 
     it.each([
