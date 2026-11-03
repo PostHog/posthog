@@ -17,7 +17,6 @@ from asgiref.sync import async_to_sync
 
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     OrganizationExecutionError,
@@ -249,22 +248,20 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
 
 
 @pytest.mark.parametrize(
-    "task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected",
+    "task_runtime, snapshot_id, snapshot_external_id, state, capability, expected",
     [
         (
             Task.Runtime.ACP,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             True,
         ),
         (
             Task.Runtime.ACP,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             True,
             False,
@@ -273,43 +270,22 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
             Task.Runtime.ACP,
             None,
             "snapshot-1",
-            SNAPSHOT_KIND_DIRECTORY,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
         ),
         (
             Task.Runtime.ACP,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"resume_from_run_id": "previous-run"},
             False,
             False,
         ),
         (
-            Task.Runtime.ACP,
-            "snapshot-row-1",
-            None,
-            SNAPSHOT_KIND_FILESYSTEM,
-            {"prewarmed": True, "resume_from_run_id": "previous-run"},
-            False,
-            True,
-        ),
-        (
-            Task.Runtime.ACP,
-            "snapshot-row-1",
-            None,
-            SNAPSHOT_KIND_DIRECTORY,
-            {"prewarmed": True, "resume_from_run_id": "previous-run"},
-            False,
-            False,
-        ),
-        (
             Task.Runtime.PI,
+            "snapshot-row-1",
             None,
-            "snapshot-1",
-            SNAPSHOT_KIND_FILESYSTEM,
             {"prewarmed": True, "resume_from_run_id": "previous-run"},
             False,
             False,
@@ -317,7 +293,7 @@ def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, ex
     ],
 )
 def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
-    mocker, task_runtime, snapshot_id, snapshot_external_id, snapshot_kind, state, capability, expected
+    mocker, task_runtime, snapshot_id, snapshot_external_id, state, capability, expected
 ):
     context = _context_for_desktop_bootstrap()
     context.task_runtime = task_runtime
@@ -335,7 +311,6 @@ def test_old_full_snapshot_agent_is_rejected_only_for_prewarmed_resume(
         shallow_clone=True,
         image_source="resume_snapshot",
         image_source_label="resume snapshot snapshot-1",
-        snapshot_kind=snapshot_kind,
     )
     sandbox = mocker.Mock()
     sandbox.agent_server_supports_prewarmed_resume_message_driven.return_value = capability
@@ -1144,7 +1119,7 @@ def test_create_sandbox_records_installed_agent_version(
     [
         ("hogland_golden", False),
         ("custom_vm_image", False),
-        ("filesystem_snapshot", False),
+        ("repository_snapshot", False),
         ("directory_snapshot", True),
     ],
 )
@@ -1159,9 +1134,9 @@ def test_create_sandbox_compares_the_agent_with_the_pin_only_for_pinned_images(
     if restored:
         prepared = dataclasses.replace(
             prepared,
-            snapshot_external_id="snapshot-id",
+            snapshot_id="snapshot-id" if source == "repository_snapshot" else None,
+            snapshot_external_id="snapshot-id" if source == "directory_snapshot" else None,
             used_snapshot=True,
-            snapshot_kind=SNAPSHOT_KIND_DIRECTORY if source == "directory_snapshot" else SNAPSHOT_KIND_FILESYSTEM,
         )
 
     update_state, mismatch_extras = _create_and_record_agent_version(

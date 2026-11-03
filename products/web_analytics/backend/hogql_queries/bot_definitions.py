@@ -1149,3 +1149,33 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "1nsight Logo Fetcher", "http_client", "Bot", "1nsight", documentation_url="https://1nsight.ai"
     ),
 }
+
+
+# $lib values of SDKs that run on a server or in a native app. They send no user agent unless the app
+# forwards one, so on their events a missing user agent is not a sign of automation. Browser SDKs
+# ("web", "js") are left out on purpose. Keep in step with sdk_metrics in posthog/tasks/usage_report.py.
+SERVER_AND_MOBILE_SDK_LIBS: tuple[str, ...] = (
+    "posthog-node",
+    "posthog-node-mcp",
+    "posthog-edge",
+    "posthog-convex",
+    "posthog-python",
+    "posthog-python-mcp",
+    "posthog-ruby",
+    "posthog-rails",
+    "posthog-go",
+    "posthog-php",
+    "posthog-java",
+    "posthog-server",
+    "posthog-dotnet",
+    "posthog-aspnetcore",
+    "posthog-elixir",
+    "posthog-rs",
+    "posthog-roblox",
+    "posthog-ios",
+    "posthog-android",
+    "posthog-react-native",
+    "posthog-flutter",
+    "posthog-kmp",
+    "posthog-unity",
+)

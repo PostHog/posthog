@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { ApiError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import type { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -77,22 +78,38 @@ describe('contentAutopilotPromptDetailLogic', () => {
             expect(mockChecks).toHaveBeenCalledWith(TEAM_ID, PROMPT.id, { engine, limit: 1 })
         }
         expect(logic.values.prompt?.id).toBe(PROMPT.id)
-        expect(logic.values.historyGrid?.dates).toHaveLength(30)
-        expect(logic.values.historyGrid?.rows.map((row) => row.engine)).toEqual([
-            'claude-web-search',
-            'openai-web-search',
-            'exa-answer',
-        ])
-        expect(logic.values.historyGrid?.rows[0].cells.slice(0, 4).map((cell) => cell.status)).toEqual([
-            'cited',
-            'cited',
-            'no_run',
-            'not_cited',
-        ])
+        expect(logic.values.engines).toEqual(['claude-web-search', 'openai-web-search', 'exa-answer'])
         expect(logic.values.activeEngine).toBe('claude-web-search')
         expect(logic.values.shownCheck?.id).toBe(EXAMPLE_PROMPT_CHECKS[0].id)
         expect(mockVersions).toHaveBeenCalledWith(TEAM_ID, PROMPT.id)
         expect(logic.values.versions).toEqual(EXAMPLE_PROMPT_VERSIONS)
+        expect(logic.values.reportKpis?.days).toBe(30)
+        expect(logic.values.consensusMatrix?.rows.map((row) => row.engine)).toEqual([
+            'claude-web-search',
+            'openai-web-search',
+            'exa-answer',
+        ])
+    })
+
+    it('scopes the report queries to the prompt and the stats window, and switches the visibility metric', async () => {
+        logic.actions.openPromptDetail(PROMPT.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const citedQuery = logic.values.visibilityQuery!
+        expect(citedQuery.source.values).toEqual({ prompt_id: PROMPT.id, window_start: '2026-09-01 00:00:00' })
+        expect(citedQuery.source.query).toContain('countIf(cited)')
+        expect((logic.values.sourcesQuery!.source as HogQLQuery).values).toEqual(citedQuery.source.values)
+        expect(logic.values.sentimentQuery!.source.values).toEqual(citedQuery.source.values)
+        expect(logic.values.sentimentQuery!.source.query).toContain('brand_sentiment IS NOT NULL')
+
+        logic.actions.setVisibilityMetric('mentioned')
+        const mentionedQuery = logic.values.visibilityQuery!
+        expect(mentionedQuery.source.query).toContain('{brand_pattern}')
+        expect(mentionedQuery.source.values?.brand_pattern).toBe('\\b(example)\\b')
+
+        // A new prompt starts over on the citation metric.
+        logic.actions.openPromptDetail(EXAMPLE_PROMPTS[1].id)
+        expect(logic.values.visibilityMetric).toBe('cited')
     })
 
     it('does not load versions for a prompt with one version', async () => {

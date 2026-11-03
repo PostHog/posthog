@@ -10,6 +10,7 @@ import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButto
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
@@ -31,9 +32,8 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { reportDashboardInsightMetaUpdated } from 'scenes/dashboard/dashboardEvents'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -50,13 +50,13 @@ import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTool
 import { WarehouseSyncWarningList } from '~/queries/nodes/DataNode/WarehouseSyncWarningList'
 import { outOfDateSyncWarnings } from '~/queries/nodes/DataNode/warehouseSyncWarnings'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
-import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -76,7 +76,9 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
-import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
+import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -121,6 +123,7 @@ interface InsightMetaProps extends Pick<
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile
+    headerStatus?: JSX.Element
     insight: InsightModel
     refreshDisabledReason?: string
     areDetailsShown?: boolean
@@ -133,6 +136,7 @@ interface InsightMetaProps extends Pick<
 }
 
 export function InsightMeta({
+    headerStatus,
     tile,
     insight,
     ribbonColor,
@@ -216,7 +220,7 @@ export function InsightMeta({
     const { copyImage } = useActions(captureImageLogic)
     const { isCapturing: isCapturingImage } = useValues(captureImageLogic)
     const { updateInsightDirect } = useActions(insightsModel)
-    const { reportDashboardInsightMetaUpdated, reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
+    const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
@@ -300,7 +304,7 @@ export function InsightMeta({
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
+    const { tabs: displayOptionTabs } = useDisplayOptions(insightDisplayOptions)
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,
@@ -481,6 +485,7 @@ export function InsightMeta({
         <>
             <CardMeta
                 compact={showCompactTile}
+                headerStatus={headerStatus}
                 ribbonColor={ribbonColor}
                 showEditingControls={showEditingControls}
                 showDetailsControls={showDetailsControls}

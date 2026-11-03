@@ -11,4 +11,5 @@ pub mod flags_rate_limiter;
 pub mod instance_setting;
 pub mod rate_parser;
 pub mod remote_config;
+pub mod request_outcome;
 pub mod types;

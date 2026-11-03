@@ -1,4 +1,10 @@
 import { dayjs } from 'lib/dayjs'
+import {
+    escapeDottedHogQLIdentifier,
+    escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
+    escapeRawPropertyAsHogQLIdentifier,
+} from 'lib/utils/hogql'
 
 import { getAutoBoxPlotSettings } from '~/queries/nodes/DataVisualization/Components/Charts/sqlBoxPlotAdapter'
 import {
@@ -22,12 +28,6 @@ import {
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import {
-    escapeDottedHogQLIdentifier,
-    escapeHogQLString,
-    escapePropertyAsHogQLIdentifier,
-    escapeRawPropertyAsHogQLIdentifier,
-} from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import {
@@ -705,6 +705,20 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     if (!isBIAnalysisConfig(candidate)) {
         return null
     }
+    const metricContext = candidate.catalogMetricContext
+    if (
+        metricContext != null &&
+        (!candidate.querySnapshot ||
+            !candidate.catalogMetric ||
+            typeof metricContext.id !== 'string' ||
+            (metricContext.status !== 'approved' && metricContext.status !== 'proposed') ||
+            typeof metricContext.isDrifted !== 'boolean' ||
+            typeof metricContext.unit !== 'string' ||
+            (metricContext.owner != null && typeof metricContext.owner !== 'string') ||
+            (metricContext.updatedAt != null && typeof metricContext.updatedAt !== 'string'))
+    ) {
+        return null
+    }
     if (
         candidate.compareFilter !== undefined &&
         (!candidate.compareFilter ||
@@ -850,6 +864,15 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
         ...(candidate.querySnapshot ? { querySnapshot: candidate.querySnapshot } : {}),
         ...(candidate.catalogMetric ? { catalogMetric: candidate.catalogMetric } : {}),
+        ...(metricContext
+            ? {
+                  catalogMetricContext: {
+                      ...metricContext,
+                      owner: metricContext.owner ?? null,
+                      updatedAt: metricContext.updatedAt ?? null,
+                  },
+              }
+            : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
         ...(candidate.memberAliases ? { memberAliases: candidate.memberAliases } : {}),

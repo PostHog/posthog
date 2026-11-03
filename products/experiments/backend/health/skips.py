@@ -22,6 +22,7 @@ NOT_ON_ARCHIVED = "Doesn't run on archived experiments"
 NO_FLAG = "The experiment has no feature flag"
 FLAG_DELETED = "The feature flag is deleted"
 NEEDS_VARIANTS = "Runs once the feature flag has variants"
+NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
 
 
 def not_applicable(reason: str) -> CheckSkip:
@@ -30,6 +31,14 @@ def not_applicable(reason: str) -> CheckSkip:
 
 def not_checked(reason: str) -> CheckSkip:
     return CheckSkip(status=ExperimentHealthCheckStatus.NOT_CHECKED, reason=reason)
+
+
+def no_calculated_metric(ctx: HealthContext) -> CheckSkip:
+    """Why a check of the metrics that the experiment calculates doesn't look when it calculates none."""
+    # The calculation leaves out a metric in the legacy format, which the no-metric check counts.
+    if ctx.primary_metric_count + ctx.secondary_metric_count:
+        return not_applicable("Runs once the experiment has a metric in the current format")
+    return not_applicable("Runs once the experiment has a metric")
 
 
 def flag_to_check(ctx: HealthContext, *, before_launch: bool) -> FlagState | CheckSkip:

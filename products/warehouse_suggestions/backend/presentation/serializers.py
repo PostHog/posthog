@@ -75,6 +75,10 @@ class DeprecatePayloadSerializer(DataclassSerializer):
             "subject_name": {"help_text": "Name of the unread view to deprecate."},
             "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},
             "refresh_bytes_per_month": {"help_text": "Bytes its refreshes read in a month."},
+            "materialized": {
+                "help_text": "Whether the view is materialized. A plain view has no refreshes, so both refresh "
+                "costs are 0."
+            },
         }
 
 
@@ -97,6 +101,7 @@ class MaterializePayloadSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. "
         "fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. "
+        "consumer_refresh: the materialized views that read it refresh no more often. "
         "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
         "recorded.",
     )
@@ -124,6 +129,10 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "lookback_seconds": {
                 "help_text": "How far before the last refresh's highest incremental_key value each refresh reads "
                 "again, in seconds. The last incremental_key value is always read again."
+            },
+            "recomputed_by_views": {
+                "help_text": "How many materialized views compute this view again on every refresh, because it "
+                "is not stored. 0 when the saving comes only from people's reads."
             },
         }
 
@@ -372,5 +381,12 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "help_text": "Deprecate only: true to keep a materialized view refreshing after it is deprecated. "
                 "By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its "
                 "stored table, unless other views or syncs depend on it.",
+            },
+            "delete_view": {
+                "allow_null": False,
+                "help_text": "Deprecate only: true to delete the view instead of marking it deprecated. Deleting also "
+                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when "
+                "it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any "
+                "day in the read window has no read data, because a view read only on those days would look unread.",
             },
         }

@@ -1,12 +1,12 @@
 import { useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
-import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
 const InitialBillingLimitNoticeContents = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {

@@ -317,7 +317,8 @@ def mailjet_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # An incremental read is only ordered by its cursor when the pages are sorted on that field.
+        sort_mode="asc" if config.from_ts_field in (None, config.sort) else None,
         column_hints=resource.column_hints,
     )
 

@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { dayjs } from 'lib/dayjs'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { billingUnsubscribedJson } from '~/mocks/fixtures/_billing_unsubscribed'
@@ -126,6 +128,51 @@ export const BillingOnStartupPlan: Story = {
                     ...billingJson,
                     startup_program_label: StartupProgramLabel.Startup,
                 },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+const billingJsonOnYCPlan: BillingType = {
+    ...billingJson,
+    startup_program_label: StartupProgramLabel.YC,
+    discount_amount_usd: '42000.00',
+    // In the middle of the billing period, to show that YC keeps its own expiry date
+    amount_off_expires_at: dayjs('2024-03-20T12:00:00Z'),
+    startup_program_credits_renew: true,
+}
+
+export const BillingOnYCPlan: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': billingJsonOnYCPlan,
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingOnYCPlanWithCreditsUsed: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': { ...billingJsonOnYCPlan, discount_amount_usd: undefined },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
+export const BillingOnYCPlanWithCreditsNotRenewing: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': { ...billingJsonOnYCPlan, startup_program_credits_renew: false },
             },
         })
 

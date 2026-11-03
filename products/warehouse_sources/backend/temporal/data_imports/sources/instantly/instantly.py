@@ -5,6 +5,7 @@ import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import quote
 
 import orjson
 import pyarrow as pa
@@ -299,7 +300,7 @@ def _list_request(config: InstantlyEndpointConfig) -> tuple[dict[str, Any], Base
 
 
 def _fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterator[list[dict[str, Any]]]:
-    """Walk every parent (campaign or inbox placement test) and fetch the endpoint once per parent.
+    """Walk every parent (campaign, lead list, or inbox placement test) and fetch the endpoint once per parent.
 
     Fan-out endpoints don't resume: a retry re-walks the parents from scratch.
     """
@@ -316,9 +317,14 @@ def _fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) -> Iterat
             if not parent_id:
                 continue
             params, paginator = _list_request(config)
+            path = config.path
+            if fanout.in_path:
+                path = path.replace(f"{{{fanout.param}}}", quote(str(parent_id), safe=""))
+            else:
+                params = {**params, fanout.param: parent_id}
             for page in client.paginate(
-                path=f"/api/v2{config.path}",
-                params={**params, fanout.param: parent_id},
+                path=f"/api/v2{path}",
+                params=params,
                 paginator=paginator,
                 data_selector=config.data_selector,
             ):
@@ -429,6 +435,11 @@ def _probe_endpoint(session: requests.Session, endpoint: str) -> requests.Respon
     if config.account_email_batches:
         # Same accounts:read scope as /accounts, which needs no email list in the request.
         return session.get(f"{BASE_URL}/api/v2/accounts", params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)
+    if config.fanout is not None and config.fanout.in_path:
+        # The path needs a real parent id; the parent list checks the same scope.
+        return session.get(
+            f"{BASE_URL}/api/v2{config.fanout.parent_path}", params={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS
+        )
     url = f"{BASE_URL}/api/v2{config.path}"
     if config.method == "POST":
         return session.post(url, json={"limit": 1}, timeout=REQUEST_TIMEOUT_SECONDS)

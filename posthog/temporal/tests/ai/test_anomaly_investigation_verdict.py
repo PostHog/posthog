@@ -77,10 +77,14 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
     @patch("temporalio.activity.info")
     async def test_true_positive_verdict_is_persisted(self, mock_info, _heartbeat, mock_run, _prepare) -> None:
         mock_info.return_value.heartbeat_timeout = None
+        # Longer than the chat teaser, so a clip on the stored value would fail the summary assertion.
+        summary = (
+            "- **Confirmed spike** caused by campaign launch.\n" + "- Traffic came from the `pricing` page.\n" * 20
+        )
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(
                 verdict="true_positive",
-                summary="Confirmed spike caused by campaign launch.",
+                summary=summary,
                 hypotheses=[],
                 recommendations=[],
             ),
@@ -100,7 +104,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         await sync_to_async(self.alert_check.refresh_from_db)()
         assert self.alert_check.investigation_status == InvestigationStatus.DONE
         assert self.alert_check.investigation_verdict == InvestigationVerdict.TRUE_POSITIVE
-        assert self.alert_check.investigation_summary == "Confirmed spike caused by campaign launch."
+        assert self.alert_check.investigation_summary == summary.strip()
         assert self.alert_check.investigation_notebook_id is not None
 
         # A follow-up agent appends through the MCP cell tools, which only accept a markdown notebook.

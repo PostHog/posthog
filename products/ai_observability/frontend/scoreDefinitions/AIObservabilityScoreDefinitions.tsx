@@ -84,7 +84,9 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             render: function renderName(_, scoreDefinition) {
                 return (
                     <div className="font-semibold max-w-64 @max-[50rem]/scorers:max-w-32 @max-[40rem]/scorers:max-w-24 truncate">
-                        <Link to={urls.aiObservabilityScorer(scoreDefinition.id)}>{scoreDefinition.name}</Link>
+                        <Link to={urls.aiObservabilityScorer(scoreDefinition.id)} data-attr="llma-scorer-open">
+                            {scoreDefinition.name}
+                        </Link>
                     </div>
                 )
             },
@@ -136,6 +138,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             className: '@max-[40rem]/scorers:hidden',
             render: (_, scoreDefinition) => (
                 <ResourceTags
+                    compact
                     entity="scorers"
                     resourceId={scoreDefinition.id}
                     tags={scoreDefinition.tags}

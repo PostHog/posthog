@@ -1,8 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
+import { canMoveStep } from '../../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { hasStepMenu } from './tileCanvasModel'
@@ -33,8 +35,14 @@ export function TileStepNode({
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const tile = useTileStep(action, workflow)
-    const hover = useHoverIntent(interactive && !selected && !menuOpen, HOVER_OPEN_DELAY_MS, HOVER_CARD_CLOSE_MS)
-    const { openStepMenu } = useActions(tileCanvasLogic)
+    const { movingNodeId } = useValues(tileCanvasLogic)
+    const hover = useHoverIntent(
+        interactive && !selected && !menuOpen && !movingNodeId,
+        HOVER_OPEN_DELAY_MS,
+        HOVER_CARD_CLOSE_MS
+    )
+    const { openStepMenu, startDraggingStep, endDraggingStep } = useActions(tileCanvasLogic)
+    const draggable = interactive && canMoveStep(workflow, action.id)
     useRaisedNode(ref, hover.mounted)
     const face = (
         <div
@@ -44,18 +52,37 @@ export function TileStepNode({
             )}
         >
             <TileFace tile={tile} count={count} />
-            {hover.mounted && <TileHoverCard open={hover.open} action={action} tile={tile} count={count} />}
+            {interactive && workflow.id ? <StepImportNotesBadge workflowId={workflow.id} stepId={action.id} /> : null}
+            {hover.mounted && (
+                <TileHoverCard open={hover.open} action={action} tile={tile} count={count} workflowId={workflow.id} />
+            )}
         </div>
     )
 
     return (
         <div
             ref={ref}
-            className="flex cursor-pointer items-start gap-3 text-primary"
+            className={cn(
+                'flex cursor-pointer items-start gap-3 text-primary transition-opacity',
+                draggable && 'nopan',
+                movingNodeId === action.id && 'opacity-40'
+            )}
             title={hover.mounted ? undefined : action.name}
             onMouseMove={hover.onMouseMove}
             onMouseLeave={hover.onMouseLeave}
             data-attr={interactive ? 'workflow-tile-step' : undefined}
+            draggable={draggable}
+            onDragStart={
+                draggable
+                    ? (event) => {
+                          event.dataTransfer.effectAllowed = 'move'
+                          // Firefox starts a drag only when it carries data.
+                          event.dataTransfer.setData('text/plain', action.id)
+                          startDraggingStep(action.id)
+                      }
+                    : undefined
+            }
+            onDragEnd={draggable ? endDraggingStep : undefined}
             onContextMenu={
                 interactive && hasStepMenu(action)
                     ? (event) => {

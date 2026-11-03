@@ -4,6 +4,7 @@ import {
     SavingHighlight,
     UNKNOWN_SOURCES_CAVEAT,
     dataAgeLabel,
+    deleteDisabledReason,
     notNowCondition,
     savingHighlight,
     savingSentence,
@@ -81,6 +82,7 @@ describe('suggestionCopy', () => {
     it.each<[Parameters<typeof suggestedScheduleHint>[0], string]>([
         ['source_sync', "sources don't sync more often"],
         ['read_rate', "People don't read it more often"],
+        ['consumer_refresh', "The views that read it don't refresh more often"],
         ['fastest_schedule', 'the most often PostHog refreshes a view'],
         ['savings', 'saves more than it costs'],
         [null, 'saves more than it costs'],
@@ -95,5 +97,12 @@ describe('suggestionCopy', () => {
         ['unmaterialize', 'save a lot more'],
     ])('says what has to grow before a not-now %s suggestion returns', (kind, condition) => {
         expect(notNowCondition(kind)).toContain(condition)
+    })
+
+    it.each<[string, number, boolean]>([
+        ['every day has read data', 30, false],
+        ['a day has no read data', 29, true],
+    ])('deleting is blocked when %s', (_name, daysWithData, blocked) => {
+        expect(deleteDisabledReason({ days_with_data: daysWithData }, 30) !== undefined).toBe(blocked)
     })
 })

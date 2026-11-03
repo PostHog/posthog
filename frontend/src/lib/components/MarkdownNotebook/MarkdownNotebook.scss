@@ -1453,6 +1453,19 @@ h3.MarkdownNotebook__text-block--heading {
     transform: translateY(-50%);
 }
 
+// Sits inside the top-left corner, because the scroll container clips anything outside the grid
+.MarkdownNotebook__table-delete-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+// Keep header text out from under the delete zone, so a click meant for the caret never deletes the table
+.MarkdownNotebook__table-block--editable th:first-child .MarkdownNotebook__table-cell-content {
+    padding-left: 1.75rem;
+}
+
 .MarkdownNotebook__table-structure-control {
     --lemon-button-height: 1.25rem;
     --lemon-button-icon-size: 0.875rem;
@@ -1478,6 +1491,12 @@ h3.MarkdownNotebook__text-block--heading {
 .MarkdownNotebook__table-add-zone:focus-within .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-remove-zone:hover .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-remove-zone:focus-within .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-block--editable:hover
+    .MarkdownNotebook__table-delete-zone
+    .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-block--editable:focus-within
+    .MarkdownNotebook__table-delete-zone
+    .MarkdownNotebook__table-structure-control,
 .MarkdownNotebook__table-structure-control:focus-visible {
     opacity: 1;
     transform: scale(1);

@@ -169,6 +169,12 @@ class ZendeskTicketSignalInput(SignalInputBase):
 # ── GitHub ──────────────────────────────────────────────────────────────────────
 
 
+class GithubIssueDependencyRef(ContractModel):
+    # Lowercase `owner/repo`, so two spellings of one repository name one issue.
+    repository: str
+    number: int
+
+
 class GithubIssueSignalExtra(SignalExtraBase):
     html_url: str
     number: int
@@ -184,6 +190,9 @@ class GithubIssueSignalExtra(SignalExtraBase):
     # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
     # taxonomy instead of failing validation and dropping the signal.
     author_association: str | None = None
+    # The issues this one names on a "Depends on" or "Blocked by" line. Research turns them into
+    # `depends_on` report links before auto-start decides.
+    depends_on_issues: list[GithubIssueDependencyRef] = []
 
 
 class GithubIssueSignalInput(SignalInputBase):
