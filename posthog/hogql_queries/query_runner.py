@@ -2887,7 +2887,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         CachedResponse: type[CR] = self.cached_response_type
 
         last_refresh = datetime.now(UTC)
-        target_age = self.cache_target_age(last_refresh=last_refresh)
 
         # Avoid affecting cache key
         # Add user based modifiers here, primarily for user specific feature flagging
@@ -2955,6 +2954,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
             self._phase = RunPhase(name="finish", stats=query_stats, query_duration_ms=query_duration_ms)
+            target_age = self.cache_target_age(last_refresh=last_refresh)
             fresh_response_dict: dict[str, Any] = {
                 **query_result.model_dump(),
                 "is_cached": False,

@@ -605,6 +605,11 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             with time_machine.travel("2026-10-29T15:10:00Z", tick=False):
                 second = self._create_runner(query).run()
         assert (getattr(first, "is_cached", None), getattr(second, "is_cached", None)) == (False, True)
+        expiry = datetime(2026, 10, 29, 16, 0, tzinfo=UTC)
+        assert (getattr(first, "cache_target_age", None), getattr(second, "cache_target_age", None)) == (
+            expiry,
+            expiry,
+        )
 
     def test_recompute_drops_window_inherited_from_the_cached_entry(self) -> None:
         runner = self._create_runner(

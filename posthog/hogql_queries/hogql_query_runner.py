@@ -88,6 +88,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
+        freshness = self._sql_classification
+        if freshness is not None and self._api_sql_freshness_enabled:
+            expiry = super().cache_target_age(last_refresh, lazy=lazy)
+            if isinstance(freshness, SqlFreshness) and expiry is not None:
+                return max(expiry, freshness.fresh_until)
+            return expiry
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     @cached_property
