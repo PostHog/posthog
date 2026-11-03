@@ -1,6 +1,7 @@
 //! The recorder's watermark files. The format is in `products/ai_training/docs/replay-data.md`, section "Recorder watermark files".
 
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -150,15 +151,20 @@ impl Progress {
     }
 }
 
+/// `offsets` runs from the partition's low watermark to its high watermark, read at `offsets_read_at_ms`.
 pub fn complete_up_to_capture_ms(
     progress: Option<PartitionProgress>,
     committed_offset: Option<i64>,
-    high_watermark: i64,
-    high_watermark_read_at_ms: i64,
+    offsets: &Range<i64>,
+    offsets_read_at_ms: i64,
 ) -> Option<i64> {
-    let next_offset = progress.map(|p| p.next_offset).or(committed_offset)?;
+    // A partition that holds no record has nothing to read, wherever the consumer starts.
+    let next_offset = progress
+        .map(|p| p.next_offset)
+        .or(committed_offset)
+        .or(offsets.is_empty().then_some(offsets.end))?;
     // Every record appended before the read is handled, and one appended after it was captured at most the slack before the read.
-    let read_to_end_at_ms = (next_offset >= high_watermark).then_some(high_watermark_read_at_ms);
+    let read_to_end_at_ms = (next_offset >= offsets.end).then_some(offsets_read_at_ms);
     let newest_ms = progress
         .and_then(|p| p.last_captured_at_ms)
         .max(read_to_end_at_ms)?;
@@ -173,7 +179,7 @@ pub fn complete_up_to_capture_ms(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KafkaEnds {
     pub reads_started_at_ms: i64,
-    pub input_end_offsets: HashMap<Tp, i64>,
+    pub input_offsets: HashMap<Tp, Range<i64>>,
     pub input_partitions: BTreeMap<&'static str, usize>,
     pub index_end_offsets: Vec<i64>,
 }
@@ -205,13 +211,13 @@ pub fn watermark_files(
     let day = write_day(written_at);
     let mut files = Vec::with_capacity(owned.len());
     for &(tp, progress) in owned {
-        let Some(&end_offset) = ends.input_end_offsets.get(&tp) else {
+        let Some(offsets) = ends.input_offsets.get(&tp) else {
             continue;
         };
         let Some(complete_up_to_capture_ms) = complete_up_to_capture_ms(
             progress,
             committed_offsets.get(&tp).copied(),
-            end_offset,
+            offsets,
             ends.reads_started_at_ms,
         ) else {
             continue;
@@ -289,42 +295,43 @@ mod tests {
     #[test]
     fn the_value_is_the_earliest_unfinished_record_or_the_reading_frontier() {
         const SLACK: i64 = CAPTURE_ORDER_SLACK_MS;
-        // (progress, committed offset, end offset, expected), all read at 10_000_000.
+        // (progress, committed offset, low and high watermarks, expected), all read at 10_000_000.
         let cases = [
             (
                 progress(10, Some(9_000_000), Some(4_000_000)),
                 None,
-                20,
+                0..20,
                 Some(4_000_000),
             ),
             (
                 progress(10, Some(9_000_000), None),
                 None,
-                20,
+                0..20,
                 Some(9_000_000 - SLACK),
             ),
             (
                 progress(20, Some(9_000_000), None),
                 None,
-                20,
+                0..20,
                 Some(10_000_000 - SLACK),
             ),
             (
                 progress(20, Some(9_000_000), Some(4_000_000)),
                 None,
-                20,
+                0..20,
                 Some(4_000_000),
             ),
-            (None, Some(20), 20, Some(10_000_000 - SLACK)),
-            (None, Some(10), 20, None),
-            (None, None, 20, None),
-            (progress(10, None, None), None, 20, None),
+            (None, Some(20), 0..20, Some(10_000_000 - SLACK)),
+            (None, Some(10), 0..20, None),
+            (None, None, 0..20, None),
+            (None, None, 20..20, Some(10_000_000 - SLACK)),
+            (progress(10, None, None), None, 0..20, None),
         ];
-        for (progress, committed, end, expected) in cases {
+        for (progress, committed, offsets, expected) in cases {
             assert_eq!(
-                complete_up_to_capture_ms(progress, committed, end, 10_000_000),
+                complete_up_to_capture_ms(progress, committed, &offsets, 10_000_000),
                 expected,
-                "{progress:?} {committed:?} {end}"
+                "{progress:?} {committed:?} {offsets:?}"
             );
         }
     }
@@ -361,7 +368,7 @@ mod tests {
         };
         let ends = KafkaEnds {
             reads_started_at_ms: 10_000_000,
-            input_end_offsets: HashMap::from([(MAIN, 20), (overflow, 9)]),
+            input_offsets: HashMap::from([(MAIN, 0..20), (overflow, 0..9)]),
             input_partitions: BTreeMap::from([("main", 64), ("overflow", 8)]),
             index_end_offsets: vec![100, 200],
         };

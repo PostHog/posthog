@@ -455,12 +455,12 @@ impl RecorderConsumer {
         let reads_started_at_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
-        let mut input_end_offsets = HashMap::new();
+        let mut input_offsets = HashMap::new();
         for tp in owned {
-            let (_, end) = self
-                .consumer
-                .fetch_watermarks(tp.topic, tp.partition, remaining())?;
-            input_end_offsets.insert(*tp, end);
+            let (low, high) =
+                self.consumer
+                    .fetch_watermarks(tp.topic, tp.partition, remaining())?;
+            input_offsets.insert(*tp, low..high);
         }
         let mut input_partitions = BTreeMap::new();
         for &topic in &self.consumer.context().topics {
@@ -475,7 +475,7 @@ impl RecorderConsumer {
         }
         Ok(KafkaEnds {
             reads_started_at_ms,
-            input_end_offsets,
+            input_offsets,
             input_partitions,
             index_end_offsets,
         })
