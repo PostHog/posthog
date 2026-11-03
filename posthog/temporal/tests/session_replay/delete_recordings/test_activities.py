@@ -117,19 +117,12 @@ def _mock_delete_response_client(mock_client_cls):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "internal_secret, jwt_secret, expected_headers",
-    [
-        pytest.param("", "signing-key", {"Authorization"}, id="jwt_only"),
-        pytest.param("my-secret-key", "signing-key", {"Authorization"}, id="internal_secret_not_sent"),
-    ],
-)
-async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expected_headers):
+async def test_delete_recordings_sends_only_the_bearer_token():
     with (
         override_settings(
             RECORDING_API_URL="http://recording-api:8000",
-            INTERNAL_API_SECRET=internal_secret,
-            RECORDING_API_JWT_SECRET=jwt_secret,
+            INTERNAL_API_SECRET="my-secret-key",
+            RECORDING_API_JWT_SECRET="signing-key",
         ),
         patch(
             "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
@@ -141,7 +134,7 @@ async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expec
 
     mock_client_cls.assert_called_once()
     headers = mock_client_cls.call_args.kwargs["headers"]
-    assert set(headers) == expected_headers
+    assert set(headers) == {"Authorization"}
 
 
 @pytest.mark.asyncio
