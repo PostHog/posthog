@@ -16,7 +16,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.frontend_views import app_context
+from posthog.frontend_views import app_context, app_context_later
 from posthog.models import Team, User, UserHomeSettings
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
@@ -432,13 +432,18 @@ class TestGetContextForTemplate(APIBaseTest):
         inline = get_context_for_template("index.html", user_request("/?deferred_app_context=0"))
         deferred = get_context_for_template("index.html", user_request("/?deferred_app_context=1"))
         fetched = json.loads(app_context(user_request("/_app_context")).content)
+        fetched_later = json.loads(app_context_later(user_request("/_app_context/later")).content)
 
         assert deferred["posthog_app_context"]["deferred"] is True
         assert deferred["posthog_app_context"]["current_user"] is None
         assert "featureFlags" not in deferred["posthog_bootstrap"]
         assert deferred["posthog_app_context"].pop("deferred_app_context_variant") == "test"
         assert inline["posthog_app_context"].pop("deferred_app_context_variant") == "control"
+        assert "product_intents" not in fetched["app_context"]["current_team"]
+        assert "product_intents" not in fetched["app_context"]["current_project"]
         page_with_fetched = {**deferred["posthog_app_context"], **fetched["app_context"]}
+        for key, value in fetched_later.items():
+            page_with_fetched[key] = {**page_with_fetched[key], **value} if isinstance(value, dict) else value
         page_with_fetched.pop("deferred")
         assert page_with_fetched == json.loads(json.dumps(inline["posthog_app_context"], cls=TolerantJSONEncoder))
         assert fetched["feature_flags"] == inline["posthog_bootstrap"]["featureFlags"]

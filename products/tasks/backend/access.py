@@ -1,4 +1,5 @@
 import json
+import hashlib
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -215,7 +216,11 @@ _POSTHOG_AI_DECISION_VALUES = frozenset(decision.value for decision in PostHogAI
 POSTHOG_AI_GRANDFATHERED_FLAGS = ("phai-sandbox-mode", "tasks")
 POSTHOG_AI_BETA_FLAG = "phai-2-beta"
 _POSTHOG_AI_FUNDING_CACHE_SECONDS = 300
-_POSTHOG_AI_DECISION_CACHE_KEY = "posthog_ai_access_decision:{organization_id}:{user_id}"
+_POSTHOG_AI_DECISION_CACHE_KEY = "posthog_ai_access_decision:{organization_id}:{user_id}:{flags_fingerprint}"
+# Most page loads come more than a minute after the user's previous one, so a short cache misses on nearly every
+# load, and each miss waits on a remote flag lookup. An edit to a deciding flag changes the cache key, so only other
+# inputs, such as billing or the trust score, can make the UI lag an access change, by up to this long.
+_POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS = 24 * 60 * 60
 
 
 @frozen
@@ -306,12 +311,25 @@ def get_posthog_ai_access_decision(user: User, organization: "Organization") -> 
     return PostHogAIAccessDecision.ALLOWED
 
 
+def _deciding_flags_fingerprint() -> str:
+    deciding_keys = {*POSTHOG_AI_GRANDFATHERED_FLAGS, POSTHOG_AI_BETA_FLAG}
+    definitions = [
+        definition
+        for definition in posthoganalytics.feature_flag_definitions() or []
+        if definition.get("key") in deciding_keys
+    ]
+    serialized = json.dumps(sorted(definitions, key=lambda definition: definition["key"]), sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+
+
 def get_cached_posthog_ai_access_decision(
-    user: User, organization: "Organization", *, cache_seconds: int = 60
+    user: User, organization: "Organization", *, cache_seconds: int = _POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS
 ) -> PostHogAIAccessDecision:
     """For page renders, so a load does not wait on remote flag lookups. Enforcement points call the uncached
     decision. An unresolved decision is never cached."""
-    cache_key = _POSTHOG_AI_DECISION_CACHE_KEY.format(organization_id=organization.id, user_id=user.pk)
+    cache_key = _POSTHOG_AI_DECISION_CACHE_KEY.format(
+        organization_id=organization.id, user_id=user.pk, flags_fingerprint=_deciding_flags_fingerprint()
+    )
     try:
         cached = cache.get(cache_key)
     except Exception:

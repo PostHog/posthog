@@ -147,6 +147,27 @@ export interface userLogicActions {
             value: true
         }
     }
+    addLaterUserFields: (fields: Partial<UserType>) => {
+        fields: Partial<UserType>
+    }
+    addLaterUserFieldsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addLaterUserFieldsSuccess: (
+        user: UserType | null,
+        payload?: {
+            fields: Partial<UserType>
+        }
+    ) => {
+        user: UserType | null
+        payload?: {
+            fields: Partial<UserType>
+        }
+    }
     loadUser: (resetOnFailure?: boolean) => {
         resetOnFailure: boolean | undefined
     }
@@ -439,6 +460,7 @@ export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
+        addLaterUserFields: (fields: Partial<UserType>) => ({ fields }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         updateCurrentOrganizationFailure: true,
         logout: (preserveLocation = false, nextUrl?: string, reason?: string) => ({
@@ -530,6 +552,8 @@ export const userLogic = kea<userLogicType>([
                     }
                     return null
                 },
+                // No listeners, so the late fields do not rerun what a user load triggers.
+                addLaterUserFields: ({ fields }) => (values.user ? { ...values.user, ...fields } : null),
                 updateUser: async ({ user, successCallback, failureCallback }): Promise<UserType> => {
                     const previousUpdate = cache.pendingUserUpdate as Promise<void> | undefined
                     let completeUpdate: () => void = () => {}

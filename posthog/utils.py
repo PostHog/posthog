@@ -19,7 +19,7 @@ from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -79,6 +79,8 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
+    from rest_framework.serializers import Serializer
 
     from posthog.models import Organization, Team, User
 
@@ -890,7 +892,27 @@ def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Option
         )
 
 
-def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, Any]) -> None:
+# Fields the first screen does not read. A deferred page gets them in a second request after the app boots.
+LATER_USER_FIELDS = frozenset({"is_2fa_enabled", "has_sso_enforcement"})
+LATER_TEAM_FIELDS = frozenset({"product_intents"})
+LATER_PROJECT_FIELDS = LATER_TEAM_FIELDS
+
+AppContextPart = Literal["all", "boot", "later"]
+
+
+def _serialize_app_context_part(
+    serializer: "Serializer", later_fields: frozenset[str], part: AppContextPart
+) -> dict[str, Any]:
+    if part != "all":
+        for name in list(serializer.fields):
+            if (name in later_fields) != (part == "later"):
+                serializer.fields.pop(name)
+    return serializer.data
+
+
+def add_user_app_context(
+    request: HttpRequest, posthog_app_context: dict[str, Any], part: Literal["all", "boot"] = "all"
+) -> None:
     """Adds the signed-in user's user, team, project and access data to the app context."""
     from posthog.api.project import ProjectSerializer
     from posthog.api.team.team_serializer import TeamSerializer
@@ -936,7 +958,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
             },
             many=False,
         )
-        posthog_app_context["current_user"] = user_serialized.data
+        posthog_app_context["current_user"] = _serialize_app_context_part(user_serialized, LATER_USER_FIELDS, part)
 
     if user.team:
         with tracer.start_as_current_span("template.team_serializer"):
@@ -949,7 +971,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
                 },
                 many=False,
             )
-            posthog_app_context["current_team"] = team_serialized.data
+            posthog_app_context["current_team"] = _serialize_app_context_part(team_serialized, LATER_TEAM_FIELDS, part)
 
         with tracer.start_as_current_span("template.project_serializer"):
             project_serialized = ProjectSerializer(
@@ -957,13 +979,15 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
                 context={"request": request, "user_permissions": user_permissions},
                 many=False,
             )
-            posthog_app_context["current_project"] = project_serialized.data
-        posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+            posthog_app_context["current_project"] = _serialize_app_context_part(
+                project_serialized, LATER_PROJECT_FIELDS, part
+            )
         event_info = get_default_event_info(user.team)
         posthog_app_context["default_event_name"] = event_info["default_event_name"]
         posthog_app_context["has_pageview"] = event_info["has_pageview"]
         posthog_app_context["has_screen"] = event_info["has_screen"]
-        posthog_app_context["has_person_email"] = get_has_person_email(user.team)
+        if part == "all":
+            posthog_app_context["has_person_email"] = get_has_person_email(user.team)
 
         with tracer.start_as_current_span("template.posthog_ai_access"):
             try:
@@ -976,6 +1000,31 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
         with tracer.start_as_current_span("template.user_home_settings"):
             home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
             posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
+
+def later_user_app_context(request: HttpRequest) -> dict[str, Any]:
+    """The app context fields that `add_user_app_context` leaves out of the boot part."""
+    from posthog.api.project import ProjectSerializer
+    from posthog.api.team.team_serializer import TeamSerializer
+    from posthog.api.user import UserSerializer
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+    user = cast("User", request.user)
+    later: dict[str, Any] = {
+        "current_user": _serialize_app_context_part(
+            UserSerializer(user, context={"request": request}), LATER_USER_FIELDS, "later"
+        )
+    }
+    if user.team and UserAccessControl(user=user, team=user.team).has_project_access:
+        later["current_team"] = _serialize_app_context_part(
+            TeamSerializer(user.team, context={"request": request}), LATER_TEAM_FIELDS, "later"
+        )
+        later["current_project"] = _serialize_app_context_part(
+            ProjectSerializer(user.team.project, context={"request": request}), LATER_PROJECT_FIELDS, "later"
+        )
+        later["has_person_email"] = get_has_person_email(user.team)
+    return later
 
 
 def render_template(
@@ -1268,45 +1317,6 @@ def get_has_person_email(team: "Team") -> bool:
 
 def invalidate_has_person_email_cache(project_id: int) -> None:
     safe_cache_delete(_has_person_email_cache_key(project_id))
-
-
-@tracer.start_as_current_span("template.frontend_apps")
-def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile, get_secret_fields
-
-    plugin_configs = (
-        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(
-            pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-            pluginsourcefile__filename="frontend.tsx",
-        )
-        .values(
-            "pluginconfig__id",
-            "pluginconfig__config",
-            "config_schema",
-            "id",
-            "plugin_type",
-            "name",
-        )
-        .all()
-    )
-
-    frontend_apps = {}
-    for p in plugin_configs:
-        config = p["pluginconfig__config"] or {}
-        for key in get_secret_fields(p["config_schema"] or {}):
-            if key in config:
-                config[key] = "** SECRET FIELD **"
-        frontend_apps[p["pluginconfig__id"]] = {
-            "pluginConfigId": p["pluginconfig__id"],
-            "pluginId": p["id"],
-            "pluginType": p["plugin_type"],
-            "name": p["name"],
-            "url": f"/app/{p['pluginconfig__id']}/",
-            "config": config,
-        }
-
-    return frontend_apps
 
 
 def friendly_time(seconds: float):

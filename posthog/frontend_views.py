@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
-from posthog.utils import add_user_app_context, feature_flag_bootstrap, render_template
+from posthog.utils import add_user_app_context, feature_flag_bootstrap, later_user_app_context, render_template
 from posthog.views import login_required
 
 APP_POSTHOG_HOST = "app.posthog.com"
@@ -181,7 +181,7 @@ def app_context(request: HttpRequest) -> JsonResponse:
     if not request.user.is_authenticated:
         return JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
     posthog_app_context: dict[str, Any] = {}
-    add_user_app_context(request, posthog_app_context)
+    add_user_app_context(request, posthog_app_context, part="boot")
     response = JsonResponse(
         {
             "app_context": posthog_app_context,
@@ -189,5 +189,14 @@ def app_context(request: HttpRequest) -> JsonResponse:
         },
         encoder=TolerantJSONEncoder,
     )
+    patch_cache_control(response, no_store=True)
+    return response
+
+
+def app_context_later(request: HttpRequest) -> JsonResponse:
+    """The app context fields the first screen does not read, which a deferred page fetches after it boots."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
+    response = JsonResponse(later_user_app_context(request), encoder=TolerantJSONEncoder)
     patch_cache_control(response, no_store=True)
     return response
