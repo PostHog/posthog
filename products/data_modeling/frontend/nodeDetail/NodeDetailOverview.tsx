@@ -2,18 +2,37 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
-import { CADENCE_LABELS, modeDisabledReason } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
-import { DataModelingSyncInterval } from '~/types'
-
 import { SERVING_ENGINE } from '../suspension'
-import { ModelHealthSummary } from './ModelHealthSummary'
-import { ModelTableSummary } from './ModelTableSummary'
-import { ModelViewSummary } from './ModelViewSummary'
+import { ModelHealthSummary, type ModelHealthSummaryProps } from './ModelHealthSummary'
+import { modelScheduleLabel } from './modelScheduleLabel'
+import { ModelTableSummary, type ModelTableSummaryProps } from './ModelTableSummary'
+import { ModelViewSummary, type ModelViewSummaryProps } from './ModelViewSummary'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: ReactNode }): JSX.Element | null {
+export interface NodeDetailOverviewSummaries {
+    TableSummary: (props: ModelTableSummaryProps) => JSX.Element
+    ViewSummary: (props: ModelViewSummaryProps) => JSX.Element
+    HealthSummary: (props: ModelHealthSummaryProps) => JSX.Element
+}
+
+const LEMON_SUMMARIES: NodeDetailOverviewSummaries = {
+    TableSummary: ModelTableSummary,
+    ViewSummary: ModelViewSummary,
+    HealthSummary: ModelHealthSummary,
+}
+
+export function NodeDetailOverview({
+    id,
+    metadata,
+    summaries = LEMON_SUMMARIES,
+}: {
+    id: string
+    metadata?: ReactNode
+    summaries?: NodeDetailOverviewSummaries
+}): JSX.Element | null {
+    const { TableSummary, ViewSummary, HealthSummary } = summaries
     const sceneLogic = nodeDetailSceneLogic({ id })
     const {
         node,
@@ -48,7 +67,7 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     }
     if (node.type === 'table') {
         return (
-            <ModelTableSummary
+            <TableSummary
                 id={id}
                 node={node}
                 table={tableDetails?.table ?? null}
@@ -64,7 +83,7 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     }
     if (!(savedQuery?.is_materialized ?? isMaterialized)) {
         return (
-            <ModelViewSummary
+            <ViewSummary
                 downstreamCount={node.downstream_count}
                 lineageUrl={urls.nodeDetail(id, 'lineage')}
                 metadata={metadata}
@@ -75,24 +94,11 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     // run stopped, not that this model stopped refreshing.
     const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
     const suspended = !!suspension
-    const cadence = savedQuery?.sync_frequency
-    const schedule = suspended
-        ? 'Suspended after repeated failures'
-        : node.type === 'endpoint'
-          ? 'Managed by endpoint'
-          : modeDisabledReason(savedQuery?.sync_frequency_bounds)
-            ? 'Managed by PostHog'
-            : !savedQuery
-              ? savedQueryError
-                  ? 'Schedule unavailable'
-                  : null
-              : !cadence || cadence === 'never'
-                ? 'Paused'
-                : `Every ${CADENCE_LABELS[cadence as DataModelingSyncInterval] ?? cadence}`
+    const schedule = modelScheduleLabel({ suspended, nodeType: node.type, savedQuery, savedQueryError })
     const latestJob = dataModelingJobs?.results?.[0]
 
     return (
-        <ModelHealthSummary
+        <HealthSummary
             metadata={metadata}
             status={latestJob?.status ?? savedQuery?.status ?? effectiveLastRunStatus}
             suspended={suspended}

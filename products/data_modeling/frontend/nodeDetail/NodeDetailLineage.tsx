@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
@@ -7,48 +6,31 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { urls } from 'scenes/urls'
 
-import { DataModelingJobStatus, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
-function nodeLineageUrl(node: DataModelingNode): string {
+export function nodeLineageUrl(node: DataModelingNode): string {
     return lineageNodeUrl(node, 'lineage')
 }
 
 // Without a cap, a two-node graph scales up to fill the panel and the cards look oversized
-const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
+export const LINEAGE_FIT_VIEW_OPTIONS = { maxZoom: 1 }
 
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
         lineageGraph,
         lineageGraphLoading,
         lineageGraphError,
-        effectiveLastRunAt,
-        effectiveLastRunStatus,
+        lineageNodes: nodes,
         lineageModalOpen,
         lineageNodePositions,
         node,
     } = useValues(nodeDetailSceneLogic({ id }))
     const { openLineageModal, closeLineageModal, loadLineageGraph, lineageNodeDragStopped, resetLineageNodePositions } =
         useActions(nodeDetailSceneLogic({ id }))
-
-    // The current node's freshest status/run come from its materialization jobs, not the graph payload
-    const nodes = useMemo((): DataModelingNode[] => {
-        if (!lineageGraph) {
-            return []
-        }
-        return lineageGraph.nodes.map((node) =>
-            node.id === lineageGraph.currentNodeId
-                ? {
-                      ...node,
-                      last_run_at: effectiveLastRunAt ?? node.last_run_at,
-                      last_run_status: (effectiveLastRunStatus as DataModelingJobStatus) ?? node.last_run_status,
-                  }
-                : node
-        )
-    }, [lineageGraph, effectiveLastRunAt, effectiveLastRunStatus])
 
     if (!lineageGraphLoading && lineageGraphError) {
         return (

@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -380,4 +381,44 @@ export const DeletedModel: Story = {
             },
         },
     },
+}
+
+const QUILL_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
+export const QuillView: Story = {
+    parameters: QUILL_PARAMETERS,
+}
+
+export const QuillMaterializedView: Story = {
+    parameters: { ...MaterializedView.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillSuspendedWithRunHistory: Story = {
+    parameters: { ...SuspendedWithRunHistory.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillNarrowSuspendedWithRunHistory: Story = {
+    ...QuillSuspendedWithRunHistory,
+    decorators: NarrowView.decorators,
+}
+
+export const QuillWarehouseTable: Story = {
+    args: WarehouseTable.args,
+    parameters: { ...WarehouseTable.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillPostHogTableDataQuality: Story = {
+    args: PostHogTable.args,
+    parameters: {
+        ...PostHogTable.parameters,
+        ...QUILL_PARAMETERS,
+        pageUrl: urls.nodeDetail('events-table-node', 'data-quality'),
+    },
+}
+
+export const QuillDeletedModel: Story = {
+    parameters: { ...DeletedModel.parameters, ...QUILL_PARAMETERS },
 }
