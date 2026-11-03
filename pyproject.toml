@@ -519,6 +519,8 @@ python_version = "3.14"
 
 [tool.mypy]
 python_version = "3.14"
+# 0 selects the legacy parser. The parser is part of the cache key, so a run with 0 cannot reuse CI's cache.
+num_workers = 1
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",

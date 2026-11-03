@@ -392,9 +392,10 @@ jobs:
 
             - name: Check static typing
               shell: bash -e {0}
-              env:
-                  MYPY_NUM_WORKERS: 2
-              run: mypy --version && mypy --cache-fine-grained .
+              run: |
+                  mypy --version
+                  if [ "$(nproc)" -ge 4 ]; then export MYPY_NUM_WORKERS=2; fi
+                  mypy .
 
             - name: Save mypy cache
               if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
