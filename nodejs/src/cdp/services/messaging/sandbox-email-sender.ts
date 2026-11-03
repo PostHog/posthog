@@ -1,4 +1,5 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisConnectionConfig, RedisPoolConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -34,6 +35,15 @@ const BLOCKED_EVENT_TIMEOUT_MS = 1000
 // At most this many run at once, on a pool of their own this size; a capture waiting for a slot holds
 // nothing and gives up at its deadline, so a burst against a healthy store keeps every event.
 export const MAX_OPEN_STORE_CALLS = 10
+
+export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
+    return {
+        // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
+        connection: { ...connection, exitOnRepeatedErrors: false },
+        poolMinSize: 0,
+        poolMaxSize: MAX_OPEN_STORE_CALLS,
+    }
+}
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
