@@ -44,7 +44,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
-        .enum(['broadcasts', 'loops', 'transactional_email_keys', 'transactional_emails'])
+        .enum(['broadcasts', 'loops', 'transactional_emails'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod

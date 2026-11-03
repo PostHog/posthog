@@ -99,10 +99,10 @@ class TestTransactionalEmail(APIBaseTest):
             flat["distinct_id"] = body["identifiers"]["distinct_id"]
         return {**flat, "template_id": str(self.template.id)}
 
-    def _psak_client(self, scopes: list[str]) -> APIClient:
+    def _psak_client(self, scopes: list[str], team: Team | None = None) -> APIClient:
         raw_token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
-            team=self.team,
+            team=team or self.team,
             label="transactional email",
             secure_value=hash_key_value(raw_token),
             scopes=scopes,
@@ -418,10 +418,12 @@ class TestTransactionalEmail(APIBaseTest):
         if key == "password-reset":
             assert hog_flow_id == str(self.hog_flow_id)
         else:
-            assert TransactionalEmailKey.objects.for_team(self.team.id).get(key=key).hog_flow_id == UUID(hog_flow_id)
+            assert TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(
+                key=key
+            ).hog_flow_id == UUID(hog_flow_id)
             listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
             assert hog_flow_id not in {workflow["id"] for workflow in listed}
-        assert mock_post.call_args_list[0].kwargs["json"] == {
+        assert json.loads(mock_post.call_args_list[0].kwargs["data"]) == {
             "to": "user@example.com",
             "distinct_id": "user-1",
             "variables": {},
@@ -439,26 +441,53 @@ class TestTransactionalEmail(APIBaseTest):
             "queued",
         )
 
+    def test_each_environment_of_a_project_keeps_its_own_workflow_for_a_key(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        env_sender = Integration.objects.create(
+            team=env, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(env.id, env_sender.id)
+        clients = {
+            self.team.id: self._psak_client(["hog_flow:write"]),
+            env.id: self._psak_client(["hog_flow:write"], env),
+        }
+
+        for team_id in (self.team.id, env.id, self.team.id, env.id):
+            response = clients[team_id].post(
+                f"/api/projects/{team_id}/messaging/send/email/", self._code_send(), format="json"
+            )
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+        workflow_ids = [call.args[0].split("/hog_flows/")[1].split("/")[0] for call in mock_post.call_args_list]
+        assert workflow_ids[0] == workflow_ids[2]
+        assert workflow_ids[1] == workflow_ids[3]
+        assert workflow_ids[0] != workflow_ids[1]
+
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)
         psak = self._psak_client(["hog_flow:write"])
         with patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", 1):
             first = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
-            deleted_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+            deleted_workflow_id = (
+                TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome").hog_flow_id
+            )
             HogFlow.objects.filter(team=self.team, id=deleted_workflow_id).delete()
 
             second = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
             new_key = psak.post(self.send_email_url, self._code_send(template_key="receipt"), format="json")
 
         assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, second.json()
-        new_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+        new_workflow_id = (
+            TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).get(key="welcome").hog_flow_id
+        )
         assert new_workflow_id != deleted_workflow_id
         assert f"/hog_flows/{new_workflow_id}/" in mock_post.call_args_list[1].args[0]
         assert new_key.status_code == status.HTTP_400_BAD_REQUEST, new_key.json()
         assert new_key.json()["code"] == "too_many_keys"
         assert capture.call_args.kwargs["properties"]["error_code"] == "too_many_keys"
         assert mock_post.call_count == 2
-        assert not TransactionalEmailKey.objects.for_team(self.team.id).filter(key="receipt").exists()
+        assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(key="receipt").exists()
         assert not HogFlow.objects.filter(team=self.team, name="receipt").exists()
 
     @parameterized.expand(
@@ -522,7 +551,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
-        assert mock_post.call_args.kwargs["json"]["send"] == sent
+        assert json.loads(mock_post.call_args.kwargs["data"])["send"] == sent
 
     @parameterized.expand(
         [
@@ -619,7 +648,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         if code is None:
-            assert mock_post.call_args.kwargs["json"]["send"]["from"] == {"integrationId": created[0].id}
+            assert json.loads(mock_post.call_args.kwargs["data"])["send"]["from"] == {"integrationId": created[0].id}
         else:
             assert response.json()["code"] == code
             mock_post.assert_not_called()
@@ -631,7 +660,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "sender_not_verified"
-        assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
+        assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
         mock_post.assert_not_called()
 
@@ -670,7 +699,7 @@ class TestTransactionalEmail(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
-        assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "welcome:user-1"
+        assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
         if expected_code:
             assert response.json()["code"] == expected_code
         else:
@@ -715,7 +744,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert (winner.status_code, loser.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
         first_url, second_url = (call.args[0] for call in mock_post.call_args_list)
         assert first_url == second_url
-        assert TransactionalEmailKey.objects.for_team(self.team.id).filter(key="welcome").count() == 1
+        assert TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(key="welcome").count() == 1
         assert HogFlow.objects.filter(team=self.team, name="welcome").count() == 1
 
     @parameterized.expand(
@@ -1048,7 +1077,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
-        assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
+        assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])

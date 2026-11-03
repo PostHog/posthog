@@ -60,7 +60,7 @@ from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
-    code_send_sender,
+    code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
@@ -170,7 +170,7 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
         "so the email would bounce. Check the address for a typo.",
     ),
-    "not_sendable": (TransactionalEmailPaused, "The template's transactional email isn't active."),
+    "not_sendable": (TransactionalEmailPaused, "This email's workflow isn't active. Turn it back on to send."),
 }
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
@@ -383,9 +383,9 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
     try:
         workflow = get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
     except WorkflowNotFound as e:
-        raise TransactionalEmailPaused("The template's transactional email no longer exists.") from e
+        raise TransactionalEmailPaused("This email's workflow no longer exists.") from e
     if workflow.status != "active":
-        raise TransactionalEmailPaused("The template's transactional email isn't active.")
+        raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
 def _code_email_workflow_id(team_id: int, key: str) -> UUID:
@@ -402,11 +402,11 @@ def _template_id_for_key(team_id: int, key: str) -> UUID | None:
 
 
 def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
-    return TransactionalEmailKey.objects.for_team(team_id).filter(key=key).first()
+    return TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(key=key).first()
 
 
 def _key_workflow_id(team_id: int, key: str) -> UUID:
-    keys = TransactionalEmailKey.objects.for_team(team_id)
+    keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
     known = known_key(team_id, key)
     if known is not None:
         if _workflow_exists(team_id, known.hog_flow_id):
@@ -420,7 +420,7 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             return raced.hog_flow_id
         raise TooManyKeys(
             f"This project has reached its limit of {TRANSACTIONAL_EMAIL_KEY_LIMIT} template keys, so it can't "
-            "send under a new one. Use one template_key for each type of email, such as `password-reset`, and "
+            "send under a new one. Use one template_key for each type of email, such as `order-shipped`, and "
             "reuse it for every recipient."
         )
     try:
@@ -447,7 +447,10 @@ def require_code_email_access(
             require_workflow_editor(template.transactional_hog_flow_id)
         return
     hog_flow_id = (
-        TransactionalEmailKey.objects.for_team(team_id).filter(key=key).values_list("hog_flow_id", flat=True).first()
+        TransactionalEmailKey.objects.for_team(team_id, canonical=True)
+        .filter(key=key)
+        .values_list("hog_flow_id", flat=True)
+        .first()
     )
     if hog_flow_id is not None and _workflow_exists(team_id, hog_flow_id):
         require_workflow_editor(hog_flow_id)
@@ -546,7 +549,7 @@ def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
 def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
     name, email = parseaddr(address) if address else ("", "")
     try:
-        sender = code_send_sender(team_id=team_id, email=email or None, name=name or None)
+        sender_id = code_send_sender_id(team_id=team_id, email=email or None)
     except TransactionalEmailSenderRequired as e:
         raise SenderRequired(
             "This project has more than one verified sender and no default sender. Send `from` to choose one."
@@ -555,7 +558,7 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
         if address:
             raise SenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
-    return {"integrationId": sender.integration_id, "email": sender.email, "name": sender.name}
+    return {"integrationId": sender_id, "email": email, "name": name}
 
 
 def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
@@ -587,7 +590,7 @@ def _queue(
 
     if response.status_code == 413:
         raise ContentTooLarge(
-            "The email is larger than PostHog can send. Make the content or `message_data` smaller, and link to "
+            "The email is larger than PostHog can send. Make its content or data smaller, and link to "
             "large images and files instead of embedding them."
         )
     if response.status_code != 202:

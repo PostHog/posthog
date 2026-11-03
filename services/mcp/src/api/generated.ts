@@ -139042,7 +139042,6 @@ export namespace Schemas {
     export const HogFlowsListOriginProduct = {
       Broadcasts: 'broadcasts',
       Loops: 'loops',
-      TransactionalEmailKeys: 'transactional_email_keys',
       TransactionalEmails: 'transactional_emails',
     } as const;
 

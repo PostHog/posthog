@@ -1,3 +1,5 @@
+import json
+
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -61,3 +63,13 @@ class TestTransactionalEmailTokens(SimpleTestCase):
         claims = WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.verify(headers["Authorization"].removeprefix("Bearer "))
         self.assertTrue(url.endswith(f"/api/projects/7/hog_flows/flow-1{path}"))
         self.assertEqual((claims["team_id"], claims["hog_flow_id"], claims.get("kind")), (7, "flow-1", kind))
+
+    @patch("posthog.plugins.plugin_server_api.internal_requests")
+    def test_a_code_send_posts_text_outside_ascii_as_utf8(self, mock_internal_requests):
+        payload = {"send": {"content": {"subject": "注文", "html": "<p>注文 🎉</p>"}}}
+
+        send_accepted_transactional_email(7, "flow-1", payload)
+
+        body = mock_internal_requests.post.call_args.kwargs["data"]
+        self.assertEqual(json.loads(body), payload)
+        self.assertIn("<p>注文 🎉</p>".encode(), body)
