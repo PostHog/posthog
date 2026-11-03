@@ -2848,7 +2848,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(rows) == 1
         assert rows[0].user == self.user
         assert rows[0].item_id == (function_id if saved else None)
-        assert rows[0].detail["context"] == {
+        detail = rows[0].detail
+        assert detail is not None
+        assert detail["context"] == {
             "mock_async_functions": False,
             "integration_ids": sorted([integration.id, mapping_integration.id]),
             "input_keys": ["headers", "method", "payload", "url", "workspace"],
@@ -2857,7 +2859,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "mapping_input_references": {"mapping_text": ["mapping_workspace"]},
             "hog": EXAMPLE_FULL["hog"],
         }
-        assert "0e02d917-563f-4050-9725-aad881b69937" not in json.dumps(rows[0].detail)
+        assert "0e02d917-563f-4050-9725-aad881b69937" not in json.dumps(detail)
 
     def test_test_invocation_rejects_a_posthog_connection_input(self):
         connection = Integration.objects.create(team=self.team, kind="posthog", created_by=self.user)
