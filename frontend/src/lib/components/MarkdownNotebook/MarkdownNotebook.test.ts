@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import posthog from 'posthog-js'
 import { createElement, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 
@@ -9120,7 +9121,8 @@ ${' '}
         '| Name | Count |\n| --- | --- |\n| Event | 7 |',
         '| Name | Count |\n| --- | --- |',
         '| Name |\n| --- |\n| Event |',
-    ])('adds a row with Tab in the last cell of %s', (value) => {
+    ])('adds a row with Tab in the last cell of %s', async (value) => {
+        const user = userEvent.setup()
         const capture = jest.spyOn(posthog, 'capture')
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(value), onChange }))
@@ -9128,8 +9130,8 @@ ${' '}
             Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
         const cells = getCells()
         const lastCell = cells[cells.length - 1]
-        selectTextInElement(lastCell, 0, 0)
-        fireEvent.keyDown(lastCell, { key: 'Tab' })
+        await user.click(lastCell)
+        await user.tab()
 
         const columnCount = container.querySelectorAll('th').length
         expect(getCells()).toHaveLength(cells.length + columnCount)
@@ -9142,23 +9144,25 @@ ${' '}
             source: 'tab',
         })
 
-        fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'z', ctrlKey: true })
+        await user.keyboard('{Control>}z{/Control}')
         expect(getCells()).toHaveLength(cells.length)
     })
 
-    it('moves to the preceding block with Shift-Tab in the first table cell', () => {
+    it('moves to the preceding block with Shift-Tab in the first table cell', async () => {
+        const user = userEvent.setup()
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: withNotebookTitle('| Name |\n| --- |\n| Event |'),
             })
         )
         const cell = container.querySelector('.MarkdownNotebook__table-cell-content') as HTMLElement
-        selectTextInElement(cell, 0, 0)
-        fireEvent.keyDown(cell, { key: 'Tab', shiftKey: true })
+        await user.click(cell)
+        await user.tab({ shift: true })
         expect(document.activeElement).toEqual(getEditableTextBlocks(container)[0])
     })
 
-    it('places a clicked cell caret at the end and selects its contents on double-click', () => {
+    it('places a clicked cell caret at the end and selects its contents on double-click', async () => {
+        const user = userEvent.setup()
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: '| Name |\n| --- |\n| **Sample** value |',
@@ -9166,12 +9170,12 @@ ${' '}
         )
         const cell = container.querySelector('td .MarkdownNotebook__table-cell-content') as HTMLElement
         selectTextInElement(cell, 0, 0)
-        fireEvent.click(cell, { detail: 1 })
+        await user.click(cell)
         expect(window.getSelection()?.isCollapsed).toEqual(true)
         const range = window.getSelection()?.getRangeAt(0)
         expect(range?.endContainer.textContent).toEqual(' value')
         expect(range?.endOffset).toEqual(6)
-        fireEvent.doubleClick(cell)
+        await user.dblClick(cell)
         expect(window.getSelection()?.toString()).toEqual('Sample value')
     })
 
@@ -9227,6 +9231,79 @@ ${' '}
 | --- | --- |
 | Pageview | 12 |`)
     })
+
+    it.each([
+        ['row', 'Add row after row 1', 'Remove row 2', '--table-pointer-x', '350px', 4],
+        ['column', 'Add column after column 2', 'Remove column 3', '--table-pointer-y', '75px', 3],
+    ] as const)(
+        'keeps the snapped %s control near the pointer and clickable',
+        async (dimension, addLabel, removeLabel, pointerProperty, pointerValue, expectedCount) => {
+            const user = userEvent.setup()
+            const onChange = jest.fn()
+            const value = withNotebookTitle('| Name | Count |\n| --- | --- |\n| Event | 7 |\n| Other | 8 |')
+            const originalRect = HTMLElement.prototype.getBoundingClientRect
+            const rectSpy = jest
+                .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+                .mockImplementation(function (this: HTMLElement) {
+                    let left = 100
+                    let top = 200
+                    let width = 400
+                    let height = 120
+                    if (this.matches('tr')) {
+                        top += (this as HTMLTableRowElement).rowIndex * 40
+                        height = 40
+                    } else if (this.matches('th, td')) {
+                        left += (this as HTMLTableCellElement).cellIndex * 200
+                        width = 200
+                        height = 40
+                    } else if (!this.matches('table, .MarkdownNotebook__table-grid')) {
+                        return originalRect.call(this)
+                    }
+                    return {
+                        x: left,
+                        y: top,
+                        left,
+                        top,
+                        width,
+                        height,
+                        right: left + width,
+                        bottom: top + height,
+                        toJSON: () => ({}),
+                    }
+                })
+            try {
+                const { container } = render(createElement(MarkdownNotebook, { value, onChange }))
+                const cell = within(container).getByText('Other')
+                fireEvent.mouseMove(cell, { clientX: 450, clientY: 275 })
+
+                const addButton = container.querySelector<HTMLButtonElement>(
+                    `button[aria-label="${addLabel}"]`
+                ) as HTMLButtonElement
+                const zone = addButton.parentElement as HTMLElement
+                expect(zone.classList.contains('MarkdownNotebook__table-control-zone--active')).toEqual(true)
+                expect(zone.style.getPropertyValue(pointerProperty)).toEqual(pointerValue)
+
+                fireEvent.mouseMove(addButton, { clientX: 452, clientY: 278 })
+                expect(zone.classList.contains('MarkdownNotebook__table-control-zone--active')).toEqual(true)
+                expect(zone.style.getPropertyValue(pointerProperty)).toEqual(pointerValue)
+                await user.click(addButton)
+
+                expect(container.querySelectorAll(dimension === 'row' ? 'tr' : 'th')).toHaveLength(expectedCount)
+                expect(onChange).toHaveBeenCalledTimes(1)
+                await user.click(
+                    container.querySelector<HTMLButtonElement>(
+                        `button[aria-label="${removeLabel}"]`
+                    ) as HTMLButtonElement
+                )
+                expect(onChange).toHaveBeenLastCalledWith(value)
+
+                fireEvent.mouseLeave(container.querySelector('.MarkdownNotebook__table-grid') as HTMLElement)
+                expect(container.querySelector('.MarkdownNotebook__table-control-zone--active')).toBeNull()
+            } finally {
+                rectSpy.mockRestore()
+            }
+        }
+    )
 
     it('pastes markdown tables as notebook table blocks', () => {
         const onChange = jest.fn()
