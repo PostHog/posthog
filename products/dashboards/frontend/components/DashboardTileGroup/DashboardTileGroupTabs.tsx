@@ -70,7 +70,9 @@ export function DashboardTileGroupTabs({
                             onChangeGroupDisplay={onChangeGroupDisplay}
                             copyToDestinations={copyToDestinations}
                             onCopyToDashboard={
-                                activeSection?.kind === 'group' && onCopyGroupToDashboard
+                                activeSection?.kind === 'group' &&
+                                activeSection.tiles.length > 0 &&
+                                onCopyGroupToDashboard
                                     ? (dashboardId, dashboardName) =>
                                           onCopyGroupToDashboard(activeSection.groupKey, dashboardId, dashboardName)
                                     : undefined
@@ -80,6 +82,11 @@ export function DashboardTileGroupTabs({
                     )
                 }
             />
+            {activeSection?.kind === 'group' && activeSection.tiles.length === 0 && (
+                <p className="text-secondary text-sm" data-attr="dashboard-tile-group-empty">
+                    No tiles yet. Use a tile's menu to move it here.
+                </p>
+            )}
             {children}
         </section>
     )

@@ -117,12 +117,6 @@ export function getEmptyTileGroupKeys(
     return Object.keys(groups ?? {}).filter((groupKey) => !usedGroupKeys.has(groupKey))
 }
 
-/** A key no other group on the dashboard uses, so a new group never takes over an existing one's tiles. */
-export function getNewTileGroupKey(groups: Record<string, DashboardTileGroupApi> | undefined, uuid: string): string {
-    const groupKey = `group-${uuid.slice(0, 8)}`
-    return groups && Object.hasOwn(groups, groupKey) ? `group-${uuid}` : groupKey
-}
-
 // Group keys can't hold a null character, so no real group shares this key.
 export const UNGROUPED_TILES_TAB_KEY = '\u0000ungrouped'
 

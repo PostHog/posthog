@@ -41,17 +41,21 @@ const MENU_ITEMS: Record<
     },
 }
 
-export function openAddTileGroupDialog(onAdd: (title: string) => void): void {
+function openTileGroupTitleDialog(dialogTitle: string, initialTitle: string, onSubmit: (title: string) => void): void {
     LemonDialog.openForm({
-        title: 'Add group',
-        initialValues: { title: '' },
+        title: dialogTitle,
+        initialValues: { title: initialTitle },
         content: (
             <LemonField name="title">
                 <LemonInput placeholder="Leave blank to show the tile count" maxLength={200} autoFocus />
             </LemonField>
         ),
-        onSubmit: ({ title }) => onAdd(title),
+        onSubmit: ({ title }) => onSubmit(title),
     })
+}
+
+export function openAddTileGroupDialog(onAdd: (title: string) => void): void {
+    openTileGroupTitleDialog('Add group', '', onAdd)
 }
 
 interface DashboardTileGroupMenuProps {
@@ -84,19 +88,9 @@ export function DashboardTileGroupMenu({
     const { renameLabel, removeLabel, copyLabel, copyNoun, switchTo, switchLabel } = MENU_ITEMS[groupDisplay]
 
     const openRenameDialog = (): void => {
-        if (!onRename) {
-            return
+        if (onRename) {
+            openTileGroupTitleDialog(renameLabel, title ?? '', onRename)
         }
-        LemonDialog.openForm({
-            title: renameLabel,
-            initialValues: { title: title ?? '' },
-            content: (
-                <LemonField name="title">
-                    <LemonInput placeholder="Leave blank to show the tile count" maxLength={200} autoFocus />
-                </LemonField>
-            ),
-            onSubmit: ({ title: newTitle }) => onRename(newTitle),
-        })
     }
 
     return (

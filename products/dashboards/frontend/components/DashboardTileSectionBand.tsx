@@ -59,7 +59,7 @@ export function DashboardTileSectionBand({
                     }
                     copyToDestinations={copyToDestinations}
                     onCopyToDashboard={
-                        onCopyGroupToDashboard
+                        onCopyGroupToDashboard && section.tiles.length > 0
                             ? (dashboardId, dashboardName) =>
                                   onCopyGroupToDashboard(section.groupKey, dashboardId, dashboardName)
                             : undefined

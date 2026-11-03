@@ -149,7 +149,6 @@ import {
     getEmptyTileGroupKeys,
     getLayoutAfterSectionChange,
     getLayoutAfterTileMove,
-    getNewTileGroupKey,
     getSectionGroupKey,
     getSectionLayouts,
     getTileGroupLabel,
@@ -254,8 +253,8 @@ function reportDashboardTileRefreshed(
 
 const TILE_REFRESH_CONCURRENCY = 4
 
-// Where an editor can change tile groups, matching where the dashboard shows its editing controls.
-const EDITABLE_TILE_GROUP_PLACEMENTS = [
+// Placements that show the dashboard's editing controls.
+const EDITABLE_PLACEMENTS = [
     DashboardPlacement.Dashboard,
     DashboardPlacement.ProjectHomepage,
     DashboardPlacement.Builtin,
@@ -767,6 +766,7 @@ export interface dashboardLogicValues {
     initialDashboardSettingsOverride: DashboardSettings
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile[]
+    isEditablePlacement: boolean
     isPinned: boolean
     isRefreshing: (id: string) => boolean
     isRefreshingQueued: (id: string) => boolean
@@ -1737,6 +1737,7 @@ export interface dashboardLogicMeta {
         asDashboardTemplate: (dashboard: DashboardType | null) => DashboardTemplateEditorType | undefined
         placement: (arg: any) => DashboardPlacement
         readOnly: (arg: any) => boolean
+        isEditablePlacement: (placement: DashboardPlacement, readOnly: boolean) => boolean
         apiUrl: (
             id: number
         ) => (
@@ -1838,7 +1839,8 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType | null,
             placement: DashboardPlacement,
             tileGroupDisplay: TileGroupDisplay,
-            canEditDashboard: boolean
+            canEditDashboard: boolean,
+            isEditablePlacement: boolean
         ) => DashboardSection[]
         tileGroupSectionLayouts: (
             tileGroupSections: DashboardSection[],
@@ -3847,6 +3849,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
         ],
         readOnly: [() => [(_, props) => props.readOnly], (readOnly: boolean | undefined): boolean => !!readOnly],
+        isEditablePlacement: [
+            (s) => [s.placement, s.readOnly],
+            (placement: DashboardPlacement, readOnly: boolean): boolean =>
+                !readOnly && EDITABLE_PLACEMENTS.includes(placement),
+        ],
         apiUrl: [
             (_, p) => [p.id],
             (id: number) => {
@@ -4200,6 +4207,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 s.placement,
                 s.tileGroupDisplay,
                 s.canEditDashboard,
+                s.isEditablePlacement,
             ],
             (
                 tileGroupSectionsEnabled: boolean,
@@ -4208,14 +4216,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboard: DashboardType | null,
                 placement: DashboardPlacement,
                 tileGroupDisplay: TileGroupDisplay,
-                canEditDashboard: boolean
+                canEditDashboard: boolean,
+                isEditablePlacement: boolean
             ): DashboardSection[] => {
                 const groups = dashboard?.customization?.groups
                 // Only editors see a group with no tiles, so they can fill it. Viewers would see an empty band.
                 const emptyGroupKeys =
-                    canEditDashboard && EDITABLE_TILE_GROUP_PLACEMENTS.includes(placement)
-                        ? getEmptyTileGroupKeys(tiles, groups)
-                        : []
+                    canEditDashboard && isEditablePlacement ? getEmptyTileGroupKeys(tiles, groups) : []
                 if (!tileGroupSectionsEnabled || (!tiles.some((tile) => tile.group_key) && !emptyGroupKeys.length)) {
                     return []
                 }
@@ -5731,12 +5738,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         addTileGroup: ({ title }) => {
+            // Each write sends every group, so a write that starts before the last one saves would drop its change.
+            if (dashboardsModel.values.dashboardLoading) {
+                lemonToast.info('Wait for dashboard changes to save, then add the group again')
+                return
+            }
             const groups = values.dashboard?.customization?.groups ?? {}
-            const groupKey = getNewTileGroupKey(groups, uuid())
+            const groupKey = uuid()
             actions.triggerDashboardUpdate({ groups: { ...groups, [groupKey]: { title: title.trim() } } })
             posthog.capture('dashboard tile group added', { dashboard_id: props.id })
         },
         removeTileGroup: ({ groupKey }) => {
+            // A tile moved in after the menu opened would keep a group key with no settings.
+            if (values.tiles.some((tile) => tile.group_key === groupKey)) {
+                return
+            }
             const { [groupKey]: _removed, ...groups } = values.dashboard?.customization?.groups ?? {}
             actions.triggerDashboardUpdate({ groups })
         },

@@ -439,6 +439,57 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
+            { name: 'an editor on the dashboard', access: 'editor', placement: undefined, shown: true },
+            { name: 'a viewer', access: 'viewer', placement: undefined, shown: false },
+            {
+                name: 'an editor on a public link',
+                access: 'editor',
+                placement: DashboardPlacement.Public,
+                shown: false,
+            },
+        ])('shows a group with no tiles only to $name', async ({ access, placement, shown }) => {
+            groupTiles({ target: { collapsed: false }, empty: { collapsed: false } })
+            dashboards[5] = { ...dashboards[5], user_access_level: access as DashboardType['user_access_level'] }
+            await mountDashboard(placement)
+
+            expect(logic.values.tileGroupSections.map((section) => section.key).includes('group-empty')).toBe(shown)
+        })
+
+        it.each([
+            {
+                name: 'adds a group and keeps the others',
+                dispatch: () => logic.actions.addTileGroup(' New '),
+                expectedKeys: ['target', 'other', 'empty', 'added'],
+            },
+            {
+                name: 'removes an empty group and keeps the others',
+                dispatch: () => logic.actions.removeTileGroup('empty'),
+                expectedKeys: ['target', 'other'],
+            },
+            {
+                name: 'keeps a group that still has tiles',
+                dispatch: () => logic.actions.removeTileGroup('other'),
+                expectedKeys: null,
+            },
+        ])('$name', async ({ dispatch, expectedKeys }) => {
+            groupTiles({ target: { collapsed: true }, other: { collapsed: false }, empty: { collapsed: false } })
+            await mountDashboard()
+            const update = jest.spyOn(logic.actions, 'triggerDashboardUpdate')
+
+            dispatch()
+
+            if (expectedKeys === null) {
+                expect(update).not.toHaveBeenCalled()
+                return
+            }
+            const { groups } = update.mock.calls[0][0]
+            const keys = Object.keys(groups).map((key) => (['target', 'other', 'empty'].includes(key) ? key : 'added'))
+            expect(keys).toEqual(expectedKeys)
+            // The API replaces every group on write, so the others go back unchanged.
+            expect(groups.target).toEqual({ collapsed: true })
+        })
+
+        it.each([
             { name: 'a link opened before the dashboard loads', beforeLoad: true, viewerChoice: undefined },
             { name: 'a link followed on a loaded dashboard', beforeLoad: false, viewerChoice: undefined },
             { name: 'a group the viewer closed', beforeLoad: false, viewerChoice: true },

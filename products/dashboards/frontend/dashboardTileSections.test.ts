@@ -9,7 +9,6 @@ import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getDashboardTabs,
-    getEmptyTileGroupKeys,
     getLayoutAfterSectionChange,
     getLayoutAfterTileMove,
     getSectionLayouts,
@@ -41,6 +40,7 @@ interface SectionsCase {
     tiles: DashboardTile[]
     layout: Layout
     groups?: Record<string, DashboardTileGroupApi>
+    emptyGroupKeys?: string[]
     expected: string[]
 }
 
@@ -115,8 +115,16 @@ describe('dashboardTileSections', () => {
             groups: { plans: { title: 'Pricing plans' } },
             expected: ['__proto__(): 1'],
         },
-    ])('getDashboardSections $name', ({ tiles, layout, groups, expected }) => {
-        expect(sectionSummary(tiles, layout, groups)).toEqual(expected)
+        {
+            name: 'puts groups with no tiles last, once each',
+            tiles: [tile(1), tile(2, 'plans')],
+            layout: [box(1, 0, 0), box(2, 0, 2)],
+            groups: { plans: { title: 'Plans' }, empty: { title: 'Empty' } },
+            emptyGroupKeys: ['empty', 'plans'],
+            expected: ['tiles: 1', 'plans(Plans): 2', 'empty(Empty): '],
+        },
+    ])('getDashboardSections $name', ({ tiles, layout, groups, emptyGroupKeys, expected }) => {
+        expect(sectionSummary(tiles, layout, groups, emptyGroupKeys)).toEqual(expected)
     })
 
     it.each<Omit<SectionsCase, 'groups'>>([
@@ -314,24 +322,6 @@ describe('dashboardTileSections', () => {
             }
         }
     )
-
-    it('getDashboardSections puts groups with no tiles last, once each', () => {
-        const tiles = [tile(1), tile(2, 'plans')]
-        const layout = [box(1, 0, 0), box(2, 0, 2)]
-        const groups = { plans: { title: 'Plans' }, empty: { title: 'Empty' } }
-
-        expect(sectionSummary(tiles, layout, groups, ['empty', 'plans'])).toEqual([
-            'tiles: 1',
-            'plans(Plans): 2',
-            'empty(Empty): ',
-        ])
-    })
-
-    it('getEmptyTileGroupKeys finds saved groups that no tile belongs to', () => {
-        const tiles = [tile(1, 'plans'), tile(2)]
-        expect(getEmptyTileGroupKeys(tiles, { plans: {}, empty: {}, other: {} })).toEqual(['empty', 'other'])
-        expect(getEmptyTileGroupKeys(tiles, undefined)).toEqual([])
-    })
 
     it('getTileGroupMoveOptions offers the other groups by their band labels, and taking a grouped tile out', () => {
         const sections = getDashboardSections({
