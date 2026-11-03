@@ -23,6 +23,12 @@ from products.alerts.backend.facade.contracts import AlertInternalEvent
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_slack import insight_transition_properties
+from products.alerts.backend.platform_alert_wording import announces_firing
+from products.alerts.backend.platform_investigation_message import (
+    FiringInvestigation,
+    firing_breaches,
+    firing_investigation,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -45,7 +51,8 @@ def emit_insight_legacy_events(
     firings = [
         emission.transition
         for emission in emissions
-        if emission.sends_message and emission.transition.kind == AlertEventKind.FIRING
+        # A verdict-change follow-up goes out as a firing event, as the insight stack sends it.
+        if emission.sends_message and announces_firing(emission.transition)
     ]
     if not firings:
         return
@@ -84,14 +91,16 @@ def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> Mes
     return MessageImage(url=url, alt_text="Insight chart") if url else None
 
 
-def _formatting_properties(transition: AnnouncedTransition) -> dict[str, Any]:
+def _formatting_properties(
+    transition: AnnouncedTransition, investigation: FiringInvestigation | None
+) -> dict[str, Any]:
     """The Slack card fields, or none of them.
 
     These enrich the event; the destinations it reaches do not depend on them. A stored detail the
     formatter cannot read must cost the firing its card, never its delivery.
     """
     try:
-        return insight_transition_properties(transition)
+        return insight_transition_properties(transition, investigation)
     except Exception:
         logger.exception("alerts_insight_legacy_event_formatting_failed")
         return {}
@@ -99,16 +108,19 @@ def _formatting_properties(transition: AnnouncedTransition) -> dict[str, Any]:
 
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
     detail = transition.source_detail
+    investigation = firing_investigation(alert.team_id, transition)
     properties: dict[str, Any] = {
         # From the transition, not the alert row: the platform never writes `state` or
         # `last_checked_at`, so a platform-owned alert past its shadow window would report the
         # frozen `not_firing` default on the very event that announces a firing.
         **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
         # Joined with newlines so each breach renders on its own line, as the insight stack sends it.
-        "breaches": "\n".join(detail.get("breaches") or []),
+        "breaches": "\n".join(firing_breaches(transition, investigation)),
         **detector_verdict_event_fields(detail.get("triggered_metadata")),
-        **_formatting_properties(transition),
+        **_formatting_properties(transition, investigation),
     }
+    if investigation is not None and investigation.notebook_url:
+        properties["investigation_notebook_url"] = investigation.notebook_url
     if chart_url := insight_chart_url_of(alert.team_id, detail):
         properties["insight_chart_url"] = chart_url
     # The occurrence is in the seed too, so two firings recorded without an evaluation key keep distinct ids.
