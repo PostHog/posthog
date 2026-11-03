@@ -16,7 +16,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.workflows.backend.facade.models import HogFlow
 
-DOCS_URL = "https://posthog.com/docs/workflows/transactional-email-api"
+DOCS_URL = "https://posthog.com/docs/workflows/transactional-emails/api"
 
 
 class TestTemplateAdoption(APIBaseTest):
