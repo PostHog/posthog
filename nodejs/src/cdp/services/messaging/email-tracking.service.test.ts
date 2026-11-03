@@ -217,7 +217,7 @@ describe('EmailTrackingService', () => {
                 const out = addTrackingToEmail('<body><a href="https://example.com">x</a></body>', inv, signer)
                 const codes = [...out.matchAll(/ph_id=([A-Za-z0-9._-]+)/g)].map((match) => match[1])
 
-                expect(codes).toHaveLength(2) // one redirect, one pixel
+                expect(codes).toHaveLength(2)
                 for (const code of codes) {
                     const parsed = signer.parse(code)
                     expect(parsed).toBeTruthy()
