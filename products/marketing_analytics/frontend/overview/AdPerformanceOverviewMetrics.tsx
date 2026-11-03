@@ -29,6 +29,11 @@ export function AdPerformanceOverviewMetrics({
 
     return (
         <div className="flex flex-col gap-2">
+            {!loading && shown.length === 0 && (
+                <p className="m-0 text-secondary text-sm" data-attr="marketing-overview-metrics-empty">
+                    No metrics for this date range. Try a longer range, or check that your ad sources have synced.
+                </p>
+            )}
             <OverviewMetricCardGrid
                 className="grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]"
                 items={shown}
