@@ -12,12 +12,14 @@ started it, and leaves an approved code usable again. The token path here closes
 
 import json
 import base64
+import hashlib
 import secrets
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import unquote_plus
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
@@ -65,6 +67,9 @@ USER_CODE_LENGTH = 8
 # A poll that arrives this much earlier than the interval still counts as on time, so network
 # jitter doesn't earn a well-behaved client a slow_down.
 POLL_INTERVAL_TOLERANCE = timedelta(seconds=1)
+# RFC 8628 section 3.5: each `slow_down` adds 5 seconds to the interval the client must keep.
+SLOW_DOWN_INTERVAL_STEP = 5
+MAX_POLL_INTERVAL = 60
 
 # `OAuthApplication.allows_grant_type` refuses an unverified device client. This says why.
 UNVERIFIED_CLIENT_DESCRIPTION = (
@@ -175,8 +180,12 @@ def _pending_poll_error(grant: OAuthDeviceGrant) -> rfc6749_errors.OAuth2Error:
         POLL_INTERVAL_TOLERANCE
     )
     # `last_checked` is auto_now, so saving it records this poll.
-    grant.save(update_fields=["last_checked"])
-    return rfc8628_errors.SlowDownError() if too_early else rfc8628_errors.AuthorizationPendingError()
+    if not too_early:
+        grant.save(update_fields=["last_checked"])
+        return rfc8628_errors.AuthorizationPendingError()
+    grant.interval = min(grant.interval + SLOW_DOWN_INTERVAL_STEP, MAX_POLL_INTERVAL)
+    grant.save(update_fields=["last_checked", "interval"])
+    return rfc8628_errors.SlowDownError()
 
 
 def device_token_response(create_token_response: Any, request: HttpRequest, device_code: str) -> HttpResponse:
@@ -186,6 +195,11 @@ def device_token_response(create_token_response: Any, request: HttpRequest, devi
     can't both redeem one approval, and an app-wide session revoke (which deletes device grants
     first) either waits for this mint and sweeps its token, or deletes the grant before it.
     """
+    # The token endpoint needs no login, so this caps the row locks and writes one device code can
+    # cause at one per second, however fast its holder polls.
+    poll_key = f"oauth_device_poll:{hashlib.sha256(device_code.encode()).hexdigest()}"
+    if not cache.add(poll_key, True, timeout=1):
+        return _error_response(rfc8628_errors.SlowDownError())
     with transaction.atomic():
         grant = OAuthDeviceGrant.objects.select_for_update().filter(device_code=device_code).first()
         # Checked before any status answer, so a poll by another client neither learns the status

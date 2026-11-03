@@ -21,7 +21,10 @@ function login(apiKey: string): string {
 // `host` is the last login. `stores` says where the login for each host is.
 function settings(host: string, stores: Record<string, 'keychain' | 'file'>): Record<string, string> {
     const logins = Object.fromEntries(
-        Object.entries(stores).map(([login, store]) => [login, { store, type: 'personal_api_key', projectId: '9' }])
+        Object.entries(stores).map(([login, store]) => [
+            new URL(login).origin,
+            { store, type: 'personal_api_key', projectId: '9', host: login },
+        ])
     )
     return { [SETTINGS_FILE]: JSON.stringify({ logins, host }) }
 }
@@ -110,9 +113,16 @@ describe('resolveCredentials', () => {
         ],
         [
             'a self-hosted login keeps the path PostHog sits under',
-            settings('https://example.com/posthog/', { 'https://example.com': 'keychain' }),
+            settings('https://example.com', { 'https://example.com/posthog': 'keychain' }),
             { 'https://example.com': login('phx_self') },
             {},
+            { key: { apiKey: 'phx_self', host: 'https://example.com/posthog' } },
+        ],
+        [
+            'a posthog.json path on the same origin keeps the path the login was made for',
+            settings('https://example.com', { 'https://example.com/posthog': 'keychain' }),
+            { 'https://example.com': login('phx_self') },
+            { configHost: 'https://example.com/other-app\\' },
             { key: { apiKey: 'phx_self', host: 'https://example.com/posthog' } },
         ],
         [
