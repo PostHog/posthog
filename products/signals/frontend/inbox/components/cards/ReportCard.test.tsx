@@ -520,6 +520,8 @@ describe('ReportCard', () => {
         expect(pill?.textContent).toBe('Open2.9xAction<0.1xFix2.7x')
         // The card is a link, so a click that reaches it would open the report.
         expect(fireEvent.click(pill as Element)).toBe(false)
+        ;(pill as HTMLElement).focus()
+        expect(document.activeElement).toBe(pill)
 
         rerender(<ReportCard report={scored} rankingPill rankingSortField="ranking_fix" />)
         expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()

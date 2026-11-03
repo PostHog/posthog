@@ -319,12 +319,16 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
 // and sort changes read it, so the ranking test can join them to the ranker without each caller
 // passing it. The Inbox scene clears it on unmount.
 let servedInboxRankerId: string | null = null
-let servedInboxRankingPill = false
+// The reports whose pill reached the screen, from impressions. A list response cannot answer this,
+// because the list stays mounted and hidden behind a deep-linked report and still loads a pill arm.
+const seenInboxRankingPillReportIds = new Set<string>()
 
-/** Record the ranker and the pill setting of the latest list response. Null and false when the sort is not Recommended. */
+/** Record the ranker of the latest list response, null when the sort is not Recommended. A list without pills ends pill attribution. */
 export function setInboxServedRanker(rankerId: string | null, rankingPill: boolean = false): void {
     servedInboxRankerId = rankerId
-    servedInboxRankingPill = rankingPill
+    if (!rankingPill) {
+        seenInboxRankingPillReportIds.clear()
+    }
 }
 
 interface RankingPillProperties {
@@ -491,6 +495,11 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
+    if (params.rankingPill) {
+        params.reports
+            .filter((report) => rankingPillLifts(report) !== null)
+            .forEach((report) => seenInboxRankingPillReportIds.add(report.id))
+    }
     captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
         tab: params.tab,
         list_size: params.listSize,
@@ -534,8 +543,6 @@ export function captureInboxReportOpened(
         section: InboxReportSectionKey | null
         /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
         rankerId: string | null
-        /** Whether the list the report was opened from showed score pills. */
-        rankingPill: boolean
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
     options?: CaptureOptions
@@ -553,7 +560,7 @@ export function captureInboxReportOpened(
             list_size: params.listSize,
             section: params.section,
             ranker_id: params.rankerId,
-            ...rankingPillProperties(params.report, params.rankingPill),
+            ...rankingPillProperties(params.report, seenInboxRankingPillReportIds.has(params.report.id)),
         },
         options
     )
@@ -640,7 +647,10 @@ export function captureInboxReportAction(params: {
         // Today lists reports in its own order, so its actions never belong to an Inbox ranker.
         ranker_id: params.surface === 'today' ? null : servedInboxRankerId,
         ...(params.report
-            ? rankingPillProperties(params.report, params.surface !== 'today' && servedInboxRankingPill)
+            ? rankingPillProperties(
+                  params.report,
+                  params.surface !== 'today' && seenInboxRankingPillReportIds.has(params.report.id)
+              )
             : {}),
         ...params.extra,
     })

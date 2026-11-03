@@ -43,7 +43,8 @@ export function ReportCardRankingPill({ report }: { report: SignalReport }): JSX
             onOpen={onOpen}
             openOnClick
         >
-            <span
+            <button
+                type="button"
                 className="inline-flex max-w-full cursor-help items-stretch divide-x divide-primary overflow-hidden rounded border border-primary bg-surface-primary text-xs leading-none text-secondary tabular-nums"
                 data-attr="inbox-ranking-pill"
                 // The card is a link. A tap on the pill opens the details instead of the report.
@@ -63,7 +64,7 @@ export function ReportCardRankingPill({ report }: { report: SignalReport }): JSX
                         </span>
                     )
                 })}
-            </span>
+            </button>
         </Tooltip>
     )
 }
