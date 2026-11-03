@@ -87,7 +87,7 @@ function SpendLimitFooter({
     limitUsd: number | null
     outlook: SpendLimitOutlook | null
 }): JSX.Element {
-    const { currentSpendSummary } = useValues(aiCreditsLogic)
+    const { currentSpendSummary, settingsEditDisabledReason } = useValues(aiCreditsLogic)
     const { openSettingsModal } = useActions(aiCreditsLogic)
     return (
         <>
@@ -100,7 +100,12 @@ function SpendLimitFooter({
                     <OutlookNote outlook={outlook} resets={currentSpendSummary.periodEnd.format('MMM D')} />
                 )}
             </div>
-            <Link onClick={openSettingsModal} className="text-sm font-medium" data-attr="ai-credits-edit-spend-limit">
+            <Link
+                onClick={openSettingsModal}
+                disabledReason={settingsEditDisabledReason}
+                className="text-sm font-medium"
+                data-attr="ai-credits-edit-spend-limit"
+            >
                 Edit
             </Link>
         </>

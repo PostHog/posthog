@@ -308,6 +308,7 @@ export interface aiCreditsLogicValues {
     reloadedThisPeriodUsd: number | null
     selectedPeriodsAgo: number
     settings: AICreditSettingsResponseApi | null
+    settingsEditDisabledReason: string | null
     settingsLoading: boolean
     settingsModalOpen: boolean
     showAddFundsFormErrors: boolean
@@ -584,6 +585,10 @@ export interface aiCreditsLogicMeta {
         reloadedThisPeriodText: (
             reloadedThisPeriodUsd: number | null,
             settings: AICreditSettingsResponseApi | null
+        ) => string | null
+        settingsEditDisabledReason: (
+            settings: AICreditSettingsResponseApi | null,
+            settingsLoading: boolean
         ) => string | null
     }
 }
@@ -893,6 +898,16 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 return limit
                     ? `${settingAmount(reloadedUsd)} of ${settingAmount(limit)} reloaded this period`
                     : `${settingAmount(reloadedUsd)} reloaded this period`
+            },
+        ],
+        // The settings form starts from the saved settings, so the person edits them only after they load.
+        settingsEditDisabledReason: [
+            (s) => [s.settings, s.settingsLoading],
+            (settings: AICreditSettingsResponseApi | null, settingsLoading: boolean): string | null => {
+                if (settingsLoading) {
+                    return 'Loading your settings'
+                }
+                return settings ? null : "Your settings didn't load. Reload the page."
             },
         ],
     }),

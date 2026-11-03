@@ -56,9 +56,15 @@ function declinedMessage(
 }
 
 function EditLink(): JSX.Element {
+    const { settingsEditDisabledReason } = useValues(aiCreditsLogic)
     const { openSettingsModal } = useActions(aiCreditsLogic)
     return (
-        <Link onClick={openSettingsModal} className="text-sm font-medium" data-attr="ai-credits-edit-reload">
+        <Link
+            onClick={openSettingsModal}
+            disabledReason={settingsEditDisabledReason}
+            className="text-sm font-medium"
+            data-attr="ai-credits-edit-reload"
+        >
             Edit
         </Link>
     )

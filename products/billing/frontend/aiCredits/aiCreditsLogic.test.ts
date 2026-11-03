@@ -110,6 +110,19 @@ describe('aiCreditsLogic', () => {
         expect(purchaseKeys[2]).not.toEqual(purchaseKeys[1])
     })
 
+    it('lets the person edit the settings only once they load', async () => {
+        expect(logic.values.settingsEditDisabledReason).toEqual('Loading your settings')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.settingsEditDisabledReason).toBeNull()
+
+        logic.unmount()
+        useMocks({ get: { '/api/billing/ai_credits/settings/': () => [500, { detail: 'Billing is down' }] } })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.settingsEditDisabledReason).toEqual("Your settings didn't load. Reload the page.")
+    })
+
     it('shows the chosen billing period, and keeps the balance and reloads on the current one', async () => {
         await expectLogic(logic).toFinishAllListeners()
 
