@@ -2476,7 +2476,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ),
             (
                 "built_query",
-                "TrendsQuery",
+                "hogql_query",
                 "Some values in these results aren't valid text, so the results can't be shown. "
                 "Check the event and person properties used here for values with invalid characters.",
                 True,
