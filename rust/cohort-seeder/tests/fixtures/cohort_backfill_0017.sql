@@ -1,17 +1,16 @@
--- Snapshot pinned to
--- products/cohorts/backend/migrations/0015_cohortbackfillchunk_claimable_after_and_more.py, the last
--- migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits no SQL,
--- 0011 touches posthog_cohort columns this projection does not carry, and 0013 and 0014 emit none
--- for these tables.
+-- Snapshot pinned to products/cohorts/backend/migrations/0017_realtime_cohort_team_access.py, the
+-- last migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits no
+-- SQL, 0011 and 0016 touch posthog_cohort columns this projection does not carry, and 0013 and 0014
+-- emit none for these tables.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
 --
 -- Nothing enforces this snapshot against Django. No test diffs it with `sqlmigrate`, and the
 -- filename appears at one call site, so a later migration that changes these tables and forgets
 -- this file passes CI and diverges from production. Re-derive it by hand when you touch the
--- `cohort_backfill_*` DDL: `python manage.py sqlmigrate cohorts <number>` prints the statements the
--- migration emits (CI runs the same command to post migration SQL on a PR). Fold them in, drop the
--- external Team/Cohort foreign key lines to keep the projection schema-local, and rename this file
--- and its `include_str!` to the new number.
+-- `cohort_backfill_*` or `cohort_realtime_team_access` DDL: `python manage.py sqlmigrate cohorts
+-- <number>` prints the statements the migration emits (CI runs the same command to post migration
+-- SQL on a PR). Fold them in, drop the external Team/Cohort foreign key lines to keep the
+-- projection schema-local, and rename this file and its `include_str!` to the new number.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,
@@ -105,6 +104,17 @@ CREATE TABLE cohort_backfill_run_cohorts (
     reconcile_completed_at timestamptz,
     reconcile_marker_bits bigint NOT NULL DEFAULT 0,
     CONSTRAINT cohort_bfrc_run_cohort_uq UNIQUE (run_id, cohort_id)
+);
+
+-- 0017. The model sets `db_constraint=False`, so the table has no Team foreign key to drop.
+CREATE TABLE cohort_realtime_team_access (
+    team_id integer PRIMARY KEY,
+    level varchar(16) NOT NULL,
+    purpose varchar(16) NOT NULL,
+    save_triggers_backfill boolean NOT NULL,
+    processing_since timestamptz,
+    off_since timestamptz,
+    changed_at timestamptz NOT NULL
 );
 
 -- A minimal projection of posthog_cohort, present only so load_current_behavioral_hashes can read a
