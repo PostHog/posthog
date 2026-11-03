@@ -82,9 +82,10 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 # via puppeteer-capture (virtual time, no rAF dependency).
 #
 # Major-only tag so weekly rebuilds pick up the latest 26.x (node + bundled OpenSSL/V8 patches).
-# Must stay same major as the build stage (node 26) for native-addon ABI, and keep -bookworm-slim
-# so glibc / system libs match what the addons were linked against in the build stage.
-FROM node:26-bookworm-slim
+# Must stay same major as the build stage (node 26) for native-addon ABI. Trixie, not bookworm:
+# the uWebSockets.js binary for Node 26 needs glibc 2.38, and bookworm ships 2.36. Addons that
+# the bookworm build stage links still load here, because glibc is backward compatible.
+FROM node:26-trixie-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -105,15 +106,17 @@ RUN apt-get update && \
     && \
     mkdir -p /etc/apt/keyrings && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    # The bookworm repo, because Confluent publishes no 2.12.0 build for trixie. The runtime
+    # librdkafka must match the 2.12.0 headers that the build stage compiles node-rdkafka against.
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.12.0-1.cflt~deb12" \
     "librdkafka++1=2.12.0-1.cflt~deb12" \
-    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # libssl pinned to the 3.5 series (ABI-stable), not an exact version: Debian rotates
     # point releases out of the security archive, which breaks exact pins on uncached builds.
-    "libssl3=3.0.*" \
-    # ffmpeg intentionally unpinned: tracks the latest bookworm candidate so security point-updates flow in on rebuild
+    "libssl3t64=3.5.*" \
+    # ffmpeg intentionally unpinned: tracks the latest trixie candidate so security point-updates flow in on rebuild
     "ffmpeg" \
     # Fonts for recorded pages: without them CJK, Thai, Indic and emoji render as empty boxes, and common UI font
     # stacks (Arial, Helvetica, Roboto) fall back to the wider DejaVu, which changes how text wraps and truncates.
@@ -122,14 +125,14 @@ RUN apt-get update && \
     fonts-noto-color-emoji \
     fonts-noto-core \
     # Shared libraries required by chrome-headless-shell
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
+    libasound2t64 \
+    libatk-bridge2.0-0t64 \
+    libatk1.0-0t64 \
+    libcups2t64 \
     libdbus-1-3 \
     libdrm2 \
     libgbm1 \
-    libglib2.0-0 \
+    libglib2.0-0t64 \
     libnspr4 \
     libnss3 \
     libpango-1.0-0 \
