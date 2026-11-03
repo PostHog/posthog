@@ -245,9 +245,7 @@ def _numericise_decimal_comma(text: str, number_format: _DecimalCommaFormat) -> 
             return int(canonical)
         except ValueError:
             return float(canonical)
-    # gspread's `numericise` treats every comma as a thousands separator, which is wrong when the
-    # comma is the decimal separator. Text without one still goes through it, so values such as
-    # "nan" parse as they did before.
+    # gspread's `numericise` deletes every comma, which corrupts a decimal comma.
     if number_format.decimal_symbol in text:
         return text
     return numericise(text, default_blank=None)
@@ -259,9 +257,6 @@ def _records_from_grid(grid: list[list[str]], locale: str | None = None) -> list
 
     column_names = _resolve_column_names(list(grid[0]))
 
-    # The grid holds formatted text, so a number uses the spreadsheet locale's separators. Only
-    # decimal-comma locales need a different parse. Every other locale keeps gspread's parse, so
-    # its column types do not change.
     number_format = _decimal_comma_format(locale) if locale else None
     if number_format is None:
         # default_blank defaults to "", which turns empty cells into strings and breaks numeric
@@ -397,7 +392,6 @@ def _get_worksheet(
 
 
 def _spreadsheet_locale(worksheet: gspread.Worksheet) -> str | None:
-    # `open_by_url` already fetched the spreadsheet properties, so this makes no API call.
     try:
         return worksheet.spreadsheet.locale
     except KeyError:
