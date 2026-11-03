@@ -124487,6 +124487,28 @@ export namespace Schemas {
       connected_at?: string | null;
     }
 
+    /**
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
+
+
+    export const UserCreatableDestinationTypeEnum = {
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
+
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
@@ -126368,6 +126390,16 @@ export namespace Schemas {
          * @nullable
          */
       warehouse_source_type: string | null;
+      /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+       *
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
        * * `in-cli` - In the terminal
