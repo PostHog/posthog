@@ -10,7 +10,7 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_cutover import CutoverSkip, RollbackSkip, cut_over_team, roll_back_team
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -84,6 +84,42 @@ class TestInsightPlatformCutover(APIBaseTest):
         assert result.skipped == reason
         alert.refresh_from_db()
         assert alert.owner == "source"
+
+    @parameterized.expand(
+        [
+            (
+                "agent_running",
+                InvestigationStatus.RUNNING,
+                None,
+                timedelta(minutes=10),
+                CutoverSkip.INVESTIGATION_UNSETTLED,
+            ),
+            (
+                "held_notification",
+                InvestigationStatus.DONE,
+                None,
+                timedelta(minutes=10),
+                CutoverSkip.INVESTIGATION_UNSETTLED,
+            ),
+            ("notification_sent", InvestigationStatus.DONE, NOW, timedelta(minutes=10), None),
+            ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
+        ]
+    )
+    def test_an_alert_moves_only_once_its_investigation_settles(
+        self, _name: str, status: str, sent_at: datetime | None, age: timedelta, reason: CutoverSkip | None
+    ) -> None:
+        alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
+        check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            state=AlertState.FIRING,
+            investigation_status=status,
+            notification_sent_at=sent_at,
+        )
+        AlertCheck.objects.filter(id=check.id).update(created_at=NOW - age)
+
+        (result,) = cut_over_team(self.team.id, now=NOW)
+
+        assert result.skipped == reason
 
     def test_an_alert_in_a_child_environment_stays_with_insight(self) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
