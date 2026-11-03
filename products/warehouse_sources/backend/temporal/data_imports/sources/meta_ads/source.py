@@ -271,6 +271,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "Meta refused to return an ad creative whose story is incomplete, such as one with no "
                 "Page. Fix or delete that creative in Ads Manager; the next sync runs on schedule."
             ),
+            # Graph API code 100, subcode 1885649: Meta refuses to return budget fields for an ad set
+            # under Campaign Budget Optimization, whose budget lives on the campaign instead. Keyed on
+            # the subcode for the same reason as above — Meta localizes the message.
+            '"error_subcode":1885649': (
+                "Meta refused to return the budget for an ad set that uses Campaign Budget "
+                "Optimization; its budget lives on the campaign instead. The next sync runs on schedule."
+            ),
         }
 
     def get_schemas(

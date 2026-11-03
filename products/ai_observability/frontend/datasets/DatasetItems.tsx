@@ -20,10 +20,22 @@ import { urls } from 'scenes/urls'
 import { UserBasicType } from '~/types'
 
 import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
+import { useTraceDrawerTable } from '../redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from '../redesign/trace/traceListRows'
 import { truncateValue } from '../utils'
 import { aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { JSONColumn } from './JSONColumn'
 import { RefreshButton } from './RefreshButton'
+
+const TRACE_DRAWER_LIST_ID = 'dataset-items'
+const TRACE_LINK = '[data-attr="dataset-item-trace-link"]'
+
+function toTraceDrawerRow(item: DatasetItem): TraceListRow | null {
+    return item.source_trace_id && item.source_timestamp
+        ? { traceId: item.source_trace_id, timestamp: item.source_timestamp, stepId: item.source_event_id }
+        : null
+}
 
 export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     const {
@@ -57,6 +69,7 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
     const canChangeDatasetStatus = canManageDataset && !isHistoricalRevision
+    const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
 
     const columns: LemonTableColumns<DatasetItem> = [
         {
@@ -91,6 +104,7 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                             event: item.source_event_id ?? undefined,
                             timestamp: item.source_timestamp,
                         })}
+                        data-attr="dataset-item-trace-link"
                     >
                         {truncateValue(item.source_trace_id)}
                     </Link>
@@ -294,7 +308,9 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 pagination={pagination}
                 nouns={['dataset item', 'dataset items']}
                 emptyState="No items in this dataset yet."
+                {...drawerTableProps}
             />
+            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
         </div>
     )
 }

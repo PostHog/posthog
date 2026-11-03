@@ -21,6 +21,7 @@ aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-kms = { workspace = true, optional = true }
 base64 = { workspace = true }
 chrono = { workspace = true, optional = true }
+cssparser = { version = "0.38", default-features = false, features = ["fast_match_byte"] }
 futures = { workspace = true, optional = true }
 governor = { workspace = true, optional = true }
 hkdf = "0.12"

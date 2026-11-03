@@ -1,18 +1,17 @@
 """Batch export run endpoints: list, retrieve, retry and cancel."""
 
-import uuid
 from typing import Any, cast
+from uuid import UUID
 
 from django.utils.timezone import now
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.integer_field_bounds import (
     BIG_INTEGER_FIELD_MAX,
@@ -27,12 +26,6 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
-from products.batch_exports.backend.presentation.views.utils import parse_path_uuid
-
-# The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
-RUN_ID_PARAMETER = OpenApiParameter(
-    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export run."
-)
 
 
 class BatchExportRunSerializer(serializers.Serializer):
@@ -164,22 +157,13 @@ class RunsCursorPagination(FacadeCursorPagination):
     page_size = 100
 
 
-@extend_schema(
-    tags=["batch_exports"],
-    parameters=[
-        OpenApiParameter(
-            "batch_export_id",
-            {"type": "string", "format": "uuid", "description": "The `BatchExport` this run belongs to."},
-            OpenApiParameter.PATH,
-        )
-    ],
-)
-@extend_schema_view(
-    list=extend_schema(parameters=[BatchExportRunListQuerySerializer]),
-    retrieve=extend_schema(parameters=[RUN_ID_PARAMETER]),
-    logs=extend_schema(parameters=[RUN_ID_PARAMETER]),
-)
+@extend_schema(tags=["batch_exports"])
+@extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run."),
+        "batch_export_id": PathParameter(type=UUID, description="The `BatchExport` this run belongs to."),
+    }
     scope_object = "batch_export"
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
@@ -192,8 +176,8 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
     def get_log_entry_instance_id(self) -> str:
         return cast(str, self.parents_query_dict["run_id"])
 
-    def _get_export_id(self) -> uuid.UUID:
-        return parse_path_uuid(self.kwargs["parent_lookup_batch_export_id"])
+    def _get_export_id(self) -> UUID:
+        return self.kwargs["parent_lookup_batch_export_id"]
 
     def _get_run_filters(self) -> contracts.BatchExportRunFilters:
         query = BatchExportRunListQuerySerializer(data=self.request.GET)
@@ -228,9 +212,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         # permission check, so both happen here: the facade filters by team and export, and
         # check_object_permissions runs on the contract. `logs` reads the run through here too.
         try:
-            run = batch_exports_api.get_batch_export_run(
-                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"])
-            )
+            run = batch_exports_api.get_batch_export_run(self.team_id, self._get_export_id(), self.kwargs["pk"])
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
         self.check_object_permissions(self.request, run)
@@ -244,7 +226,6 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
             lambda page: batch_exports_api.list_batch_export_runs(self.team_id, export_id, filters=filters, page=page),
         )
 
-    @extend_schema(parameters=[RUN_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def retry(self, *args, **kwargs) -> response.Response:
         """Retry a batch export run.
@@ -261,7 +242,6 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
 
         return response.Response({"backfill_id": backfill_id}, status=status.HTTP_201_CREATED)
 
-    @extend_schema(parameters=[RUN_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
         """Cancel a batch export run."""
