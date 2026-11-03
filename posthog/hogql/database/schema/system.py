@@ -1758,8 +1758,10 @@ activity_logs: _ActivityLogsTable = _ActivityLogsTable(
             name="credential_type",
             nullable=True,
             description=(
-                "Kind of credential that authenticated the change, e.g. 'session', 'personal_api_key', 'oauth'. "
-                "Null for system activity and for entries recorded before the credential was stored."
+                "Kind of credential that authenticated the request that made the change, e.g. 'session', "
+                "'personal_api_key', 'oauth'. 'unattributed' means the request recorded no credential. Null for "
+                "changes made outside a request, such as background jobs, and for entries recorded before the "
+                "credential was stored."
             ),
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the activity occurred."),

@@ -1,10 +1,12 @@
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { identifierToHuman } from 'lib/utils/strings'
 
-const CREDENTIAL_TYPE_LABELS: Record<string, string> = {
+import type { ActivityLogCredentialTypeEnumApi } from 'products/platform_features/frontend/generated/api.schemas'
+
+const CREDENTIAL_TYPE_LABELS: Record<ActivityLogCredentialTypeEnumApi, string> = {
     session: 'Session',
     personal_api_key: 'Personal API key',
     oauth: 'OAuth app',
-    project_secret_key: 'Project secret key',
+    project_secret_key: 'Project secret API key',
     team_secret_token: 'Legacy secret key',
     id_jag: 'Cross-app access (XAA)',
     scim: 'SCIM',
@@ -24,6 +26,7 @@ const CREDENTIAL_TYPE_LABELS: Record<string, string> = {
     unattributed: 'Unknown',
 }
 
-export function credentialTypeLabel(credentialType: string): string {
-    return CREDENTIAL_TYPE_LABELS[credentialType] ?? capitalizeFirstLetter(credentialType.replaceAll('_', ' '))
+export function credentialTypeLabel(credentialType: ActivityLogCredentialTypeEnumApi): string {
+    // A cached frontend bundle can receive a type that a newer backend added after the bundle was built.
+    return CREDENTIAL_TYPE_LABELS[credentialType] ?? identifierToHuman(credentialType)
 }

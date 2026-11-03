@@ -5,6 +5,8 @@ import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
 
+import type { ActivityLogCredentialTypeEnumApi } from 'products/platform_features/frontend/generated/api.schemas'
+
 export interface ActivityChange {
     type: ActivityScope
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split' | 'merged' | 'copied'
@@ -58,9 +60,9 @@ export type ActivityLogItem = {
     client?: string | null
     /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
     ip_address?: string | null
-    /** Kind of credential that authenticated the change, e.g. `session` or `personal_api_key`. Null for system activity and older entries. */
-    credential_type?: string | null
-    /** Login session id or key id of that credential. Only the advanced activity log returns it, and only for some credential types. */
+    /** Kind of credential that authenticated the request that made the change. Null outside a request and for older entries. */
+    credential_type?: ActivityLogCredentialTypeEnumApi | null
+    /** Login session id or key id of that credential. Both activity log endpoints return it, only for some credential types. */
     credential_id?: string | null
 }
 

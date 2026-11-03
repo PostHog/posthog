@@ -64,10 +64,8 @@ DeclaredCredentialType = Literal[
 CredentialType = Literal[DeclaredCredentialType, "unattributed"]
 CREDENTIAL_TYPE_CHOICES: tuple[CredentialType, ...] = get_args(CredentialType)
 # The credential types whose `credential_id` customers can read. Each id names a login session or a
-# key that the customer can look up and revoke through the PostHog API. Every other id stays
-# internal. A service JWT audience names an internal PostHog service, so it must never reach a
-# customer. Several other ids name objects that customers can see, such as an OAuth application or
-# a sharing configuration, so adding one of those types here discloses no internal value.
+# key that the customer can look up and revoke through the PostHog API. Never add `service_jwt`: its
+# id is the audience of an internal PostHog service.
 CUSTOMER_VISIBLE_CREDENTIAL_ID_TYPES: frozenset[CredentialType] = frozenset(
     {"session", "personal_api_key", "project_secret_key"}
 )
