@@ -1235,6 +1235,7 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault = `expectation`
 export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
 export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
 
@@ -1267,6 +1268,12 @@ export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
             monitoring: zod
                 .union([
                     zod.object({
+                        purpose: zod
+                            .enum(['expectation', 'minimum_evidence'])
+                            .default(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault)
+                            .describe(
+                                '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                            ),
                         reference_period_minutes: zod
                             .number()
                             .gt(
@@ -3659,6 +3666,7 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOnePurposeDefault = `expectation`
 export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
 export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax = 527040
 
@@ -3712,6 +3720,14 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
                         monitoring: zod
                             .union([
                                 zod.object({
+                                    purpose: zod
+                                        .enum(['expectation', 'minimum_evidence'])
+                                        .default(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOnePurposeDefault
+                                        )
+                                        .describe(
+                                            '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                                        ),
                                     reference_period_minutes: zod
                                         .number()
                                         .gt(
