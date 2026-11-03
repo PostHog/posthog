@@ -163,6 +163,9 @@ CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 # The detail key of the code that names a failed check's reason, as production keeps it on its check's error.
 ERROR_CODE_KEY: Final = "error_code"
 
+# The detail key that marks a firing the episode's last verdict muted, so the history tells it from a snooze.
+SUPPRESSED_BY_AGENT_KEY: Final = "notification_suppressed_by_agent"
+
 SLOT_KEY_PREFIX = "slot:"
 
 EVALUATED_INTERVALS = frozenset(

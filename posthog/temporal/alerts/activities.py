@@ -104,6 +104,7 @@ from products.alerts.backend.facade.destinations import count_active_alert_desti
 from products.alerts.backend.facade.email import alert_email_recipients
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -1188,7 +1189,7 @@ async def run_investigation_safety_net() -> int:
 async def cleanup_alert_checks() -> int:
     @database_sync_to_async(thread_sensitive=False)
     def _cleanup() -> int:
-        return AlertCheck.clean_up_old_checks()
+        return AlertCheck.clean_up_old_checks() + InsightAlertInvestigation.clean_up_old_investigations()
 
     async with Heartbeater():
         return await _cleanup()

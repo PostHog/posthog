@@ -84,6 +84,14 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
+def source_suppressed_holds_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose held delivery its source released
+    with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
+    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+
+
 def delivery_held_back(address: HeldDeliveryAddress) -> bool:
     """Whether an evaluation's delivery is held and not released with a send, so it has not gone out."""
     return delivery_holds.blocks_delivery(address.team_id, address.configuration_id, address.evaluation_key)

@@ -161,6 +161,18 @@ class TestPlatformInvestigation(BaseTest):
         assert self._claim() == first
         assert first.claimed is claimed
 
+    def test_the_daily_prune_drops_only_investigations_past_retention(self) -> None:
+        self._investigation(at=NOW - InsightAlertInvestigation.RETENTION - timedelta(hours=1), key="slot:old")
+        self._investigation(at=NOW - InsightAlertInvestigation.RETENTION + timedelta(hours=1), key="slot:recent")
+
+        with time_machine.travel(NOW, tick=False):
+            deleted = InsightAlertInvestigation.clean_up_old_investigations()
+
+        assert deleted == 1
+        assert list(
+            InsightAlertInvestigation.objects.for_team(self.team.id).values_list("evaluation_key", flat=True)
+        ) == ["slot:recent"]
+
 
 class TestFinishInvestigation(BaseTest):
     def setUp(self) -> None:
