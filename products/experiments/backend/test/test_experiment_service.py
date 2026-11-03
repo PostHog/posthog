@@ -919,9 +919,9 @@ class TestExperimentService(APIBaseTest):
             if update == "team_default":
                 team_config.default_sequential_testing_enabled = True
                 team_config.save()
-                update_data: dict = {
+                update_data: dict[str, Any] = {
                     "metrics": [
-                        *experiment.metrics,
+                        *(experiment.metrics or []),
                         {
                             "kind": "ExperimentMetric",
                             "metric_type": "mean",
@@ -931,11 +931,12 @@ class TestExperimentService(APIBaseTest):
                     ]
                 }
             else:
-                update_data = {
+                updates: dict[str, dict[str, Any]] = {
                     "inline": {"metrics": inline_metrics},
                     "saved": {"saved_metrics_ids": saved_links},
                     "stats_config": {"stats_config": _SEQUENTIAL_STATS_CONFIG},
-                }[update]
+                }
+                update_data = updates[update]
             service.update_experiment(experiment, update_data, allow_unknown_events=True)
 
         if rejected:
