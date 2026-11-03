@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -157,6 +158,29 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "invited you to join" not in subject
         # Routed to the delegation template
         assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
+
+    @parameterized.expand([("member_invite", False), ("delegation_invite", True)])
+    @patch("posthog.tasks.email.check_esp_suppression")
+    def test_send_invite_flags_suppressed_target_email(
+        self, _name: str, is_setup_delegation: bool, mock_check: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        mock_check.return_value = ESPSuppressionResult(
+            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
+        )
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="bounced@example.com",
+            is_setup_delegation=is_setup_delegation,
+        )
+
+        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            send_invite(invite.id)
+
+        invite.refresh_from_db()
+        assert invite.email_suppressed is True
 
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

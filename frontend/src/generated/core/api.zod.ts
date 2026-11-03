@@ -434,6 +434,8 @@ export const invitesCreateBodyTargetEmailMax = 254
 
 export const invitesCreateBodyFirstNameMax = 30
 
+export const invitesCreateBodyMessageMax = 1000
+
 export const invitesCreateBodySendEmailDefault = true
 export const invitesCreateBodyCombinePendingInvitesDefault = false
 
@@ -444,7 +446,11 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
@@ -457,6 +463,8 @@ export const invitesBulkCreateBodyTargetEmailMax = 254
 
 export const invitesBulkCreateBodyFirstNameMax = 30
 
+export const invitesBulkCreateBodyMessageMax = 1000
+
 export const invitesBulkCreateBodySendEmailDefault = true
 export const invitesBulkCreateBodyCombinePendingInvitesDefault = false
 
@@ -467,7 +475,11 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesBulkCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
