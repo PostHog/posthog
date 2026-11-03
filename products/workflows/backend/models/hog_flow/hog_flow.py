@@ -353,8 +353,35 @@ def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
                 capture_exception(e)
 
 
+def _enqueue_workflow_created_report(
+    team_id: int, workflow_id: str, created_at: str, origin_product: str | None, actions_count: int
+) -> None:
+    from products.workflows.backend.tasks.hog_flows import report_workflow_created  # noqa: PLC0415
+
+    try:
+        report_workflow_created.delay(
+            team_id=team_id,
+            hog_flow_id=workflow_id,
+            created_at=created_at,
+            origin_product=origin_product,
+            actions_count=actions_count,
+        )
+    except Exception:
+        logger.exception("Failed to report workflow creation", team_id=team_id, workflow_id=workflow_id)
+
+
 @receiver(post_save, sender=HogFlow)
-def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
+def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, using="default", **kwargs):
+    if created:
+        team_id = instance.team_id
+        workflow_id = str(instance.id)
+        created_at = instance.created_at.isoformat()
+        origin_product = instance.origin_product
+        actions_count = len(instance.actions or [])
+        transaction.on_commit(
+            lambda: _enqueue_workflow_created_report(team_id, workflow_id, created_at, origin_product, actions_count),
+            using=using,
+        )
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
         return

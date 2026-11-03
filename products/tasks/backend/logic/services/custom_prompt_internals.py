@@ -22,9 +22,13 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import is_transient_failure_error_type
 from products.tasks.backend.facade.api import upload_task_run_artifacts
-from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
+from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.logic.services.startup_failure import (
+    AgentStartupFailed,
+    SandboxRunFailed as SandboxRunFailed,
+    read_startup_failure,
+)
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
@@ -50,7 +54,7 @@ FINAL_POLL_READ_SECONDS = 5
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 1200s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1800s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
@@ -141,6 +145,7 @@ class CustomPromptSandboxContext:
     """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
     agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
     sub-agents included."""
+    disable_skills: bool = False
     disable_repo_hooks: bool = False
     """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
     can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
@@ -274,14 +279,9 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
-class SandboxRunFailed(RuntimeError):
-    def __init__(self, message: str, *, error_type: str | None) -> None:
-        super().__init__(message)
-        self.error_type = error_type
-
-    @property
-    def transient(self) -> bool:
-        return is_transient_failure_error_type(self.error_type)
+class RepositoryContextUnavailable(SandboxRunFailed):
+    def __init__(self, error_type: str, message: str | None = None) -> None:
+        super().__init__(message or error_type, error_type=error_type)
 
 
 SESSION_FILE_ARTIFACT_TYPE = "context"
@@ -364,6 +364,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if context.codex_shared_prompt_cache:
         extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_skills:
+        extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
@@ -492,6 +494,11 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
             exc_info=True,
         )
         return await sync_to_async(_read)()
+
+
+async def _saved_finish_report(task_run_id) -> str | None:
+    """The report a `finish` call saved. It can land before end_turn and outranks the log's commentary."""
+    return (await _refresh_task_run(task_run_id)).finish_report
 
 
 @frozen
@@ -630,7 +637,7 @@ async def poll_for_turn(
         # If success
         if log_state.agent_finished and log_state.last_message:
             return TurnPollResult(
-                last_message=log_state.last_message,
+                last_message=await _saved_finish_report(task_run.id) or log_state.last_message,
                 full_log=log_state.full_log,
                 total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
@@ -638,11 +645,12 @@ async def poll_for_turn(
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
         if log_state.empty_end_turn:
-            # If the agent emitted text in an earlier poll of this same turn, the turn
-            # is genuinely complete — end_turn just landed in a later slice.
-            if latest_assistant_text is not None:
+            # A finish report, or text the agent emitted in an earlier poll of this same turn,
+            # means the turn is genuinely complete — end_turn just landed in a later slice.
+            turn_message = await _saved_finish_report(task_run.id) or latest_assistant_text
+            if turn_message is not None:
                 return TurnPollResult(
-                    last_message=latest_assistant_text,
+                    last_message=turn_message,
                     full_log=log_state.full_log,
                     total_lines=log_state.total_lines,
                     printed_lines=printed_lines,
@@ -685,6 +693,8 @@ async def poll_for_turn(
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
                 failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+                startup_failure=read_startup_failure(refreshed.state),
+                finish_report=refreshed.finish_report,
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -711,6 +721,8 @@ async def poll_for_turn(
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
             failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+            startup_failure=read_startup_failure(refreshed.state),
+            finish_report=refreshed.finish_report,
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -894,6 +906,8 @@ async def _drain_final_log(
     refreshed_status: str,
     error_message: str | None = None,
     failure_error_type: str | None = None,
+    startup_failure: AgentStartupFailure | None = None,
+    finish_report: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -909,12 +923,23 @@ async def _drain_final_log(
     it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
+
+    A report the agent passed to `finish` wins over the log, because the run ends before the turn
+    that carries it, so the log can hold only the commentary that came before it.
     """
+    if refreshed_status == TaskRun.Status.FAILED and startup_failure is not None:
+        raise AgentStartupFailed(
+            failure=startup_failure,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            error_type=failure_error_type,
+        )
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-    if final_state.last_message:
+    last_message = finish_report or final_state.last_message
+    if last_message:
         return TurnPollResult(
-            last_message=final_state.last_message,
+            last_message=last_message,
             full_log=final_state.full_log,
             total_lines=final_state.total_lines,
             printed_lines=printed_lines,
@@ -938,6 +963,14 @@ async def _drain_final_log(
     cause = f" (cause: {error_message})" if error_message else ""
     message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     if refreshed_status == TaskRun.Status.FAILED:
+        if failure_error_type in {
+            "RepositoryAccessError",
+            "RepositoryCloneError",
+            "GitHubAuthenticationError",
+            "GitHubIntegrationError",
+            "GitHubRateLimitedError",
+        }:
+            raise RepositoryContextUnavailable(failure_error_type, f"{message} ({failure_error_type})")
         raise SandboxRunFailed(message, error_type=failure_error_type)
     raise RuntimeError(message)
 
@@ -1039,6 +1072,23 @@ class TurnLogState:
     refused: bool
 
 
+def _is_subagent_update(update: dict[str, object]) -> bool:
+    # Older Codex adapters omit parent metadata on updates but namespace child tool IDs.
+    tool_call_id = update.get("toolCallId")
+    if isinstance(tool_call_id, str) and tool_call_id.startswith("subagent:"):
+        return True
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in ("posthog", "claudeCode"):
+        metadata = meta.get(channel)
+        if isinstance(metadata, dict):
+            parent = metadata.get("parentToolCallId")
+            if isinstance(parent, str) and parent:
+                return True
+    return False
+
+
 def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
@@ -1105,6 +1155,10 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         update = params.get("update") if isinstance(params, dict) else None
         if not isinstance(update, dict):
             continue
+        # Child activity can interleave with a parent's streamed answer without ending it.
+        # Child text must not become part of the response the caller validates either.
+        if _is_subagent_update(update):
+            continue
         parsed_updates.append(update)
     # Walk backwards from the end to find the final agent response.
     # First, skip non-agent entries (e.g. usage_update) to find the last
@@ -1115,13 +1169,11 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     found_agent_msg = False
     for update in reversed(parsed_updates):
         is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
-        if not found_agent_msg:
-            if is_agent_msg:
-                found_agent_msg = True
-            else:
-                continue
-        if found_agent_msg and not is_agent_msg:
-            break
+        if not is_agent_msg:
+            if found_agent_msg:
+                break
+            continue
+        found_agent_msg = True
         text = _extract_text(update)
         if text:
             trailing_parts.append(text)

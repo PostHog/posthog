@@ -1350,18 +1350,13 @@ pub(crate) fn chain_join<E: Emitter>(
     // so unwind via owned recursion: pop the existing next_join, recurse
     // to append, then put it back.
     fn append_at_tail<E: Emitter>(emit: &E, mut node: E::Value, new_tail: E::Value) -> E::Value {
-        let has_next = emit
-            .get_field(&node, "next_join")
-            .map(|v| !emit.is_null(&v))
-            .unwrap_or(false);
-        if !has_next {
-            emit.set_field(&mut node, "next_join", new_tail);
-            return node;
+        match emit.remove_field(&mut node, "next_join") {
+            Some(existing) if !emit.is_null(&existing) => {
+                let updated = append_at_tail(emit, existing, new_tail);
+                emit.set_field(&mut node, "next_join", updated);
+            }
+            _ => emit.set_field(&mut node, "next_join", new_tail),
         }
-        // Move the existing next_join out, recurse with it, set it back.
-        let existing = emit.get_field(&node, "next_join").expect("just checked");
-        let updated = append_at_tail(emit, existing, new_tail);
-        emit.set_field(&mut node, "next_join", updated);
         node
     }
     append_at_tail(emit, left, right)

@@ -30,6 +30,7 @@ from products.engineering_analytics.backend.logic.delivery_scope import (
     DeliveryScope as DeliveryScope,
     SummaryScope as SummaryScope,
 )
+from products.engineering_analytics.backend.logic.depot_ci_usage import build_depot_ci_usage as build_depot_ci_usage
 from products.engineering_analytics.backend.logic.dora import build_dora_overview as build_dora_overview
 from products.engineering_analytics.backend.logic.friction import (
     build_author_friction as build_author_friction,
@@ -44,9 +45,11 @@ from products.engineering_analytics.backend.logic.job_log_insights import (
 )
 from products.engineering_analytics.backend.logic.pull_requests import (
     build_attention_pull_requests as build_attention_pull_requests,
+    build_author_llm_spend as build_author_llm_spend,
     build_author_workflow_costs as build_author_workflow_costs,
     build_ci_cards as build_ci_cards,
     build_ci_failure_logs as build_ci_failure_logs,
+    build_llm_spend_coverage as build_llm_spend_coverage,
     build_merged_pull_requests as build_merged_pull_requests,
     build_pr_cost as build_pr_cost,
     build_pr_lifecycle as build_pr_lifecycle,

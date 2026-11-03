@@ -7,6 +7,7 @@ query transforms live in ``products.endpoints.backend.materialization_transforms
 """
 
 import dataclasses
+from datetime import timedelta
 from typing import cast
 
 from django.db import DatabaseError, transaction
@@ -39,7 +40,6 @@ from products.data_modeling.backend.facade.api import (
     sync_saved_query_to_dag,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.endpoints.backend.constants import DATA_FRESHNESS_BUCKETS
 from products.endpoints.backend.logic.activity import EndpointContext
 from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
 from products.endpoints.backend.materialization_transforms import (
@@ -54,7 +54,6 @@ from products.endpoints.backend.materialization_transforms import (
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
-from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -177,7 +176,10 @@ class EndpointMaterializationService:
             self._enable_materialization_inner(endpoint, version, data_freshness_seconds, bucket_overrides)
             # The throttle may hold a not-ready snapshot cached before the enable. Drop it so the
             # first completed run is picked up on the next request, not when the entry expires.
-            clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
+            transaction.on_commit(
+                lambda: clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version]),
+                robust=True,
+            )
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
             if version.saved_query:
                 self._log_materialization_activity(
@@ -340,18 +342,18 @@ class EndpointMaterializationService:
         )
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
-        saved_query.sync_frequency_interval = sync_frequency_to_sync_frequency_interval(
-            DATA_FRESHNESS_BUCKETS[data_freshness_seconds]
-        )
+        saved_query.sync_frequency_interval = timedelta(seconds=data_freshness_seconds)
         saved_query.save()
 
-    def disable_materialization(self, endpoint: Endpoint, version: EndpointVersion) -> None:
+    def disable_materialization(
+        self, endpoint: Endpoint, version: EndpointVersion, *, cache_ttl_seconds: int | None = None
+    ) -> None:
         """Disable materialization for an endpoint version."""
         if version.saved_query:
             saved_query_id = str(version.saved_query.id)
             saved_query_name = version.saved_query.name
             try:
-                version.disable_materialization()
+                version.disable_materialization(cache_ttl_seconds=cache_ttl_seconds)
             except Exception:
                 ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="error").inc()
                 raise

@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Page size.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Rows to skip, for the next page.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "order": {
+            "default": "people",
+            "description": "`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n* `people` - People\n* `observations` - Observations\n* `growth` - Growth\n* `recent` - Recent",
+            "enum": ["people", "observations", "growth", "recent"],
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "Only this scanner's clusters. Defaults to every scanner you can read.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
