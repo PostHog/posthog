@@ -1168,6 +1168,59 @@ class TestLinkSlackThread(APIBaseTest):
         assert res.status_code == status.HTTP_204_NO_CONTENT
         client.users_lookupByEmail.assert_not_called()
 
+    # Agents call these through the MCP server with OAuth tokens, and a custom action the scope check
+    # doesn't know resolves to no scope, which refuses every scoped token.
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_token_with_comment_write_can_link_and_unlink(self, mock_slack, _flag, mock_profile, _import):
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.utils import generate_random_token_personal
+
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent", user=self.user, secure_value=hash_key_value(value), scopes=["comment:write"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        linked = self._link(scope="Insight", item_id="42")
+        assert linked.status_code == status.HTTP_201_CREATED, linked.json()
+        unlinked = self.client.post(f"/api/projects/{self.team.id}/comments/{linked.json()['id']}/unlink_slack_thread/")
+        assert unlinked.status_code == status.HTTP_204_NO_CONTENT
+
+    @patch("posthog.api.comments.is_scout_sandbox_request", return_value=True)
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_scout_cannot_link_a_thread_to_a_ticket(self, mock_slack, _flag, _scout):
+        # Scouts write to tickets through the reply endpoint only, which the serializer enforces.
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+        mock_slack.return_value.client.conversations_replies.assert_not_called()
+
+    @patch("posthog.api.comments.time.monotonic", side_effect=[0, 100])
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_gives_up_on_a_slow_private_channel_member_list(self, mock_slack, _flag, _clock):
+        # Each page has its own timeout, so without a limit on the scan a big channel holds the worker.
+        Integration.objects.filter(id=self.integration.id).update(created_by=self.user)
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        client.conversations_info.return_value["channel"].update({"is_private": True, "is_group": True})
+        more = {"members": ["U1"], "response_metadata": {"next_cursor": "more"}}
+        # Finite, so a scan with no limit ends (refused as "not in the channel") instead of hanging the test.
+        client.conversations_members.side_effect = [more, more, {"members": ["U1"]}]
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert client.conversations_members.call_count == 1
+
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     def test_unlinking_refuses_a_discussion_that_was_sent_to_slack(self, _flag):
         # A sent discussion was written in PostHog, so it isn't a copy that's safe to remove.
@@ -1329,6 +1382,27 @@ class TestImportLinkedSlackThread(APIBaseTest):
         )
         saved = Comment.objects.get(source_comment=self.root)
         assert (saved.item_context or {})["slack_author_name"] == "Unknown"
+
+    # resolve_slack_user hides users.info's Retry-After, so a fixed 30s retry would spend every attempt
+    # inside one cooldown and save the authors as "Unknown".
+    @parameterized.expand([("first_retry", 0, 60), ("second_retry", 1, 120)])
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_an_unresolved_author_backs_off(self, _name, retries, wait, mock_slack, mock_profile):
+        mock_profile.return_value = {"name": "Unknown", "email": None, "avatar": None, "team_id": None}
+        mock_slack.return_value.client.conversations_replies.return_value = _thread_page(
+            ROOT_MESSAGE, {"ts": "1767225700.000001", "user": "U2", "text": "Yup"}
+        )
+
+        with self.assertRaises(Retry) as raised:
+            import_linked_slack_thread.apply(args=(str(self.mirror.id),), kwargs={"cursor": "page"}, retries=retries)
+
+        assert raised.exception.when == wait
+
+    def test_a_page_a_lost_worker_was_on_runs_again(self):
+        # Acknowledged early, the page would be dropped with the worker and the root left at "pending".
+        assert import_linked_slack_thread.acks_late is True
+        assert import_linked_slack_thread.reject_on_worker_lost is True
 
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_a_rate_limit_retries_after_slacks_retry_after(self, mock_slack):

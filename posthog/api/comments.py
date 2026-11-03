@@ -1,3 +1,4 @@
+import time
 import uuid
 from contextlib import nullcontext
 from datetime import datetime, timedelta
@@ -183,6 +184,8 @@ _UNLINKABLE_COMMENT_SCOPES = frozenset({"conversations_ticket", *DESKTOP_COMMENT
 
 # The egress label for the link request's Slack calls, so their rate-limit pressure shows apart.
 LINK_SLACK_THREAD_SOURCE = "discussion_slack_link"
+# How long a link request may spend asking Slack who is in a private channel.
+SLACK_CHANNEL_MEMBER_SCAN_SECONDS = 15
 
 
 class SlackUnavailable(exceptions.APIException):
@@ -845,6 +848,18 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     pagination_class = CommentPagination
     scope_object = "comment"
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
+    # A custom action missing here resolves to no required scope, and a scoped token is then refused
+    # even with comment:write.
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "send_to_slack",
+        "link_slack_thread",
+        "unlink_slack_thread",
+    ]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         """Ticket-scoped comments require ticket API scope access instead of comment access.
@@ -1485,6 +1500,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if scope in _UNLINKABLE_COMMENT_SCOPES:
             raise exceptions.ValidationError("A Slack thread can't be linked to this kind of discussion")
         if scope in TICKET_COMMENT_SCOPES:
+            # The serializer holds scouts to the ticket reply endpoint; linking writes the comment directly.
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't link Slack threads to tickets.")
             _require_ticket_editor_access(
                 team_id=team.id, item_id=item_id, user_access_control=self.user_access_control
             )
@@ -1613,6 +1631,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             raise exceptions.NotFound()
         root = self.get_object()
         if root.scope in TICKET_COMMENT_SCOPES:
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't unlink Slack threads from tickets.")
             _require_ticket_editor_access(
                 team_id=self.team_id, item_id=root.item_id, user_access_control=self.user_access_control
             )
@@ -1641,6 +1661,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 "Try again in a minute, or delete those replies first."
             )
         with transaction.atomic():
+            # Root before mirror, the order the history import and deleting a root take them in.
+            list(Comment.objects.filter(team_id=self.team_id, id=root.id).select_for_update().values_list("id"))
             mirror.delete()
             # The discussion is a copy of the thread, so removing it loses nothing the thread doesn't keep.
             Comment.objects.filter(team_id=self.team_id).filter(Q(id=root.id) | Q(source_comment_id=root.id)).update(
@@ -1695,6 +1717,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     @staticmethod
     def _slack_user_in_channel(client: WebClient, channel_id: str, slack_member_id: str) -> bool:
+        # Each page has its own timeout, so a big channel on a slow Slack needs a limit on the whole scan.
+        deadline = time.monotonic() + SLACK_CHANNEL_MEMBER_SCAN_SECONDS
         cursor: str | None = None
         try:
             while True:
@@ -1704,6 +1728,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 cursor = (response.get("response_metadata") or {}).get("next_cursor") or None
                 if not cursor:
                     return False
+                if time.monotonic() > deadline:
+                    raise SlackUnavailable("Slack is slow to say who is in that channel. Try again in a minute.")
+        except SlackUnavailable:
+            raise
         except SlackApiError as e:
             slack_error = (e.response.get("error") if e.response else None) or "unknown error"
             raise exceptions.ValidationError(f"Couldn't check who is in that Slack channel ({slack_error})")
