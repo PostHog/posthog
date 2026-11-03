@@ -134,6 +134,7 @@ ActivityScope = Literal[
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
+    "SignalSourceConfig",
     "SignalTeamConfig",
     "StreamlitApp",
     "Metric",

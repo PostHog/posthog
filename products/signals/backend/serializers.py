@@ -25,12 +25,15 @@ from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
+from products.error_tracking.backend.facade import alerts as error_tracking_alerts
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
+    ISSUE_FILTER_SOURCES,
+    ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
@@ -199,7 +202,15 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
-    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object "
+    "with a `properties` list of event property filters, the same shape error tracking alert "
+    "filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, "
+    "`assignee`) and the properties of one exception: the first one for a new issue, the "
+    "reopening one, or an example for a spike. Only issues that match become signals. The server "
+    "compiles the filter and ignores any bytecode sent with it. Save the same filter on all three "
+    "error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to "
+    "future signals only, and they decide which issues are eligible. They are not a spend cap."
 )
 
 
@@ -346,6 +357,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+        if config is not None and ISSUE_FILTERS_KEY in config:
+            config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
+                source_product, source_type, config[ISSUE_FILTERS_KEY]
+            )
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -367,6 +382,22 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     }
                 )
         return attrs
+
+    def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
+        if (source_product, source_type) not in ISSUE_FILTER_SOURCES:
+            raise serializers.ValidationError(
+                {"config": f"{ISSUE_FILTERS_KEY} is only supported on error tracking sources"}
+            )
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None:
+            raise serializers.ValidationError({"config": f"{ISSUE_FILTERS_KEY} needs a project to compile against"})
+        if not isinstance(filters, dict):
+            raise serializers.ValidationError({"config": f"{ISSUE_FILTERS_KEY} must be a JSON object"})
+        try:
+            return error_tracking_alerts.compile_signal_source_filters(team.id, filters)
+        except error_tracking_alerts.AlertValidationError as error:
+            raise serializers.ValidationError({"config": str(error)})
 
     def create(self, validated_data: dict) -> SignalSourceConfig:
         if (
