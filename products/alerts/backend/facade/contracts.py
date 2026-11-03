@@ -29,7 +29,8 @@ INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
     IncidentAction.TRIGGER.value: INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     IncidentAction.RESOLVE.value: INSIGHT_ALERT_INCIDENT_CLOSED_EVENT,
 }
-# Every event a destination built by the insight alert API listens on.
+# Every event an insight alert's own destinations can listen on. The generic HogFunction API treats
+# the incident events as managed and refuses to edit them, so the insight API must be able to remove them.
 INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
     *INSIGHT_ALERT_EVENT_IDS,
     *INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values(),
