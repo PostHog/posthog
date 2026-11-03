@@ -143,6 +143,7 @@ export function InboxUsageWidget(): JSX.Element | null {
     const {
         product,
         spendProduct,
+        spendAmountUsd,
         isLoading,
         isSubscribed,
         canAccessBilling,
@@ -170,10 +171,8 @@ export function InboxUsageWidget(): JSX.Element | null {
         return (
             <div className="flex flex-col gap-2">
                 <span className="text-[13px] font-semibold">Inbox spend</span>
-                {spendProduct.current_amount_usd != null && (
-                    <span className="text-xs tabular-nums">
-                        {currencyFormatter(Number(spendProduct.current_amount_usd))}
-                    </span>
+                {spendAmountUsd != null && (
+                    <span className="text-xs tabular-nums">{currencyFormatter(spendAmountUsd)}</span>
                 )}
                 {quotaLimited && <LemonTag type="warning">Spending limit reached</LemonTag>}
                 {canAccessBilling && (

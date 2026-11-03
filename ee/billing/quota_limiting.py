@@ -25,7 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import Organization, OrganizationUsageInfo
+from posthog.models.organization import Organization, OrganizationUsageInfo, OrganizationUsageResource
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
@@ -1020,9 +1020,17 @@ def set_org_usage_summary(
 
     spend_usage = new_usage.get("signals_spend_credits")
     previous_spend_usage = original_usage.get("signals_spend_credits")
+    reset_retained_spend = False
     if not spend_usage:
         if previous_spend_usage:
-            new_usage["signals_spend_credits"] = previous_spend_usage
+            period = new_usage.get("period")
+            previous_period = original_usage.get("period")
+            reset_retained_spend = bool(period and (not previous_period or period[0] != previous_period[0]))
+            # Keep the pricing decision, but never carry a previous period's spend into a new one.
+            retained_spend_usage: OrganizationUsageResource = previous_spend_usage.copy()
+            if reset_retained_spend:
+                retained_spend_usage["usage"] = 0
+            new_usage["signals_spend_credits"] = retained_spend_usage
         else:
             new_usage.pop("signals_spend_credits", None)
     else:
@@ -1072,7 +1080,9 @@ def set_org_usage_summary(
         else:
             # TRICKY: If we are not explicitly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
             original_usage_value = original_field_usage.get("usage") if original_field_usage else None
-            if original_usage_value != resource_usage.get("usage"):
+            if original_usage_value != resource_usage.get("usage") or (
+                field == "signals_spend_credits" and reset_retained_spend
+            ):
                 resource_usage["todays_usage"] = 0
             else:
                 todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0

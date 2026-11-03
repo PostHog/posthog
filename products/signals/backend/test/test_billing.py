@@ -36,7 +36,10 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
-from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
+from products.signals.backend.spend_billing import (
+    get_signals_spend_billing_credits_by_team,
+    get_signals_spend_quota_credits_by_team,
+)
 from products.skills.backend.models.skills import LLMSkill
 
 from ee.billing.quota_limiting import (
@@ -614,7 +617,7 @@ class TestSpendBasedBilling(BaseTest):
         assert dict(get_signals_spend_billing_credits_by_team(_at(10), _at(10))) == {}
 
     @parameterized.expand([(kind,) for kind in SignalSpend.Kind.values])
-    def test_next_quota_refresh_counts_settled_spend_before_daily_reporting(self, kind: str) -> None:
+    def test_quota_refresh_counts_running_and_settled_spend_once_before_daily_reporting(self, kind: str) -> None:
         self.organization.usage = {
             "signals_spend_credits": {"usage": 90, "todays_usage": 0, "limit": 100, "billing_start_date": "2026-06-10"},
             "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
@@ -643,17 +646,20 @@ class TestSpendBasedBilling(BaseTest):
                 spend=20,
             )
             assert self._day(10) == {}
-            spend.finalized_at = _at(10)
-            spend.save(update_fields=["finalized_at"])
         with time_machine.travel(_at(10) + timedelta(minutes=10), tick=False):
-            update_all_orgs_billing_quotas()
-            self.organization.refresh_from_db()
-            assert self.organization.usage is not None
-            assert self.organization.usage["signals_spend_credits"]["usage"] == 90
-            assert self.organization.usage["signals_spend_credits"]["todays_usage"] == 20
-            assert self.team.api_token in list_limited_team_attributes(
-                QuotaResource.SIGNALS_SPEND_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-            )
+            for finalized in (False, True):
+                if finalized:
+                    spend.finalized_at = _at(10)
+                    spend.save(update_fields=["finalized_at"])
+                update_all_orgs_billing_quotas()
+                self.organization.refresh_from_db()
+                assert self.organization.usage is not None
+                assert self.organization.usage["signals_spend_credits"]["usage"] == 90
+                assert self.organization.usage["signals_spend_credits"]["todays_usage"] == 20
+                assert self.team.api_token in list_limited_team_attributes(
+                    QuotaResource.SIGNALS_SPEND_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+                assert self._day(10) == ({self.team.id: 20} if finalized else {})
         mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
         assert self._day(10) == {self.team.id: 20}
         with time_machine.travel(_at(11), tick=False):
@@ -737,6 +743,11 @@ class TestSpendBasedBilling(BaseTest):
             signal_id = str(uuid4())
             self._generation(signal_id, 6_000, request_id=signal_id)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+            self._generation(str(uuid4()), 6_000, request_id="still-running")
+            assert dict(get_signals_spend_quota_credits_by_team(PERIOD_START, PERIOD_END)) == {
+                self.team.id: 3,
+                other_team.id: 1,
+            }
         with timezone.override("Pacific/Kiritimati"):
             assert self._day(10) == {self.team.id: 2, other_team.id: 1}
             assert self._day(10, organization_id=str(self.organization.id)) == {self.team.id: 2}

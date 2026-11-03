@@ -3,8 +3,9 @@ from collections.abc import Collection
 from datetime import UTC, date, datetime, time
 from uuid import UUID
 
-from django.db.models import Q, Sum
-from django.db.models.functions import TruncDate
+from django.db.models import F, Q, Sum, Value
+from django.db.models.functions import Coalesce, TruncDate
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -93,16 +94,29 @@ def task_run_uses_usage_billing(*, team_id: int, organization_id: UUID, run_id: 
 
 
 def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: dict[UUID, datetime]) -> dict[int, int]:
+    return _spend_credits_by_team(begin, end, cutoffs=cutoffs, include_running=False)
+
+
+def _spend_credits_by_team(
+    begin: datetime, end: datetime, *, cutoffs: dict[UUID, datetime], include_running: bool
+) -> dict[int, int]:
     if end <= begin or not cutoffs:
         return {}
     eligible = Q(pk__in=[])
     for cutoff, organization_ids in group_usage_billing_cutoffs(cutoffs).items():
         eligible |= Q(team__organization_id__in=organization_ids, created_at__gte=cutoff)
-    # Deliberately cross-team: both usage reporting and organization quota use this meter.
+    # Running costs belong in quota checks before their final receipt becomes billable.
+    now = timezone.now()
+    period = Q(finalized_at__gte=begin, finalized_at__lt=end)
+    if include_running and begin <= now < end:
+        period |= Q(finalized_at__isnull=True)
+    usage_at = Coalesce("finalized_at", Value(now)) if include_running else F("finalized_at")
+    # Deliberately cross-team: both usage reporting and organization quota use this aggregation.
     totals = (
         SignalSpend.objects.unscoped()
-        .filter(eligible, finalized_at__gte=begin, finalized_at__lt=end, billing_exempt=False)
-        .values("team_id", day=TruncDate("finalized_at", tzinfo=UTC))
+        .alias(usage_at=usage_at)
+        .filter(eligible, period, billing_exempt=False)
+        .values("team_id", day=TruncDate("usage_at", tzinfo=UTC))
         .annotate(total_spend=Sum("spend"))
     )
     credits: dict[int, int] = {}
@@ -118,11 +132,21 @@ def get_signals_spend_billing_credits_by_team(
     end: datetime,
     organization_id: str | UUID | None = None,
     organization_ids: Collection[str | UUID] | None = None,
-) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — usage-counter contract
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- usage-counter contract
     return list(
         spend_billing_credits_by_team(
             begin, end, cutoffs=usage_billing_cutoffs(organization_id, organization_ids)
         ).items()
+    )
+
+
+def get_signals_spend_quota_credits_by_team(
+    begin: datetime,
+    end: datetime,
+    organization_id: str | UUID | None = None,
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- usage-counter contract
+    return list(
+        _spend_credits_by_team(begin, end, cutoffs=usage_billing_cutoffs(organization_id), include_running=True).items()
     )
 
 

@@ -83,6 +83,7 @@ from products.signals.backend.facade.billing import (
     credited_refund_credits_for_org,
     signals_billing_credits_by_team,
     signals_spend_billing_credits_by_team,
+    signals_spend_quota_credits_by_team,
 )
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
@@ -2204,6 +2205,13 @@ def get_teams_with_signals_spend_credits_used_in_period(
     return [(row.team_id, row.credits) for row in signals_spend_billing_credits_by_team(begin, end)]
 
 
+@timed_log()
+def get_teams_with_signals_spend_quota_credits_used_in_period(
+    begin: datetime, end: datetime
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- counter API rows
+    return [(row.team_id, row.credits) for row in signals_spend_quota_credits_by_team(begin, end)]
+
+
 def get_signals_credited_refund_credits_for_org(
     organization_id: str | uuid.UUID, begin: datetime, end: datetime
 ) -> int:
@@ -2242,7 +2250,7 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
-    counter = signals_spend_billing_credits_by_team if spend_billing else signals_billing_credits_by_team
+    counter = signals_spend_quota_credits_by_team if spend_billing else signals_billing_credits_by_team
     return sum(row.credits for row in counter(begin, end, organization_id=organization_id))
 
 

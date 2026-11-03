@@ -301,6 +301,7 @@ class UsageCounterService:
             UsageCounter.REPLAY_VISION_CREDITS: usage_report.get_teams_with_replay_vision_credits_used_in_period,
         }
         self._quota_events_query = usage_report.get_teams_with_billable_event_count_in_period
+        self._quota_signals_spend_query = usage_report.get_teams_with_signals_spend_quota_credits_used_in_period
         self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
         self._logs_retention_query = usage_report.get_teams_with_logs_retention_bytes_in_period
         self._sandbox_compute_query = usage_report.get_teams_with_billable_sandbox_compute_usage_in_period
@@ -328,6 +329,8 @@ class UsageCounterService:
     ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- Legacy query contract: (team_id, count).
         if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
             rows = self._quota_events_query(begin, end, count_distinct=False)
+        elif caller == "quota_limiting" and counter == UsageCounter.SIGNALS_SPEND_CREDITS:
+            rows = self._quota_signals_spend_query(begin, end)
         else:
             rows = self._queries[counter](begin, end)
         # Flag readers return string team IDs, and the rows synced and exported readers return dictionaries.

@@ -99,13 +99,19 @@ const mountWithUsage = async (
     return logic
 }
 
-const mockSpendBilling = (cutoff: string | undefined, retainedCutover?: string): void => {
+const mockSpendBilling = (
+    cutoff: string | undefined,
+    retainedCutover?: string,
+    discountPercent = 0,
+    amountUsd: string | null = '12.34'
+): void => {
     useMocks({
         get: {
             '/api/billing': () => [
                 200,
                 {
-                    products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: '12.34' }],
+                    products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: amountUsd }],
+                    discount_percent: discountPercent,
                     usage_summary: {
                         signals_spend_credits: { billing_start_date: cutoff, billing_cutover_date: retainedCutover },
                     },
@@ -154,19 +160,72 @@ describe('inboxUsageLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('switches meters at UTC midnight without replacing billing data', async () => {
+    it.each<[number, string | null, number | null]>([
+        [0, '100', 100],
+        [30, '100', 70],
+        [100, '100', 0],
+        [30, null, null],
+    ])('applies the account discount to spend (%s%%, $%s)', async (discountPercent, amountUsd, expected) => {
+        jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-11T12:00:00Z') })
+        mockSpendBilling('2026-06-10', undefined, discountPercent, amountUsd)
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.spendAmountUsd).toBe(expected)
+    })
+
+    it('switches meters and refreshes quota at UTC midnight, ignoring a pending legacy response', async () => {
         jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-09T23:59:00Z') })
         mockSpendBilling('2026-06-10')
+        let finishLegacyRequest!: () => void
+        let legacyRequestStarted!: () => void
+        const legacyRequest = new Promise<void>((resolve) => (finishLegacyRequest = resolve))
+        const legacyRequested = new Promise<void>((resolve) => (legacyRequestStarted = resolve))
+        let requestCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/refund-summary/': async () => {
+                    const quotaLimited = Date.now() < Date.parse('2026-06-10T00:00:00Z')
+                    if (++requestCount === 2) {
+                        legacyRequestStarted()
+                        await legacyRequest
+                    }
+                    return [
+                        200,
+                        {
+                            period_billable_credits: 4500,
+                            credited_credits: 0,
+                            credited_refund_count: 0,
+                            quota_limited: quotaLimited,
+                        },
+                    ]
+                },
+            },
+        })
+        featureFlagLogic.mount()
+        setRefundsFlag()
         logic = inboxUsageLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         const billing = logic.values.billing
         expect(logic.values.spendProduct).toBeNull()
+        expect(logic.values.quotaLimited).toBe(true)
+
+        logic.actions.loadRefundSummary()
+        await legacyRequested
 
         jest.advanceTimersByTime(Date.parse('2026-06-10T00:00:00Z') - Date.now())
 
         expect(logic.values.billing).toBe(billing)
         expect(logic.values.spendProduct?.type).toBe('inbox_usage')
+        expect(logic.values.refundSummaryLoading).toBe(true)
+        expect(logic.values.quotaLimited).toBe(false)
+        await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
+        expect(logic.values.quotaLimited).toBe(false)
+
+        finishLegacyRequest()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.quotaLimited).toBe(false)
     })
 
     it('refreshes the meter when a background tab becomes visible after cutoff', async () => {

@@ -25,18 +25,39 @@ from ee.billing.quota_limiting import (
 
 
 class TestSpendBillingContract(BaseTest):
-    def test_partial_billing_sync_keeps_cutoff(self) -> None:
+    @parameterized.expand(
+        [
+            ("omitted_period", None, 25, 0, 25),
+            ("same_period", "2026-06-01T00:00:00+00:00", 25, 0, 25),
+            ("new_period", "2026-07-01T00:00:00+00:00", 25, 0, 0),
+            ("new_period_local_spend", "2026-07-01T00:00:00+00:00", 0, 25, 0),
+        ]
+    )
+    def test_partial_billing_sync_keeps_cutoff_and_current_period_spend(
+        self, _name: str, period_start: str | None, usage: int, todays_usage: int, expected_total: int
+    ) -> None:
         self.organization.usage = {
+            "period": ["2026-06-01T00:00:00+00:00", "2026-07-01T00:00:00+00:00"],
             "signals_spend_credits": {
                 "billing_start_date": "2026-06-10",
-                "limit": 1000,
-                "usage": 20,
-            }
+                "limit": 20,
+                "usage": usage,
+                "todays_usage": todays_usage,
+            },
         }
-        set_org_usage_summary(
-            self.organization, cast(OrganizationUsageInfo, {"signals_credits": {"limit": 4500, "usage": 1500}})
-        )
-        assert self.organization.usage["signals_spend_credits"]["billing_start_date"] == "2026-06-10"
+        new_usage: dict = {"signals_credits": {"limit": 4500, "usage": 1500}}
+        if period_start:
+            new_usage["period"] = [period_start, "2026-08-01T00:00:00+00:00"]
+        set_org_usage_summary(self.organization, cast(OrganizationUsageInfo, new_usage))
+        spend_usage = self.organization.usage["signals_spend_credits"]
+        assert spend_usage["billing_start_date"] == "2026-06-10"
+        assert spend_usage["limit"] == 20
+        assert spend_usage["usage"] + spend_usage["todays_usage"] == expected_total
+        with time_machine.travel("2026-07-02T00:00:00Z", tick=False):
+            if period_start:
+                assert bool(org_quota_limited_until(self.organization, QuotaResource.SIGNALS_SPEND_CREDITS, [])) == (
+                    expected_total >= 20
+                )
         with time_machine.travel(_at(9), tick=False):
             assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_CREDITS
         with time_machine.travel(_at(10, 0), tick=False):
