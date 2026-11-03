@@ -63,18 +63,6 @@ export function WorkloadTrustPolicies(): JSX.Element {
                         Couldn't load the supported providers.
                     </LemonBanner>
                 ) : null}
-                {providers && providers.unsupported.length > 0 ? (
-                    <p className="text-secondary text-sm">
-                        Not supported:{' '}
-                        {providers.unsupported.map((provider, index) => (
-                            <span key={provider.key}>
-                                {index > 0 ? '; ' : ''}
-                                <strong>{provider.name}</strong> ({provider.reason.replace(/\.$/, '')})
-                            </span>
-                        ))}
-                        .
-                    </p>
-                ) : null}
                 {policiesLoadFailed ? (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadPolicies() }}>
                         Couldn't load trusted workloads.
