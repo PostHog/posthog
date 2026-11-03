@@ -528,12 +528,7 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
         if address:
             raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("The project has no verified default email sender.") from e
-    return {
-        "integrationId": sender.integration_id,
-        "email": sender.email,
-        "name": sender.name,
-        "isDefault": not address,
-    }
+    return {"integrationId": sender.integration_id, "email": sender.email, "name": sender.name}
 
 
 def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
