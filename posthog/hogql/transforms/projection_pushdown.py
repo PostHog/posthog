@@ -112,9 +112,10 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         enclosing_alias_references = self._alias_references
         self._alias_references = set()
         compares_rows = self.compares_rows(node)
+        positional = self._positional_columns(node)
         for expr in node.select:
-            if compares_rows:
-                self._read_whole(node, expr)
+            if compares_rows or any(expr is column for column in positional):
+                self._column_read_whole(node, expr)
                 continue
             if self._is_from_asterisk(expr):
                 continue
@@ -157,14 +158,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         # A clause that names a select column by its alias (`ORDER BY p`) reads the column's value itself
         for expr in node.select:
             if expr.type is not None and id(expr.type) in self._alias_references:
-                passthrough = self._passthrough_source(expr)
-                if passthrough is not None:
-                    child, child_name = passthrough
-                    self.reads[(id(child), child_name)].whole = True
-                else:
-                    col_name = self._get_column_name(expr)
-                    if col_name is not None:
-                        self.reads[(id(node), col_name)].whole = True
+                self._column_read_whole(node, expr)
         self._alias_references = enclosing_alias_references
 
         # Phase 3: Propagate parent demands down to child subqueries
@@ -216,27 +210,18 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return self._select_names(node.initial_select_query)
         return [self._get_column_name(expr) for expr in node.select]
 
-    def _branch_matches_by_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode) -> bool:
-        """A set operation matches branch columns by position, and the first branch names the set query's columns, so
-        only a later branch under a BY NAME operator is matched by name."""
-        index = [id(query) for query in self.union_queries(set_query)].index(id(branch))
-        return index == 0 or set_query.subsequent_select_queries[index - 1].set_operator.endswith("BY NAME")
-
     def branch_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, name: str) -> str | None:
-        """The branch column that feeds the set query's column `name`"""
-        branch_names = self._select_names(branch)
-        if self._branch_matches_by_name(set_query, branch):
-            return name if name in branch_names else None
+        """The branch column that feeds the set query's column `name`. A set operation matches columns by position
+        and the first branch names the result; the resolver already reorders BY NAME branches to line up."""
         set_names = self._select_names(set_query)
         if name not in set_names:
             return None
         position = set_names.index(name)
+        branch_names = self._select_names(branch)
         return branch_names[position] if position < len(branch_names) else None
 
     def set_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, branch_name: str) -> str | None:
         """The set query's column that the branch column `branch_name` feeds"""
-        if self._branch_matches_by_name(set_query, branch):
-            return branch_name
         branch_names = self._select_names(branch)
         if branch_name not in branch_names:
             return None
@@ -269,7 +254,25 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     def compares_rows(self, node: ast.SelectQuery) -> bool:
         """Whether the select's rows are compared whole, so every column's value counts"""
-        return node.distinct or id(node) in self.strict_set_branches
+        return node.distinct or id(node) in self.strict_set_branches or node.group_by_mode == "all"
+
+    def _positional_columns(self, node: ast.SelectQuery) -> list[ast.Expr]:
+        """The select columns a bare integer in ORDER BY, GROUP BY or LIMIT BY names by position (ClickHouse resolves
+        them positionally), so their values count and their positions must not move"""
+        referencing: list[ast.Expr] = [order.expr for order in node.order_by or []]
+        referencing.extend(node.group_by or [])
+        if node.limit_by:
+            referencing.extend(node.limit_by.exprs)
+        columns: list[ast.Expr] = []
+        for expr in referencing:
+            if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool):
+                if 0 < expr.value <= len(node.select):
+                    columns.append(node.select[expr.value - 1])
+        return columns
+
+    def keeps_all_columns(self, node: ast.SelectQuery) -> bool:
+        """Whether dropping a column would change the select's rows or move a position another clause names"""
+        return self.compares_rows(node) or bool(self._positional_columns(node))
 
     def _demand_passthrough(self, node: ast.SelectQuery, expr: ast.Expr, passthrough: tuple[SubqueryNode, str]) -> None:
         child, child_name = passthrough
@@ -295,7 +298,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             if id(node) in self.roots or id(node) not in self._registered_ids():
                 # The query's output, or a select inside an expression: every column is read as it is
                 for expr in node.select:
-                    self._read_whole(node, expr)
+                    self._column_read_whole(node, expr)
             elif not self.collecting:
                 # Only the final pass knows that nobody reads the column; a reader may still turn up while collecting
                 self._keep_unread_subquery_rows(node)
@@ -319,7 +322,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                 break
 
     def _keep_unread_subquery_rows(self, node: ast.SelectQuery) -> None:
-        if self.compares_rows(node) or id(node) in self.union_of:
+        if self.keeps_all_columns(node) or id(node) in self.union_of:
             # Every asterisk column stays: a row comparison counts them, and set query branches must line up
             for expr in node.select:
                 if self._is_from_asterisk(expr):
@@ -340,19 +343,23 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         col_name = self._get_column_name(keep)
         if col_name is not None:
             self.demands[id(node)].add(col_name)
-        self._read_whole(node, keep)
+        self._column_read_whole(node, keep)
 
     def _registered_ids(self) -> set[int]:
         return {id(query) for query in self.subquery_map.values()}
 
-    def _read_whole(self, node: ast.SelectQuery, expr: ast.Expr) -> None:
+    def _column_read_whole(self, node: ast.SelectQuery, expr: ast.Expr) -> None:
+        """The select column's value itself is read: by the child column it passes through, or by its own readers"""
         passthrough = self._passthrough_source(expr)
-        if passthrough is None:
-            self.visit(expr)
+        if passthrough is not None:
+            child, child_name = passthrough
+            self._demand_passthrough(node, expr, passthrough)
+            self.reads[(id(child), child_name)].whole = True
             return
-        child, child_name = passthrough
-        self._demand_passthrough(node, expr, passthrough)
-        self.reads[(id(child), child_name)].whole = True
+        self.visit(expr)
+        col_name = self._get_column_name(expr)
+        if col_name is not None:
+            self.reads[(id(node), col_name)].whole = True
 
     def _is_json_blob(self, expr: ast.Expr) -> bool:
         source = self._unwrap_aliases(expr)
@@ -509,7 +516,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     def _prune_columns(self, node: ast.SelectQuery) -> None:
         """Prune asterisk-expanded columns that aren't demanded"""
         demanded = self.demands.get(id(node))
-        if not demanded or self.compares_rows(node):
+        if not demanded or self.keeps_all_columns(node):
             return
 
         pruned_select = []

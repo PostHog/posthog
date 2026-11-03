@@ -164,6 +164,18 @@ class TestExportedProperties(BaseTest):
                 "SELECT properties.email FROM (SELECT properties FROM (SELECT properties FROM events) UNION ALL SELECT DISTINCT properties FROM events)",
             ),
             (
+                "positional_order_by_on_a_passthrough",
+                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) ORDER BY 1 LIMIT 1)",
+            ),
+            (
+                "positional_order_by_at_the_events_level",
+                "SELECT p.email FROM (SELECT properties AS p, event FROM events ORDER BY 1 LIMIT 1)",
+            ),
+            (
+                "group_by_all_on_a_passthrough",
+                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY ALL)",
+            ),
+            (
                 "second_alias_of_the_column_feeds_a_blob_branch",
                 "SELECT x.a.email, x.e FROM (SELECT a, b.email AS e FROM (SELECT properties AS a, properties AS b FROM (SELECT properties FROM events)) "
                 "UNION ALL SELECT DISTINCT properties AS a, '' AS e FROM events) AS x",

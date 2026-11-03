@@ -139,6 +139,14 @@ class TestProjectionPushdown(BaseTest):
             ("distinct", "SELECT event FROM (SELECT DISTINCT * FROM events) AS sub"),
             ("union_distinct", "SELECT event FROM (SELECT * FROM events UNION DISTINCT SELECT * FROM events) AS sub"),
             ("intersect", "SELECT event FROM (SELECT * FROM events INTERSECT SELECT * FROM events) AS sub"),
+            (
+                "group_by_all",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY ALL) AS sub",
+            ),
+            (
+                "positional_group_by",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY 1, 2) AS sub",
+            ),
         ]
     )
     def test_row_comparison_keeps_every_column(self, _name, query):
