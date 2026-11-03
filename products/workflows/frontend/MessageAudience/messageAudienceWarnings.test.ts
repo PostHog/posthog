@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -40,6 +42,7 @@ describe('messageAudienceWarnings', () => {
         destination: MessageAudienceDestination
         suspended?: boolean
         senders?: object[] | Error
+        sandboxFlag?: boolean
         morePages?: boolean
         cohort?: object | Error
         expected: string[]
@@ -66,6 +69,13 @@ describe('messageAudienceWarnings', () => {
                 'The sandbox sender only delivers to verified members of your organization. Set up your own email sender to reach this audience.',
             ],
         })),
+        {
+            case: 'only a sandbox sender kept after the flag was turned off',
+            destination: 'workflow',
+            senders: [sandbox],
+            sandboxFlag: false,
+            expected: [],
+        },
         {
             case: 'an unverified own sender beside the sandbox sender',
             destination: 'broadcast',
@@ -96,7 +106,19 @@ describe('messageAudienceWarnings', () => {
         },
     ])(
         'reports $case',
-        async ({ destination, suspended = false, senders = [verified], morePages, cohort, expected }) => {
+        async ({
+            destination,
+            suspended = false,
+            senders = [verified],
+            sandboxFlag = true,
+            morePages,
+            cohort,
+            expected,
+        }) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(sandboxFlag ? [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER] : [], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: sandboxFlag,
+            })
             jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
                 email_sending_suspended: suspended,
             } as never)
@@ -137,6 +159,10 @@ describe('messageAudienceWarnings', () => {
             email_sending_suspended: false,
         } as never)
         jest.mocked(integrationsList).mockResolvedValue({ count: 1, results: [sandbox], next: null } as never)
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
         const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
 
         await openMessageAudience(audience, 'workflow')

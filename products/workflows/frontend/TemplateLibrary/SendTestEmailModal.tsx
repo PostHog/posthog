@@ -41,8 +41,7 @@ function senderOption(
     }
 }
 
-export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: boolean }): JSX.Element {
-    const { isOpen, ...logicProps } = props
+function TestEmailRecipientField({ logicProps }: { logicProps: MessageTemplateLogicProps }): JSX.Element {
     const logic = messageTemplateTestSendLogic(logicProps)
     const {
         recipientEmail,
@@ -50,9 +49,61 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         recipientIsUnverifiedSelf,
         recipientNotSuggested,
         membersLoading,
+        sandboxEmailSenderEnabled,
+    } = useValues(logic)
+    const { setRecipientEmail } = useActions(logic)
+
+    return (
+        <>
+            {sandboxEmailSenderEnabled ? (
+                <LemonInputSelect
+                    mode="single"
+                    allowCustomValues
+                    value={recipientEmail ? [recipientEmail] : []}
+                    onChange={(values) => setRecipientEmail(values[0] ?? '')}
+                    options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
+                    loading={membersLoading}
+                    placeholder="you@example.com"
+                    emptyStateComponent="Type an email address and press Enter"
+                    data-attr="send-test-email-recipient"
+                />
+            ) : (
+                <LemonInput
+                    type="email"
+                    value={recipientEmail}
+                    onChange={setRecipientEmail}
+                    placeholder="you@example.com"
+                    data-attr="send-test-email-recipient"
+                />
+            )}
+            {recipientIsUnverifiedSelf ? (
+                <LemonBanner type="warning">Verify your email address to send test emails to yourself.</LemonBanner>
+            ) : recipientNotSuggested ? (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Add your own sender',
+                        to: urls.workflows('channels'),
+                        targetBlank: true,
+                    }}
+                >
+                    <span translate="no" className="break-all">
+                        {recipientEmail}
+                    </span>{' '}
+                    isn't among the verified members you can see. The sandbox sender may not deliver to it. Add your own
+                    sender to email anyone.
+                </LemonBanner>
+            ) : null}
+        </>
+    )
+}
+
+export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: boolean }): JSX.Element {
+    const { isOpen, ...logicProps } = props
+    const logic = messageTemplateTestSendLogic(logicProps)
+    const {
         senderIntegrationId,
         sandboxEmailSender,
-        sandboxEmailSenderEnabled,
         isSandboxSenderSelected,
         emailIntegrations,
         integrationsLoading,
@@ -61,7 +112,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         testSendResultLoading,
         testSendSkipReason,
     } = useValues(logic)
-    const { setModalOpen, setRecipientEmail, setSenderIntegrationId, sendTestEmail } = useActions(logic)
+    const { setModalOpen, setSenderIntegrationId, sendTestEmail } = useActions(logic)
 
     return (
         <LemonModal
@@ -88,47 +139,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
             <div className="flex flex-col gap-4 min-w-100">
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Send to</LemonLabel>
-                    {sandboxEmailSenderEnabled ? (
-                        <LemonInputSelect
-                            mode="single"
-                            allowCustomValues
-                            value={recipientEmail ? [recipientEmail] : []}
-                            onChange={(values) => setRecipientEmail(values[0] ?? '')}
-                            options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
-                            loading={membersLoading}
-                            placeholder="you@example.com"
-                            emptyStateComponent="Type an email address and press Enter"
-                            data-attr="send-test-email-recipient"
-                        />
-                    ) : (
-                        <LemonInput
-                            type="email"
-                            value={recipientEmail}
-                            onChange={setRecipientEmail}
-                            placeholder="you@example.com"
-                            data-attr="send-test-email-recipient"
-                        />
-                    )}
-                    {recipientIsUnverifiedSelf ? (
-                        <LemonBanner type="warning">
-                            Verify your email address to send test emails to yourself.
-                        </LemonBanner>
-                    ) : recipientNotSuggested ? (
-                        <LemonBanner
-                            type="warning"
-                            action={{
-                                children: 'Add your own sender',
-                                to: urls.workflows('channels'),
-                                targetBlank: true,
-                            }}
-                        >
-                            <span translate="no" className="break-all">
-                                {recipientEmail}
-                            </span>{' '}
-                            isn't among the verified members you can see. The sandbox sender may not deliver to it. Add
-                            your own sender to email anyone.
-                        </LemonBanner>
-                    ) : null}
+                    <TestEmailRecipientField logicProps={logicProps} />
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>From</LemonLabel>

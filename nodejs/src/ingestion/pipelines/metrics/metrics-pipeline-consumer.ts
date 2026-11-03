@@ -53,7 +53,7 @@ class FailureLatchingPromiseScheduler extends PromiseScheduler {
 }
 
 export class MetricsPipelineConsumer {
-    // Same id as the pre-framework consumer, so health checks keep their name when the flag changes.
+    // Health checks and dashboards key on this service id.
     protected name = 'MetricsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
     private promiseScheduler: FailureLatchingPromiseScheduler

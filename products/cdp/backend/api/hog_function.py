@@ -197,14 +197,25 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     return snapshot
 
 
-def _stored_input_values(instance: Optional[HogFunction]) -> list[dict]:
-    """Stored input values, so a save that leaves an email value unchanged, such as disabling the function, keeps working."""
-    stored_inputs = instance.inputs if instance and isinstance(instance.inputs, dict) else {}
-    return [
-        entry["value"]
-        for entry in stored_inputs.values()
-        if isinstance(entry, dict) and isinstance(entry.get("value"), dict)
-    ]
+def _stored_email_values_by_key(instance: Optional[HogFunction]) -> dict[str, dict]:
+    """Stored email input values by input key, so a save that leaves one unchanged, such as disabling the function, keeps working.
+
+    Only inputs the stored schema declares as email count. A dictionary input can hold the same shape, and
+    retyping it to email must not carry its value past the sandbox sender checks.
+    """
+    if instance is None:
+        return {}
+    email_keys = {
+        str(schema.get("key"))
+        for schema in instance.inputs_schema or []
+        if isinstance(schema, dict) and schema.get("type") in ("email", "native_email")
+    }
+    stored_inputs = instance.inputs if isinstance(instance.inputs, dict) else {}
+    return {
+        key: entry["value"]
+        for key, entry in stored_inputs.items()
+        if key in email_keys and isinstance(entry, dict) and isinstance(entry.get("value"), dict)
+    }
 
 
 def _named_warehouse_tables(entries: Any) -> list[Any]:
@@ -644,7 +655,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
-        self.context["existing_email_values"] = _stored_input_values(instance)
+        self.context["existing_email_values_by_key"] = _stored_email_values_by_key(instance)
 
         template = None
         if data["template_id"]:
