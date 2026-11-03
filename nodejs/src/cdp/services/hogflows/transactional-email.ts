@@ -25,7 +25,6 @@ export const AcceptedSendSchema = z
         replyTo: z.array(z.string()).readonly().optional(),
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
     })
-    // A field this version does not know is refused, so a newer caller never loses one without notice.
     .strict()
     .readonly()
 
