@@ -1,5 +1,6 @@
-import { Spinner, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
+import { TodayDotRingSpinner } from './TodayDotRingSpinner'
 import { TodaySessionDot } from './todaySessionDot'
 
 const MARK_CLASS: Record<Exclude<TodaySessionDot['mark'], 'spinner'>, string> = {
@@ -16,12 +17,8 @@ export function TodaySessionStatusDot({ dot }: { dot: TodaySessionDot }): JSX.El
                 render={<span className="relative flex size-2 shrink-0 items-center justify-center" />}
             >
                 {dot.mark === 'spinner' ? (
-                    <span className="relative size-2">
-                        <Spinner
-                            role="img"
-                            aria-label={dot.label}
-                            className="absolute -inset-0.5 size-3 text-muted-foreground motion-reduce:animate-none"
-                        />
+                    <span role="img" aria-label={dot.label} className="flex text-(--primary)">
+                        <TodayDotRingSpinner />
                     </span>
                 ) : (
                     <span
