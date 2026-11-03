@@ -1837,6 +1837,24 @@ class TestOAuthAPI(APIBaseTest):
 
             refresh_token = refresh_response.json()["refresh_token"]
 
+    @parameterized.expand([("rotating", False), ("non_rotating", True)])
+    def test_supports_step_up_is_copied_from_the_app_at_every_mint(self, _name, is_dcr_client):
+        self.confidential_application.is_dcr_client = is_dcr_client
+        self.confidential_application.supports_step_up = True
+        self.confidential_application.save()
+
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
+
+        self.assertTrue(OAuthAccessToken.objects.get(token=token_response["access_token"]).supports_step_up)
+
+        self.confidential_application.supports_step_up = False
+        self.confidential_application.save()
+        refreshed = self._refresh(token_response["refresh_token"])
+
+        self.assertFalse(OAuthAccessToken.objects.get(token=refreshed["access_token"]).supports_step_up)
+
     def _create_refreshable_token_pair(self, scope: str) -> OAuthRefreshToken:
         suffix = scope.replace(" ", "_").replace("*", "star").replace(":", "_")
         access_token = OAuthAccessToken.objects.create(
