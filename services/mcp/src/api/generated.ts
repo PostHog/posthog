@@ -131476,10 +131476,6 @@ export namespace Schemas {
      */
     cursor?: string;
     /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
