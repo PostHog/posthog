@@ -132,7 +132,6 @@ export const AcceptedSendSchema = z
         attachments: AttachmentsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
     })
-    // A field this version does not know is refused, so a newer caller never loses one without notice.
     .strict()
     .readonly()
 
