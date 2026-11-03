@@ -391,6 +391,12 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         return False
 
 
+# A code send's workflow never lists, so the list filter does not offer its origin.
+LISTED_ORIGIN_PRODUCTS: list[str] = [
+    origin for origin in HogFlowOriginProduct.values if origin != HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS
+]
+
+
 def _code_sends_rolled_out(team: Any) -> bool:
     organization_id = str(team.organization_id)
     return feature_enabled_or_false(
@@ -5004,7 +5010,7 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             OpenApiParameter(
                 "origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlowOriginProduct.values,
+                enum=LISTED_ORIGIN_PRODUCTS,
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             ),
             OpenApiParameter(
@@ -5314,10 +5320,8 @@ class HogFlowViewSet(
                 )
 
         origin_product = params.get("origin_product")
-        if origin_product and origin_product not in HogFlowOriginProduct.values:
-            raise exceptions.ValidationError(
-                {"origin_product": f"Must be one of: {', '.join(HogFlowOriginProduct.values)}"}
-            )
+        if origin_product and origin_product not in LISTED_ORIGIN_PRODUCTS:
+            raise exceptions.ValidationError({"origin_product": f"Must be one of: {', '.join(LISTED_ORIGIN_PRODUCTS)}"})
 
         trigger = self._trigger_filter()
         tags = self._tags_filter()
