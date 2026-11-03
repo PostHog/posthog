@@ -24,6 +24,7 @@
     'posthog.tasks.calculate_cohort.refresh_static_cohort_count',
     'posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task',
     'posthog.tasks.comment_slack_sync.backfill_comment_slack_thread',
+    'posthog.tasks.comment_slack_sync.import_linked_slack_thread',
     'posthog.tasks.comment_slack_sync.ingest_slack_discussion_reply',
     'posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack',
     'posthog.tasks.data_catalog.sync_metric_lineage',
