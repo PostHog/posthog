@@ -12,7 +12,11 @@ from rest_framework.settings import api_settings
 
 from posthog.dataclasses import frozen
 
-from products.messaging.backend.facade.transactional_email import SENDER_ADDRESS_MAX_LENGTH, SENDER_ADDRESS_PATTERN
+from products.messaging.backend.facade.transactional_email import (
+    PIPELINE_ADDRESS_PATTERN,
+    SENDER_ADDRESS_MAX_LENGTH,
+    SENDER_ADDRESS_PATTERN,
+)
 
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
@@ -34,20 +38,15 @@ CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
 CODE_SEND_EXTRA_FIELDS = (*ADDRESS_FIELDS, "attachments")
-# The email rule of Zod 4, which the CDP service checks each address with. The CDP service refuses the whole send
-# for an address that fails it, and the caller then gets a 503 to retry, so Django refuses the address first.
-PIPELINE_ADDRESS_PATTERN = re.compile(
-    r"^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}\Z"
-)
 
 
 def is_bare_address(address: str) -> bool:
-    if (
-        len(address) > SENDER_ADDRESS_MAX_LENGTH
-        or not SENDER_ADDRESS_PATTERN.match(address)
-        or not PIPELINE_ADDRESS_PATTERN.match(address)
-    ):
+    if len(address) > SENDER_ADDRESS_MAX_LENGTH or not SENDER_ADDRESS_PATTERN.match(address):
         return False
+    return _passes_validate_email(address)
+
+
+def _passes_validate_email(address: str) -> bool:
     try:
         validate_email(address)
     except DjangoValidationError:
@@ -56,7 +55,8 @@ def is_bare_address(address: str) -> bool:
 
 
 def _validate_bare_address(address: str) -> None:
-    if not is_bare_address(address):
+    # The same checks as `to`, so a copy address gets the verdict the CDP service gives it.
+    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address) or not _passes_validate_email(address):
         raise serializers.ValidationError(
             "Enter one address, such as `jane@example.com`, with no name, quotes or commas.", code="not_bare_address"
         )
