@@ -2172,7 +2172,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
-        /** Hide every tile description on this dashboard for the current viewer. Stored in the browser. */
         toggleHideTileDescriptions: true,
         /** Open/close the Terraform export modal. */
         setTerraformModalOpen: (open: boolean) => ({ open }),

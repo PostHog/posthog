@@ -139,7 +139,6 @@ interface InsightMetaProps extends Pick<
 
 const NO_DISPLAY_OPTION_TABS: DisplayOptionTab[] = []
 
-/** A tile hides its description when the tile says so or the viewer hid every description on the dashboard. */
 export function isTileDescriptionHidden(
     tile: Pick<DashboardTile, 'show_description'> | undefined,
     hideDescription?: boolean
