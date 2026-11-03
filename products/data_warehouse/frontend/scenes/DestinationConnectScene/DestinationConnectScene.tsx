@@ -56,7 +56,6 @@ export function DestinationConnectScene(): JSX.Element {
     }
 
     if (migrationPrefillLoading) {
-        // The form reads its defaults once, so it mounts only after the migration prefill loads.
         return (
             <SceneContent>
                 <Spinner />
