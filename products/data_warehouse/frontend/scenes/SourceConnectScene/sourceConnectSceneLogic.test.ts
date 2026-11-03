@@ -84,12 +84,10 @@ describe('sourceConnectSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
-                '/api/projects/:team_id/warehouse_migrations/:id/items/': [
-                    {
-                        id: 'item-1',
-                        proposal: { prefill: { host: 'db.example.com', ssh_tunnel: { host: 'bastion.example.com' } } },
-                    },
-                ],
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': {
+                    id: 'item-1',
+                    proposal: { prefill: { host: 'db.example.com', ssh_tunnel: { host: 'bastion.example.com' } } },
+                },
             },
             post: {
                 '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
