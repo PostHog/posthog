@@ -279,6 +279,15 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
     return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries), metrics=tuple(metrics))
 
 
+def fail_unstarted_metrics_investigation(run: MetricsInvestigationRun) -> None:
+    """Records that a granted metrics investigation never started, because its activity ran out of time."""
+    InsightAlertInvestigation.objects.for_team(run.team_id).filter(
+        id=run.investigation_id, status=InvestigationStatus.PENDING
+    ).update(
+        status=InvestigationStatus.FAILED, error={"message": "The investigation ran out of time before it started."}
+    )
+
+
 def run_metrics_investigation(
     run: MetricsInvestigationRun, *, query_slot: Callable[[], AbstractContextManager[None]] = nullcontext
 ) -> None:

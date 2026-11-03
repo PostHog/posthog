@@ -64,7 +64,9 @@ from products.alerts.backend.platform_source_cycle import (
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
     InsightBatchPlanInputs,
+    MetricsInvestigationsInputs,
     plan_platform_insight_checks_activity,
+    run_platform_metrics_investigations_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -1037,3 +1039,22 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome is not None
         assert outcome.skipped
         assert requested_investigation(outcome) is None
+
+    def test_a_metrics_run_past_its_activity_deadline_is_recorded_as_failed(self) -> None:
+        alert = self._alert(investigation_agent_enabled=True)
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        with (
+            patch("products.alerts.backend.temporal.platform_evaluate.time.monotonic", side_effect=[0.0, 10_000.0]),
+            patch("products.alerts.backend.platform_investigation.investigate_metrics_alert") as investigate,
+        ):
+            run_platform_metrics_investigations_activity(MetricsInvestigationsInputs(runs=claims.metrics))
+
+        investigate.assert_not_called()
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
+        assert investigation.status == InvestigationStatus.FAILED

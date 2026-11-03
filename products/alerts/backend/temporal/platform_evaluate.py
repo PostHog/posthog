@@ -94,6 +94,8 @@ CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # A metrics alert's investigation is a few bounded metric queries. One attempt, because the run
 # leases its row, so a retry would find it taken.
 METRICS_INVESTIGATION_START_TO_CLOSE = dt.timedelta(seconds=45)
+# Time a run's queries can take, so the last run starts while the activity can still finish it.
+METRICS_INVESTIGATION_MARGIN = dt.timedelta(seconds=15)
 METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE = METRICS_INVESTIGATION_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
@@ -379,10 +381,19 @@ def claim_platform_insight_investigations_activity(inputs: ClaimInsightInvestiga
 def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsInputs) -> None:
     """Runs the metrics investigations a claim granted, apart from the claim, so their queries never
     hold back an agent's start."""
-    from products.alerts.backend.platform_investigation import run_metrics_investigation  # noqa: PLC0415
+    from products.alerts.backend.platform_investigation import (
+        fail_unstarted_metrics_investigation,  # noqa: PLC0415
+        run_metrics_investigation,  # noqa: PLC0415
+    )
     from products.alerts.backend.platform_source_cycle import ClickHouseQuerySlot  # noqa: PLC0415
 
+    # Stops starting runs before the activity's own timeout, because Temporal does not stop a sync
+    # loop that outlives it. A run already started finishes its own queries.
+    deadline = time.monotonic() + (METRICS_INVESTIGATION_START_TO_CLOSE - METRICS_INVESTIGATION_MARGIN).total_seconds()
     for run in inputs.runs:
+        if time.monotonic() >= deadline:
+            fail_unstarted_metrics_investigation(run)
+            continue
         run_metrics_investigation(run, query_slot=ClickHouseQuerySlot(f"metrics-investigation:{run.investigation_id}"))
 
 
