@@ -6393,6 +6393,13 @@ def _resolve_cloud_pr_authorship_mode(
     if not Task._github_resolution_allowed(
         task.origin_product, has_repository=bool(task.repositories or task.repository)
     ):
+        if pr_authorship_mode == PrAuthorshipMode.USER:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_authorization_required",
+                detail="User-authored runs are not allowed for this task without a repository.",
+                attr="pr_authorship_mode",
+            )
         return None, None
 
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
