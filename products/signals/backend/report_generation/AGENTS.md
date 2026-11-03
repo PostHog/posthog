@@ -10,6 +10,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - If no eligible repo passes the source-visibility check: returns `None`. The `self-driving-github-optional` pilot continues research with project data; other projects go to `pending_input`.
   - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
+  - When the team has several usable GitHub installations, `resolve_signals_github_integration` prefers the first one that reaches a repository with a configured base branch (`SignalTeamConfig.autostart_base_branches`). Otherwise an old installation can shadow the one the team set up.
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.

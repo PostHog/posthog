@@ -22,6 +22,7 @@ from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
     persisted_repo_selection,
+    resolve_signals_github_integration,
     resolve_team_github_integration,
     select_repository_for_report,
 )
@@ -83,7 +84,7 @@ def _pilot_code_availability(team_id: int) -> ReportResearchContext:
 
 def _resolve_sandbox_user_id(team_id: int) -> int | None:
     """Select a user to assign sandbox to."""
-    github = resolve_team_github_integration(team_id)
+    github = resolve_signals_github_integration(team_id)
     if github is None:
         return None
     return resolve_user_id_for_team(team_id, github=github)

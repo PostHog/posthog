@@ -59,6 +59,7 @@ class TestSelectRepositoryDefaultsToTheSourceRepository(BaseTest):
             patch.object(select_repo, "select_repository", new=select),
             patch.object(select_repo, "resolve_agent_runtime", return_value=DEFAULT_RUNTIME),
             patch.object(select_repo, "wrong_repo_corrections_block", return_value=None),
+            patch.object(select_repo, "resolve_signals_github_integration", return_value=None),
         ):
             async_to_sync(select_repo.select_repository_for_report)(self.team.id, self.user.id, [_signal()])
 
