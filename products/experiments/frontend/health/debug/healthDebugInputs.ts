@@ -155,7 +155,7 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         {
             label: 'Called after the end',
             value: serverValue(state, ({ flag_called_after_end }) => yesNoUnknown(flag_called_after_end)),
-            help: "When this is No, the flag-state finding for an ended experiment is info. No needs 3 days without a recorded call after the end. Unknown before the end, before those 3 days are over, or when the organization's flag calls skip the events table.",
+            help: "Yes needs a recorded call after the end and in the last 3 days. Only Yes makes the flag-state finding for an ended experiment a warning. No only once 3 days have passed since the end. Unknown before the end, before those 3 days are over without a call, or when the organization's flag calls skip the events table.",
         },
     ]
 }
@@ -316,7 +316,7 @@ export function buildMetricFacts(
         {
             label: 'Metric queries',
             value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
-            help: "The metric queries check compiles each metric's query as you, without running it. A metric that compiles is cached for a day. A failing metric compiles again on every load.",
+            help: "The 'Invalid metric definitions' check compiles each metric's query as you, without running it. A metric that compiles is cached for a day. A failing metric compiles again on every load.",
         },
         ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
             label: `Doesn't compile: ${failure.name} (${failure.role})`,
@@ -331,6 +331,12 @@ export function buildMetricFacts(
             label: `Failed: ${failure.name} (${failure.role})`,
             value: `${failure.error_type ?? 'no class'}${failure.retriable ? ', retriable' : ''}: ${
                 failure.message ?? 'message hidden, it can hold evaluation rules'
+            }`,
+        })),
+        ...(state.inputs?.latest_calculation?.zero_metrics ?? []).map((metric) => ({
+            label: `Zero: ${metric.name} (${metric.role})`,
+            value: `${metric.exposures} exposures${metric.ratio_side ? `, ${metric.ratio_side}` : ''}${
+                metric.stopped_events.length ? `, stopped: ${metric.stopped_events.join(', ')}` : ''
             }`,
         })),
     ]

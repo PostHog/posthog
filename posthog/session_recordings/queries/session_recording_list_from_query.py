@@ -170,9 +170,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # variant (as `any(exposure.variant)`): the experiment-exposure join then projects it.
         # The population is unchanged, so plain listings never need this.
         project_exposure_variant: bool = False,
+        # For callers that read a short page as "no more matches", so a timeout must raise, not truncate.
+        throw_on_timeout: bool = False,
         **_,
     ):
         self._user = user
+        self._throw_on_timeout = throw_on_timeout
         self._project_exposure_variant = project_exposure_variant
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
@@ -280,10 +283,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
         in_session_narrowed = linkage is not None and linkage.in_session
-        if in_session_narrowed:
-            # Under a "break" timeout profile a timed-out evidence subquery would return a partial
-            # session set, silently listing fewer in-session recordings. A partial result is worse
-            # than an error here, so the execution-time kill must throw.
+        if in_session_narrowed or self._throw_on_timeout:
+            # Under a "break" timeout profile a timed-out query returns partial rows, which an in-session
+            # listing or a `throw_on_timeout` caller would take as complete. So the execution-time kill throws.
             settings_args["timeout_overflow_mode"] = "throw"
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):

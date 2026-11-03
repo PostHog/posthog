@@ -14,10 +14,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 import temporalio
+from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from openai import APIConnectionError
 from rest_framework import serializers, status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -40,6 +40,12 @@ from products.data_warehouse.backend.facade.api import (
     is_custom_source_ai_builder_enabled_for_team,
 )
 from products.warehouse_sources.backend.facade.api import effective_source_status, validate_source_prefix
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_INPUT_KEY,
+    SharedCredentialsEdit,
+    SharedCredentialsError,
+    UnusableCredentialsReferenceError,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -51,7 +57,6 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
-    CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -72,31 +77,39 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
-    history_column_collisions,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    known_source_key,
+    new_history_names_taken,
+    new_history_naming,
     new_source_requires_ssl,
+    pin_history_naming,
+    reserved_column_collisions,
+    reserved_column_names,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, SourceKey
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    PINNED_TABLE_IDS_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    pinned_table_ids,
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 from products.warehouse_sources.backend.presentation.views.source_api_versions import (
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
 
-from . import base, connection_options, credential_store, helpers, webhook_setup
+from . import base, connection_options, credential_store, helpers, shared_credentials, webhook_setup
 
 
 def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
@@ -144,6 +157,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
+    )
+    file_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The name of the file a file upload source imports. Null for other sources or when it is unknown.",
     )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
@@ -194,6 +211,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "`auto_sync_new_schemas` is true."
         ),
     )
+    source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
     api_version = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -244,6 +262,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "supports_webhooks",
             "supports_column_selection",
+            "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
@@ -263,6 +282,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
+            "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
@@ -286,7 +306,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         # Derive allowed keys dynamically from source config field definitions
         try:
-            source_type_model = ExternalDataSourceType(instance.source_type)
+            source_type_model = known_source_key(instance.source_type)
             source = SourceRegistry.get_source(source_type_model)
             split = helpers.get_nonsensitive_and_sensitive_field_names(source.get_source_config.fields)
             # CDC fields aren't form fields but are non-secret operational config the UI needs.
@@ -325,11 +345,19 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     def get_supports_webhooks(self, instance: ExternalDataSource) -> bool:
         try:
-            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+            source = SourceRegistry.get_source(instance.source_type)
             return isinstance(source, WebhookSource)
         except Exception as e:
             capture_exception(e)
             return False
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_file_name(self, instance: ExternalDataSource) -> str | None:
+        try:
+            return SourceRegistry.get_source(instance.source_type).uploaded_file_name(instance)
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
@@ -390,7 +418,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
-        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
+        context = {
+            **self.context,
+            "error_redaction_values": self._error_redaction_values(instance),
+            PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
+        }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
@@ -428,7 +460,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
-        source_type_model = ExternalDataSourceType(instance.source_type)
+        source_type_model = known_source_key(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)
@@ -513,9 +545,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
-        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
-
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
@@ -565,39 +594,38 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 new_job_inputs.pop(key, None)
             new_job_inputs[incoming_key] = merged_group
 
+        # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
-        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
-            ssh_tunnel_host_changed = "host" in incoming_ssh_tunnel and incoming_ssh_tunnel[
-                "host"
-            ] != existing_ssh_tunnel.get("host")
-
-            # Deep-merge: start with existing, overlay incoming top-level keys
-            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
-
-            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
-            existing_auth = (
-                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
-            )
-            incoming_auth = (
-                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
+        if incoming_ssh_tunnel is not None:
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
+                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
             )
 
-            if ssh_tunnel_host_changed and not incoming_auth:
-                raise ValidationError("Changing the SSH tunnel host requires re-entering your SSH credentials.")
-
-            if not incoming_auth:
-                # No auth in incoming request - preserve entire existing auth
-                merged_ssh_tunnel["auth"] = {**existing_auth}
-            else:
-                # Merge auth, preserving sensitive fields not explicitly provided
-                merged_auth = {**incoming_auth}
-                if not ssh_tunnel_host_changed:
-                    for key in ("password", "passphrase", "private_key"):
-                        if existing_auth.get(key) and not incoming_auth.get(key):
-                            merged_auth[key] = existing_auth[key]
-                merged_ssh_tunnel["auth"] = merged_auth
-
-            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
+        # A client may point the source at another credentials row only when the source can use that row.
+        # The check runs for every team, also while the dual-write flag is off, because it keeps a client
+        # from attaching credentials of another team. The source then uses the credentials of that row.
+        try:
+            requested_reference = SourceInputsStore.requested_credentials_reference(instance, incoming_job_inputs)
+            if requested_reference is not None:
+                # Object access controls on the sources that use the row also apply to its credentials.
+                if helpers.denied_source_usages(
+                    self.user_access_control,
+                    instance.team_id,
+                    SourceInputsStore.credentials_usages(instance, requested_reference),
+                    "editor",
+                ):
+                    raise UnusableCredentialsReferenceError(
+                        f"Source {instance.id} cannot use credentials {requested_reference}"
+                    )
+                new_job_inputs = SourceInputsStore.with_credentials_of(instance, new_job_inputs, requested_reference)
+        except UnusableCredentialsReferenceError:
+            raise ValidationError(
+                {
+                    "job_inputs": {
+                        CREDENTIALS_REFERENCE_INPUT_KEY: "These credentials don't exist or this source can't use them."
+                    }
+                }
+            )
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
@@ -706,9 +734,33 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
-        if "job_inputs" in validated_data:
-            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
-        updated_source: ExternalDataSource = super().update(instance, validated_data)
+        # A confirmation changes the row for its other users too, so it needs edit access to each of them. Without
+        # it, the edit fails as an unconfirmed one does, and the view answers with a 403.
+        confirmed_shared_edit = helpers.update_shared_credentials_confirmed(request) and not (
+            "job_inputs" in validated_data
+            and helpers.denied_source_usages(
+                self.user_access_control,
+                instance.team_id,
+                SourceInputsStore.credentials_usages(instance, requested_reference),
+                "editor",
+            )
+        )
+
+        # One transaction for the credentials row and the source, so a failed source save also undoes the
+        # row write, and the source lock of the copy holds until the source save commits.
+        with transaction.atomic():
+            if "job_inputs" in validated_data:
+                # An edit of credentials that other sources or products use raises `SharedCredentialsError`
+                # (a 409) unless the request confirms it.
+                SourceInputsStore.assign(
+                    instance,
+                    validated_data.pop("job_inputs"),
+                    shared_credentials=SharedCredentialsEdit.CONFIRMED
+                    if confirmed_shared_edit
+                    else SharedCredentialsEdit.REFUSE,
+                    credentials_reference=requested_reference,
+                )
+            updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
         if namespaced_adapter is not None and job_inputs_were_submitted:
@@ -767,8 +819,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
 
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
     )
     payload = serializers.DictField(
@@ -840,8 +891,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
 
 
 class SourceSetupSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type to set up (e.g. 'Stripe', 'Postgres', 'Hubspot').",
     )
     payload = serializers.DictField(
@@ -903,8 +953,7 @@ class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
 
 
 class SourcePreviewRequestSerializer(serializers.Serializer):
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         help_text="The source type to preview. Only 'Custom' (a user-defined REST API) is supported today.",
     )
     payload = serializers.DictField(
@@ -1006,6 +1055,8 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
+    source_type = SourceTypeField(read_only=True, help_text="The source type (e.g. 'Postgres', 'Stripe').")
+
     class Meta:
         model = ExternalDataSource
         fields = [
@@ -1100,6 +1151,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
             resolved.credential.delete()
         return response
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Runs for both PUT and PATCH.
+        try:
+            return super().update(request, *args, **kwargs)
+        except SharedCredentialsError as error:
+            if helpers.update_shared_credentials_confirmed(request):
+                # The serializer drops a confirmation from a user who cannot edit every other user of the row.
+                raise PermissionDenied(
+                    "You need edit access to every source that uses these credentials to change them."
+                )
+            hidden = helpers.denied_source_usages(self.user_access_control, self.team_id, error.usages, "viewer")
+            return shared_credentials.shared_credentials_conflict_response(error, hidden_usage_ids=hidden)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
@@ -1214,12 +1278,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-        source_type_model = ExternalDataSourceType(source_type)
+        source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
         if not is_direct_query and not source.supports_scheduled_sync:
             return Response(
                 ExternalDataSourceErrorResponseSerializer(
-                    {"message": f"{source_type_model.label} is available only as a direct connection."}
+                    {
+                        "message": f"{source.get_source_config.label or source_type_model} is available only as a direct connection."
+                    }
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -1420,6 +1486,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
+        history_naming_config_by_schema: dict[str, dict[str, Any]] = {}
         if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
@@ -1484,18 +1551,24 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
-            # Capture stamps each change with this column, so a source column of the same name would
-            # fail the source's first sync. Refuse before any replication state exists.
+            # Capture and the history table write their own columns next to the source's, so a synced
+            # source column that loads under one of those names would fail the source's first sync.
+            # Refuse before any replication state exists.
+            new_history = new_history_naming(new_source_model)
+            reserved_columns_by_table = {
+                schema["name"]: reserved_column_collisions(
+                    [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                    reserved_column_names(new_history if is_history_table_mode(schema.get("cdc_table_mode")) else None),
+                    enabled_columns=_payload_enabled_columns(schema),
+                    primary_keys=pk_columns_by_table.get(schema["name"]),
+                )
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and isinstance(schema.get("name"), str)
+            }
             tables_with_reserved_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and isinstance(schema.get("name"), str)
-                    and CDC_SEQ_COLUMN
-                    in {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
-                }
+                f"{table} ({', '.join(columns)})" for table, columns in reserved_columns_by_table.items() if columns
             )
             if tables_with_reserved_column:
                 new_source_model.delete()
@@ -1503,43 +1576,43 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
-                            "that name. Rename the column on your database, or choose another sync method for "
-                            f"these tables: {', '.join(tables_with_reserved_column)}."
+                            "Change data capture can't sync a column that loads under a name PostHog writes. Rename "
+                            "the column on your database, leave it out of the synced columns, or change the sync "
+                            f"method or output tables for these tables: {'; '.join(tables_with_reserved_column)}."
                         )
                     },
                 )
 
-            # The history table stamps each row version with these columns, so a synced source column
-            # of the same name would fail every load into it.
-            tables_with_validity_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and is_history_table_mode(schema.get("cdc_table_mode"))
-                    and isinstance(schema.get("name"), str)
-                    and history_column_collisions(
-                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        _payload_enabled_columns(schema),
-                        pk_columns_by_table.get(schema["name"]),
-                    )
-                }
+            synced_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("should_sync", False) and isinstance(schema.get("name"), str)
+            ]
+            history_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and is_history_table_mode(schema.get("cdc_table_mode"))
+                and isinstance(schema.get("name"), str)
+            ]
+            tables_with_taken_history_name = new_history_names_taken(
+                new_source_model, new_history, history_names, synced_names
             )
-            if tables_with_validity_column:
+            if tables_with_taken_history_name:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "A history table can't store a column that loads as valid_from or valid_to, because "
-                            "PostHog uses those names to record when each version was current. Rename the column on "
-                            "your database, or choose the consolidated table only for these tables: "
-                            f"{', '.join(tables_with_validity_column)}."
+                            "A history table would have the same name as another table you chose to sync. Choose "
+                            "the consolidated table only, or leave the other table out, for these tables: "
+                            f"{', '.join(tables_with_taken_history_name)}."
                         )
                     },
                 )
+            for name in history_names:
+                pin_history_naming(history_naming_config_by_schema.setdefault(name, {}), new_history)
 
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
@@ -1755,6 +1828,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
+                sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
@@ -1999,8 +2073,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             instance.soft_delete()
 
         # Best-effort webhook cleanup — soft-deletes are already committed
-        source_type = ExternalDataSourceType(instance.source_type)
-        source = base.SourceRegistry.get_source(source_type)
+        try:
+            source = base.SourceRegistry.get_source(known_source_key(instance.source_type))
+        except ValueError as e:
+            # The vendor no longer imports, so there is no webhook code to run.
+            base.capture_exception(e)
+            source = None
         if isinstance(source, WebhookSource):
             try:
                 source_inputs = SourceInputsStore.load(instance)
@@ -2123,7 +2201,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Mutable local: the CustomSource branch below rewrites payload keys before source creation.
         payload = resolved.payload
 
-        source_type_model = ExternalDataSourceType(source_type)
+        source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
         if helpers.source_feature_flag_missing(source, self.team):
             return Response(
@@ -2236,7 +2314,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         serializer.is_valid(raise_exception=True)
 
         source_type = serializer.validated_data["source_type"]
-        source = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = base.SourceRegistry.get_source(source_type)
         if not isinstance(source, CustomSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2373,7 +2451,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
     def _validate_source_config_and_credentials(
         self,
         source: AnySource,
-        source_type_model: ExternalDataSourceType,
+        source_type_model: SourceKey,
         payload: dict,
         access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
     ) -> tuple[Response | None, Config | None]:

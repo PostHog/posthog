@@ -15,23 +15,26 @@ import {
     readableErrorMessage,
     ResponseBodyReadError,
 } from 'lib/api-error'
+import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
-import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { HogQLQueryString } from 'lib/utils/hogql'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AggregatedSpanRow,
     AnyResponseType,
@@ -68,7 +71,6 @@ import {
     SpanTreeNode,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -128,6 +130,7 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -228,7 +231,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import {
+import type {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -240,10 +243,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import type {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigMapResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -311,6 +311,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    onRequestTiming?: (timing: ApiRequestTiming) => void
 }
 
 export interface ApiUploadProgress {
@@ -342,6 +343,13 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -363,9 +371,9 @@ export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
-export async function getJSONOrNull(response: Response): Promise<any> {
+export async function getJSONOrNull(response: Response, timing?: ApiRequestTimingRecorder): Promise<any> {
     try {
-        return await response.json()
+        return timing ? timing.parseJSON(await timing.readBody(response)) : await response.json()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -398,7 +406,12 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(
+    response: Response,
+    method: string,
+    url: string,
+    timing?: ApiRequestTimingRecorder
+): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -408,7 +421,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     }
     let text: string
     try {
-        text = await response.text()
+        text = timing ? await timing.readBody(response) : await response.text()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -432,7 +445,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
         return null
     }
     try {
-        return JSON.parse(text)
+        return timing ? timing.parseJSON(text) : JSON.parse(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -1891,10 +1904,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_from_customerio')
-    }
-
     public messagingCategoriesOptOutSyncConfig(): ApiRequest {
         return this.messagingCategories().addPathComponent('optout_sync_config')
     }
@@ -2894,6 +2903,8 @@ const api = {
                 limit?: number
                 offset?: number
                 includeImpact?: boolean
+                groupByEndpoint?: boolean
+                includeHealth?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -3655,16 +3666,6 @@ const api = {
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
-        async resetPersonDistinctId(distinctId: string): Promise<void> {
-            return await new ApiRequest()
-                .persons()
-                .withAction('reset_person_distinct_id')
-                .create({
-                    data: {
-                        distinct_id: distinctId,
-                    },
-                })
-        },
         async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
             const response = await new ApiRequest()
                 .persons()
@@ -4387,7 +4388,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4403,10 +4408,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -5059,7 +5061,7 @@ const api = {
             ): Promise<Record<string, any>[]> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs')
+                    .withAction('log_entries')
                     .getResponse({ signal: options.signal })
                 return parseLogEntries(await response.text())
             },
@@ -5093,7 +5095,7 @@ const api = {
             }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs')
+                    .withAction('log_entries')
                     .withQueryString({
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),
@@ -5682,7 +5684,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5694,7 +5696,7 @@ const api = {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5704,7 +5706,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceTypeEnumApi
+                source_type: ExternalDataSourceType
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
@@ -6147,8 +6149,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
-            return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        async get(queryId: string, showProgress: boolean, options?: ApiMethodOptions): Promise<QueryStatusResponse> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get(options)
         },
     },
 
@@ -6750,11 +6752,13 @@ const api = {
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.getResponse(url, options)
-        return await getJSONFromSuccessResponse(res, 'GET', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.getResponse(url, options, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+        })
     },
 
-    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions, timing?: ApiRequestTimingRecorder): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
 
@@ -6766,7 +6770,8 @@ const api = {
         }
 
         return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6775,6 +6780,8 @@ const api = {
                     ...authHeaders,
                 },
             })
+            timing?.recordHeaders(response)
+            return response
         })
     },
 
@@ -6815,17 +6822,25 @@ const api = {
     },
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.createResponse(url, data, options)
-        return await getJSONFromSuccessResponse(res, 'POST', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.createResponse(url, data, options, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+        })
     },
 
-    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
+    async createResponse(
+        url: string,
+        data?: any,
+        options?: ApiMethodOptions,
+        timing?: ApiRequestTimingRecorder
+    ): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
+        return await handleFetch(url, 'POST', async () => {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6837,7 +6852,9 @@ const api = {
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
             })
-        )
+            timing?.recordHeaders(response)
+            return response
+        })
     },
 
     /**
@@ -7229,6 +7246,31 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
         return data?.code === 'sensitive_action_required_reauth'
     } catch {
         return false
+    }
+}
+
+export async function withRequestTiming<T>(
+    options: ApiMethodOptions | undefined,
+    request: (timing?: ApiRequestTimingRecorder) => Promise<T>
+): Promise<T> {
+    const onRequestTiming = options?.onRequestTiming
+    if (!onRequestTiming) {
+        return await request()
+    }
+    const timing = new ApiRequestTimingRecorder()
+    try {
+        return await request(timing)
+    } catch (error) {
+        if (error instanceof ApiError) {
+            timing.recordFailure(error)
+        }
+        throw error
+    } finally {
+        try {
+            onRequestTiming(timing.finish())
+        } catch {
+            // Observability must not change request success, failure, or cancellation.
+        }
     }
 }
 

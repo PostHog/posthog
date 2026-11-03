@@ -12,6 +12,7 @@ import {
     IconHide,
     IconLeave,
     IconPeople,
+    IconPerson,
     IconPullRequest,
     IconUndo,
 } from '@posthog/icons'
@@ -29,10 +30,13 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { fullNameOrEmail } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
 import {
@@ -50,6 +54,7 @@ import {
     canUnassignMe,
     hasOpenImplementationPr,
 } from '../../utils/reportActions'
+import { isReportClaimable, reportClaimant } from '../../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
@@ -60,7 +65,7 @@ import { useReportCardSelection } from './useReportCardSelection'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
- * opening its detail. Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
+ * opening its detail. Claim, Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
  * as the detail pane (`utils/reportActions.ts`); a dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
  * section's list logic. The dialog stays available for a note, a corrected repository, or an open
@@ -134,14 +139,18 @@ function ReportContextMenuItems({
     /** Tells the menu a dialog is opening, so its close skips the focus restore. */
     onOpenDialog: () => void
 }): JSX.Element {
-    const { dismissReport, resolveReport, restoreReport, unassignMe } = useActions(
+    const { dismissReport, resolveReport, restoreReport, setReportClaimed, unassignMe } = useActions(
         reportListLogic(sectionListLogicProps(sectionKey))
     )
     const { isScopedToMe } = useValues(inboxFiltersLogic)
+    const { claimSavingReportIds } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    const { user } = useValues(userLogic)
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
+    const createPrDisabledReason = globalPrDisabledReason ?? githubDisabledReason
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
@@ -160,6 +169,29 @@ function ReportContextMenuItems({
             </ButtonPrimitive>
         </ContextMenuItem>
     )
+
+    // A teammate's claim shows disabled with their name, so the menu says why it can't be taken.
+    const claimant = reportClaimant(report)
+    const isMyClaim = !!claimant && !!user?.uuid && claimant.uuid === user.uuid
+    const claimDisabledReason = claimSavingReportIds.includes(report.id)
+        ? 'Updating…'
+        : claimant && !isMyClaim
+          ? `${fullNameOrEmail(claimant)} is working on this report`
+          : null
+    const claimItem =
+        claimant || isReportClaimable(report) ? (
+            <ContextMenuItem asChild disabled={!!claimDisabledReason}>
+                <ButtonPrimitive
+                    menuItem
+                    onClick={() => setReportClaimed(report, !isMyClaim, 'context_menu')}
+                    disabledReasons={claimDisabledReason ? { [claimDisabledReason]: true } : undefined}
+                    data-attr={isMyClaim ? 'inbox-report-context-menu-unclaim' : 'inbox-report-context-menu-claim'}
+                >
+                    <IconPerson />
+                    {isMyClaim ? 'Unclaim' : 'Claim'}
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        ) : null
 
     const dismissWith = (dismissal: DismissalFeedback): void => {
         const { reason, note, correctedRepository } = dismissal
@@ -302,6 +334,7 @@ function ReportContextMenuItems({
         <>
             <ContextMenuGroup>
                 {selectItem}
+                {claimItem}
                 {canCreateImplementationPr(report) && (
                     <>
                         <ContextMenuItem asChild disabled={!!createPrDisabledReason}>

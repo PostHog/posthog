@@ -14,5 +14,5 @@ mod signals;
 pub use error::LifecycleError;
 pub use handle::{Handle, ProcessScopeGuard};
 pub use liveness::{LivenessHandler, LivenessStatus};
-pub use manager::{ComponentOptions, Manager, ManagerBuilder, MonitorGuard};
+pub use manager::{ComponentOptions, Manager, ManagerBuilder, MonitorGuard, PrestopAction};
 pub use readiness::ReadinessHandler;

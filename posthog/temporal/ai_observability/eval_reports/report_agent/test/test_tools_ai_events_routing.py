@@ -55,9 +55,11 @@ def _resolver_response(rows: list[list]) -> MagicMock:
 class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
     @parameterized.expand(
         [
+            ("missing", None, None, None),
             ("short", [{"role": "user", "content": "hi"}], None, None),
             ("at_limit", "x" * 500, 0, 0),
             ("long", "BEGIN_INPUT " + "x" * 800 + " END_INPUT", 1000, 50),
+            ("unicode", "🦔" * 600, 1000, 50),
         ]
     )
     @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
@@ -65,7 +67,7 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
     def test_routes_through_resolver_against_ai_events(
         self,
         _name: str,
-        input_value: str | list[dict[str, str]],
+        input_value: str | list[dict[str, str]] | None,
         cache_read_tokens: int | None,
         cache_creation_tokens: int | None,
         _mock_lookup: MagicMock,
@@ -99,8 +101,12 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
         # Returns rendered JSON with input/output previews from heavy columns.
         assert result
         generation = json.loads(result)[0]
-        input_text = str(input_value)
-        for preview in (generation["input_preview"], generation["input_state_preview"]):
+        input_text = str(input_value) if input_value else ""
+        assert generation["input_length"] == len(input_text)
+        previews = [generation["input_preview"]]
+        if input_value:
+            previews.append(generation["input_state_preview"])
+        for preview in previews:
             if len(input_text) <= 500:
                 assert preview == input_text
             else:
