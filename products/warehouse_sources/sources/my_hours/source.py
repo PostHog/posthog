@@ -1,7 +1,7 @@
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.my_hours._config import MyHoursSourceConfig
-from products.warehouse_sources.sources.my_hours.my_hours import check_access, my_hours_source
+from products.warehouse_sources.sources.my_hours.my_hours import MyHoursResumeConfig, check_access, my_hours_source
 from products.warehouse_sources.sources.my_hours.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -18,7 +18,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -32,7 +33,7 @@ from products.warehouse_sources.sources.sdk import (
 
 
 @SourceRegistry.register
-class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
+class MyHoursSource(ResumableSource[MyHoursSourceConfig, MyHoursResumeConfig]):
     codebase_detection = detect(env=("^(MY_HOURS|MYHOURS)_",))
 
     api_docs_url = "https://documenter.getpostman.com/view/8879268/TVmV4YYU"
@@ -129,7 +130,15 @@ API keys are available on paid plans. Create one under **Settings → Integratio
             return False, "Invalid My Hours API key"
         return False, message or "Could not validate My Hours API key"
 
-    def source_for_pipeline(self, config: MyHoursSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MyHoursResumeConfig]:
+        return ResumableSourceManager[MyHoursResumeConfig](inputs, MyHoursResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: MyHoursSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MyHoursResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         if inputs.schema_name not in MY_HOURS_ENDPOINTS:
             raise ValueError(f"Unknown My Hours schema '{inputs.schema_name}'")
 
@@ -138,6 +147,7 @@ API keys are available on paid plans. Create one under **Settings → Integratio
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
