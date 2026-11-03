@@ -44,7 +44,7 @@ export function InsightDisplayOptionsPanel({ tabs }: { tabs: DisplayOptionTab[] 
     }
 
     if (todayRailNav) {
-        return <QuillInsightDisplayOptionsPanel tabs={tabs} activeTab={activeTab} onTabChange={setActiveKey} />
+        return <QuillInsightDisplayOptionsPanel tabs={tabs} />
     }
 
     if (tabs.length === 1) {
