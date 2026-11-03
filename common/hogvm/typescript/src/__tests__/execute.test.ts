@@ -296,6 +296,16 @@ describe('hogvm execute', () => {
         ).toEqual(expected)
     })
 
+    test('arraySort and arrayReverseSort order numbers numerically', () => {
+        const run = (name: string, arr: unknown[]): unknown =>
+            execSync(['_H', 1, op.STRING, 'arr', op.GET_GLOBAL, 1, op.CALL_GLOBAL, name, 1], {
+                globals: { arr },
+            })
+        expect(run('arraySort', [10, 9, 1, 100])).toEqual([1, 9, 10, 100])
+        expect(run('arrayReverseSort', [10, 9, 1, 100])).toEqual([100, 10, 9, 1])
+        expect(run('arraySort', ['b', 'a', 'c'])).toEqual(['a', 'b', 'c'])
+    })
+
     test('an ordering comparison with a null operand is false', () => {
         // SQL semantics, shared with the Python and Rust VMs. JavaScript would read null as 0, which
         // made `missing <= 18` match every person without the property.
