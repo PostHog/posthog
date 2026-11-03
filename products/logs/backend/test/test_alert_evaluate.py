@@ -1,7 +1,7 @@
 import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -23,6 +23,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
+    create_alert_destinations,
     due_checks,
     list_configurations,
     record_outcomes,
@@ -31,12 +32,15 @@ from products.alerts_platform.backend.facade.api import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
+    AlertDestinationData,
     AlertEventKind,
     CheckFailure,
+    DestinationType,
     Grouping,
     GroupingMode,
     GroupOutcome,
     IncidentAction,
+    NewAlertDestination,
     PlatformAlertOutcome,
     PlatformConfigurationSnapshot,
     SourceBatchEvaluation,
@@ -89,7 +93,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
         # A backfilled copy delivers to the logs alert it came from, so its destinations name that id.
-        self._legacy_ids: dict[UUID, UUID] = {}
+        self._legacy_ids: dict[UUID, UUID | None] = {}
         redis.get_client().delete(INFLIGHT_KEY)
 
     def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
@@ -143,6 +147,22 @@ class TestLogsAlertEvaluation(APIBaseTest):
             return evaluate_logs_batch(self.team.id, slot, now), query
 
     def _add_incident_destination(self, configuration: PlatformConfigurationSnapshot) -> None:
+        if self._legacy_ids[configuration.id] is None:
+            with team_scope(self.team.id):
+                create_alert_destinations(
+                    team_id=self.team.id,
+                    configuration_id=configuration.id,
+                    destinations=[
+                        NewAlertDestination(
+                            data=cast(
+                                AlertDestinationData,
+                                {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "R-1"},
+                            ),
+                            event_kinds=(AlertEventKind.FIRING,),
+                        )
+                    ],
+                )
+            return
         HogFunction.objects.create(
             team=self.team,
             type="internal_destination",
@@ -177,15 +197,20 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_a_paging_destination", False, "source"),
-            ("with_a_paging_destination", True, "source"),
-            ("owned_by_the_platform", False, "platform"),
+            ("without_a_paging_destination", False, "source", False),
+            ("with_a_paging_destination", True, "source", False),
+            ("owned_by_the_platform", False, "platform", False),
+            ("created_without_a_logs_row", False, "platform", True),
+            ("created_without_a_logs_row_and_paged_natively", True, "platform", True),
         ]
     )
     def test_a_breaching_configuration_fires_and_records_its_own_state(
-        self, _name: str, paged: bool, owner: str
+        self, _name: str, paged: bool, owner: str, native: bool
     ) -> None:
-        configuration = self._configuration(owner=owner)
+        native_fields: dict[str, Any] = (
+            {"legacy_configuration_id": None, "destinations_owner": "platform"} if native else {}
+        )
+        configuration = self._configuration(owner=owner, **native_fields)
         if paged:
             self._add_incident_destination(configuration)
 
@@ -198,9 +223,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         ]
         # The event a PagerDuty destination subscribes to, so the trigger reaches it.
         assert evaluation.deliveries[0].event_ids_by_incident_action["trigger"] == "$logs_alert_incident_opened"
+        public_id = self._legacy_ids[configuration.id] or configuration.id
+        assert evaluation.deliveries[0].destination_alert_id == str(public_id)
         source_alert_url = evaluation.deliveries[0].source_alert_url
         assert source_alert_url is not None
-        assert source_alert_url.endswith(f"/logs/alerts/{self._legacy_ids[configuration.id]}")
+        assert source_alert_url.endswith(f"/logs/alerts/{public_id}")
         with team_scope(self.team.id):
             alert = platform_testing.alert_for(configuration.id)
             assert alert is not None
@@ -931,10 +958,26 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
         alert = LogsAlertConfiguration.objects.create(
             team=self.team, name="API errors", filters={"serviceNames": ["api"]}, threshold_count=10, window_minutes=5
         )
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="Web errors",
+                source_kind=SourceKind.LOGS,
+                source_config={"filters": {"serviceNames": ["web"]}, "condition": CONDITION},
+                check_interval_minutes=10,
+                owner="platform",
+            )
 
         notified = notified_alerts_for_platform(
             self.team.id,
             [
+                PlatformAlertSignal(
+                    alert_id=str(native.id),
+                    action="firing",
+                    result_count=30,
+                    consecutive_failures=0,
+                    evaluation_key="k-1",
+                ),
                 PlatformAlertSignal(
                     alert_id=str(alert.id),
                     action="firing",
@@ -958,13 +1001,14 @@ class TestPlatformAlertSignalFacts(APIBaseTest):
         )
 
         assert [(n.alert_id, n.alert_name, n.threshold_count, n.result_count, n.filters) for n in notified] == [
+            (str(native.id), "Web errors", CONDITION["threshold_count"], 30, {"serviceNames": ["web"]}),
             (str(alert.id), "API errors", 10, 500, {"serviceNames": ["api"]}),
             (str(alert.id), "API errors", 10, 700, {"serviceNames": ["api"]}),
         ]
         # A retried emission of the same announcement must not start a second signal, and a second
         # group of the same evaluation is not a retry.
-        assert [n.idempotency_key for n in notified] == [
+        assert [n.idempotency_key for n in notified[1:]] == [
             f"{alert.id}:firing:k-1",
             f'{alert.id}:firing:k-1:{{"service_name":"web"}}',
         ]
-        assert notified[1].group_labels == {"service_name": "web"}
+        assert notified[2].group_labels == {"service_name": "web"}
