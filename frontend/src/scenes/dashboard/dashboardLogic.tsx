@@ -903,13 +903,6 @@ export interface dashboardLogicActions {
     changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => {
         groupDisplay: TileGroupDisplay
     }
-    renameTileGroup: (
-        groupKey: string,
-        title: string
-    ) => {
-        groupKey: string
-        title: string
-    }
     clearAddWidgetSelectedTypes: () => {
         value: true
     }
@@ -1196,6 +1189,13 @@ export interface dashboardLogicActions {
         payload?: {
             tile: DashboardTile
         }
+    }
+    renameTileGroup: (
+        groupKey: string,
+        title: string
+    ) => {
+        groupKey: string
+        title: string
     }
     reportDashboardFilterChange: (
         changeType: DashboardFilterChangeType,
