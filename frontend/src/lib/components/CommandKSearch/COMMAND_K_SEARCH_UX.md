@@ -112,7 +112,8 @@ Results for a search with words follow ordered tie-breaking rules: words matched
 
 - Accounts rank with the results when account search is enabled. The Accounts API matches the full search text, so an account can suppress the partial-match or spelling notice even when its display name does not contain the text. Distinct accounts with the same name stay separate. Accounts get no file-system **See all** filter.
 - When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
-- **Best matches** comes first: the three best results of different types.
+- Matching products always come first, above every other result, because people often search to open a product. In a grouped list they get their own **Products** group at the top. In a flat list they lead the rows.
+- **Best matches** comes next: the three best results of different types, products excluded.
 - The other results follow in groups by type, each with its total count and up to three rows. A group ends with a **See all N <types>** row that adds the `is:` chip and keeps the words. A one-word search that starts a type name (`dash`, `flag`) moves that type's group up.
 - Results with the same name show as one row with a "+N with this name" badge.
 - A short list (8 or fewer) or a list of one type shows flat, under one **Results** header.

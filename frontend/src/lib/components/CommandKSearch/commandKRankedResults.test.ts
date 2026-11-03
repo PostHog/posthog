@@ -62,6 +62,36 @@ describe('buildRankedResults', () => {
             expected: ['Results: Session replay, Recordings funnel'],
         },
         {
+            name: 'a product leads a short list even when a saved object ranks higher',
+            query: 'flags',
+            results: [result('1', 'flags', 'action', [-1, 0, 0, 0, -1, 0, 0, 0, -1])],
+            products: [product('Feature flags')],
+            expected: ['Results: Feature flags, flags'],
+        },
+        {
+            name: 'products come before best matches even when saved objects rank higher',
+            query: 'flags',
+            results: [
+                ...[1, 2, 3, 4, 5].map((n) =>
+                    result(`action-${n}`, `flags action ${n}`, 'action', [-1, 0, 0, 0, -1, 0, 0, 0, -n], {
+                        typeCount: 5,
+                    })
+                ),
+                ...[1, 2, 3, 4].map((n) =>
+                    result(`experiment-${n}`, `flags experiment ${n}`, 'experiment', exactWordRank(n), {
+                        typeCount: 4,
+                    })
+                ),
+            ],
+            products: [product('Feature flags')],
+            expected: [
+                'Products: Feature flags',
+                'Best matches: flags action 5, flags experiment 4',
+                'Actions: flags action 4, flags action 3, flags action 2, (See all 5 actions)',
+                'Experiments: flags experiment 3, flags experiment 2, flags experiment 1',
+            ],
+        },
+        {
             name: 'a product leads a tab of another product with the same name, and they do not collapse',
             query: 'playground',
             results: [],
