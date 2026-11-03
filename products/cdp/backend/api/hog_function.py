@@ -189,6 +189,9 @@ def mask_config_secrets(content: dict) -> dict:
     return content
 
 
+REVISION_READ_ACTIONS = ("revisions", "revision_detail")
+
+
 def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     snapshot = {field: getattr(hog_function, field) for field in DRAFT_CONTENT_FIELDS}
     # Defensively strip: a row written before secret inputs were encrypted still has plaintext
@@ -1212,7 +1215,17 @@ class HogFunctionViewSet(
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
             required_scopes += ["person:read", "group:read"]
+        # A deleted function's history is the way to read its code without undeleting it, and an undelete
+        # needs write access.
+        if self.action in REVISION_READ_ACTIONS and self._target_is_deleted():
+            return required_scopes
         return required_scopes if len(required_scopes) > 1 else None
+
+    def _target_is_deleted(self) -> bool:
+        try:
+            return HogFunction.objects.filter(team_id=self.team_id, pk=self.kwargs.get("pk"), deleted=True).exists()
+        except (ValueError, DjangoValidationError):
+            return False
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":
@@ -1275,8 +1288,10 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
 
-        if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
-            # We only want to include deleted functions if we are un-deleting them
+        undeleting = self.action == "partial_update" and self.request.data.get("deleted") is False
+        if not undeleting and self.action not in REVISION_READ_ACTIONS:
+            # We only want to include deleted functions if we are un-deleting them, or reading the version
+            # history of one. `dangerously_get_required_scopes` gates that history like an undelete.
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
@@ -1525,6 +1540,16 @@ class HogFunctionViewSet(
         ):
             raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
+        # Version the starting config too. Otherwise a function deleted before its first config change
+        # keeps its code only on the soft-deleted row, which no endpoint returns. The save is not wrapped
+        # in a transaction with this write, because its post_save signal tells the workers to reload at once.
+        HogFunctionRevision.objects.create(
+            team_id=self.team_id,
+            hog_function=serializer.instance,
+            version=serializer.instance.version,
+            content=snapshot_hog_function_content(serializer.instance),
+            created_by=self.request.user if self.request.user.is_authenticated else None,
+        )
         log_activity_from_viewset(
             self,
             serializer.instance,
