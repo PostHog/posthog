@@ -3399,7 +3399,8 @@ def task_accessible_for_run_view(
         tag_queries(is_scout_experiment=True)
     if task is None or not task["accessible"]:
         return False
-    if for_control and not (bypass_visibility or sandbox_request or sandbox_task_id is not None):
+    acts_on_its_own_task = sandbox_task_id is not None and str(sandbox_task_id) == str(task_id)
+    if for_control and not (bypass_visibility or acts_on_its_own_task):
         return drive_allowed(task["profile"], created_by_id=task["created_by_id"], user_id=user_id)
     return True
 

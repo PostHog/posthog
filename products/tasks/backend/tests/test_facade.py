@@ -699,6 +699,38 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @parameterized.expand(
         [
+            ("token_bound_to_this_task", True, "own", True),
+            ("token_bound_to_another_task", True, "other", False),
+            ("token_without_a_bound_task", True, None, False),
+            ("no_sandbox_token", False, None, False),
+        ]
+    )
+    def test_only_a_sandbox_token_bound_to_the_task_skips_the_drive_policy(
+        self, _name: str, sandbox_request: bool, bound: str | None, allowed: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"),
+            key="test.drive_sandbox",
+            drive=DrivePolicy.NONE,
+            enforced_checks=frozenset({ContractCheck.DRIVE}),
+        )
+        task = self._make_task(profile=profile.key)
+        sandbox_task_id = {"own": task.id, "other": uuid4(), None: None}[bound]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            result = facade.task_accessible_for_run_view(
+                task.id,
+                self.team.id,
+                self.user.id,
+                for_control=True,
+                sandbox_request=sandbox_request,
+                sandbox_task_id=sandbox_task_id,
+            )
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
             (f"{gate}_{mode}", gate, drive, enforced, refused)
             for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume")
             for mode, drive, enforced, refused in (
