@@ -1225,14 +1225,6 @@ def resource_for_ref(ref: ObjectAccessRef) -> Resource:
     )
 
 
-def view_team(view: Any) -> Optional[Team]:
-    """The team the view's `user_access_control` reads rules from, or None for a view without one."""
-    try:
-        return view.team
-    except (Team.DoesNotExist, KeyError):
-        return None
-
-
 class AccessControlPermission(ScopeBasePermission):
     """
     Unified permissions access - controls access to any object based on the user's access controls
@@ -1305,7 +1297,10 @@ class AccessControlPermission(ScopeBasePermission):
             # Permissions do not apply to models without a related scope
             return True
 
-        team = None if isinstance(object, (Team, ObjectAccessRef)) else view_team(view)
+        # A view can read rules from another team than the URL's, such as the parent project that owns its rows.
+        team = (
+            None if isinstance(object, (Team, ObjectAccessRef)) else self._get_user_access_control(request, view).team
+        )
         if not isinstance(object, ObjectAccessRef) and is_outside_any_project(scope, object, team):
             # The current rules scope these objects' rules to the organization, which an SDK resource cannot name.
             has_access = self._get_user_access_control(request, view).check_access_level_for_object(
@@ -1369,8 +1364,9 @@ class AccessControlPermission(ScopeBasePermission):
             return True
 
         # TODO: Scope object should probably be applied against the `required_scopes` attribute
+        # The rules come from the view's access control team, which can be the parent project and not the URL's team.
         has_access = authorization.check(
-            resource=Resource(type=ResourceType(scope_object), project_id=team.id),
+            resource=Resource(type=ResourceType(scope_object), project_id=(uac.team or team).id),
             action=REQUIRED_LEVEL_ACTIONS[required_level],
             subject=request_subject(request),
         )
