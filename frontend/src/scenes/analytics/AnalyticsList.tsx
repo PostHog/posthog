@@ -6,10 +6,11 @@ import {
     IconChevronDown,
     IconFolder,
     IconFolderPlus,
+    IconList,
+    IconPerson,
     IconPlus,
     IconSearch,
     IconTrash,
-    IconTrends,
 } from '@posthog/icons'
 import {
     Button,
@@ -280,7 +281,13 @@ function AnalyticsListContent(): JSX.Element {
                 }
                 resourceType={{
                     type: 'analytics',
-                    forceIcon: spaceName ? <AnalyticsSpaceGlyph name={spaceName} /> : <IconTrends />,
+                    forceIcon: spaceName ? (
+                        <AnalyticsSpaceGlyph name={spaceName} />
+                    ) : scope === 'mine' ? (
+                        <IconPerson />
+                    ) : (
+                        <IconList />
+                    ),
                 }}
                 actions={
                     <div data-quill className="flex items-center gap-2">
