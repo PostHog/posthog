@@ -10,6 +10,7 @@ import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsume
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '~/types'
 
 import { stringToBoolean } from '../utils/env-utils'
+import { buildPosthogDatabaseUrl } from './database-url'
 
 // Re-export for backwards compatibility
 export { DEFAULT_HTTP_SERVER_PORT } from '~/common/config'
@@ -56,17 +57,7 @@ export function overrideWithEnv(
     }
     const newConfig: PluginsServerConfig = { ...tmpConfig }
 
-    if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
-        throw Error(
-            'You must specify either DATABASE_URL or the database options POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD, POSTHOG_POSTGRES_HOST, POSTHOG_POSTGRES_PORT!'
-        )
-    }
-
-    if (!newConfig.DATABASE_URL) {
-        const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
-        const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
-        newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
+    newConfig.DATABASE_URL = buildPosthogDatabaseUrl(newConfig)
 
     if (
         !newConfig.BEHAVIORAL_COHORTS_DATABASE_URL &&
