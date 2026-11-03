@@ -11370,10 +11370,14 @@ snapshots:
         hash: v1.k794b7964.71fdce87c3009faea6dd25e6ac817d5790ffed494cb15d66a7043b4ebe90cb60.rYWzblIjD-Ceyh15tkUkDm10Pu7exKRUm9n9TsB9B0Q
     scenes-app-errortracking-linkedreports--several-reports-across-states--light:
         hash: v1.k794b7964.fe2161a3bb0e898689ef58a342d071c353ded71ac270a62998ea566055359e7a.AnoCs1sNoTY6J1yl24yuZPh_1Jkjugz-jnYxHgY8ZyU
+    scenes-app-errortracking-suppress-similar-issues-dialog--exact-message--dark:
+        hash: v1.k794b7964.84152ff066dc338cda47d926eb98d8ab94ad78875110b82b89c30147724c5a86.P-Z6JrxVkTel_pZXRwNiMPT6ClPcSSUfXk0vdxDauhI
+    scenes-app-errortracking-suppress-similar-issues-dialog--exact-message--light:
+        hash: v1.k794b7964.186b06b71c9a272537d135916f222ece3b2add909775f590a353091cb5be9dbf.EM9tFQNEVw3XSDiM67SvaJvoajRMpuEQsdC4GPH6M7c
     scenes-app-errortracking-suppress-similar-issues-dialog--similar-messages--dark:
-        hash: v1.k794b7964.3ece4edd55a0d626d268292993aadd6a909e6ad03cfb897d741bebda266790d6.a8rVBPiF6wrk6YAIKne9ABrV3NLalDP0EJjQQ9mZyeM
+        hash: v1.k794b7964.67d200abd3ff3bfb28f4c100e0af0f19171901798c2950bb2e78e5ddead7f296.7If2ww1CIlii1cnRqWF1RYUV5Hn-kyPrHFlr2uq7Cus
     scenes-app-errortracking-suppress-similar-issues-dialog--similar-messages--light:
-        hash: v1.k794b7964.8328c04966ba5a6b33fe31dede3262184b0cfa19ebb7f4e5c4bf6d052fd2a829.KKd1GJ0I_20JnUEE7ik1rNIhu_U2pREp86C629xT_fU
+        hash: v1.k794b7964.9c138dda354b1e862384532513a3b87d9272918e470b1566c310fdc915ffed69.U4gwd2pVziHHKFMchBir4Z36jdVeQ8A6tS9Fb8zwq20
     scenes-app-etl--healthy--dark:
         hash: v1.k794b7964.af47a2089a0e96523319000942dcf95855be7e7308011501bbfb31b622ae9e1a.-e6qEOIGiP6o9vjiFSABwNrwon1CD8l1RQSIlICCxX0
     scenes-app-etl--healthy--light:
