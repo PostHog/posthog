@@ -47,4 +47,21 @@ describe('the v4 url policy addon', () => {
             expect(politenessKey(host)).toBe(host)
         })
     })
+
+    it('stops the fetch pod at startup when index.node predates a shared rule', () => {
+        const nativePath = require.resolve('@posthog/ai-research-v4-native/index.node')
+        jest.isolateModules(() => {
+            jest.doMock(nativePath, () => {
+                const {
+                    urlJob: _urlJob,
+                    isUrlHistoryValue: _isUrlHistoryValue,
+                    ...stale
+                } = jest.requireActual(nativePath)
+                return stale
+            })
+            const { assertUrlPolicyLoaded } = require('./politeness-key')
+            expect(() => assertUrlPolicyLoaded()).toThrow('rebuild index.node')
+        })
+        jest.dontMock(nativePath)
+    })
 })

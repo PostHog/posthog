@@ -34,6 +34,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
 )
+from products.signals.backend.personal_ranking import serve as personal_ranking_serve
 from products.signals.backend.personal_ranking.candidates import Candidate
 from products.signals.backend.personal_ranking.config import (
     CandidatePool,
@@ -398,7 +399,7 @@ class TestBuildPersonalRanking(BaseTest):
             ),
             (
                 "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag",
-                MagicMock(return_value="action"),
+                MagicMock(return_value="action_pills"),
             ),
         ):
             patcher = patch(target, value)
@@ -783,6 +784,45 @@ class TestForMeEndpoint(APIBaseTest):
         self.delay.side_effect = build_personal_inbox_ranking
         body = self._get(refresh="true", wait_seconds=5)
         assert (self._state(body), self._rows()) == ((False, False, False), 5)
+
+    @parameterized.expand(
+        [
+            ("during_gather", "gather_candidates", {}, False, False),
+            ("before_lock", "may_call_model", {}, False, False),
+            ("refresh", "gather_candidates", {"refresh": "true"}, False, False),
+            ("refresh_before_lock", "may_call_model", {"refresh": "true"}, False, False),
+            ("inputs_changed", "gather_candidates", {}, True, True),
+            ("focus", "gather_candidates", {"focus": "checkout"}, False, True),
+        ]
+    )
+    def test_a_build_that_lands_during_the_read_answers_it(
+        self, _name: str, step: str, params: dict[str, Any], change_inputs: bool, builds: bool
+    ) -> None:
+        self.payload = {"build_burst": 3, "builds_per_hour": 1}
+        report = self._claimed_report("First")
+        self._get()
+        self._run_builds()
+        report.title = "First, edited"
+        report.save()
+        self._get()
+
+        real_step = getattr(personal_ranking_serve, step)
+
+        def build_lands(*args: Any, **kwargs: Any) -> Any:
+            self._run_builds()
+            if change_inputs:
+                report.title = "First, edited again"
+                report.save()
+            return real_step(*args, **kwargs)
+
+        with patch.object(personal_ranking_serve, step, side_effect=build_lands):
+            body = self._get(**params)
+
+        assert (self._rows(), len(self.queued)) == (2, int(builds))
+        assert self._state(body) == ((True, True, True) if builds else (True, False, False))
+        self._run_builds()
+        # A read that queued no build spent no bucket, so the burst still has one build left.
+        assert self._get(refresh="true")["building"] is not builds
 
     def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
