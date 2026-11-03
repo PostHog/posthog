@@ -1746,6 +1746,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")},
             {
+                "share_off_split": 0.1667,
                 "located_dimensions": "library,library_version",
                 "library_1": "web",
                 "library_1_exposed_control": 100,
@@ -1934,7 +1935,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     ExperimentExposureHealthFindingCode.SRM,
                     "The distribution of users across variants doesn't match your configured rollout percentages "
                     "(p < 0.001). This may indicate issues with randomization or data collection.",
-                    {"p_value"},
+                    {"p_value", "share_off_split"},
                 )
             ],
         )
