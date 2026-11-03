@@ -21,6 +21,7 @@ import type {
 import { allReports } from '../__mocks__/inboxMocks'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import { signalSourcesLogic } from '../signalSourcesLogic'
+import { inboxAgentActivationLogic } from './inboxAgentActivationLogic'
 import { inboxOnboardingLogic } from './inboxOnboardingLogic'
 import { inboxSetupLogic } from './inboxSetupLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
@@ -228,6 +229,108 @@ describe('Inbox setup', () => {
         jest.useRealTimers()
     })
 
+    it('connects GitHub from the agent route and activates on return without collecting setup fields', async () => {
+        savedDraft = null
+        failCompletion = false
+        hasEvents = true
+        canonicalScouts = [generalScoutConfig()]
+        router.actions.replace('/inbox/activate', { onboarding_step: 'github', next: 'https://other.example.com' })
+        const originalLocation = window.location
+        const assign = jest.fn()
+        Object.defineProperty(window, 'location', {
+            value: { ...originalLocation, assign },
+            configurable: true,
+        })
+        const entry = inboxAgentActivationLogic()
+        entry.mount()
+        try {
+            await waitFor(() => expect(assign).toHaveBeenCalledTimes(1))
+            const authorization = new URL(assign.mock.calls[0][0], 'https://example.com')
+            expect(authorization.pathname).toBe(`/api/projects/${logic.values.currentTeamId}/integrations/authorize/`)
+            expect(authorization.searchParams.get('kind')).toBe('github')
+            const next = new URL(authorization.searchParams.get('next')!, 'https://example.com')
+            expect(next.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox`)
+            expect(next.searchParams.get('agent_setup')).toBe('return')
+            expect(next.searchParams.get('onboarding_step')).toBe('quick')
+            expect(savedDraft).toBeNull()
+            expect(createdSources).toBe(0)
+            expect(logic.values.completed).toBe(false)
+
+            router.actions.replace('/inbox', Object.fromEntries(next.searchParams))
+            logic.actions.loadIntegrations()
+            await waitFor(() => expect(logic.values.shouldResumeQuickSetup).toBe(true))
+            logic.actions.resumeQuickSetup()
+            await waitFor(() => expect(logic.values.completed).toBe(true))
+            await waitFor(() => expect(router.values.searchParams.agent_setup).toBe('complete'))
+            expect(enabledScouts).toEqual(['signals-scout-general'])
+        } finally {
+            entry.unmount()
+            Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+        }
+    })
+
+    it.each(['guided', 'completed', 'unavailable', 'without GitHub'] as const)(
+        'preserves %s setup when opening the agent route',
+        async (state) => {
+            savedDraft = state === 'guided' ? { ...draft } : null
+            completedAt = state === 'completed' ? '2026-01-01T00:00:00Z' : null
+            githubOptional = state === 'without GitHub'
+            if (state === 'unavailable') {
+                useMocks({ get: { '/api/projects/:id/signals/onboarding/': () => [503, { detail: 'Try again.' }] } })
+            }
+            router.actions.replace(state === 'without GitHub' ? '/inbox/activate/without-github' : '/inbox/activate')
+            const originalLocation = window.location
+            const assign = jest.fn()
+            Object.defineProperty(window, 'location', {
+                value: { ...originalLocation, assign },
+                configurable: true,
+            })
+            const entry = inboxAgentActivationLogic()
+            entry.mount()
+            try {
+                if (state === 'unavailable') {
+                    await waitFor(() => expect(entry.values.error).toBeTruthy())
+                } else {
+                    await waitFor(() =>
+                        expect(router.values.location.pathname).toBe(`/project/${logic.values.currentTeamId}/inbox`)
+                    )
+                    expect(router.values.searchParams).toMatchObject(
+                        state === 'completed'
+                            ? { agent_setup: 'complete' }
+                            : state === 'without GitHub'
+                              ? { onboarding_step: 'quick', agent_setup: 'without_github' }
+                              : { onboarding_step: 'github', agent_setup: 'return' }
+                    )
+                }
+                expect(assign).not.toHaveBeenCalled()
+                expect(savedDraft).toEqual(state === 'guided' ? draft : null)
+                expect(createdSources).toBe(0)
+            } finally {
+                entry.unmount()
+                Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
+            }
+        }
+    )
+
+    it.each(['access_denied', 'github_install_pending'])(
+        'does not auto-activate after GitHub returns %s to the agent flow',
+        async (code) => {
+            savedDraft = null
+            await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+            await connectGithub()
+            router.actions.replace('/inbox', {
+                onboarding_step: 'quick',
+                agent_setup: 'return',
+                ...(code === 'github_install_pending' ? { github_install_pending: '1' } : { github_setup_error: code }),
+            })
+            logic.actions.resumeQuickSetup()
+            expect(logic.values.error).toBeTruthy()
+            expect(logic.values.quickActivationPending).toBe(false)
+            expect(logic.values.completed).toBe(false)
+            expect(createdSources).toBe(0)
+        }
+    )
+
     it.each([
         ['button', true, null, false],
         ['github_return', true, null, false],
@@ -241,6 +344,9 @@ describe('Inbox setup', () => {
         'activates through %s with usage-based pricing %s and saved implementation %s and GitHub-optional pilot %s',
         async (entry, usageBasedPricing, savedImplementation, pilot) => {
             githubOptional = pilot
+            if (pilot) {
+                router.actions.replace('/inbox', { agent_setup: 'without_github' })
+            }
             const capture = jest.spyOn(posthog, 'capture')
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
@@ -269,6 +375,7 @@ describe('Inbox setup', () => {
             }
             expect(logic.values.quickActivationPending).toBe(true)
             await waitFor(() => expect(logic.values.completed).toBe(true))
+            await waitFor(() => expect(router.values.searchParams.agent_setup).toBe(pilot ? 'complete' : undefined))
             expect(inventoryRequests).toBeGreaterThan(0)
             expect(logic.values.quickActivationPending).toBe(false)
             expect(enabledScouts).toEqual(['signals-scout-general'])

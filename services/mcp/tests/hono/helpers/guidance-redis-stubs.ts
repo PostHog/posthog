@@ -7,6 +7,7 @@ export interface GuidanceRedisStub extends RedisLike {
 
 export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
     const store = new Map<string, string>()
+    const expirations = new Map<string, number>()
     const evalCalls: (string | number)[][] = []
     const guard = async <T>(value: T): Promise<T> => {
         if (failing) {
@@ -19,12 +20,26 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
         store.set(key, String(next))
         return next
     }
+    const read = (key: string): string | null => {
+        if ((expirations.get(key) ?? Infinity) <= Date.now()) {
+            store.delete(key)
+            expirations.delete(key)
+        }
+        return store.get(key) ?? null
+    }
     return {
         store,
         evalCalls,
-        get: (key) => guard(store.get(key) ?? null),
-        set: (key, value) => {
+        get: (key) => guard(read(key)),
+        set: (key, value, ...args) => {
+            if (args.includes('NX') && read(key) !== null) {
+                return guard(null)
+            }
             store.set(key, value)
+            const expiryIndex = args.indexOf('EX')
+            if (expiryIndex !== -1) {
+                expirations.set(key, Date.now() + Number(args[expiryIndex + 1]) * 1000)
+            }
             return guard('OK')
         },
         del: async (...keys) => keys.filter((key) => store.delete(key)).length,

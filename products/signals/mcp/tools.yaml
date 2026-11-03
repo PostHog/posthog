@@ -1766,6 +1766,26 @@ tools:
                     Steering instructions shared by every run in this trial, matching the trial UI's "Instructions for
                     every run" field. Up to 1000 characters. Does not edit the saved scout's instructions.
         feature_flag: scout-trials
+    self-driving-status-get:
+        operation: signals_onboarding_list
+        enabled: true
+        scopes:
+            - task:read
+            - signal_scout:read
+        title: Get Self-driving setup status
+        description: >
+            Check Self-driving setup in the current project. A non-null completed_at means setup finished; it does not
+            prove monitoring is currently running or a report is ready. After sharing an activation link, poll this tool
+            every 10 seconds for up to five minutes for the same project. Stop when completed_at is set, on an error, or
+            when the time limit expires. If setup is still pending, ask the customer to let you know when it finishes.
+            Continue their current task while waiting. After completion, check existing reports before repeating
+            research, then resume the task or follow their next request.
+        response:
+            include:
+                - completed_at
+                - github_optional_available
+                - jobs
+                - first_report
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true

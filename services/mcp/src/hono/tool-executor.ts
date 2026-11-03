@@ -253,6 +253,9 @@ export class ToolExecutor {
         const carriedContextHandle =
             hooks?.carriedContextHandle ??
             Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
+        const carriedContextSessionKey = carriedContextHandle
+            ? (state.requestContext.mcpConversationId ?? state.requestContext.mcpSessionId)
+            : undefined
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -275,6 +278,7 @@ export class ToolExecutor {
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         callState.carriedContextHandle = carriedContextHandle
+        callState.carriedContextSessionKey = carriedContextSessionKey
         const callParams = { ...params, arguments: args }
 
         const targetToolName =
@@ -494,14 +498,13 @@ export class ToolExecutor {
             }
 
             toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-            stop({ status: 'success' })
-
-            const duration = Date.now() - startMs
             const guidance = await this.guidanceFor(state, {
                 toolName: tool.name,
                 args: validation.data,
                 isError: false,
             })
+            stop({ status: 'success' })
+            const duration = Date.now() - startMs
 
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
@@ -528,6 +531,7 @@ export class ToolExecutor {
                 })
             }
 
+            const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
                 tool.name,
                 duration,
@@ -537,7 +541,8 @@ export class ToolExecutor {
                     ...inputShape,
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens:
+                        estimateResponseTokens(response) + (guidance?.text ? estimateTokens(guidance.text) : 0),
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
@@ -559,10 +564,10 @@ export class ToolExecutor {
                 durationMs: duration,
                 isError: false,
                 input: validation.data,
-                output: response,
+                output: guided,
             })
 
-            return attachGuidanceNotice(response, guidance)
+            return guided
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
@@ -716,7 +721,6 @@ export class ToolExecutor {
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
-            const duration = Date.now() - startMs
 
             const response = isToolCallPayload(handlerResult)
                 ? handlerResult
@@ -743,6 +747,10 @@ export class ToolExecutor {
                 args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
                 isError: innerFailure !== undefined,
             })
+            const duration = Date.now() - startMs
+            const guided = attachGuidanceNotice(response, guidance, {
+                jsonOutput: execMetrics.innerOutputFormat === 'json',
+            })
 
             void trackToolCall(
                 execToolName(),
@@ -757,7 +765,8 @@ export class ToolExecutor {
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
                         : {}),
                     input_tokens: estimateTokens(validation.data),
-                    output_tokens: estimateResponseTokens(response),
+                    output_tokens:
+                        estimateResponseTokens(response) + (guidance?.text ? estimateTokens(guidance.text) : 0),
                     ...execMetrics.commandMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
@@ -767,9 +776,7 @@ export class ToolExecutor {
                 this.servedToolDescription(execToolName())
             )
 
-            return attachGuidanceNotice(response, guidance, {
-                jsonOutput: execMetrics.innerOutputFormat === 'json',
-            })
+            return guided
         } catch (error: unknown) {
             const metricTool = execToolName()
             const classification = classifyToolError(error, metricTool)

@@ -2933,6 +2933,30 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
+const SelfDrivingStatusGetSchema = () => z.object({})
+
+const selfDrivingStatusGet = (): ToolBase<
+    ReturnType<typeof SelfDrivingStatusGetSchema>,
+    Schemas.InboxOnboardingState
+> => ({
+    name: 'self-driving-status-get',
+    schema: SelfDrivingStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.InboxOnboardingState>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'completed_at',
+            'github_optional_available',
+            'jobs',
+            'first_report',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -3752,6 +3776,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
+    'self-driving-status-get': selfDrivingStatusGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiClient } from '@/api/client'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
+import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
 import { makeToolExecutorState } from '../shared/test-utils'
@@ -253,5 +254,254 @@ describe('GuidanceEngine', () => {
     it('ships every rule with a distinct id and flag', () => {
         expect(new Set(GUIDANCE_RULES.map((r) => r.id)).size).toBe(GUIDANCE_RULES.length)
         expect(new Set(GUIDANCE_RULES.map((r) => r.flag)).size).toBe(GUIDANCE_RULES.length)
+    })
+})
+
+describe('Self-driving activation guidance', () => {
+    const issueCall: GuidanceCall = {
+        toolName: 'query-error-tracking-issue',
+        args: { issueId: '019a0000-0000-7000-8000-000000000001' },
+        isError: false,
+    }
+
+    const listCall: GuidanceCall = { toolName: 'query-error-tracking-issues-list', args: {}, isError: false }
+
+    function activationState(overrides: Partial<ResolvedState> = {}): ResolvedState {
+        const state = makeToolExecutorState(
+            [
+                'self-driving-status-get',
+                'inbox-reports-list',
+                'inbox-reports-retrieve',
+                'inbox-report-artefacts-list',
+            ].map((name) => ({ name })),
+            {
+                suppressAnalytics: false,
+                aiConsentGiven: true,
+                carriedContextHandle: true,
+                carriedContextSessionKey: 'sess-1',
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true },
+                ...overrides,
+            }
+        )
+        state.context.api = new ApiClient({
+            apiToken: 'synthetic-credential',
+            baseUrl: 'https://api.example.com',
+            publicBaseUrl: 'https://example.com',
+        })
+        state.context.api.request = vi.fn().mockResolvedValue({ completed_at: null, draft: null })
+        state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
+        return state
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+        vi.useRealTimers()
+    })
+
+    it.each([
+        [issueCall, true, false],
+        [issueCall, true, true],
+        [issueCall, true, undefined],
+        [issueCall, false, true],
+        [listCall, true, false],
+        [listCall, true, true],
+        [listCall, false, true],
+    ] as const)(
+        'records exposure for %j with experiment flag %s and GitHub-optional setup %s',
+        async (call, enabled, githubOptional) => {
+            const state = activationState({
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
+            })
+            vi.mocked(state.context.api.request).mockResolvedValue({
+                completed_at: null,
+                draft: null,
+                github_optional_available: githubOptional,
+            })
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
+
+            expect(notice).toMatchObject({
+                ruleId: 'error-tracking-sd-activation',
+                outcome: enabled ? 'shown' : 'flag_off',
+            })
+            expect(notice?.text).toEqual(
+                enabled ? expect.stringContaining('https://example.com/project/2/inbox/activate') : undefined
+            )
+            if (enabled) {
+                expect(notice?.text).toContain(
+                    'poll `self-driving-status-get` for the same project every 10 seconds for up to five minutes'
+                )
+                expect(notice?.text).toContain('Continue helping with the current task')
+                expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
+                    githubOptional === true
+                )
+                expect(notice?.text).not.toContain('api.example.com')
+                expect(notice?.text).not.toContain('self-driving-activate')
+            }
+            expect(state.context.api.request).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/2/signals/onboarding/',
+                signal: expect.any(AbortSignal),
+            })
+        }
+    )
+
+    it.each([
+        ['impersonation', { isImpersonated: true }],
+        ['analytics suppression', { suppressAnalytics: true }],
+        ['a task-bound request', { isTaskBound: true }],
+        ['a sandbox task', { sandboxTaskId: 'synthetic-task' }],
+        ['an internal token', { apiKeyScopes: ['internal_run:read'] }],
+        ['a scout token', { apiKeyScopes: ['signal_scout_internal:write'] }],
+        ['missing consent', { aiConsentGiven: false }],
+        ['unknown consent', { aiConsentGiven: undefined }],
+        ['an unavailable experiment flag', { toolFeatureFlags: {} }],
+        ['unavailable reports tools', { allTools: [] }],
+        ['a first-party assistant', { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' }],
+        ['a first-party app that declares no consumer', { oauthClientId: 'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W' }],
+    ] satisfies [string, Partial<ResolvedState>][])('does not fetch readiness for %s', async (_label, overrides) => {
+        const state = activationState(overrides)
+        expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)).toBeUndefined()
+        expect(state.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { ...issueCall, isError: true },
+        { ...listCall, isError: true },
+        { ...issueCall, toolName: 'query-error-tracking-issue-events' },
+        { ...issueCall, args: {} },
+    ])('does not fetch readiness outside a successful issue list or detail: %j', async (call) => {
+        const state = activationState()
+        expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)).toBeUndefined()
+        expect(state.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { completed_at: '2026-01-01T00:00:00Z', draft: null },
+        { completed_at: null, draft: { setup_mode: 'guided' } },
+    ])('briefly caches existing setup without consuming the session allowance: %j', async (preview) => {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        const state = activationState()
+        vi.mocked(state.context.api.request).mockResolvedValueOnce(preview)
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        vi.advanceTimersByTime(29_999)
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(state.context.api.request).toHaveBeenCalledTimes(1)
+        vi.advanceTimersByTime(1)
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        expect(state.context.api.request).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+        [
+            'project',
+            (state: ResolvedState) => vi.mocked(state.context.stateManager.getProjectId).mockResolvedValue('3'),
+        ],
+        ['caller', (state: ResolvedState) => (state.distinctId = 'another-user')],
+        ['credential', (state: ResolvedState) => (state.context.api.config.apiToken = 'another-synthetic-credential')],
+        ['permissions', (state: ResolvedState) => (state.apiKeyScopes = ['task:read'])],
+        ['region', (state: ResolvedState) => (state.context.api.config.baseUrl = 'https://other.example.com')],
+    ] satisfies [string, (state: ResolvedState) => unknown][])(
+        'does not share negative readiness across a different %s',
+        async (_label, change) => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            const blocked = activationState()
+            vi.mocked(blocked.context.api.request).mockResolvedValue({ completed_at: null, draft: {} })
+            expect(await engine.evaluate(blocked, issueCall)).toBeUndefined()
+
+            const eligible = activationState()
+            change(eligible)
+            expect(await engine.evaluate(eligible, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    )
+
+    it.each([
+        undefined,
+        {},
+        { completed_at: null },
+        { completed_at: null, draft: null, github_optional_available: 'true' },
+    ])('does not cache malformed readiness: %j', async (preview) => {
+        const state = activationState()
+        vi.mocked(state.context.api.request).mockResolvedValueOnce(preview)
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+    })
+
+    it('offers once across list/detail tools and projects, reserving concurrent eligible calls atomically', async () => {
+        const state = activationState()
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const notices = await Promise.all([engine.evaluate(state, listCall), engine.evaluate(state, issueCall)])
+        expect(notices.filter(Boolean)).toHaveLength(1)
+        const otherProject = activationState()
+        vi.mocked(otherProject.context.stateManager.getProjectId).mockResolvedValue('3')
+        expect(await engine.evaluate(otherProject, listCall)).toBeUndefined()
+        expect(otherProject.context.api.request).not.toHaveBeenCalled()
+    })
+
+    it.each([{ carriedContextSessionKey: 'sess-2' }, { distinctId: 'another-user' }])(
+        'keeps different users and sessions separate: %j',
+        async (overrides) => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            await engine.evaluate(activationState(), issueCall)
+            expect(await engine.evaluate(activationState(overrides), issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    )
+
+    it('offers on every handleless call and retains the cap when a minted handle is later echoed', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const state = activationState({ carriedContextHandle: false, carriedContextSessionKey: undefined })
+        state.requestContext = {
+            ...state.requestContext,
+            mcpSessionId: undefined,
+            sessionId: 'wrapper-only',
+            mcpConversationId: 'minted-1',
+        }
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        state.requestContext.mcpConversationId = 'minted-2'
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        expect(state.context.api.request).toHaveBeenCalledTimes(2)
+        state.carriedContextHandle = true
+        state.carriedContextSessionKey = 'minted-2'
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        expect(state.context.api.request).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['readiness', 'redis'])('silently leaves the tool result alone after %s fails', async (failure) => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const state = activationState()
+        if (failure === 'readiness') {
+            vi.mocked(state.context.api.request).mockRejectedValueOnce(new Error('readiness unavailable'))
+        }
+        const engine = new GuidanceEngine(makeGuidanceRedis(failure === 'redis'))
+        expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+        if (failure === 'readiness') {
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        }
+    })
+
+    it('cancels readiness with a one-second overall deadline without consuming the session allowance', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const controller = new AbortController()
+        const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal)
+        const state = activationState()
+        let requestStarted: (() => void) | undefined
+        const started = new Promise<void>((resolve) => {
+            requestStarted = resolve
+        })
+        vi.mocked(state.context.api.request).mockImplementationOnce(async ({ signal }) => {
+            requestStarted?.()
+            return await new Promise<never>((_resolve, reject) =>
+                signal?.addEventListener('abort', () => reject(signal.reason))
+            )
+        })
+        const engine = new GuidanceEngine(makeGuidanceRedis())
+        const pending = engine.evaluate(state, issueCall)
+        await started
+        controller.abort(new DOMException('deadline', 'TimeoutError'))
+        expect(await pending).toBeUndefined()
+        expect(timeout).toHaveBeenCalledWith(1000)
+        expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
     })
 })

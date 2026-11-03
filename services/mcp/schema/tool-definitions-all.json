@@ -14015,6 +14015,21 @@
         },
         "feature_flag": "scout-trials"
     },
+    "self-driving-status-get": {
+        "description": "Check Self-driving setup in the current project. A non-null completed_at means setup finished; it does not prove monitoring is currently running or a report is ready. After sharing an activation link, poll this tool every 10 seconds for up to five minutes for the same project. Stop when completed_at is set, on an error, or when the time limit expires. If setup is still pending, ask the customer to let you know when it finishes. Continue their current task while waiting. After completion, check existing reports before repeating research, then resume the task or follow their next request.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get Self-driving setup status",
+        "title": "Get Self-driving setup status",
+        "required_scopes": ["task:read", "signal_scout:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/onboarding/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
         "category": "Session replays",
