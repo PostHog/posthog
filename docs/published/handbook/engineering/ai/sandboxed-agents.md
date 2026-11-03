@@ -323,8 +323,6 @@ for example, a discovery pass followed by per-item research, then assessment and
 2. **Follow up** – `session.send_followup(prompt, Shape)` sends additional prompts within the same sandbox session. Each response is validated against the provided schema. The session retries once on empty responses.
 3. **End** – `session.end()` signals the sandbox workflow to shut down.
 
-Response assembly ignores sub-agent updates marked with `_meta.posthog.parentToolCallId` or the legacy `_meta.claudeCode.parentToolCallId`. Their activity stays in the session log without splitting the parent's response or adding child text to it. The parent's own tool calls and plan updates still separate messages.
-
 ### Example
 
 ```python
