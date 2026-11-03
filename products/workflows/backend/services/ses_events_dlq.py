@@ -169,6 +169,8 @@ def _mask_email(address: Any) -> str | None:
 
 def _sent_timestamp(message: dict[str, Any]) -> datetime | None:
     raw = _as_dict(message.get("Attributes")).get("SentTimestamp")
+    if raw is None:
+        return None
     try:
         return datetime.fromtimestamp(int(raw) / 1000, tz=UTC)
     except (TypeError, ValueError):
