@@ -170,7 +170,7 @@ def _enable_materialization(
         raise MaterializationRefusedError(MANAGED_VIEWSET_REFUSAL)
 
     _require_edit_access(saved_query, user)
-    assert_user_can_read_query(saved_query.query, saved_query.team_id, user)
+    assert_user_can_read_query(saved_query.query, saved_query.team_id, user, for_data_modeling=True)
 
     if sync_frequency_interval is not None:
         # Ask before writing, so the ordinary refusal never has to be undone below. Names only

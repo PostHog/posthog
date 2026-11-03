@@ -1,5 +1,3 @@
-from collections.abc import Collection
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -191,9 +189,9 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             team: Team,
             user: User | SyntheticUser | SharedLinkUser | None,
             user_access_control: UserAccessControl | None = None,
-            allowed_system_tables: Collection[str] | None = None,
+            for_data_modeling: bool = False,
         ) -> tuple[UserAccessControl | None, set[str]]:
-            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
+            result = _compute_system_table_access_decision(team, user, user_access_control, for_data_modeling)
             captured.setdefault("results", []).append(result)
             return result
 

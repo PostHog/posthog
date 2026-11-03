@@ -4,7 +4,6 @@ import time
 import pickle
 import threading
 import dataclasses
-from collections.abc import Collection
 from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, cast
@@ -68,6 +67,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_MAX_ENTRY_WEIGHT,
     SOURCES_CACHE_TTL_SECONDS,
@@ -4617,9 +4617,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             team: Team,
             user: User | SyntheticUser | SharedLinkUser | None,
             user_access_control: UserAccessControl | None = None,
-            allowed_system_tables: Collection[str] | None = None,
+            for_data_modeling: bool = False,
         ) -> tuple[UserAccessControl | None, set[str]]:
-            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
+            result = _compute_system_table_access_decision(team, user, user_access_control, for_data_modeling)
             captured["result"] = result
             return result
 
@@ -4644,9 +4644,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             team: Team,
             user: User | SyntheticUser | SharedLinkUser | None,
             user_access_control: UserAccessControl | None = None,
-            allowed_system_tables: Collection[str] | None = None,
+            for_data_modeling: bool = False,
         ) -> tuple[UserAccessControl | None, set[str]]:
-            result = _compute_system_table_access_decision(team, user, user_access_control, allowed_system_tables)
+            result = _compute_system_table_access_decision(team, user, user_access_control, for_data_modeling)
             captured["result"] = result
             return result
 
@@ -4766,50 +4766,40 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with pytest.raises(TableAccessDeniedError):
             database.get_table("system.accounts")
 
-    def test_userless_system_table_allowlist_is_exact(self) -> None:
-        database = Database.create_for(
+    def test_data_modeling_can_read_registered_system_tables(self) -> None:
+        database = Database.create_for(team=self.team, for_data_modeling=True)
+
+        for name in SystemTables().resolve_all_table_names():
+            database.get_table(name)
+        with pytest.raises(TableAccessDeniedError):
+            Database.create_for(team=self.team).get_table("system.source_sync_jobs")
+
+    def test_data_modeling_does_not_override_user_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
             team=self.team,
-            allowed_system_tables=frozenset({"accounts"}),
+            resource="dashboard",
+            access_level="none",
+            organization_member=self.organization_membership,
         )
 
-        assert "system.accounts" in database.get_system_table_names()
-        assert "system.feature_flags" not in database.get_system_table_names()
+        database = Database.create_for(team=self.team, user=self.user, for_data_modeling=True)
+
         with pytest.raises(TableAccessDeniedError):
-            database.get_table("system.feature_flags")
+            database.get_table("system.dashboards")
 
-    @parameterized.expand(
-        [
-            ("qualified", "system.accounts"),
-            ("unscoped", "_account_tagged_items"),
-            ("unknown", "not_a_system_table"),
-        ]
-    )
-    def test_system_table_allowlist_rejects_invalid_names(self, _name: str, table_name: str) -> None:
-        with pytest.raises(ValueError, match="exact bare names of scoped system tables"):
-            Database.create_for(
-                team=self.team,
-                allowed_system_tables=frozenset({table_name}),
-            )
-
-    def test_system_table_allowlist_rejects_real_users(self) -> None:
-        with pytest.raises(ValueError, match="restricted to userless database creation"):
-            Database.create_for(
-                team=self.team,
-                user=self.user,
-                allowed_system_tables=frozenset({"accounts"}),
-            )
-
-    def test_system_table_allowlist_does_not_override_cloud_entitlements(self) -> None:
+    def test_data_modeling_does_not_override_cloud_entitlements(self) -> None:
         self.organization.available_product_features = []
         self.organization.save()
 
         with self.is_cloud(True):
-            database = Database.create_for(
-                team=self.team,
-                allowed_system_tables=frozenset({"activity_logs"}),
-            )
+            database = Database.create_for(team=self.team, for_data_modeling=True)
 
-        assert "system.activity_logs" not in database.get_system_table_names()
         with pytest.raises(TableAccessDeniedError):
             database.get_table("system.activity_logs")
 

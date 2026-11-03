@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PrepareQueryableTableInputs:
     team_id: int
     job_id: str
@@ -36,6 +36,7 @@ class PrepareQueryableTableInputs:
     # An incremental run's row_count covers only the window it upserted, so it must not be written
     # to the table as a total. Defaulted so old workflow histories decode without it.
     incremental: bool = False
+    modeling_source_fields: list[str] | None = None
 
 
 @database_sync_to_async_pool
@@ -48,9 +49,17 @@ def _get_saved_query_with_table(inputs: PrepareQueryableTableInputs) -> DataWare
     return saved_query
 
 
-def _link_or_discard_table(saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable) -> bool:
+def _link_or_discard_table(
+    saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable, inputs: PrepareQueryableTableInputs
+) -> bool:
     with transaction.atomic():
-        if link_table_if_materializing(saved_query.team_id, saved_query.id, saved_query_table.id):
+        if link_table_if_materializing(
+            saved_query.team_id,
+            saved_query.id,
+            saved_query_table.id,
+            modeling_source_fields=inputs.modeling_source_fields,
+            incremental=inputs.incremental,
+        ):
             return True
         unlink_table(saved_query.team_id, saved_query.id, saved_query_table.id)
         discard_backing_table(saved_query.team_id, saved_query_table.id)
@@ -67,7 +76,7 @@ def _link_or_discard_table(saved_query: DataWarehouseSavedQuery, saved_query_tab
 def _update_saved_query_with_table(
     inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, saved_query_table: DataWarehouseTable
 ):
-    if not _link_or_discard_table(saved_query, saved_query_table):
+    if not _link_or_discard_table(saved_query, saved_query_table, inputs):
         return
 
     if not inputs.incremental:

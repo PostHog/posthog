@@ -165,7 +165,26 @@ Without a user, warehouse access control denies every warehouse table and view, 
 execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 ```
 
-Data Modeling materialized views are project-owned. Refreshes do not run as `created_by` and do not inherit account, ticket, or object-level access. Data Modeling passes `allowed_system_tables` to declassify approved system tables into warehouse data. The allowlist accepts exact table names and denies every other system table. Warehouse-view permissions protect the materialized result. Billing entitlements still apply, and only userless database builds can use the allowlist.
+Data Modeling materialized views are project-owned.
+Refreshes do not run as `created_by` and do not inherit the author's later access changes.
+A trusted refresh builds its database with `for_data_modeling=True` to read registered system tables automatically.
+This mode does not override a supplied user's permissions, project boundaries, or billing entitlements.
+Other jobs without a user still deny scoped system tables.
+
+Saving or changing a view's query, enabling materialization, and starting a manual run require source read access.
+The checks resolve the complete query, including nested views and joins, with the acting user's permissions.
+A query that needs object-level row filtering cannot authorize a project-owned copy.
+The user must first get access to all source objects.
+Warehouse-view permissions protect the stored result independently of source permissions.
+
+A schema field can set `modeling_allowed=False` to prevent its use in models.
+This check applies to projections, expressions, filters, joins, and wildcard reads during validation and refresh.
+It does not change ordinary query access.
+Each successful publication stores the source field keys used by the refresh in the internal `materialized_source_fields` column.
+Downstream models retain upstream source field keys, and incremental publications retain the field keys of earlier rows.
+If a source field becomes restricted, queries cannot read the affected stored result.
+After a field restriction is added, a legacy result with no source field record also needs a full rebuild.
+Removing a field from the current query alone does not authorize the old stored result.
 
 4. **Public dashboards / notebooks / shared insights:** the viewer is anonymous, so queries run as `SharedLinkUser` (`posthog/shared_link_user.py`, built in `SharingViewerPageViewSet`).
    `Database.create_for` doesn't restrict any warehouse tables or views for a shared-link viewer; the access gate is at publish time instead.

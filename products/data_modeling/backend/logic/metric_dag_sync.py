@@ -8,7 +8,6 @@ import structlog
 
 from posthog.hogql.database.database import Database
 
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import delete_nodes, lock_dag, replace_incoming_edges
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -42,7 +41,7 @@ def sync_metric_to_dag(
         database = Database.create_for(
             team=team,
             bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            for_data_modeling=True,
         )
 
     # The node is created inside the transaction too, so a resolution failure leaves no edge-less

@@ -23,7 +23,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from products.data_modeling.backend.facade.managed_viewset_hooks import get_expected_views_provider
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
@@ -107,7 +106,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         database = Database.create_for(
             self.team.pk,
             bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            for_data_modeling=True,
         )
         external_tables_by_view: dict[str, list] = {}
         for view in expected_views:
@@ -200,7 +199,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             dag_database = Database.create_for(
                 team=self.team,
                 bypass_warehouse_access_control=True,
-                allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+                for_data_modeling=True,
             )
             for saved_query in saved_queries_to_sync:
                 try:

@@ -11,7 +11,6 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.models import Node, NodeType
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 
 from ...logic.lineage import LineageSyncOutcome, sync_metric_lineage
 from ...models.metric import Metric
@@ -111,7 +110,7 @@ class Command(BaseCommand):
                 database = Database.create_for(
                     team=team,
                     bypass_warehouse_access_control=True,
-                    allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+                    for_data_modeling=True,
                 )
                 for metric in metrics.select_related("team").iterator(chunk_size=METRIC_CHUNK_SIZE):
                     result.seen += 1

@@ -16,6 +16,7 @@ from rest_framework import exceptions, serializers
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
+    Database,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -32,7 +33,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.rbac.query_access import assert_user_can_read_query
+from posthog.rbac.query_access import assert_unrestricted_modeling_access, assert_user_can_read_query
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade import api as modeling_api
@@ -433,6 +434,7 @@ class DataWarehouseSavedQuerySerializer(
                         view.team_id,
                         cast(User, self.context["request"].user),
                         database=self.context.get("database"),
+                        for_data_modeling=True,
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
@@ -457,10 +459,11 @@ class DataWarehouseSavedQuerySerializer(
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
             assert_user_can_read_query(
-                instance.query,
+                validated_data.get("query", instance.query),
                 self.context["team_id"],
                 cast(User, self.context["request"].user),
                 database=self.context.get("database"),
+                for_data_modeling=True,
             )
 
         # The frequency writes through to the DAG node's freshness target.
@@ -651,7 +654,9 @@ class DataWarehouseSavedQuerySerializer(
         team_id = self.context["team_id"]
         user = self.context["request"].user
 
-        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
+        database = self.context.get("database") or Database.create_for(team_id=team_id, user=user)
+        database = database.model_copy(update={"for_data_modeling": True})
+        context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True, database=database)
         try:
             select_ast = parse_select(query["query"])
 
@@ -684,6 +689,7 @@ class DataWarehouseSavedQuerySerializer(
                 # We don't want to accidentally expose too much data via errors
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
+        assert_unrestricted_modeling_access(context)
         return query
 
     def validate(self, attrs):

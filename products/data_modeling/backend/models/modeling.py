@@ -17,8 +17,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
-
 LabelPath = list[str]
 
 
@@ -509,7 +507,7 @@ def get_parents_from_model_query(
             modifiers=context.modifiers,
             team=context.team,
             bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            for_data_modeling=True,
         )
 
     resolver = BoundedResolver(

@@ -13,7 +13,6 @@ from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.api import delete_metric_node, mark_metric_node_degraded, sync_metric_to_dag
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
 from ..models.metric import Metric
@@ -86,7 +85,7 @@ def sync_metric_lineage(metric: Metric, database: Database | None = None) -> Lin
             database = Database.create_for(
                 team=metric.team,
                 bypass_warehouse_access_control=True,
-                allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+                for_data_modeling=True,
             )
         with team_scope(metric.team_id), transaction.atomic():
             current = Metric.objects.for_team(metric.team_id).select_for_update().filter(pk=metric.pk).first()

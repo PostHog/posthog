@@ -175,6 +175,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         "warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
+    materialized_source_fields = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Source field keys used by the stored materialization. System-written and not user-editable.",
+    )
 
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
@@ -635,6 +641,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             table = self.table.hogql_definition(modifiers)
+            table.is_materialized_view = True
+            table.modeling_source_fields = self.materialized_source_fields
             if isinstance(table, S3Table):
                 table.saved_query_id = str(self.id)
             return table

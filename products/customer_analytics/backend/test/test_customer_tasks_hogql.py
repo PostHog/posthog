@@ -18,7 +18,6 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.models import Account
 from products.customer_analytics.backend.models.customer_task import CustomerTask
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 
 
 class TestCustomerTasksHogqlAccess(NonAtomicBaseTest):
@@ -113,7 +112,7 @@ class TestCustomerTasksHogqlAccess(NonAtomicBaseTest):
         materialization_database = Database.create_for(
             team=self.team,
             bypass_warehouse_access_control=True,
-            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+            for_data_modeling=True,
         )
         materialization_rows = execute_hogql_query(
             "SELECT name FROM system.customer_tasks",

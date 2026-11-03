@@ -23,6 +23,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_modeling import ModelingSourceFields
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
@@ -74,7 +75,6 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
-from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
 from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
@@ -403,6 +403,7 @@ class MaterializeViewResult:
     # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
     # the producer job. Defaulted so old workflow histories decode without it.
     should_trigger_cdp_producer: bool = False
+    modeling_source_fields: list[str] | None = None
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
@@ -636,6 +637,7 @@ async def hogql_table(
     logger: FilteringBoundLogger,
     view_name: str | None = None,
     window: "IncrementalWindow | None" = None,
+    modeling_sources: ModelingSourceFields | None = None,
 ):
     """Execute a HogQL query and yield batches of results.
 
@@ -669,7 +671,7 @@ async def hogql_table(
         team=team,
         modifiers=context.modifiers,
         bypass_warehouse_access_control=True,
-        allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+        for_data_modeling=True,
     )
 
     if PromptJevFinder.contains(query_node):
@@ -690,6 +692,10 @@ async def hogql_table(
     )
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
+
+    if modeling_sources is not None:
+        modeling_sources.fields.update(context.database.modeling_source_fields)
+        modeling_sources.known &= context.database.modeling_source_fields_known
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
@@ -1024,6 +1030,7 @@ async def _materialize_fully(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
+    modeling_sources: ModelingSourceFields | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
@@ -1055,7 +1062,7 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
-    async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+    async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, modeling_sources=modeling_sources):
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
         batch = _transform_unsigned_integers(batch)
@@ -1125,6 +1132,7 @@ async def _materialize_incrementally(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
+    modeling_sources: ModelingSourceFields | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
 
@@ -1151,7 +1159,9 @@ async def _materialize_incrementally(
     batch_index = 0
 
     try:
-        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
+        async for batch, ch_types in hogql_table(
+            hogql_query, objects.team, logger, window=window, modeling_sources=modeling_sources
+        ):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
@@ -1328,6 +1338,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     # BaseException, not an Exception, so it has to be named explicitly to be caught here at all.
     # cdp_sink.discard() only clears a non-empty prefix, so catching it at both this level and the
     # inner write-loop level below is safe to double up on.
+    modeling_sources = ModelingSourceFields()
     published = False
     try:
         async with Heartbeater():
@@ -1344,6 +1355,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         logger,
                         cdp_sink,
                         person_property_sink,
+                        modeling_sources,
                     )
                 else:
                     row_count, file_uris = await _materialize_fully(
@@ -1355,6 +1367,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         logger,
                         cdp_sink,
                         person_property_sink,
+                        modeling_sources,
                     )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
@@ -1393,6 +1406,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             account_property_sync_enabled=account_property_sync_enabled,
             delta_version=delta_version,
             should_trigger_cdp_producer=cdp_sink.enabled,
+            modeling_source_fields=modeling_sources.serialize(),
         )
         published = True
         return result

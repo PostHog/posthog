@@ -12,12 +12,27 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing
 
 from posthog.models import User
 
 
-def assert_user_can_read_query(query: dict | None, team_id: int, user: User, database: Database | None = None) -> None:
+def assert_unrestricted_modeling_access(context: HogQLContext) -> None:
+    if context.access_control_restricted_resources:
+        raise exceptions.PermissionDenied(
+            "This query reads system tables with restricted rows. "
+            "Ask an administrator for access to all source objects before you create or materialize this view."
+        )
+
+
+def assert_user_can_read_query(
+    query: dict | None,
+    team_id: int,
+    user: User,
+    database: Database | None = None,
+    *,
+    for_data_modeling: bool = False,
+) -> None:
     """Raise PermissionDenied unless `user` can read everything `query` selects from.
 
     Pass `database` to reuse an already-built user-scoped schema; building one is the dominant
@@ -27,10 +42,18 @@ def assert_user_can_read_query(query: dict | None, team_id: int, user: User, dat
     if not isinstance(sql, str) or not sql.strip():
         raise exceptions.ValidationError("Query is missing.")
 
+    if for_data_modeling:
+        database = database or Database.create_for(team_id=team_id, user=user, for_data_modeling=True)
+        database = database.model_copy(update={"for_data_modeling": True})
     context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True, database=database)
     try:
-        # Resolution is where access is enforced, so this doesn't need to print.
-        prepare_ast_for_printing(node=parse_select(sql), context=context, dialect="clickhouse")
+        if for_data_modeling:
+            # Printing applies the row guards that a project-owned refresh cannot retain.
+            prepare_and_print_ast(node=parse_select(sql), context=context, dialect="clickhouse")
+            assert_unrestricted_modeling_access(context)
+        else:
+            # Resolution is where access is enforced, so this doesn't need to print.
+            prepare_ast_for_printing(node=parse_select(sql), context=context, dialect="clickhouse")
     except (ExposedHogQLError, ResolutionError) as err:
         # Surfaces "You don't have access to table `X`." for a denial; a query that no longer
         # resolves for any reason also can't be safely published, so it's refused the same way.

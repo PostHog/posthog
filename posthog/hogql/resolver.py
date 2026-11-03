@@ -12,6 +12,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.compilation import MAX_VIEW_DEPTH, CompilationBudget, bounded_compilation, compilation_budget
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_modeling import validate_materialized_view_fields
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
@@ -1577,6 +1578,8 @@ class Resolver(CloningVisitor):
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
+
+            validate_materialized_view_fields(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
                 if database_table.name in self._resolving_saved_views:

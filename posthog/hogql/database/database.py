@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_modeling import modeling_field_policies
 from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import (
@@ -731,7 +732,7 @@ def _compute_system_table_access_decision(
     team: Team,
     user: Optional[User | SyntheticUser | SharedLinkUser],
     user_access_control: Optional[UserAccessControl] = None,
-    allowed_system_tables: Collection[str] | None = None,
+    for_data_modeling: bool = False,
     unentitled: Collection[str] | None = None,
 ) -> tuple[Optional[UserAccessControl], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
@@ -749,16 +750,6 @@ def _compute_system_table_access_decision(
     )
 
     scoped_tables = _scoped_system_tables()
-    allowed_system_table_names = frozenset(allowed_system_tables or ())
-    if allowed_system_table_names and (user is not None or user_access_control is not None):
-        raise ValueError("allowed_system_tables is restricted to userless database creation")
-    invalid_allowed_tables = allowed_system_table_names.difference(scoped_tables)
-    if invalid_allowed_tables:
-        invalid_names = ", ".join(sorted(invalid_allowed_tables))
-        raise ValueError(
-            f"allowed_system_tables must contain exact bare names of scoped system tables: {invalid_names}"
-        )
-
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
     unentitled = set(unentitled) if unentitled is not None else _unentitled_system_tables(team)
@@ -769,8 +760,8 @@ def _compute_system_table_access_decision(
         denied_by_access_control = {
             name for name, table in scoped_tables.items() if table.access_scope not in readable_scopes
         }
-        if user is None:
-            denied_by_access_control.difference_update(allowed_system_table_names)
+        if for_data_modeling and user is None and user_access_control is None:
+            denied_by_access_control.clear()
         return None, unentitled | denied_by_access_control
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
@@ -821,6 +812,10 @@ class Database(BaseModel):
 
     # Users can query from the tables below
     tables: TableNode
+    for_data_modeling: bool = False
+    modeling_field_policies: dict[str, bool] = {}
+    modeling_source_fields: set[str] = set()
+    modeling_source_fields_known: bool = True
 
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
@@ -914,6 +909,7 @@ class Database(BaseModel):
         self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
+        self.modeling_field_policies = modeling_field_policies(self.tables)
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -1803,7 +1799,7 @@ class Database(BaseModel):
         build_postgres_foreign_keys: bool = True,
         use_cached_sources: bool = False,
         trigger: str = "direct",
-        allowed_system_tables: Collection[str] | None = None,
+        for_data_modeling: bool = False,
         schema_table_names: set[str] | None = None,
         include_flag_evaluations_table: bool | None = None,
     ) -> Database:
@@ -1829,7 +1825,7 @@ class Database(BaseModel):
                 modifiers=modifiers,
                 connection_id=connection_id,
                 bypass_warehouse_access_control=bypass_warehouse_access_control,
-                allowed_system_tables=allowed_system_tables,
+                for_data_modeling=for_data_modeling,
             )
             if cache_key is None:
                 SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
@@ -1845,7 +1841,7 @@ class Database(BaseModel):
                     timings=timings,
                     connection_id=connection_id,
                     bypass_warehouse_access_control=bypass_warehouse_access_control,
-                    allowed_system_tables=allowed_system_tables,
+                    for_data_modeling=for_data_modeling,
                     # Cached sources store built views: the cache serves editor assist, which
                     # enumerates every table on each request, so deferral would rebuild the views
                     # per request instead of amortizing them across the TTL.
@@ -1885,6 +1881,7 @@ class Database(BaseModel):
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
 
+        database.for_data_modeling = for_data_modeling
         total_seconds = time.perf_counter() - build_started
         HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total").observe(total_seconds)
         _OTEL_DATABASE.record_histogram_twin(HOGQL_DATABASE_BUILD_DURATION_SECONDS, total_seconds, {"phase": "total"})
@@ -1899,19 +1896,19 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None,
         connection_id: str | None,
         bypass_warehouse_access_control: bool,
-        allowed_system_tables: Collection[str] | None,
+        for_data_modeling: bool,
     ) -> SourcesCacheKey | None:
         """The cache key for this build, or None when the build must fetch fresh sources.
 
         The key is team-scoped: entries hold only team-level catalog rows, and the per-user
         access-control decision is recomputed on every handout. Only real users (or no user)
         hit the cache: SyntheticUser/SharedLinkUser carry request-specific access semantics.
-        A preloaded user_access_control or an allowed_system_tables override is likewise
+        A preloaded user_access_control or a data modeling context is likewise
         per-request state, so those bypass too.
         """
         from posthog.models.user import User  # noqa: PLC0415 — keeps the Django ORM off this module's import path
 
-        if team is None or user_access_control is not None or allowed_system_tables:
+        if team is None or user_access_control is not None or for_data_modeling:
             return None
         if user is not None and not isinstance(user, User):
             return None
@@ -1979,7 +1976,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
-        allowed_system_tables: Collection[str] | None = None,
+        for_data_modeling: bool = False,
         defer_revenue_views: bool = True,
         schema_table_names: set[str] | None = None,
     ) -> HogQLDatabaseSources:
@@ -2124,7 +2121,7 @@ class Database(BaseModel):
             # Pass the caller's user_access_control through: when already preloaded it's reused, so the
             # bulk access-control fetch happens once per run instead of once per database build.
             user_access_control, denied_system_table_names = _compute_system_table_access_decision(
-                team, user, user_access_control, allowed_system_tables
+                team, user, user_access_control, for_data_modeling
             )
 
         is_hogql_warehouse_access_control_enabled = _evaluate_warehouse_access_control_flag(team)
@@ -2529,6 +2526,11 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
+        saved_queries_by_table = {
+            saved_query.table_id: saved_query
+            for saved_query in sources.saved_queries
+            if saved_query.table_id is not None
+        }
         saved_query_ids_by_table = {
             saved_query.table_id: str(saved_query.pk)
             for saved_query in sources.saved_queries
@@ -2649,6 +2651,9 @@ class Database(BaseModel):
                         s3_table = table.hogql_definition(modifiers)
                         if isinstance(s3_table, S3Table):
                             s3_table.saved_query_id = saved_query_ids_by_table.get(table.pk)
+                        if model := saved_queries_by_table.get(table.pk):
+                            s3_table.is_materialized_view = True
+                            s3_table.modeling_source_fields = model.materialized_source_fields
 
                         sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
                         if sync_warnings:
