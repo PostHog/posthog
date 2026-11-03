@@ -105,7 +105,7 @@ export interface HeatmapConfig {
     /** Column indices drawn with a band behind their cells, for a column the consumer selected
      *  or is hovering. */
     highlightedColumns?: number[]
-    /** Per-side margin overrides. Should be referentially stable. */
+    /** Per-side margin overrides. */
     margins?: Partial<ChartMargins>
     tooltip?: {
         /** Show the single-cell tooltip on hover. Defaults to true. */

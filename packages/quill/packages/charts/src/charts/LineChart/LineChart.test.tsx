@@ -1,6 +1,7 @@
 import { fireEvent } from '@testing-library/react'
 
-import type { ChartTheme, Series } from '../../core/types'
+import { useChartLayout } from '../../core/chart-context'
+import type { ChartTheme, Series, TimeScale } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { dimensions as testDimensions, getChart, rawDrag, renderChart } from '../../testing'
 import { LineChart } from './LineChart'
@@ -32,6 +33,45 @@ describe('LineChart', () => {
     ] as const)('renders without throwing in %s', (_, series, config) => {
         const { chart } = renderChart(<LineChart series={series} labels={LABELS} theme={THEME} config={config} />)
         expect(chart.seriesCount).toBeGreaterThan(0)
+    })
+
+    describe('timeScale', () => {
+        const TIME_LABELS = ['2026-03-01T00:00:00Z', '2026-03-01T01:00:00Z', '2026-03-01T04:00:00Z']
+        const timeScale = (from: string, to: string): TimeScale => ({
+            parse: Date.parse,
+            domain: [Date.parse(from), Date.parse(to)],
+        })
+
+        it.each([
+            ['spaces labels evenly without one', undefined, [0, 0.5, 1]],
+            ['places labels by time', timeScale(TIME_LABELS[0], TIME_LABELS[2]), [0, 0.25, 1]],
+            [
+                'drops labels outside the domain',
+                timeScale('2026-03-01T01:00:00Z', '2026-03-01T03:00:00Z'),
+                [null, 0, null],
+            ],
+        ])('%s', (_, scale, expectedFractions) => {
+            let fractions: (number | null)[] = []
+            function Measure(): null {
+                const { scales, dimensions } = useChartLayout()
+                fractions = TIME_LABELS.map((label) => {
+                    const x = scales.x(label)
+                    return x == null ? null : (x - dimensions.plotLeft) / dimensions.plotWidth
+                })
+                return null
+            }
+            renderChart(
+                <LineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                    labels={TIME_LABELS}
+                    theme={THEME}
+                    config={{ timeScale: scale }}
+                >
+                    <Measure />
+                </LineChart>
+            )
+            expect(fractions).toEqual(expectedFractions)
+        })
     })
 
     it('renders empty state without crashing', () => {

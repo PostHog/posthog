@@ -6,6 +6,7 @@ import { markExecPayload, type ToolResultPayload } from '@/lib/build-tool-result
 import { DISPATCHABLE_APP_KEYS, RENDER_UI_RESOURCE_URI, URI_MAP, type UiAppKey } from '@/resources/ui-apps.generated'
 import RENDER_UI_EXPLAIN_CHART from '@/templates/render-ui-explain-chart.md'
 import RENDER_UI_PROMPT from '@/templates/render-ui-prompt.md'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type Context, type Tool, type ZodObjectAny } from './types'
 
@@ -65,17 +66,25 @@ export function makeRenderUiSchema(
 
 type RenderUiSchema = ReturnType<typeof makeRenderUiSchema>
 
+export type RenderUiAppDataLoader = (
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    appKey: UiAppKey
+) => Promise<unknown>
+
 /**
  * Builds the `render-ui` umbrella tool. Returns `null` when no tool in `allTools`
  * has a renderable UI app (a `z.enum` needs at least one value, and there is
- * nothing to render anyway). Unlike the per-entity tools, this one does not run
- * the inner tool: it emits a render directive (`{ tool_name, tool_input, app_key }`
- * + the render-ui resourceUri) and the UI app fetches its own data.
+ * nothing to render anyway). It emits a render directive (`{ tool_name, tool_input,
+ * app_key }` + the render-ui resourceUri) for the model, and the data from
+ * `loadAppData` on the app-only `_meta` key. The UI app fetches the data itself when
+ * none was preloaded.
  */
 export function createRenderUiTool(
     allTools: Tool<ZodObjectAny>[],
     context: Context,
-    mcpClientName?: string
+    mcpClientName?: string,
+    loadAppData?: RenderUiAppDataLoader
 ): Tool<RenderUiSchema> | null {
     const renderableNames = getRenderableToolNames(allTools)
     if (renderableNames.length === 0) {
@@ -112,10 +121,10 @@ export function createRenderUiTool(
             }
 
             const toolInput = params.tool_input ?? {}
-            // `render-ui` only emits a render directive — it never executes the inner tool,
-            // so the inner tool is deliberately not counted in per-tool call metrics. The
-            // umbrella call itself is tracked under `render-ui` by the executor.
-            const distinctId = await context.getDistinctId()
+            const [distinctId, appData] = await Promise.all([
+                context.getDistinctId(),
+                loadAppData?.(tool.name, toolInput, appKey),
+            ])
 
             const payload: ToolResultPayload = {
                 content: [
@@ -139,6 +148,7 @@ export function createRenderUiTool(
                 _meta: {
                     ui: { resourceUri: RENDER_UI_RESOURCE_URI },
                     [RESOURCE_URI_META_KEY]: RENDER_UI_RESOURCE_URI,
+                    ...(appData === undefined ? {} : { [APP_DATA_META_KEY]: appData }),
                 },
             }
             return markExecPayload(payload)

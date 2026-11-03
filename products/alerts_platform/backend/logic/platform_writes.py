@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationView,
     PlatformAlertNotEditable,
     PlatformAlertSnapshot,
+    PlatformAlertUpsert,
     SourceCreate,
     SourceKind,
     UnknownPlatformAlertGroup,
@@ -178,6 +179,9 @@ def create_configuration(
             source_kind=source_kind,
             edit=validated,
             check_interval_minutes=spec.native.check_interval_minutes,
+            destinations_owner=PlatformAlertOwner.PLATFORM
+            if spec.native.platform_destinations
+            else PlatformAlertOwner.SOURCE,
             now=django_timezone.now(),
         )
     else:
@@ -286,10 +290,12 @@ def update_owned_copy(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None,
     snooze_changed: bool,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
-    copy's mute."""
+    copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -298,6 +304,8 @@ def update_owned_copy(
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
         _, pending = _apply(configuration, change, now=now, snoozing=snoozing)
+        if cadence is not None:
+            platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
         if snooze_changed:
             platform_lifecycle.write_snooze(configuration, snooze_until, now=now)
         control_plane.announce_after_commit(pending)
@@ -356,10 +364,12 @@ def _delete_native(team_id: int, configuration_id: UUID, native: NativeAlertLife
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration_id)
     # Before the destinations go, so an incident manager still gets the resolve for an open firing.
     _close_firings_now(lambda: configurations.select_for_update().first())
-    # In the delete's transaction, so a delete that fails keeps the alert's destinations.
+    # In the delete's transaction, so a delete that fails keeps the alert's destinations. An
+    # `AlertDestination` row goes with its configuration, so there is nothing to remove first.
+    remove = native.remove_destinations
     _delete_each(
         configurations,
-        before_delete=lambda: native.remove_destinations(team_id=team_id, configuration_id=configuration_id),
+        before_delete=None if remove is None else lambda: remove(team_id=team_id, configuration_id=configuration_id),
     )
 
 

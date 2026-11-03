@@ -15,8 +15,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
+import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/schema/node-guards'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
 import type { DashboardTile, InsightLogicProps, IntervalType } from '~/types'
 
 import { TaxonomicBreakdownFilter } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/TaxonomicBreakdownFilter'

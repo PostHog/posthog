@@ -94,6 +94,7 @@ export class InstructionsBuilder {
             notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
             notebookRunEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_RUN_TOOL),
             docsSearchEnabled: state.allTools.some((tool) => tool.name === DOCS_SEARCH_TOOL),
+            businessKnowledgeContent: state.businessKnowledgeContent,
         }
     }
 
@@ -191,6 +192,7 @@ export class InstructionsBuilder {
             docsSearchEnabled,
             businessKnowledgeSearchEnabled,
             businessKnowledgeRepoSearchEnabled,
+            businessKnowledgeContent: state?.businessKnowledgeContent,
         })
     }
 

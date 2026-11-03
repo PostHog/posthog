@@ -36,3 +36,7 @@ def mark_token_used(jti: str, ttl: int) -> bool:
         return False
     cache.set(cache_key, True, timeout=ttl)
     return True
+
+
+def release_used_token(jti: str) -> None:
+    cache.delete(f"{USED_TOKEN_CACHE_PREFIX}{jti}")

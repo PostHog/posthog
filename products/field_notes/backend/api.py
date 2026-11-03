@@ -168,4 +168,4 @@ class FieldNoteViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         host = self.request.query_params.get("host")
         if host:
             queryset = queryset.filter(host=host)
-        return queryset.order_by("-created_at")
+        return queryset.select_related("created_by").order_by("-created_at")
