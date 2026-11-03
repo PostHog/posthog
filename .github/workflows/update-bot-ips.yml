@@ -26,6 +26,10 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
+                  sparse-checkout: |
+                      /bin/update-bots-list
+                      /nodejs/assets/bot-ips.txt
+                  sparse-checkout-cone-mode: false
 
             - name: Run update script
               run: |
