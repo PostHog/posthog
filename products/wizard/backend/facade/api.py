@@ -67,12 +67,11 @@ def organization_has_detected_tool(*, organization_id: str, kinds: Collection[st
     return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
 
 
+TOOL_CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = CATALOG_DESTINATION_CHOICES
+
+
 def get_tool_catalog_json() -> bytes:
     return tool_catalog_json()
-
-
-def get_tool_catalog_destination_choices() -> list[tuple[str, str]]:
-    return list(CATALOG_DESTINATION_CHOICES)
 
 
 def get(team_id: int, session_id: str) -> WizardSessionDTO | None:

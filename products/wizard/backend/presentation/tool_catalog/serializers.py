@@ -34,7 +34,7 @@ class WizardCatalogToolSerializer(serializers.Serializer):
         help_text="Data warehouse source type the tool imports as, or null for a tool with no warehouse source.",
     )
     warehouse_destination_type = serializers.ChoiceField(
-        choices=wizard_facade.get_tool_catalog_destination_choices(),
+        choices=wizard_facade.TOOL_CATALOG_DESTINATION_CHOICES,
         allow_null=True,
         help_text="Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.",
     )
