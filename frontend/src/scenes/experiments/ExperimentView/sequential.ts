@@ -54,3 +54,40 @@ export function experimentUsesSequentialTesting(
         resolveSequentialEnabled(statsConfig.frequentist, teamDefaultEnabled)
     )
 }
+
+/** Why a metric list that includes a percentile metric can't be saved on this experiment, if it can't. */
+export function percentileMetricSequentialReason(
+    includesPercentileMetric: boolean,
+    statsConfig: { method?: string; frequentist?: SequentialConfig } | null | undefined,
+    teamDefaultEnabled: boolean
+): string | undefined {
+    return includesPercentileMetric && experimentUsesSequentialTesting(statsConfig, teamDefaultEnabled)
+        ? PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON
+        : undefined
+}
+
+export interface PercentileSequentialBlocks {
+    /** Why the stats settings can't turn sequential testing on */
+    enabling?: string
+    /** Why the stats settings can't follow the team default */
+    teamDefault?: string
+    /** Why the stats settings can't be saved as they are */
+    save?: string
+}
+
+export function percentileSequentialBlocks(
+    hasPercentileMetric: boolean,
+    statsConfig: { method?: string; frequentist?: SequentialConfig } | null | undefined,
+    teamDefaultEnabled: boolean
+): PercentileSequentialBlocks {
+    if (!hasPercentileMetric) {
+        return {}
+    }
+    return {
+        enabling: PERCENTILE_SEQUENTIAL_DISABLED_REASON,
+        teamDefault: teamDefaultEnabled ? PERCENTILE_SEQUENTIAL_DISABLED_REASON : undefined,
+        save: experimentUsesSequentialTesting(statsConfig, teamDefaultEnabled)
+            ? `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn it off to save.`
+            : undefined,
+    }
+}

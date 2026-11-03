@@ -7,10 +7,9 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
-    PERCENTILE_SEQUENTIAL_DISABLED_REASON,
     SequentialSelection,
-    experimentUsesSequentialTesting,
     getSequentialSelection,
+    percentileSequentialBlocks,
     resolveSequentialTuningParameter,
 } from 'scenes/experiments/ExperimentView/sequential'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
@@ -76,11 +75,11 @@ export function StatsMethodModal(): JSX.Element {
         DEFAULT_SEQUENTIAL_TUNING_PARAMETER
     )
 
-    const hasPercentileMetric = experimentHasQuantileMetric(experiment)
-    const sequentialBlockedReason =
-        hasPercentileMetric && experimentUsesSequentialTesting(experiment.stats_config, teamDefaultSequentialEnabled)
-            ? `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn it off to save.`
-            : undefined
+    const sequentialBlocks = percentileSequentialBlocks(
+        experimentHasQuantileMetric(experiment),
+        experiment.stats_config,
+        teamDefaultSequentialEnabled
+    )
 
     const updateSequentialSelection = (next: SequentialSelection): void => {
         const existingFrequentist = experiment.stats_config?.frequentist ?? {}
@@ -138,7 +137,7 @@ export function StatsMethodModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         loading={experimentUpdateLoading}
-                        disabledReason={sequentialBlockedReason}
+                        disabledReason={sequentialBlocks.save}
                         onClick={() =>
                             updateExperimentSettings({ stats_config: experiment.stats_config }, 'statsMethod')
                         }
@@ -189,21 +188,18 @@ export function StatsMethodModal(): JSX.Element {
                             {
                                 value: 'default',
                                 label: `Use team default (${teamDefaultSequentialEnabled ? 'Enabled' : 'Disabled'})`,
-                                disabledReason:
-                                    hasPercentileMetric && teamDefaultSequentialEnabled
-                                        ? PERCENTILE_SEQUENTIAL_DISABLED_REASON
-                                        : undefined,
+                                disabledReason: sequentialBlocks.teamDefault,
                             },
                             {
                                 value: 'enabled',
                                 label: 'Enabled',
-                                disabledReason: hasPercentileMetric ? PERCENTILE_SEQUENTIAL_DISABLED_REASON : undefined,
+                                disabledReason: sequentialBlocks.enabling,
                             },
                             { value: 'disabled', label: 'Disabled' },
                         ]}
                         className="w-72"
                     />
-                    {sequentialBlockedReason && (
+                    {sequentialBlocks.save && (
                         <LemonBanner type="warning">
                             This experiment has a percentile metric, and percentile metrics don't support sequential
                             testing yet. Select Disabled to save.

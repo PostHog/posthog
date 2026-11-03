@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
-import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -63,7 +63,12 @@ import {
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
-import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
+import {
+    metricSourcesToSeries,
+    seriesToMetricConfig,
+    seriesToMetricSource,
+    toPercentileSource,
+} from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
@@ -255,26 +260,7 @@ export function ExperimentMetricForm({
                     newMetric.completion_event = sources[1]
                 }
             } else if (newMetricType === ExperimentMetricType.QUANTILE && isExperimentQuantileMetric(newMetric)) {
-                const source = sources[0]
-                // A percentile reads event properties, so only an event or action source carries over
-                if (source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode) {
-                    // The percentile query reads `properties.<name>` from each event, so a session or
-                    // person property from a mean metric would match no events
-                    const isEventProperty =
-                        source.math_property !== '$session_duration' &&
-                        (source.math_property_type == null ||
-                            source.math_property_type === TaxonomicFilterGroupType.EventProperties ||
-                            source.math_property_type === TaxonomicFilterGroupType.NumericalEventProperties)
-                    newMetric.source = {
-                        ...source,
-                        math: undefined,
-                        math_hogql: undefined,
-                        math_group_type_index: undefined,
-                        math_multiplier: undefined,
-                        math_property_type: undefined,
-                        math_property: isEventProperty ? source.math_property : undefined,
-                    }
-                }
+                newMetric.source = toPercentileSource(sources[0]) ?? newMetric.source
             }
         }
 
