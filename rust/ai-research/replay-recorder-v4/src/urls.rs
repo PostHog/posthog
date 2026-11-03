@@ -4,8 +4,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
 use metrics::counter;
+use posthog_replay_anonymizer::v4_image_refs::image_url_ref;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId};
-use replay_core_v4::refs::{image_url_ref, reference_hash};
+use replay_core_v4::refs::reference_hash;
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::{
     is_public_host, is_tracking_beacon, try_canonicalize, CanonicalUrl, Decline,
