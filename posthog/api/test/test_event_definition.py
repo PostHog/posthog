@@ -201,6 +201,16 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
 
+    def test_list_event_definitions_caps_the_limit_for_rows_and_next_link(self):
+        with patch("posthog.api.event_definition.CappedCountLimitOffsetPagination.max_limit", 2):
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=5")
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK, body
+        assert len(body["results"]) == 2
+        assert "offset=2" in body["next"]
+        assert "limit=2" in body["next"]
+
     @parameterized.expand(
         [
             ("repeated", "names=installed_app&names=purchase&names=missing_event"),

@@ -118,7 +118,8 @@ example trace deep links** on your own — don't wait to be asked, and don't mak
 You read these traces, but you can misread one — a trace that looks like a hallucination may be correct in
 context, and some of what you flag will be you misunderstanding the trace, not a real failure. So don't
 present the list as settled fact. Give the user a couple of linked examples per mode, ask them to open the
-links, then ask **which mode they want to focus on** next.
+links, then ask **which mode they want to focus on** next. Once they pick one, offer to catch it on new traffic
+with an online evaluation (`creating-online-evaluations`).
 
 (A list assembled from error messages or metric counts you never read is the loud subset, not this — go
 back to Step 3.)

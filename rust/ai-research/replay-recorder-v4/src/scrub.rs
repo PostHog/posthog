@@ -1,6 +1,4 @@
-//! The fallback for a block whose remote URLs the writer could not all name or replace. Each remote URL token left in
-//! the stored bytes becomes [`URL_UNCHECKED_MARKER`], so no URL the policy would refuse is stored, and the block is
-//! kept instead of dropped.
+//! The fallback for a block whose remote URLs the writer could not all name or replace. Each remote URL token left in the stored bytes becomes [`URL_UNCHECKED_MARKER`], or `fonturl:v4:declined:unchecked` in the `src` of an `@font-face` rule, so no URL the policy would refuse is stored, and the block is kept instead of dropped.
 //!
 //! The scrub reads the bytes one character at a time through their JSON escapes and CSS escapes, so it never splits an
 //! escape and the stored JSON stays valid. A URL that starts after `(`, `'` or `"` ends at `)`, `'` or `"`, because CSS
@@ -12,7 +10,7 @@
 use std::borrow::Cow;
 
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
-use posthog_replay_anonymizer::v4_image_refs::URL_UNCHECKED_MARKER;
+use replay_core_v4::v4_image_refs::URL_UNCHECKED_MARKER;
 
 /// Which URL tokens the scrub replaces.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,6 +36,8 @@ enum Kind {
     StringEnd,
     /// A character a CSS escape names. It is part of the URL whatever it is.
     CssEscaped,
+    /// An escaped line break, which a CSS string drops, so it is no character of the URL.
+    Continuation,
 }
 
 /// One character of the stored bytes and the bytes that spell it.
@@ -104,6 +104,17 @@ fn json_unit(bytes: &[u8], at: usize) -> (u32, usize) {
     }
 }
 
+/// The position past the `\n` of a `\r\n` whose `\r` ends at `after`, because CSS reads the pair as one line break.
+fn past_crlf(bytes: &[u8], after: usize, ch: u32) -> usize {
+    if is_char(ch, b'\r') && after < bytes.len() {
+        let (next, next_len) = json_unit(bytes, after);
+        if is_char(next, b'\n') {
+            return after + next_len;
+        }
+    }
+    after
+}
+
 /// The character at `at` after its JSON escape and a CSS escape inside it. A CSS hex escape takes the one whitespace
 /// after it, as CSS reads it.
 fn unit(bytes: &[u8], at: usize) -> Unit {
@@ -138,7 +149,7 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
         if end < bytes.len() {
             let (next, next_len) = json_unit(bytes, end);
             if is_space(next) {
-                end += next_len;
+                end = past_crlf(bytes, end + next_len, next);
             }
         }
         return Unit {
@@ -151,6 +162,14 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
         return plain;
     }
     let (next, next_len) = json_unit(bytes, end);
+    if is_char(next, b'\n') || is_char(next, b'\r') || is_char(next, 0x0c) {
+        end = past_crlf(bytes, end + next_len, next);
+        return Unit {
+            ch: next,
+            len: end - at,
+            kind: Kind::Continuation,
+        };
+    }
     if is_space(next) || (next_len == 1 && is_char(next, b'"')) {
         return plain;
     }
@@ -174,8 +193,11 @@ fn remote_start(bytes: &[u8], at: usize) -> Option<Start> {
         if next.kind == Kind::StringEnd {
             break;
         }
-        chars[count] = lower(next.ch);
         pos += next.len;
+        if next.kind == Kind::Continuation {
+            continue;
+        }
+        chars[count] = lower(next.ch);
         count += 1;
     }
     let slash = |ch: u32| is_char(ch, b'/') || is_char(ch, b'\\');
@@ -223,7 +245,7 @@ fn closer_after(prev: Option<Unit>) -> Closer {
 fn ends_url(next: Unit, closer: Closer) -> bool {
     match next.kind {
         Kind::StringEnd => true,
-        Kind::CssEscaped => false,
+        Kind::CssEscaped | Kind::Continuation => false,
         Kind::Plain => match closer {
             Closer::Whitespace => is_space(next.ch),
             Closer::Nothing => false,
@@ -258,6 +280,10 @@ fn scan(bytes: &[u8]) -> Scan {
                 Some(start) => strings.push((start, at)),
                 None => string_start = Some(at + 1),
             }
+        }
+        if current.kind == Kind::Continuation {
+            at += current.len;
+            continue;
         }
         let first = lower(current.ch);
         let starts = string_start.is_some()
@@ -298,7 +324,9 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
     let mut at = start;
     while at < end {
         let next = unit(bytes, at);
-        text.extend(char::from_u32(lower(next.ch)));
+        if next.kind != Kind::Continuation {
+            text.extend(char::from_u32(lower(next.ch)));
+        }
         at += next.len;
     }
     text
@@ -363,6 +391,10 @@ impl Scrubber {
             all_remote: *scrub == Scrub::AllRemote,
             hosts,
         }
+    }
+
+    pub fn replaces_tokens(&self) -> bool {
+        self.all_remote || self.hosts.is_some()
     }
 
     /// The bytes with each URL token replaced, and how many were.
@@ -486,6 +518,19 @@ mod tests {
             (
                 r#"{"style":"url(\\2f\\2f bucket.example.com/a.png?sig=x)"}"#.to_owned(),
                 format!(r#"{{"style":"url({m})"}}"#),
+            ),
+            // A CSS string drops an escaped line break, so a browser reads a URL that one splits whole.
+            (
+                r#"{"style":"url(\"htt\\\nps://cdn.example.com/a.png?token=x\")"}"#.to_owned(),
+                format!(r#"{{"style":"url(\"{m}\")"}}"#),
+            ),
+            (
+                r#"{"style":"url('ht\\\r\ntps://cdn.example.com/a.png?token=x')"}"#.to_owned(),
+                format!(r#"{{"style":"url('{m}')"}}"#),
+            ),
+            (
+                r#"{"style":"url(\"\\68\r\nttps://cdn.example.com/a.png?token=x\")"}"#.to_owned(),
+                format!(r#"{{"style":"url(\"{m}\")"}}"#),
             ),
             // A browser reads a backslash as a slash, and the inspector reads any host after two of them as remote.
             (
