@@ -10,6 +10,10 @@ function closestRateLimit(items: SentryMigrationItemApi[]): SentryMigrationItemA
     if (items.some((item) => item.rate_limit && item.already_in_posthog)) {
         return undefined
     }
+    // Sentry limited one client key, and PostHog would also limit the project's other keys, so the user decides.
+    if (items.some((item) => item.limits_other_client_keys)) {
+        return undefined
+    }
     const rateLimits = items.filter((item) => item.rate_limit && isSelectable(item))
     return rateLimits.find((item) => item.fit === 'good') ?? rateLimits[0]
 }

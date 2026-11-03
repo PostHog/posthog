@@ -54,6 +54,7 @@ class SentryProjectConfig:
     react_hydration_errors: bool
     chunk_load_errors: bool
     rate_limits: tuple[SentryRateLimit, ...]
+    client_key_count: int
 
 
 def normalize_base_url(base_url: str | None) -> str:
@@ -304,4 +305,5 @@ def parse_project_config(
         react_hydration_errors=options.get("filters:react-hydration-errors") is True,
         chunk_load_errors=options.get("filters:chunk-load-error") is True,
         rate_limits=tuple(rate_limits),
+        client_key_count=sum(1 for key in keys if key.get("isActive", True)),
     )

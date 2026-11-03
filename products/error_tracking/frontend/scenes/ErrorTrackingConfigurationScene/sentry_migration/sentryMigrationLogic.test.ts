@@ -27,6 +27,7 @@ function item(id: string, overrides: Partial<SentryMigrationItemApi> = {}): Sent
         rate_limit: null,
         built_in_filter: null,
         already_in_posthog: false,
+        limits_other_client_keys: false,
         ...overrides,
     }
 }
@@ -68,6 +69,25 @@ describe('sentryMigrationLogic', () => {
         })
 
         expect(logic.values.selectedItemIds).toEqual([])
+    })
+
+    it('names the inbound filters it leaves out of the list', async () => {
+        const ipFilter = item('inbound_filter:blocked-ips', {
+            category: 'inbound_filter',
+            fit: 'unsupported',
+            sentry_setting: 'IP address filter',
+        })
+        useMocks({
+            post: {
+                '/api/environments/:team_id/error_tracking/sentry_migration/preview/': {
+                    items: [item('release:1'), ipFilter],
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadPreview()).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ items: [item('release:1')], omittedFilterNames: ['IP address filter'] })
     })
 
     it('loads the preview again when the import fails because Sentry changed', async () => {

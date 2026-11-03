@@ -13,6 +13,7 @@ function item(id: string, overrides: Partial<SentryMigrationItemApi> = {}): Sent
         rate_limit: null,
         built_in_filter: null,
         already_in_posthog: false,
+        limits_other_client_keys: false,
         ...overrides,
     }
 }
@@ -49,6 +50,19 @@ describe('sentryMigrationSelection', () => {
                     rate_limit: { value: 100, bucket_size_minutes: 60 },
                 }),
                 ...ITEMS.slice(1),
+            ],
+            ['error_message:1'],
+        ],
+        [
+            'selects no rate limit when it would also limit other Sentry client keys',
+            [
+                item('rate_limit:a', {
+                    category: 'rate_limit',
+                    fit: 'partial',
+                    limits_other_client_keys: true,
+                    rate_limit: { value: 100, bucket_size_minutes: 60 },
+                }),
+                ...ITEMS.slice(2),
             ],
             ['error_message:1'],
         ],
