@@ -84,6 +84,11 @@ class TestNamespacedLazyTables(SimpleTestCase):
                     "filter",
                     "WITH raw_persons AS (SELECT id FROM persons) SELECT id FROM persons WHERE id IN (SELECT id FROM raw_persons)",
                 ),
+                (
+                    "promoted_filter",
+                    "WITH members AS MATERIALIZED (SELECT id FROM persons) SELECT p.id FROM persons AS p "
+                    "INNER JOIN members AS m ON p.id = m.id AND p.id IN (SELECT id FROM members)",
+                ),
             )
             for version in (PersonsArgMaxVersion.V1, PersonsArgMaxVersion.V2)
         ]
