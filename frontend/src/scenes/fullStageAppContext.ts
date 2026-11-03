@@ -1,3 +1,6 @@
+import posthog from 'posthog-js'
+
+import { retryWithBackoff } from 'lib/utils/async'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -10,6 +13,14 @@ export interface FullStageAppContext {
     current_team?: Partial<TeamType>
     current_project?: Partial<ProjectType>
     has_person_email?: boolean
+}
+
+const teamFieldsListeners = new Set<() => void>()
+
+/** For a logic that reads the full stage team fields from the app context once, on mount. Returns the unsubscribe. */
+export function onFullStageTeamFieldsApplied(listener: () => void): () => void {
+    teamFieldsListeners.add(listener)
+    return () => teamFieldsListeners.delete(listener)
 }
 
 export function applyFullStageAppContext(teamId: number, fullStage: FullStageAppContext): void {
@@ -34,6 +45,7 @@ export function applyFullStageAppContext(teamId: number, fullStage: FullStageApp
         if (mountedTeamLogic && currentTeam?.id === teamId) {
             mountedTeamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, ...fullStage.current_team })
         }
+        teamFieldsListeners.forEach((listener) => listener())
     }
 }
 
@@ -45,8 +57,13 @@ export function loadFullStageAppContext(): void {
     if (!window.POSTHOG_APP_CONTEXT_REQUEST || !teamId) {
         return
     }
-    void fetch(`/project/${teamId}/_app_context?stage=full`, { credentials: 'same-origin' })
-        .then((response) => (response.ok ? (response.json() as Promise<{ app_context: FullStageAppContext }>) : null))
-        .then((body) => body && applyFullStageAppContext(teamId, body.app_context))
-        .catch(() => {})
+    void retryWithBackoff(async () => {
+        const response = await fetch(`/project/${teamId}/_app_context?stage=full`, { credentials: 'same-origin' })
+        if (!response.ok) {
+            throw new Error(`The full stage app context request failed with status ${response.status}`)
+        }
+        return (await response.json()) as { app_context: FullStageAppContext }
+    })
+        .then((body) => applyFullStageAppContext(teamId, body.app_context))
+        .catch((error) => posthog.captureException(error))
 }
