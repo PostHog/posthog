@@ -391,6 +391,8 @@ New chat drops it.
   `html: false`; images are dropped. Relative links open on the signed-in host; only http(s) links open.
 - The status line shows the current stage or tool, "Thinking…", or "Reconnecting…".
 - Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
+- Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
+  Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
 - Known PRs remain available while execution is active, idle or terminal. Their state is separate
   from execution; a discovered URL starts unknown until the report supplies authoritative state.
 - Report task status opens that implementation task, including idle and completed runs that can
